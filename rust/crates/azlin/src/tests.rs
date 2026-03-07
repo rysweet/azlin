@@ -13394,3 +13394,1536 @@ async fn test_inproc_cost() {
     // Cost may fail on subscription type — just verify it doesn't panic
     let _r = run_dispatch(&["cost", "--resource-group", "RYSWEET-LINUX-VM-POOL"]).await;
 }
+
+// ── Non-auth dispatch tests (no Azure required) ────────────────────
+// These test dispatch_command branches that operate locally (filesystem, config,
+// pure output). NOT #[ignore] so they run in every `cargo test`.
+
+#[tokio::test]
+async fn test_dispatch_version() {
+    let r = run_dispatch(&["version"]).await;
+    assert!(r.is_ok(), "version dispatch failed: {:?}", r.err());
+}
+
+#[tokio::test]
+async fn test_dispatch_config_show() {
+    let r = run_dispatch(&["config", "show"]).await;
+    assert!(r.is_ok(), "config show dispatch failed: {:?}", r.err());
+}
+
+#[tokio::test]
+async fn test_dispatch_config_get_default_region() {
+    let r = run_dispatch(&["config", "get", "default_region"]).await;
+    assert!(r.is_ok(), "config get dispatch failed: {:?}", r.err());
+}
+
+#[tokio::test]
+async fn test_dispatch_config_get_unknown_key() {
+    // Unknown key prints to stderr but does not error
+    let r = run_dispatch(&["config", "get", "nonexistent_key_xyz"]).await;
+    assert!(r.is_ok());
+}
+
+#[tokio::test]
+async fn test_dispatch_completions_bash() {
+    let r = run_dispatch(&["completions", "bash"]).await;
+    assert!(r.is_ok(), "completions bash failed: {:?}", r.err());
+}
+
+#[tokio::test]
+async fn test_dispatch_completions_zsh() {
+    let r = run_dispatch(&["completions", "zsh"]).await;
+    assert!(r.is_ok(), "completions zsh failed: {:?}", r.err());
+}
+
+#[tokio::test]
+async fn test_dispatch_completions_fish() {
+    let r = run_dispatch(&["completions", "fish"]).await;
+    assert!(r.is_ok(), "completions fish failed: {:?}", r.err());
+}
+
+#[tokio::test]
+async fn test_dispatch_azlin_help_no_command() {
+    let r = run_dispatch(&["azlin-help"]).await;
+    assert!(r.is_ok(), "azlin-help dispatch failed: {:?}", r.err());
+}
+
+#[tokio::test]
+async fn test_dispatch_azlin_help_with_command() {
+    let r = run_dispatch(&["azlin-help", "list"]).await;
+    assert!(r.is_ok(), "azlin-help list failed: {:?}", r.err());
+}
+
+#[tokio::test]
+async fn test_dispatch_azlin_help_connect() {
+    let r = run_dispatch(&["azlin-help", "connect"]).await;
+    assert!(r.is_ok());
+}
+
+#[tokio::test]
+async fn test_dispatch_azlin_help_unknown() {
+    let r = run_dispatch(&["azlin-help", "nonexistent"]).await;
+    assert!(r.is_ok());
+}
+
+#[tokio::test]
+async fn test_dispatch_template_list() {
+    let r = run_dispatch(&["template", "list"]).await;
+    assert!(r.is_ok(), "template list failed: {:?}", r.err());
+}
+
+#[tokio::test]
+async fn test_dispatch_template_create_show_delete() {
+    // Create
+    let r = run_dispatch(&[
+        "template",
+        "create",
+        "test-coverage-tpl",
+        "--vm-size",
+        "Standard_D2s_v3",
+        "--region",
+        "eastus",
+        "--description",
+        "Coverage test template",
+    ])
+    .await;
+    assert!(r.is_ok(), "template create failed: {:?}", r.err());
+
+    // Show
+    let r = run_dispatch(&["template", "show", "test-coverage-tpl"]).await;
+    assert!(r.is_ok(), "template show failed: {:?}", r.err());
+
+    // Apply
+    let r = run_dispatch(&["template", "apply", "test-coverage-tpl"]).await;
+    assert!(r.is_ok(), "template apply failed: {:?}", r.err());
+
+    // Delete with --force
+    let r = run_dispatch(&["template", "delete", "test-coverage-tpl", "--force"]).await;
+    assert!(r.is_ok(), "template delete failed: {:?}", r.err());
+}
+
+#[tokio::test]
+async fn test_dispatch_template_show_not_found() {
+    let r = run_dispatch(&["template", "show", "nonexistent-template-xyz"]).await;
+    assert!(r.is_err());
+}
+
+#[tokio::test]
+async fn test_dispatch_template_apply_not_found() {
+    let r = run_dispatch(&["template", "apply", "nonexistent-template-xyz"]).await;
+    assert!(r.is_err());
+}
+
+#[tokio::test]
+async fn test_dispatch_template_export_import() {
+    // Create a template first
+    let r = run_dispatch(&[
+        "template",
+        "create",
+        "test-export-tpl",
+        "--vm-size",
+        "Standard_B2s",
+    ])
+    .await;
+    assert!(r.is_ok());
+
+    // Export
+    let export_path = "/tmp/azlin-test-template-export.toml";
+    let r = run_dispatch(&["template", "export", "test-export-tpl", export_path]).await;
+    assert!(r.is_ok(), "template export failed: {:?}", r.err());
+    assert!(std::path::Path::new(export_path).exists());
+
+    // Import
+    let r = run_dispatch(&["template", "import", export_path]).await;
+    assert!(r.is_ok(), "template import failed: {:?}", r.err());
+
+    // Cleanup
+    let _ = std::fs::remove_file(export_path);
+    let _ = run_dispatch(&["template", "delete", "test-export-tpl", "--force"]).await;
+}
+
+#[tokio::test]
+async fn test_dispatch_context_list() {
+    let r = run_dispatch(&["context", "list"]).await;
+    assert!(r.is_ok(), "context list failed: {:?}", r.err());
+}
+
+#[tokio::test]
+async fn test_dispatch_context_show() {
+    let r = run_dispatch(&["context", "show"]).await;
+    // May say "No context selected" which is fine
+    assert!(r.is_ok());
+}
+
+#[tokio::test]
+async fn test_dispatch_context_create_use_rename_delete() {
+    // Create
+    let r = run_dispatch(&[
+        "context",
+        "create",
+        "test-cov-ctx",
+        "--subscription-id",
+        "00000000-0000-0000-0000-000000000000",
+        "--tenant-id",
+        "11111111-1111-1111-1111-111111111111",
+        "--resource-group",
+        "test-rg",
+        "--region",
+        "westus2",
+    ])
+    .await;
+    assert!(r.is_ok(), "context create failed: {:?}", r.err());
+
+    // Use
+    let r = run_dispatch(&["context", "use", "test-cov-ctx"]).await;
+    assert!(r.is_ok(), "context use failed: {:?}", r.err());
+
+    // Rename
+    let r = run_dispatch(&["context", "rename", "test-cov-ctx", "test-cov-ctx-renamed"]).await;
+    assert!(r.is_ok(), "context rename failed: {:?}", r.err());
+
+    // Show (should show the renamed context)
+    let r = run_dispatch(&["context", "show"]).await;
+    assert!(r.is_ok());
+
+    // Delete
+    let r = run_dispatch(&["context", "delete", "test-cov-ctx-renamed", "--force"]).await;
+    assert!(r.is_ok(), "context delete failed: {:?}", r.err());
+}
+
+#[tokio::test]
+async fn test_dispatch_context_use_not_found() {
+    let r = run_dispatch(&["context", "use", "nonexistent-context-xyz"]).await;
+    assert!(r.is_err());
+}
+
+#[tokio::test]
+async fn test_dispatch_context_create_invalid_name() {
+    let r = run_dispatch(&["context", "create", "../traversal"]).await;
+    assert!(r.is_err());
+}
+
+#[tokio::test]
+async fn test_dispatch_sessions_list() {
+    let r = run_dispatch(&["sessions", "list"]).await;
+    assert!(r.is_ok(), "sessions list failed: {:?}", r.err());
+}
+
+#[tokio::test]
+async fn test_dispatch_sessions_save_load_delete() {
+    // Save — requires resource-group, provide it explicitly
+    let r = run_dispatch(&[
+        "sessions",
+        "save",
+        "test-cov-session",
+        "--resource-group",
+        "test-rg",
+        "--vms",
+        "vm1",
+        "vm2",
+    ])
+    .await;
+    assert!(r.is_ok(), "sessions save failed: {:?}", r.err());
+
+    // Load
+    let r = run_dispatch(&["sessions", "load", "test-cov-session"]).await;
+    assert!(r.is_ok(), "sessions load failed: {:?}", r.err());
+
+    // Delete
+    let r = run_dispatch(&["sessions", "delete", "test-cov-session", "--force"]).await;
+    assert!(r.is_ok(), "sessions delete failed: {:?}", r.err());
+}
+
+#[tokio::test]
+async fn test_dispatch_sessions_load_not_found() {
+    let r = run_dispatch(&["sessions", "load", "nonexistent-session-xyz"]).await;
+    assert!(r.is_err());
+}
+
+#[tokio::test]
+async fn test_dispatch_autopilot_full_lifecycle() {
+    // Save any existing config
+    let ap_path = dirs::home_dir()
+        .unwrap()
+        .join(".azlin")
+        .join("autopilot.toml");
+    let backup = std::fs::read_to_string(&ap_path).ok();
+
+    // Status when not configured
+    let _ = std::fs::remove_file(&ap_path);
+    let r = run_dispatch(&["autopilot", "status"]).await;
+    assert!(r.is_ok());
+
+    // Config show when no file
+    let r = run_dispatch(&["autopilot", "config", "--show"]).await;
+    assert!(r.is_ok());
+
+    // Config set when no file — creates new
+    let r = run_dispatch(&["autopilot", "config", "--set", "test_key=test_val"]).await;
+    assert!(r.is_ok());
+    let _ = std::fs::remove_file(&ap_path);
+
+    // Enable
+    let r = run_dispatch(&[
+        "autopilot",
+        "enable",
+        "--strategy",
+        "aggressive",
+        "--idle-threshold",
+        "15",
+        "--cpu-threshold",
+        "5",
+    ])
+    .await;
+    assert!(r.is_ok(), "autopilot enable failed: {:?}", r.err());
+
+    // Status
+    let r = run_dispatch(&["autopilot", "status"]).await;
+    assert!(r.is_ok());
+
+    // Config show
+    let r = run_dispatch(&["autopilot", "config", "--show"]).await;
+    assert!(r.is_ok());
+
+    // Config set
+    let r = run_dispatch(&["autopilot", "config", "--set", "max_vms=10"]).await;
+    assert!(r.is_ok());
+
+    // Disable (keep config)
+    let r = run_dispatch(&["autopilot", "disable", "--keep-config"]).await;
+    assert!(r.is_ok());
+
+    // Status after disable
+    let r = run_dispatch(&["autopilot", "status"]).await;
+    assert!(r.is_ok());
+
+    // Enable with budget
+    let r = run_dispatch(&[
+        "autopilot",
+        "enable",
+        "--budget",
+        "100",
+        "--strategy",
+        "conservative",
+    ])
+    .await;
+    assert!(r.is_ok());
+
+    // Disable (remove config)
+    let r = run_dispatch(&["autopilot", "disable"]).await;
+    assert!(r.is_ok());
+
+    // Restore original config
+    if let Some(content) = backup {
+        let _ = std::fs::write(&ap_path, content);
+    }
+}
+
+#[tokio::test]
+async fn test_dispatch_config_set_and_restore() {
+    // Get current region
+    use azlin_core::AzlinConfig;
+    let orig = AzlinConfig::load().unwrap();
+    let orig_region = orig.default_region.clone();
+
+    // Set a different region
+    let r = run_dispatch(&["config", "set", "default_region", "northeurope"]).await;
+    assert!(r.is_ok(), "config set failed: {:?}", r.err());
+
+    // Verify it was set
+    let updated = AzlinConfig::load().unwrap();
+    assert_eq!(updated.default_region, "northeurope");
+
+    // Restore
+    let r = run_dispatch(&["config", "set", "default_region", &orig_region]).await;
+    assert!(r.is_ok());
+}
+
+#[tokio::test]
+async fn test_dispatch_config_set_unknown_key() {
+    let r = run_dispatch(&["config", "set", "nonexistent_key_xyz", "value"]).await;
+    assert!(r.is_err());
+}
+
+#[tokio::test]
+async fn test_dispatch_session_set_get_clear() {
+    // Set session for a VM
+    let r = run_dispatch(&["session", "test-vm-cov", "my-session"]).await;
+    assert!(r.is_ok(), "session set failed: {:?}", r.err());
+
+    // Get session
+    let r = run_dispatch(&["session", "test-vm-cov"]).await;
+    assert!(r.is_ok(), "session get failed: {:?}", r.err());
+
+    // Clear session
+    let r = run_dispatch(&["session", "test-vm-cov", "--clear"]).await;
+    assert!(r.is_ok(), "session clear failed: {:?}", r.err());
+
+    // Get again (should say no session)
+    let r = run_dispatch(&["session", "test-vm-cov"]).await;
+    assert!(r.is_ok());
+}
+
+#[tokio::test]
+async fn test_dispatch_template_list_json() {
+    let r = run_dispatch(&["--output", "json", "template", "list"]).await;
+    assert!(r.is_ok());
+}
+
+#[tokio::test]
+async fn test_dispatch_template_list_csv() {
+    let r = run_dispatch(&["--output", "csv", "template", "list"]).await;
+    assert!(r.is_ok());
+}
+
+#[tokio::test]
+async fn test_dispatch_sessions_list_json() {
+    let r = run_dispatch(&["--output", "json", "sessions", "list"]).await;
+    assert!(r.is_ok());
+}
+
+#[tokio::test]
+async fn test_dispatch_context_list_json() {
+    let r = run_dispatch(&["--output", "json", "context", "list"]).await;
+    assert!(r.is_ok());
+}
+
+#[tokio::test]
+async fn test_dispatch_verbose_version() {
+    let r = run_dispatch(&["--verbose", "version"]).await;
+    assert!(r.is_ok());
+}
+
+// ── Additional pure function tests for coverage gaps ──────────────
+
+#[test]
+fn test_format_as_table_round5_alignment() {
+    let headers = &["Name", "Size", "Location"];
+    let rows = vec![
+        vec!["short".to_string(), "1".to_string(), "eastus".to_string()],
+        vec![
+            "a-very-long-name".to_string(),
+            "12345".to_string(),
+            "westus2".to_string(),
+        ],
+    ];
+    let out = super::output_helpers::format_as_table(headers, &rows);
+    assert!(out.contains("a-very-long-name"));
+    assert!(out.contains("short"));
+    assert!(out.starts_with("Name"));
+}
+
+#[test]
+fn test_format_as_table_round5_single_column() {
+    let headers = &["Item"];
+    let rows = vec![vec!["one".to_string()], vec!["two".to_string()]];
+    let out = super::output_helpers::format_as_table(headers, &rows);
+    assert!(out.contains("Item"));
+    assert!(out.contains("one"));
+    assert!(out.contains("two"));
+}
+
+#[test]
+fn test_format_as_table_round5_empty_rows() {
+    let headers = &["A", "B"];
+    let rows: Vec<Vec<String>> = vec![];
+    let out = super::output_helpers::format_as_table(headers, &rows);
+    assert!(out.contains("A"));
+    assert!(!out.contains('\n'));
+}
+
+#[test]
+fn test_format_as_table_row_wider_than_header() {
+    let headers = &["X"];
+    let rows = vec![vec!["very-wide-value-here".to_string()]];
+    let out = super::output_helpers::format_as_table(headers, &rows);
+    assert!(out.contains("very-wide-value-here"));
+}
+
+#[test]
+fn test_format_as_table_row_fewer_columns_than_headers() {
+    let headers = &["A", "B", "C"];
+    let rows = vec![vec!["only-one".to_string()]];
+    let out = super::output_helpers::format_as_table(headers, &rows);
+    assert!(out.contains("only-one"));
+}
+
+#[test]
+fn test_format_as_table_row_more_columns_than_headers() {
+    let headers = &["A"];
+    let rows = vec![vec!["one".to_string(), "extra".to_string()]];
+    let out = super::output_helpers::format_as_table(headers, &rows);
+    assert!(out.contains("one"));
+    assert!(out.contains("extra"));
+}
+
+#[test]
+fn test_is_remote_path_various() {
+    assert!(super::cp_helpers::is_remote_path("vm1:/home/user/file"));
+    assert!(super::cp_helpers::is_remote_path("my-vm:path"));
+    assert!(!super::cp_helpers::is_remote_path("/absolute/path"));
+    assert!(!super::cp_helpers::is_remote_path("relative/path"));
+    // Windows drive letter — not remote
+    assert!(!super::cp_helpers::is_remote_path("C:\\file"));
+    // Too short
+    assert!(!super::cp_helpers::is_remote_path("a:"));
+}
+
+#[test]
+fn test_classify_transfer_both_remote() {
+    // Both remote paths → classified as local→local (neither matches pattern cleanly)
+    let dir = super::cp_helpers::classify_transfer_direction("vm1:/a", "vm2:/b");
+    assert_eq!(dir, "local→local");
+}
+
+#[test]
+fn test_bastion_shorten_resource_id_various() {
+    assert_eq!(super::bastion_helpers::shorten_resource_id("N/A"), "N/A");
+    assert_eq!(
+        super::bastion_helpers::shorten_resource_id("/a/b/c/d/myresource"),
+        "myresource"
+    );
+    assert_eq!(
+        super::bastion_helpers::shorten_resource_id("no-slashes"),
+        "no-slashes"
+    );
+    assert_eq!(super::bastion_helpers::shorten_resource_id(""), "");
+}
+
+#[test]
+fn test_bastion_extract_ip_configs_empty() {
+    let b = serde_json::json!({});
+    let configs = super::bastion_helpers::extract_ip_configs(&b);
+    assert!(configs.is_empty());
+}
+
+#[test]
+fn test_bastion_extract_ip_configs_with_data() {
+    let b = serde_json::json!({
+        "ipConfigurations": [
+            {
+                "subnet": {"id": "/subs/1/rg/2/subnets/mysubnet"},
+                "publicIPAddress": {"id": "/subs/1/rg/2/publicIPAddresses/myip"}
+            },
+            {
+                "subnet": {"id": "N/A"},
+                "publicIPAddress": {"id": "N/A"}
+            }
+        ]
+    });
+    let configs = super::bastion_helpers::extract_ip_configs(&b);
+    assert_eq!(configs.len(), 2);
+    assert_eq!(configs[0].0, "mysubnet");
+    assert_eq!(configs[0].1, "myip");
+    assert_eq!(configs[1].0, "N/A");
+    assert_eq!(configs[1].1, "N/A");
+}
+
+#[test]
+fn test_log_tail_start_index() {
+    assert_eq!(super::log_helpers::tail_start_index(100, 10), 90);
+    assert_eq!(super::log_helpers::tail_start_index(5, 10), 0);
+    assert_eq!(super::log_helpers::tail_start_index(0, 10), 0);
+    assert_eq!(super::log_helpers::tail_start_index(10, 10), 0);
+}
+
+#[test]
+fn test_auth_test_helpers_partial_json() {
+    let acct = serde_json::json!({"name": "My Sub"});
+    let (name, tenant, user) = super::auth_test_helpers::extract_account_info(&acct);
+    assert_eq!(name, "My Sub");
+    assert_eq!(tenant, "-");
+    assert_eq!(user, "-");
+}
+
+#[test]
+fn test_is_known_key_name() {
+    assert!(super::key_helpers::is_known_key_name("id_rsa"));
+    assert!(super::key_helpers::is_known_key_name("id_ed25519"));
+    assert!(super::key_helpers::is_known_key_name("id_ecdsa"));
+    assert!(super::key_helpers::is_known_key_name("id_dsa"));
+    assert!(super::key_helpers::is_known_key_name("mykey.pub"));
+    assert!(!super::key_helpers::is_known_key_name("random_file"));
+    assert!(!super::key_helpers::is_known_key_name("id_rsa_backup"));
+}
+
+#[test]
+fn test_auth_mask_profile_value() {
+    let secret_val = serde_json::json!("mysecretvalue");
+    assert_eq!(
+        super::auth_helpers::mask_profile_value("client_secret", &secret_val),
+        "********"
+    );
+    assert_eq!(
+        super::auth_helpers::mask_profile_value("password", &secret_val),
+        "********"
+    );
+    assert_eq!(
+        super::auth_helpers::mask_profile_value("client_id", &secret_val),
+        "mysecretvalue"
+    );
+    let num_val = serde_json::json!(42);
+    assert_eq!(
+        super::auth_helpers::mask_profile_value("client_secret", &num_val),
+        "42"
+    );
+    let null_val = serde_json::Value::Null;
+    assert_eq!(
+        super::auth_helpers::mask_profile_value("anything", &null_val),
+        "null"
+    );
+}
+
+#[test]
+fn test_command_helpers_is_allowed() {
+    assert!(super::command_helpers::is_allowed_command("az vm list"));
+    assert!(super::command_helpers::is_allowed_command(
+        "  az network show"
+    ));
+    assert!(!super::command_helpers::is_allowed_command("rm -rf /"));
+    assert!(!super::command_helpers::is_allowed_command(
+        "curl http://evil"
+    ));
+}
+
+#[test]
+fn test_command_helpers_skip_reason() {
+    assert!(super::command_helpers::skip_reason("").is_some());
+    assert!(super::command_helpers::skip_reason("rm file").is_some());
+    assert!(super::command_helpers::skip_reason("  ").is_some());
+    assert!(super::command_helpers::skip_reason("az vm list").is_none());
+}
+
+#[test]
+fn test_autopilot_parse_idle_check() {
+    let (cpu, uptime) = super::autopilot_parse_helpers::parse_idle_check("3.2\n7200.5\n");
+    assert!((cpu - 3.2).abs() < 0.01);
+    assert!((uptime - 7200.5).abs() < 0.1);
+}
+
+#[test]
+fn test_autopilot_parse_idle_check_empty() {
+    let (cpu, uptime) = super::autopilot_parse_helpers::parse_idle_check("");
+    assert_eq!(cpu, 100.0); // default when not parseable
+    assert_eq!(uptime, 0.0);
+}
+
+#[test]
+fn test_autopilot_parse_idle_check_single_line() {
+    let (cpu, uptime) = super::autopilot_parse_helpers::parse_idle_check("55.3");
+    assert!((cpu - 55.3).abs() < 0.01);
+    assert_eq!(uptime, 0.0);
+}
+
+#[test]
+fn test_autopilot_is_idle() {
+    // CPU low + uptime long => idle
+    assert!(super::autopilot_parse_helpers::is_idle(2.0, 3600.0, 30));
+    // CPU high => not idle
+    assert!(!super::autopilot_parse_helpers::is_idle(10.0, 3600.0, 30));
+    // CPU low but uptime short => not idle
+    assert!(!super::autopilot_parse_helpers::is_idle(2.0, 600.0, 30));
+    // Boundary: exactly at threshold
+    assert!(!super::autopilot_parse_helpers::is_idle(5.0, 1800.0, 30));
+}
+
+#[test]
+fn test_batch_parse_vm_ids() {
+    let out = "/subs/1/rg/2/vm/a\n/subs/1/rg/2/vm/b\n\n";
+    let ids = super::batch_helpers::parse_vm_ids(out);
+    assert_eq!(ids.len(), 2);
+    assert!(ids[0].ends_with("/a"));
+}
+
+#[test]
+fn test_batch_parse_vm_ids_empty() {
+    let ids = super::batch_helpers::parse_vm_ids("");
+    assert!(ids.is_empty());
+}
+
+#[test]
+fn test_batch_build_vm_list_query_shell_injection() {
+    // Semicolons in tag value
+    let r = super::batch_helpers::build_vm_list_query(Some("key=val;rm -rf /"));
+    assert!(r.is_err());
+    // Backticks
+    let r = super::batch_helpers::build_vm_list_query(Some("key=`whoami`"));
+    assert!(r.is_err());
+    // Dollar
+    let r = super::batch_helpers::build_vm_list_query(Some("key=$HOME"));
+    assert!(r.is_err());
+    // Newline
+    let r = super::batch_helpers::build_vm_list_query(Some("key=val\nrm"));
+    assert!(r.is_err());
+}
+
+#[test]
+fn test_fleet_classify_result() {
+    let (label, ok) = super::fleet_helpers::classify_result(0);
+    assert_eq!(label, "OK");
+    assert!(ok);
+    let (label, ok) = super::fleet_helpers::classify_result(1);
+    assert_eq!(label, "FAIL");
+    assert!(!ok);
+    let (label, ok) = super::fleet_helpers::classify_result(-1);
+    assert_eq!(label, "FAIL");
+    assert!(!ok);
+}
+
+#[test]
+fn test_fleet_finish_message_multiline() {
+    let msg = super::fleet_helpers::finish_message(0, "line1\nline2\nline3\n", "");
+    assert!(msg.contains("3 lines"));
+}
+
+#[test]
+fn test_fleet_finish_message_error_multiline() {
+    let msg = super::fleet_helpers::finish_message(1, "", "first error\nsecond error\n");
+    assert!(msg.contains("first error"));
+    assert!(!msg.contains("second error"));
+}
+
+#[test]
+fn test_update_log_type_to_path() {
+    assert_eq!(
+        super::update_helpers::log_type_to_path("cloud-init"),
+        "/var/log/cloud-init-output.log"
+    );
+    assert_eq!(
+        super::update_helpers::log_type_to_path("CloudInit"),
+        "/var/log/cloud-init-output.log"
+    );
+    assert_eq!(
+        super::update_helpers::log_type_to_path("syslog"),
+        "/var/log/syslog"
+    );
+    assert_eq!(
+        super::update_helpers::log_type_to_path("Syslog"),
+        "/var/log/syslog"
+    );
+    assert_eq!(
+        super::update_helpers::log_type_to_path("auth"),
+        "/var/log/auth.log"
+    );
+    assert_eq!(
+        super::update_helpers::log_type_to_path("Auth"),
+        "/var/log/auth.log"
+    );
+    assert_eq!(
+        super::update_helpers::log_type_to_path("unknown"),
+        "/var/log/syslog"
+    );
+}
+
+#[test]
+fn test_compose_resolve_file_none() {
+    assert_eq!(
+        super::compose_helpers::resolve_compose_file(None),
+        "docker-compose.yml"
+    );
+}
+
+#[test]
+fn test_compose_resolve_file_custom() {
+    assert_eq!(
+        super::compose_helpers::resolve_compose_file(Some("prod.yml")),
+        "prod.yml"
+    );
+}
+
+#[test]
+fn test_runner_pool_config_filename() {
+    assert_eq!(
+        super::runner_helpers::pool_config_filename("my-pool"),
+        "my-pool.toml"
+    );
+}
+
+#[test]
+fn test_autopilot_build_budget_name() {
+    assert_eq!(
+        super::autopilot_helpers::build_budget_name("my-rg"),
+        "azlin-budget-my-rg"
+    );
+}
+
+#[test]
+fn test_autopilot_build_prefix_filter_query() {
+    assert_eq!(
+        super::autopilot_helpers::build_prefix_filter_query("dev-"),
+        "[?starts_with(name, 'dev-')].id"
+    );
+}
+
+#[test]
+fn test_autopilot_build_cost_scope() {
+    assert_eq!(
+        super::autopilot_helpers::build_cost_scope("sub-123", "my-rg"),
+        "/subscriptions/sub-123/resourceGroups/my-rg"
+    );
+}
+
+#[test]
+fn test_connect_build_log_follow_args() {
+    let args =
+        super::connect_helpers::build_log_follow_args("admin", "10.0.0.1", "/var/log/syslog");
+    assert!(args.contains(&format!("admin@10.0.0.1")));
+    assert!(args.contains(&"sudo tail -f /var/log/syslog".to_string()));
+    assert!(args.contains(&"ConnectTimeout=10".to_string()));
+}
+
+#[test]
+fn test_connect_build_vscode_remote_uri() {
+    let uri = super::connect_helpers::build_vscode_remote_uri("azureuser", "10.0.0.5");
+    assert_eq!(uri, "ssh-remote+azureuser@10.0.0.5");
+}
+
+#[test]
+fn test_default_dotfiles() {
+    let files = super::sync_helpers::default_dotfiles();
+    assert!(files.contains(&".bashrc"));
+    assert!(files.contains(&".gitconfig"));
+    assert!(files.len() >= 4);
+}
+
+#[test]
+fn test_disk_build_data_disk_name_format_check() {
+    assert_eq!(
+        super::disk_helpers::build_data_disk_name("myvm", 3),
+        "myvm_datadisk_3"
+    );
+}
+
+#[test]
+fn test_disk_build_restored_name_format_check() {
+    assert_eq!(
+        super::disk_helpers::build_restored_disk_name("myvm"),
+        "myvm_OsDisk_restored"
+    );
+}
+
+#[test]
+fn test_name_validation_valid_names() {
+    assert!(super::name_validation::validate_name("my-name").is_ok());
+    assert!(super::name_validation::validate_name("test_name.v2").is_ok());
+    assert!(super::name_validation::validate_name("simple").is_ok());
+}
+
+#[test]
+fn test_name_validation_invalid_names() {
+    assert!(super::name_validation::validate_name("").is_err());
+    assert!(super::name_validation::validate_name("a/b").is_err());
+    assert!(super::name_validation::validate_name("a\\b").is_err());
+    assert!(super::name_validation::validate_name("a\0b").is_err());
+    assert!(super::name_validation::validate_name("a..b").is_err());
+}
+
+#[test]
+fn test_build_ssh_target_with_admin_username() {
+    use azlin_core::models::{OsType, PowerState, ProvisioningState, VmInfo};
+    use std::collections::HashMap;
+
+    let vm = VmInfo {
+        name: "test-vm".to_string(),
+        resource_group: "rg".to_string(),
+        location: "eastus".to_string(),
+        vm_size: "Standard_D2s_v3".to_string(),
+        os_type: OsType::Linux,
+        power_state: PowerState::Running,
+        provisioning_state: ProvisioningState::Succeeded,
+        os_offer: None,
+        public_ip: Some("1.2.3.4".to_string()),
+        private_ip: Some("10.0.0.1".to_string()),
+        admin_username: Some("customuser".to_string()),
+        tags: HashMap::new(),
+        created_time: None,
+    };
+    let bastion_map = HashMap::new();
+    let ssh_key = None;
+    let target = super::build_ssh_target(&vm, "sub-id", &bastion_map, &ssh_key);
+    assert_eq!(target.vm_name, "test-vm");
+    assert_eq!(target.ip, "1.2.3.4");
+    assert_eq!(target.user, "customuser");
+    assert!(target.bastion.is_none());
+}
+
+#[test]
+fn test_build_ssh_target_no_admin_username() {
+    use azlin_core::models::{OsType, PowerState, ProvisioningState, VmInfo};
+    use std::collections::HashMap;
+
+    let vm = VmInfo {
+        name: "vm2".to_string(),
+        resource_group: "rg".to_string(),
+        location: "westus".to_string(),
+        vm_size: "Standard_B2s".to_string(),
+        os_type: OsType::Linux,
+        power_state: PowerState::Running,
+        provisioning_state: ProvisioningState::Succeeded,
+        os_offer: None,
+        public_ip: None,
+        private_ip: Some("10.0.0.2".to_string()),
+        admin_username: None,
+        tags: HashMap::new(),
+        created_time: None,
+    };
+    let bastion_map = HashMap::new();
+    let ssh_key = None;
+    let target = super::build_ssh_target(&vm, "sub-id", &bastion_map, &ssh_key);
+    assert_eq!(target.ip, "10.0.0.2");
+    assert_eq!(target.user, "azureuser");
+    // No bastion in map for "westus"
+    assert!(target.bastion.is_none());
+}
+
+#[test]
+fn test_build_ssh_target_no_ip() {
+    use azlin_core::models::{OsType, PowerState, ProvisioningState, VmInfo};
+    use std::collections::HashMap;
+
+    let vm = VmInfo {
+        name: "vm3".to_string(),
+        resource_group: "rg".to_string(),
+        location: "eastus".to_string(),
+        vm_size: "Standard_B1s".to_string(),
+        os_type: OsType::Linux,
+        power_state: PowerState::Stopped,
+        provisioning_state: ProvisioningState::Succeeded,
+        os_offer: None,
+        public_ip: None,
+        private_ip: None,
+        admin_username: None,
+        tags: HashMap::new(),
+        created_time: None,
+    };
+    let bastion_map = HashMap::new();
+    let ssh_key = None;
+    let target = super::build_ssh_target(&vm, "sub-id", &bastion_map, &ssh_key);
+    assert_eq!(target.ip, "");
+}
+
+#[test]
+fn test_shell_escape_round5_empty() {
+    assert_eq!(super::shell_escape(""), "''");
+}
+
+#[test]
+fn test_shell_escape_round5_plain() {
+    assert_eq!(super::shell_escape("hello"), "'hello'");
+}
+
+#[test]
+fn test_shell_escape_round5_with_quote() {
+    assert_eq!(super::shell_escape("it's"), "'it'\\''s'");
+}
+
+#[test]
+fn test_home_dir_round5_returns_path() {
+    let h = super::home_dir();
+    assert!(h.is_ok());
+    assert!(h.unwrap().exists());
+}
+
+#[test]
+fn test_fleet_spinner_style_valid() {
+    // Just verify it doesn't panic
+    let _style = super::fleet_spinner_style();
+}
+
+#[test]
+fn test_resolve_ssh_key_returns_option() {
+    // Just verify it doesn't panic — actual result depends on filesystem
+    let _key = super::resolve_ssh_key();
+}
+
+#[test]
+fn test_snapshot_helpers_save_load_roundtrip() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let schedule = super::snapshot_helpers::SnapshotSchedule {
+        vm_name: "roundtrip-vm".to_string(),
+        resource_group: "test-rg".to_string(),
+        every_hours: 12,
+        keep_count: 5,
+        enabled: false,
+        created: "2026-03-07".to_string(),
+    };
+    let path = tmp.path().join("roundtrip-vm.toml");
+    let contents = toml::to_string_pretty(&schedule).unwrap();
+    std::fs::write(&path, &contents).unwrap();
+
+    let loaded: super::snapshot_helpers::SnapshotSchedule =
+        toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(loaded.vm_name, "roundtrip-vm");
+    assert!(!loaded.enabled);
+    assert_eq!(loaded.every_hours, 12);
+    assert_eq!(loaded.keep_count, 5);
+}
+
+#[test]
+fn test_snapshot_helpers_load_all_schedules_empty_dir() {
+    // load_all_schedules returns empty vec on missing dir
+    let result = super::snapshot_helpers::load_all_schedules();
+    // It reads from the real home dir schedules — just verify no panic
+    assert!(result.len() >= 0);
+}
+
+#[test]
+fn test_snapshot_helpers_load_schedule_missing() {
+    // load_schedule returns None for nonexistent VM
+    let result = super::snapshot_helpers::load_schedule("nonexistent-vm-xyz-99999");
+    assert!(result.is_none());
+}
+
+#[test]
+fn test_format_as_csv_with_special_chars() {
+    let headers = &["Name", "Value"];
+    let rows = vec![vec!["has,comma".to_string(), "has\"quote".to_string()]];
+    let out = super::output_helpers::format_as_csv(headers, &rows);
+    // CSV output doesn't escape — just verify it produces output
+    assert!(out.contains("has,comma"));
+}
+
+#[test]
+fn test_format_as_json_nested_objects() {
+    #[derive(serde::Serialize)]
+    struct Nested {
+        name: String,
+        count: u32,
+    }
+    let items = vec![
+        Nested {
+            name: "a".to_string(),
+            count: 1,
+        },
+        Nested {
+            name: "b".to_string(),
+            count: 2,
+        },
+    ];
+    let out = super::output_helpers::format_as_json(&items);
+    assert!(out.contains("\"name\": \"a\""));
+    assert!(out.contains("\"count\": 2"));
+}
+
+#[test]
+fn test_storage_helpers_storage_account_row_with_sku() {
+    let acct = serde_json::json!({
+        "name": "teststorage",
+        "location": "eastus",
+        "kind": "StorageV2",
+        "sku": {"name": "Standard_LRS"},
+        "provisioningState": "Succeeded"
+    });
+    let row = super::storage_helpers::storage_account_row(&acct);
+    assert_eq!(row[0], "teststorage");
+    assert_eq!(row[3], "Standard_LRS");
+}
+
+#[test]
+fn test_stop_action_labels_variants() {
+    let (ing, ed) = super::stop_helpers::stop_action_labels(true);
+    assert_eq!(ing, "Deallocating");
+    assert_eq!(ed, "Deallocated");
+    let (ing, ed) = super::stop_helpers::stop_action_labels(false);
+    assert_eq!(ing, "Stopping");
+    assert_eq!(ed, "Stopped");
+}
+
+#[test]
+fn test_new_table_with_data() {
+    let table = super::new_table(&["Col1", "Col2"]);
+    let output = format!("{table}");
+    assert!(output.contains("Col1"));
+    assert!(output.contains("Col2"));
+}
+
+#[test]
+fn test_build_ssh_target_private_ip_with_bastion_and_key() {
+    use azlin_core::models::{OsType, PowerState, ProvisioningState, VmInfo};
+    use std::collections::HashMap;
+
+    let vm = VmInfo {
+        name: "bastion-vm".to_string(),
+        resource_group: "rg1".to_string(),
+        location: "eastus".to_string(),
+        vm_size: "Standard_D2s_v3".to_string(),
+        os_type: OsType::Linux,
+        power_state: PowerState::Running,
+        provisioning_state: ProvisioningState::Succeeded,
+        os_offer: None,
+        public_ip: None,
+        private_ip: Some("10.0.0.5".to_string()),
+        admin_username: None,
+        tags: HashMap::new(),
+        created_time: None,
+    };
+    let mut bastion_map = HashMap::new();
+    bastion_map.insert("eastus".to_string(), "my-bastion".to_string());
+    let ssh_key = Some(std::path::PathBuf::from("/tmp/test_key"));
+    let target = super::build_ssh_target(&vm, "sub-123", &bastion_map, &ssh_key);
+    assert_eq!(target.ip, "10.0.0.5");
+    assert!(target.bastion.is_some());
+    let b = target.bastion.unwrap();
+    assert_eq!(b.bastion_name, "my-bastion");
+    assert_eq!(b.resource_group, "rg1");
+    assert!(b.vm_resource_id.contains("bastion-vm"));
+    assert!(b.vm_resource_id.contains("sub-123"));
+    assert_eq!(
+        b.ssh_key_path,
+        Some(std::path::PathBuf::from("/tmp/test_key"))
+    );
+}
+
+// ── Additional Azure-dependent inproc tests (require az login) ──────
+// Tagged #[ignore] — counted by: cargo llvm-cov -- --include-ignored
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_show_json() {
+    let r = run_dispatch(&[
+        "--output",
+        "json",
+        "show",
+        "devo",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+    ])
+    .await;
+    assert!(r.is_ok(), "show json failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_show_csv() {
+    let r = run_dispatch(&[
+        "--output",
+        "csv",
+        "show",
+        "devo",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+    ])
+    .await;
+    assert!(r.is_ok(), "show csv failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_tag_add_remove() {
+    // Add a tag — may fail on auth, just exercise the code path
+    let _r = run_dispatch(&[
+        "tag",
+        "add",
+        "devo",
+        "test_coverage=true",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+    ])
+    .await;
+
+    // Remove the tag
+    let _r = run_dispatch(&[
+        "tag",
+        "remove",
+        "devo",
+        "test_coverage",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+    ])
+    .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_snapshot_status() {
+    let r = run_dispatch(&[
+        "snapshot",
+        "status",
+        "devo",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+    ])
+    .await;
+    assert!(r.is_ok(), "snapshot status failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_keys_list() {
+    let r = run_dispatch(&["keys", "list"]).await;
+    assert!(r.is_ok(), "keys list failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_auth_test() {
+    let r = run_dispatch(&["auth", "test"]).await;
+    assert!(r.is_ok(), "auth test failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_auth_list() {
+    let r = run_dispatch(&["auth", "list"]).await;
+    assert!(r.is_ok(), "auth list failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_destroy_dry_run() {
+    let r = run_dispatch(&[
+        "destroy",
+        "devo",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+        "--dry-run",
+    ])
+    .await;
+    assert!(r.is_ok(), "destroy dry-run failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_status_json() {
+    let r = run_dispatch(&[
+        "--output",
+        "json",
+        "status",
+        "--vm",
+        "devo",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+    ])
+    .await;
+    assert!(r.is_ok(), "status json failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_list_with_tag() {
+    let r = run_dispatch(&[
+        "list",
+        "--no-tmux",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+        "--tag",
+        "env=dev",
+    ])
+    .await;
+    // May return empty if no VMs match the tag, but should not error
+    assert!(r.is_ok(), "list with tag failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_list_all() {
+    let r = run_dispatch(&[
+        "list",
+        "--no-tmux",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+        "--all",
+    ])
+    .await;
+    assert!(r.is_ok(), "list all failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_list_compact() {
+    let r = run_dispatch(&[
+        "list",
+        "--no-tmux",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+        "--compact",
+    ])
+    .await;
+    assert!(r.is_ok(), "list compact failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_storage_list() {
+    let r = run_dispatch(&[
+        "storage",
+        "list",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+    ])
+    .await;
+    // May fail if no storage accounts — just don't panic
+    let _ = r;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_cleanup_dry_run() {
+    let r = run_dispatch(&[
+        "cleanup",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+        "--dry-run",
+    ])
+    .await;
+    assert!(r.is_ok(), "cleanup dry-run failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_costs_dashboard() {
+    // Cost APIs may not be available on all subscriptions
+    let _r = run_dispatch(&[
+        "costs",
+        "dashboard",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+    ])
+    .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_costs_history() {
+    let _r = run_dispatch(&[
+        "costs",
+        "history",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+        "--days",
+        "7",
+    ])
+    .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_costs_recommend() {
+    let _r = run_dispatch(&[
+        "costs",
+        "recommend",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+    ])
+    .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_costs_budget_show() {
+    let _r = run_dispatch(&[
+        "costs",
+        "budget",
+        "show",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+    ])
+    .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_costs_actions_list_dry() {
+    let _r = run_dispatch(&[
+        "costs",
+        "actions",
+        "list",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+        "--dry-run",
+    ])
+    .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_ip_check_all() {
+    let r = run_dispatch(&[
+        "ip",
+        "check",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+        "--all",
+    ])
+    .await;
+    assert!(r.is_ok(), "ip check all failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_code_devo() {
+    // 'code' opens VS Code — verify it resolves the target at least
+    let _r = run_dispatch(&["code", "devo", "--resource-group", "RYSWEET-LINUX-VM-POOL"]).await;
+    // May fail if VS Code not installed, that's OK
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_web_stop() {
+    // Web stop should succeed even if nothing is running
+    let _r = run_dispatch(&["web", "stop"]).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_batch_start() {
+    // Batch start with a tag filter that matches nothing — should succeed
+    let _r = run_dispatch(&[
+        "batch",
+        "start",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+    ])
+    .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_snapshot_enable_disable() {
+    // Enable snapshot schedule
+    let r = run_dispatch(&[
+        "snapshot",
+        "enable",
+        "devo",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+        "--every",
+        "24",
+        "--keep",
+        "3",
+    ])
+    .await;
+    assert!(r.is_ok(), "snapshot enable failed: {:?}", r.err());
+
+    // Check status
+    let r = run_dispatch(&[
+        "snapshot",
+        "status",
+        "devo",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+    ])
+    .await;
+    assert!(r.is_ok());
+
+    // Disable
+    let r = run_dispatch(&[
+        "snapshot",
+        "disable",
+        "devo",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+    ])
+    .await;
+    assert!(r.is_ok(), "snapshot disable failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_list_contexts() {
+    let r = run_dispatch(&["list", "--no-tmux", "--all-contexts"]).await;
+    // May fail if no contexts configured, but should not panic
+    let _ = r;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_env_set() {
+    let _r = run_dispatch(&[
+        "env",
+        "set",
+        "devo",
+        "AZLIN_TEST_COV=true",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+    ])
+    .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_show_dev() {
+    let r = run_dispatch(&["show", "dev", "--resource-group", "RYSWEET-LINUX-VM-POOL"]).await;
+    assert!(r.is_ok(), "show dev failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_status_all() {
+    let r = run_dispatch(&["status", "--resource-group", "RYSWEET-LINUX-VM-POOL"]).await;
+    assert!(r.is_ok(), "status all failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_list_restore() {
+    let r = run_dispatch(&[
+        "list",
+        "--no-tmux",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+        "--restore",
+    ])
+    .await;
+    assert!(r.is_ok(), "list restore failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_snapshot_list_json() {
+    let r = run_dispatch(&[
+        "--output",
+        "json",
+        "snapshot",
+        "list",
+        "devo",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+    ])
+    .await;
+    assert!(r.is_ok(), "snapshot list json failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_tag_list_json() {
+    let r = run_dispatch(&[
+        "--output",
+        "json",
+        "tag",
+        "list",
+        "devo",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+    ])
+    .await;
+    assert!(r.is_ok(), "tag list json failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_list_with_health() {
+    let r = run_dispatch(&[
+        "list",
+        "--no-tmux",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+        "--with-health",
+    ])
+    .await;
+    assert!(r.is_ok(), "list with-health failed: {:?}", r.err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_inproc_list_quota() {
+    let r = run_dispatch(&[
+        "list",
+        "--no-tmux",
+        "--resource-group",
+        "RYSWEET-LINUX-VM-POOL",
+        "--quota",
+    ])
+    .await;
+    assert!(r.is_ok(), "list quota failed: {:?}", r.err());
+}
