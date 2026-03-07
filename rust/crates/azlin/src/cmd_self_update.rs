@@ -31,11 +31,26 @@ fn find_latest_release() -> Result<(String, String)> {
     let suffix = platform_suffix()
         .ok_or_else(|| anyhow::anyhow!("Unsupported platform for self-update"))?;
 
-    let url = format!("https://api.github.com/repos/{}/releases", GITHUB_REPO);
-    let output = std::process::Command::new("curl")
-        .args(["-sS", "-H", "Accept: application/vnd.github+json", &url])
+    // Try gh CLI first (authenticated, no rate limits), fall back to curl
+    let output = std::process::Command::new("gh")
+        .args([
+            "api",
+            &format!("repos/{}/releases", GITHUB_REPO),
+            "--jq",
+            ".",
+        ])
         .output()
-        .context("Failed to query GitHub releases (is curl installed?)")?;
+        .or_else(|_| {
+            std::process::Command::new("curl")
+                .args([
+                    "-sS",
+                    "-H",
+                    "Accept: application/vnd.github+json",
+                    &format!("https://api.github.com/repos/{}/releases", GITHUB_REPO),
+                ])
+                .output()
+        })
+        .context("Failed to query GitHub releases (need gh or curl installed)")?;
 
     if !output.status.success() {
         anyhow::bail!(
