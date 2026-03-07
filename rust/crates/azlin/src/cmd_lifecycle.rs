@@ -1,9 +1,9 @@
 #[allow(unused_imports)]
 use super::*;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use console::Style;
 use dialoguer::Confirm;
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::ProgressBar;
 
 pub(crate) async fn dispatch(
     command: azlin_cli::Commands,

@@ -1,11 +1,6 @@
 use anyhow::{Context, Result};
-use clap::{CommandFactory, Parser};
-use comfy_table::{
-    modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Attribute, Cell, Color, Table,
-};
+use clap::CommandFactory;
 use console::Style;
-use dialoguer::Confirm;
-use indicatif::ProgressBar;
 
 use super::*;
 

@@ -3,7 +3,6 @@ use super::*;
 use anyhow::{Context, Result};
 use console::Style;
 use dialoguer::Confirm;
-use indicatif::{ProgressBar, ProgressStyle};
 
 pub(crate) async fn dispatch(
     command: azlin_cli::Commands,

@@ -1,9 +1,7 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::{Context, Result};
-use comfy_table::{
-    modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Attribute, Cell, Color, Table,
-};
+use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Attribute, Cell, Table};
 use dialoguer::Confirm;
 
 pub(crate) async fn dispatch(

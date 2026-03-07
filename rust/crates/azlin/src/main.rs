@@ -1,9 +1,8 @@
 use anyhow::{Context, Result};
-use clap::{CommandFactory, Parser};
+use clap::Parser;
 use comfy_table::{
     modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Attribute, Cell, Color, Table,
 };
-use console::Style;
 
 /// Create a styled table with the standard UTF8 rounded preset and bold headers.
 fn new_table(headers: &[&str]) -> Table {
@@ -24,7 +23,6 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
 };
-use dialoguer::Confirm;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use ratatui::{
     backend::CrosstermBackend,

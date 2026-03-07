@@ -1,6 +1,6 @@
 #[allow(unused_imports)]
 use super::*;
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 pub(crate) async fn dispatch(
     command: azlin_cli::Commands,

@@ -1,7 +1,6 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::{Context, Result};
-use indicatif::{ProgressBar, ProgressStyle};
 
 pub(crate) async fn dispatch(
     command: azlin_cli::Commands,
