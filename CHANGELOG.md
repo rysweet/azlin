@@ -5,6 +5,31 @@ All notable changes to azlin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [2.3.0-rust] - 2026-03-07
+
+This release ships a pre-built Rust CLI binary alongside the Python package. The Rust port delivers **75-85x faster** startup and execution, with full command parity.
+
+### Added
+- **Rust CLI binary** — Pre-built `azlin-linux-x86_64` binary ships with the release. Install via `cargo install` or download directly. Existing `uvx` alias auto-migrates transparently ([release](https://github.com/rysweet/azlin/releases/tag/v2.3.0-rust))
+- `--with-health` flag for `azlin list` to show VM health status inline with the session list ([#737](https://github.com/rysweet/azlin/pull/737))
+- SSH latency measurement through existing Bastion tunnels — no extra connections needed ([#738](https://github.com/rysweet/azlin/pull/738), [#739](https://github.com/rysweet/azlin/pull/739))
+- `azlin self-update` command for updating the Rust binary in-place
+
+### Fixed
+- `azlin list` now self-heals SSH authentication failures: when a Bastion VM shows "Permission denied (publickey)", the public key is automatically re-synced via Azure Run Command API and the connection is retried ([#740](https://github.com/rysweet/azlin/pull/740))
+- Fixed `--with-latency` timeout causing the flag to silently return no data ([#737](https://github.com/rysweet/azlin/pull/737))
+- `azlin health` now works correctly for Bastion-only VMs (no public IP) ([#735](https://github.com/rysweet/azlin/pull/735))
+- Fixed `azlin health` command returning incorrect status and cleaned up related README entries ([#734](https://github.com/rysweet/azlin/pull/734))
+
+**Release Statistics**:
+- Commits since v2.3.0: 5
+- Contributors: 1 (@rysweet)
+- Rust binary: 53 commands, 154 total variants, 2,525 tests passing, 88.8% function coverage
+
+[2.3.0-rust]: https://github.com/rysweet/azlin/compare/v2.3.0...v2.3.0-rust
+
 ## [2.3.0] - 2026-02-27
 
 ### Major Features
@@ -217,3 +242,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.0.0] - 2025-09-15
 
 Initial v2.0 release with config management and enhanced CLI.
+
+[Unreleased]: https://github.com/rysweet/azlin/compare/v2.3.0-rust...HEAD
+[2.3.0-rust]: https://github.com/rysweet/azlin/compare/v2.3.0...v2.3.0-rust
+[2.3.0]: https://github.com/rysweet/azlin/compare/v2.2.2...v2.3.0
+[2.2.2]: https://github.com/rysweet/azlin/compare/v2.2.1...v2.2.2
+[2.2.1]: https://github.com/rysweet/azlin/compare/v2.2.0...v2.2.1
+[2.2.0]: https://github.com/rysweet/azlin/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/rysweet/azlin/compare/v2.0.0...v2.1.0
+[2.0.0]: https://github.com/rysweet/azlin/releases/tag/v2.0.0
