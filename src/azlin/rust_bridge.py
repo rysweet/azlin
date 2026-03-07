@@ -131,6 +131,37 @@ def _download_and_install(url: str) -> str | None:
     return None
 
 
+def _try_cargo_install() -> str | None:
+    """Try to build and install via cargo if Rust toolchain is available."""
+    cargo = shutil.which("cargo")
+    if not cargo:
+        return None
+    sys.stderr.write(
+        "azlin: No pre-built binary found. Building from source with cargo...\n"
+    )
+    try:
+        result = subprocess.run(
+            [
+                cargo,
+                "install",
+                "--git",
+                f"https://github.com/{GITHUB_REPO}",
+                "--bin",
+                "azlin",
+                "--force",
+            ],
+            timeout=600,
+        )
+        if result.returncode == 0:
+            cargo_bin = Path.home() / ".cargo" / "bin" / "azlin"
+            if cargo_bin.exists():
+                sys.stderr.write(f"Built and installed azlin to {cargo_bin}\n")
+                return str(cargo_bin)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        sys.stderr.write(f"cargo install failed: {e}\n")
+    return None
+
+
 def _exec_rust(binary: str, args: list[str]) -> None:
     """Replace this process with the Rust binary (Unix exec)."""
     if platform.system() == "Windows":
@@ -167,6 +198,10 @@ def entry() -> None:
                 f"Migrating from Python to Rust (75-85x faster)...\n"
             )
             rust_bin = _download_and_install(url)
+
+    if not rust_bin:
+        # Try cargo install as last resort (if cargo is available)
+        rust_bin = _try_cargo_install()
 
     if rust_bin:
         _exec_rust(rust_bin, args)

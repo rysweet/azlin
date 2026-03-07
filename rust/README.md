@@ -47,6 +47,31 @@ pip install azlin-rs
 cd rust && cargo install --path crates/azlin
 ```
 
+### Self-update
+
+The Rust binary can update itself from GitHub Releases:
+
+```bash
+azlin self-update
+```
+
+## Migration from Python
+
+If you use the `uvx` alias, the migration is automatic:
+
+```bash
+# Your existing alias works unchanged:
+alias azlin="uvx --from git+https://github.com/rysweet/azlin azlin"
+```
+
+When you run any command, the Python bridge:
+1. Checks for a Rust binary at `~/.azlin/bin/azlin`, `~/.cargo/bin/azlin`, or `/usr/local/bin/azlin`
+2. If found with `self-update` support → execs Rust binary (zero Python overhead)
+3. If not found → downloads from GitHub Releases (or builds with `cargo` if available)
+4. Falls back to Python CLI only if nothing else works
+
+Force Python: `azlin --python-fallback list`
+
 ## Quick Start
 
 ```bash
