@@ -1,12 +1,18 @@
-"""Bridge module: detects and delegates to the Rust azlin binary.
+"""Migration entry point: finds or installs the Rust azlin binary and execs it.
 
-When installed via uvx/pip, the Python 'azlin' command lands here first.
-If a Rust binary is available (or can be downloaded), we exec it directly.
-Otherwise we fall back to the Python CLI.
+The Python azlin package exists only to bootstrap the Rust binary.
+There is NO fallback to Python. If the Rust binary cannot be found or
+installed, this exits with an error telling the user how to fix it.
 
-The Rust binary location priority:
-  1. ~/.azlin/bin/azlin          (managed install)
-  2. azlin on PATH               (cargo install / system package)
+Search order:
+  1. ~/.azlin/bin/azlin          (managed install from GitHub Releases)
+  2. ~/.cargo/bin/azlin           (cargo install)
+  3. /usr/local/bin/azlin         (system package)
+
+If none found, attempts (in order):
+  1. Download from GitHub Releases
+  2. Build from source via cargo
+  3. Exit with error
 """
 
 import os
@@ -19,7 +25,6 @@ import urllib.request
 from pathlib import Path
 
 GITHUB_REPO = "rysweet/azlin"
-RUST_VERSION_PREFIX = "azlin "  # `azlin --version` outputs "azlin 2.3.0"
 MANAGED_BIN_DIR = Path.home() / ".azlin" / "bin"
 MANAGED_BIN = MANAGED_BIN_DIR / "azlin"
 
@@ -43,77 +48,80 @@ def _platform_suffix() -> str | None:
     return None
 
 
+def _is_rust_binary(path: Path) -> bool:
+    """Check if a binary is the Rust azlin (has self-update command)."""
+    try:
+        result = subprocess.run(
+            [str(path), "self-update", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.returncode == 0 and "self-update" in result.stdout.lower()
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+
+
 def _find_rust_binary() -> str | None:
     """Find an existing Rust azlin binary. Returns path or None."""
-    # 1. Managed install location
-    if MANAGED_BIN.exists() and os.access(MANAGED_BIN, os.X_OK):
-        return str(MANAGED_BIN)
-    # 2. Check well-known locations for Rust binary (outside venvs)
     candidates = [
+        MANAGED_BIN,
         Path.home() / ".cargo" / "bin" / "azlin",
         Path("/usr/local/bin/azlin"),
         Path("/usr/bin/azlin"),
     ]
     for candidate in candidates:
-        if candidate.exists() and os.access(candidate, os.X_OK):
-            try:
-                result = subprocess.run(
-                    [str(candidate), "self-update", "--help"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                # Rust binary has self-update; Python does not
-                if result.returncode == 0 and "self-update" in result.stdout.lower():
-                    return str(candidate)
-            except (subprocess.TimeoutExpired, OSError):
-                continue
+        if candidate.exists() and os.access(candidate, os.X_OK) and _is_rust_binary(candidate):
+            return str(candidate)
     return None
 
 
-def _get_latest_release_url() -> tuple[str, str] | None:
-    """Query GitHub API for the latest Rust release asset URL.
+def _download_from_release() -> str | None:
+    """Download pre-built binary from GitHub Releases."""
+    import tarfile
+    import tempfile
 
-    Returns (download_url, version) or None.
-    """
     suffix = _platform_suffix()
     if not suffix:
         return None
+
     api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
     try:
         req = urllib.request.Request(api_url, headers={"Accept": "application/vnd.github+json"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             import json
-
             releases = json.loads(resp.read())
-        for release in releases:
-            tag = release.get("tag_name", "")
-            if "-rust" not in tag:
-                continue
-            for asset in release.get("assets", []):
-                name = asset.get("name", "")
-                if suffix in name and name.endswith(".tar.gz"):
-                    version = tag.replace("v", "").replace("-rust", "")
-                    return asset["browser_download_url"], version
     except Exception:
-        pass
-    return None
+        return None
 
+    # Find the latest Rust release asset for this platform
+    download_url = None
+    version = None
+    for release in releases:
+        tag = release.get("tag_name", "")
+        if "-rust" not in tag:
+            continue
+        for asset in release.get("assets", []):
+            name = asset.get("name", "")
+            if suffix in name and name.endswith(".tar.gz"):
+                download_url = asset["browser_download_url"]
+                version = tag.replace("v", "").replace("-rust", "")
+                break
+        if download_url:
+            break
 
-def _download_and_install(url: str) -> str | None:
-    """Download a tar.gz release asset and install the binary to ~/.azlin/bin/."""
-    import tarfile
-    import tempfile
+    if not download_url:
+        return None
 
+    # Download and extract
     MANAGED_BIN_DIR.mkdir(parents=True, exist_ok=True)
+    sys.stderr.write(f"azlin: installing Rust binary v{version} from GitHub Releases...\n")
     try:
-        sys.stderr.write(f"Downloading Rust azlin from {url}...\n")
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
-            urllib.request.urlretrieve(url, tmp.name)
+            urllib.request.urlretrieve(download_url, tmp.name)
             tmp_path = tmp.name
 
         with tarfile.open(tmp_path, "r:gz") as tar:
-            # Find the azlin binary in the archive
             for member in tar.getmembers():
                 if member.name.endswith("/azlin") or member.name == "azlin":
                     member.name = "azlin"
@@ -124,48 +132,38 @@ def _download_and_install(url: str) -> str | None:
 
         if MANAGED_BIN.exists():
             MANAGED_BIN.chmod(MANAGED_BIN.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-            sys.stderr.write(f"Installed Rust azlin to {MANAGED_BIN}\n")
+            sys.stderr.write(f"azlin: installed to {MANAGED_BIN}\n")
             return str(MANAGED_BIN)
     except Exception as e:
-        sys.stderr.write(f"Failed to download Rust binary: {e}\n")
+        sys.stderr.write(f"azlin: download failed: {e}\n")
     return None
 
 
-def _try_cargo_install() -> str | None:
-    """Try to build and install via cargo if Rust toolchain is available."""
+def _build_from_source() -> str | None:
+    """Build from source via cargo install."""
     cargo = shutil.which("cargo")
     if not cargo:
         return None
-    sys.stderr.write(
-        "azlin: No pre-built binary found. Building from source with cargo...\n"
-    )
+
+    sys.stderr.write("azlin: building from source with cargo (this takes ~60s)...\n")
     try:
         result = subprocess.run(
-            [
-                cargo,
-                "install",
-                "--git",
-                f"https://github.com/{GITHUB_REPO}",
-                "--bin",
-                "azlin",
-                "--force",
-            ],
+            [cargo, "install", "--git", f"https://github.com/{GITHUB_REPO}", "--bin", "azlin", "--force"],
             timeout=600,
         )
         if result.returncode == 0:
             cargo_bin = Path.home() / ".cargo" / "bin" / "azlin"
             if cargo_bin.exists():
-                sys.stderr.write(f"Built and installed azlin to {cargo_bin}\n")
+                sys.stderr.write(f"azlin: built and installed to {cargo_bin}\n")
                 return str(cargo_bin)
     except (subprocess.TimeoutExpired, OSError) as e:
-        sys.stderr.write(f"cargo install failed: {e}\n")
+        sys.stderr.write(f"azlin: cargo install failed: {e}\n")
     return None
 
 
 def _exec_rust(binary: str, args: list[str]) -> None:
-    """Replace this process with the Rust binary (Unix exec)."""
+    """Replace this process with the Rust binary."""
     if platform.system() == "Windows":
-        # Windows doesn't have exec; use subprocess
         result = subprocess.run([binary] + args)
         sys.exit(result.returncode)
     else:
@@ -173,41 +171,36 @@ def _exec_rust(binary: str, args: list[str]) -> None:
 
 
 def entry() -> None:
-    """Main entry point: prefer Rust binary, fall back to Python CLI."""
+    """Find or install the Rust binary and exec it. No fallback."""
     args = sys.argv[1:]
 
-    # Escape hatch: --python-fallback forces Python CLI
-    if "--python-fallback" in args:
-        args.remove("--python-fallback")
-        sys.argv = [sys.argv[0]] + args
-        from azlin.cli import main
-
-        main()
-        return
-
-    # Try to find existing Rust binary
+    # 1. Try to find existing Rust binary
     rust_bin = _find_rust_binary()
 
+    # 2. Try to download from GitHub Releases
     if not rust_bin:
-        # No Rust binary found — try to download
-        release_info = _get_latest_release_url()
-        if release_info:
-            url, version = release_info
-            sys.stderr.write(
-                f"azlin: Rust binary v{version} available. "
-                f"Migrating from Python to Rust (75-85x faster)...\n"
-            )
-            rust_bin = _download_and_install(url)
+        rust_bin = _download_from_release()
 
+    # 3. Try to build from source
     if not rust_bin:
-        # Try cargo install as last resort (if cargo is available)
-        rust_bin = _try_cargo_install()
+        rust_bin = _build_from_source()
 
-    if rust_bin:
-        _exec_rust(rust_bin, args)
-        # exec doesn't return on Unix; on Windows we already called sys.exit
-    else:
-        # No Rust binary available — run Python CLI as fallback
-        from azlin.cli import main
+    # 4. No options left — fail with clear instructions
+    if not rust_bin:
+        sys.stderr.write(
+            "\n"
+            "ERROR: Could not find or install the azlin Rust binary.\n"
+            "\n"
+            "Install manually with one of:\n"
+            "\n"
+            "  # Option 1: cargo (requires Rust toolchain)\n"
+            "  cargo install --git https://github.com/rysweet/azlin --bin azlin\n"
+            "\n"
+            "  # Option 2: download pre-built binary\n"
+            "  curl -sL https://github.com/rysweet/azlin/releases/latest/download/azlin-linux-x86_64.tar.gz | tar xz\n"
+            "  sudo mv azlin /usr/local/bin/\n"
+            "\n"
+        )
+        sys.exit(1)
 
-        main()
+    _exec_rust(rust_bin, args)
