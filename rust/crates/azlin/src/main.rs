@@ -1,9 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 
-// Re-exported for sub-modules that still use comfy_table via `use super::*`.
-#[allow(unused_imports)]
-use comfy_table::{presets::UTF8_FULL_CONDENSED, Attribute, Cell, Color, Table};
 #[allow(unused_imports)]
 use dialoguer::Confirm;
 

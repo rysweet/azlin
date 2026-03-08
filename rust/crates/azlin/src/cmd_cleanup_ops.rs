@@ -1,7 +1,6 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::{Context, Result};
-use comfy_table::{presets::UTF8_FULL_CONDENSED, Attribute, Cell, Table};
 
 pub(crate) fn handle_cleanup(
     resource_group: Option<String>,
@@ -131,19 +130,16 @@ pub(crate) fn handle_cleanup(
         return Ok(());
     }
 
-    let mut table = Table::new();
-    table.load_preset(UTF8_FULL_CONDENSED).set_header(vec![
-        Cell::new("Type").add_attribute(Attribute::Bold),
-        Cell::new("Name").add_attribute(Attribute::Bold),
-        Cell::new("Resource Group").add_attribute(Attribute::Bold),
-        Cell::new("Est. Cost/mo").add_attribute(Attribute::Bold),
-    ]);
+    let mut table = crate::table_render::SimpleTable::new(
+        &["Type", "Name", "Resource Group", "Est. Cost/mo"],
+        &[22, 30, 20, 12],
+    );
     for r in &all_orphans {
         table.add_row(vec![
-            Cell::new(format!("{}", r.resource_type)),
-            Cell::new(&r.name),
-            Cell::new(&r.resource_group),
-            Cell::new(format!("${:.2}", r.estimated_monthly_cost)),
+            format!("{}", r.resource_type),
+            r.name.clone(),
+            r.resource_group.clone(),
+            format!("${:.2}", r.estimated_monthly_cost),
         ]);
     }
     println!("{table}");

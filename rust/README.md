@@ -131,7 +131,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full details.
 Key Rust crates:
 
 - `clap` v4 -- CLI parsing (derive macros)
-- `comfy-table` -- terminal tables
+- `crossterm` -- terminal width detection and custom table rendering
 - `indicatif` -- progress bars
 - `ratatui` -- TUI dashboard
 - `dialoguer` -- interactive prompts

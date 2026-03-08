@@ -32,7 +32,6 @@ serde = { workspace = true }
 indicatif = { workspace = true }
 console = { workspace = true }
 dialoguer = { workspace = true }
-comfy-table = { workspace = true }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
 dirs = { workspace = true }

@@ -79,10 +79,10 @@ pub(crate) fn handle_storage_list(resource_group: Option<String>) -> Result<()> 
         if accounts.is_empty() {
             println!("No storage accounts found.");
         } else {
-            let mut table = Table::new();
-            table
-                .load_preset(UTF8_FULL_CONDENSED)
-                .set_header(vec!["Name", "Location", "Kind", "SKU", "State"]);
+            let mut table = crate::table_render::SimpleTable::new(
+                &["Name", "Location", "Kind", "SKU", "State"],
+                &[24, 12, 14, 20, 12],
+            );
             for acct in &accounts {
                 table.add_row(crate::storage_helpers::storage_account_row(acct));
             }

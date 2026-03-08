@@ -43,13 +43,11 @@ pub(crate) async fn dispatch(
                 let target =
                     resolve_vm_ssh_target(&vm_identifier, ip.as_deref(), resource_group).await?;
                 let output = target.exec_checked(crate::env_helpers::env_list_cmd())?;
-                let mut table = Table::new();
-                table
-                    .load_preset(UTF8_FULL_CONDENSED)
-                    .set_header(vec!["Variable", "Value"]);
+                let mut table =
+                    crate::table_render::SimpleTable::new(&["Variable", "Value"], &[30, 50]);
                 for line in output.lines() {
                     if let Some((k, v)) = line.split_once('=') {
-                        table.add_row(vec![k, v]);
+                        table.add_row(vec![k.to_string(), v.to_string()]);
                     }
                 }
                 println!("{table}");

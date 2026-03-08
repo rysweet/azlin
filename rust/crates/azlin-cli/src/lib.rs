@@ -1,6 +1,7 @@
 //! azlin-cli: CLI command definitions and terminal UI rendering.
 
 pub mod table;
+pub mod table_render;
 
 use std::path::PathBuf;
 

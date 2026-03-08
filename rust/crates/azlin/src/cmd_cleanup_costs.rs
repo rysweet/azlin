@@ -1,7 +1,6 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::Result;
-use comfy_table::{presets::UTF8_FULL_CONDENSED, Attribute, Cell, Table};
 
 pub(crate) fn dispatch_costs(action: azlin_cli::CostsAction) -> Result<()> {
     match action {
@@ -68,14 +67,12 @@ pub(crate) fn dispatch_costs(action: azlin_cli::CostsAction) -> Result<()> {
                 let json_str = String::from_utf8_lossy(&output.stdout);
                 match serde_json::from_str::<serde_json::Value>(&json_str) {
                     Ok(data) => {
-                        let mut table = Table::new();
-                        table.load_preset(UTF8_FULL_CONDENSED).set_header(vec![
-                            Cell::new("Date").add_attribute(Attribute::Bold),
-                            Cell::new("Cost (USD)").add_attribute(Attribute::Bold),
-                        ]);
-
+                        let mut table = crate::table_render::SimpleTable::new(
+                            &["Date", "Cost (USD)"],
+                            &[12, 14],
+                        );
                         for (date, cost) in crate::handlers::parse_cost_history_rows(&data) {
-                            table.add_row(vec![Cell::new(&date), Cell::new(&cost)]);
+                            table.add_row(vec![date, cost]);
                         }
                         println!(
                             "{}",

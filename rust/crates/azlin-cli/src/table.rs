@@ -1,9 +1,21 @@
 //! Table rendering utilities for VM display.
 
 use azlin_core::models::{PowerState, VmInfo};
-use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Cell, Color, Table};
 
+use crate::table_render::{border_line, render_row, trunc, SimpleTable};
 use crate::OutputFormat;
+
+/// ANSI color code for a power state.
+fn power_state_ansi(state: &PowerState) -> (&'static str, &'static str) {
+    match state {
+        PowerState::Running => ("\x1b[32m", "\x1b[0m"), // green
+        PowerState::Stopped => ("\x1b[31m", "\x1b[0m"), // red
+        PowerState::Deallocated => ("\x1b[33m", "\x1b[0m"), // yellow
+        PowerState::Starting => ("\x1b[93m", "\x1b[0m"), // bright yellow
+        PowerState::Stopping => ("\x1b[93m", "\x1b[0m"), // bright yellow
+        PowerState::Unknown => ("\x1b[90m", "\x1b[0m"), // grey
+    }
+}
 
 /// Render generic tabular data (headers + rows of strings) in the requested format.
 pub fn render_rows(headers: &[&str], rows: &[Vec<String>], format: &OutputFormat) {
@@ -13,13 +25,11 @@ pub fn render_rows(headers: &[&str], rows: &[Vec<String>], format: &OutputFormat
                 println!("No data found.");
                 return;
             }
-            let mut table = Table::new();
-            table
-                .load_preset(UTF8_FULL)
-                .apply_modifier(UTF8_ROUND_CORNERS)
-                .set_header(headers.iter().map(Cell::new).collect::<Vec<_>>());
+            // Auto-size columns: use header lengths as minimum, 20 as default
+            let widths: Vec<usize> = headers.iter().map(|h| h.len().max(20)).collect();
+            let mut table = SimpleTable::new(headers, &widths);
             for row in rows {
-                table.add_row(row.iter().map(Cell::new).collect::<Vec<_>>());
+                table.add_row(row.clone());
             }
             println!("{table}");
         }
@@ -68,17 +78,13 @@ pub fn render_tags_table(vm_name: &str, tags: &std::collections::HashMap<String,
         return;
     }
 
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .apply_modifier(UTF8_ROUND_CORNERS)
-        .set_header(vec!["Key", "Value"]);
+    let mut table = SimpleTable::new(&["Key", "Value"], &[24, 40]);
 
     let mut keys: Vec<&String> = tags.keys().collect();
     keys.sort();
     for key in keys {
         if let Some(val) = tags.get(key) {
-            table.add_row(vec![Cell::new(key), Cell::new(val)]);
+            table.add_row(vec![key.clone(), val.clone()]);
         }
     }
 
@@ -92,11 +98,18 @@ fn render_table(vms: &[VmInfo]) {
         return;
     }
 
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .apply_modifier(UTF8_ROUND_CORNERS)
-        .set_header(vec!["Session", "VM Name", "Status", "IP", "Region", "SKU"]);
+    let headers = ["Session", "VM Name", "Status", "IP", "Region", "SKU"];
+    let widths: [usize; 6] = [14, 24, 12, 16, 12, 20];
+
+    // Top border + header
+    println!("{}", border_line(&widths, '┌', '┬', '┐', '─'));
+    let header_cells: Vec<String> = headers
+        .iter()
+        .zip(widths.iter())
+        .map(|(h, &w)| trunc(h, w))
+        .collect();
+    println!("{}", render_row(&header_cells, &widths));
+    println!("{}", border_line(&widths, '├', '┼', '┤', '─'));
 
     for vm in vms {
         let session = vm
@@ -110,26 +123,25 @@ fn render_table(vms: &[VmInfo]) {
             .or(vm.private_ip.as_deref())
             .unwrap_or("-");
 
-        let status_cell = match &vm.power_state {
-            PowerState::Running => Cell::new("running").fg(Color::Green),
-            PowerState::Stopped => Cell::new("stopped").fg(Color::Red),
-            PowerState::Deallocated => Cell::new("deallocated").fg(Color::DarkYellow),
-            PowerState::Starting => Cell::new("starting").fg(Color::Yellow),
-            PowerState::Stopping => Cell::new("stopping").fg(Color::Yellow),
-            PowerState::Unknown => Cell::new("unknown").fg(Color::Grey),
-        };
+        // Truncate status first, then wrap with ANSI color
+        let status_str = vm.power_state.to_string();
+        let truncated_status = trunc(&status_str, widths[2]);
+        let (pre, post) = power_state_ansi(&vm.power_state);
+        let colored_status = format!("{}{}{}", pre, truncated_status, post);
 
-        table.add_row(vec![
-            Cell::new(&session),
-            Cell::new(&vm.name),
-            status_cell,
-            Cell::new(ip),
-            Cell::new(&vm.location),
-            Cell::new(&vm.vm_size),
-        ]);
+        let cells = vec![
+            trunc(&session, widths[0]),
+            trunc(&vm.name, widths[1]),
+            colored_status, // already padded to exact width
+            trunc(ip, widths[3]),
+            trunc(&vm.location, widths[4]),
+            trunc(&vm.vm_size, widths[5]),
+        ];
+        println!("{}", render_row(&cells, &widths));
     }
 
-    println!("{table}");
+    // Bottom border
+    println!("{}", border_line(&widths, '└', '┴', '┘', '─'));
 }
 
 fn render_json(vms: &[VmInfo]) {

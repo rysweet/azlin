@@ -118,19 +118,17 @@ pub(crate) async fn handle_vm_new(
 
         println!("VM '{}' created successfully!", vm.name);
 
-        let mut table = Table::new();
-        table.load_preset(UTF8_FULL_CONDENSED);
-        table.set_header(vec!["Property", "Value"]);
-        table.add_row(vec!["Name", &vm.name]);
-        table.add_row(vec!["Resource Group", &rg]);
-        table.add_row(vec!["Size", &final_size]);
-        table.add_row(vec!["Region", &final_loc]);
-        table.add_row(vec!["State", &vm.power_state.to_string()]);
+        let mut table = crate::table_render::SimpleTable::new(&["Property", "Value"], &[14, 40]);
+        table.add_row(vec!["Name".to_string(), vm.name.clone()]);
+        table.add_row(vec!["Resource Group".to_string(), rg.clone()]);
+        table.add_row(vec!["Size".to_string(), final_size.clone()]);
+        table.add_row(vec!["Region".to_string(), final_loc.clone()]);
+        table.add_row(vec!["State".to_string(), vm.power_state.to_string()]);
         if let Some(ref ip) = vm.public_ip {
-            table.add_row(vec!["Public IP", ip]);
+            table.add_row(vec!["Public IP".to_string(), ip.clone()]);
         }
         if let Some(ref ip) = vm.private_ip {
-            table.add_row(vec!["Private IP", ip]);
+            table.add_row(vec!["Private IP".to_string(), ip.clone()]);
         }
         println!("{table}");
 

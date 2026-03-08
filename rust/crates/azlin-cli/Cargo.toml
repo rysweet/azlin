@@ -13,7 +13,7 @@ azlin-ai = { path = "../azlin-ai" }
 tokio = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
-comfy-table = { workspace = true }
+crossterm = { workspace = true }
 indicatif = { workspace = true }
 dialoguer = { workspace = true }
 console = { workspace = true }

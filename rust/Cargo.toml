@@ -32,7 +32,6 @@ clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 clap_complete = "4"
 
 # Terminal UI
-comfy-table = "7"
 indicatif = "0.17"
 dialoguer = "0.11"
 console = "0.15"

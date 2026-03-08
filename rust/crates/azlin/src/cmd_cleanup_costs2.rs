@@ -1,7 +1,6 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::Result;
-use comfy_table::{presets::UTF8_FULL_CONDENSED, Attribute, Cell, Table};
 
 pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<()> {
     match action {
@@ -28,20 +27,14 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
                                     )
                                 );
                             } else {
-                                let mut table = Table::new();
-                                table.load_preset(UTF8_FULL_CONDENSED).set_header(vec![
-                                    Cell::new("Category").add_attribute(Attribute::Bold),
-                                    Cell::new("Impact").add_attribute(Attribute::Bold),
-                                    Cell::new("Problem").add_attribute(Attribute::Bold),
-                                ]);
+                                let mut table = crate::table_render::SimpleTable::new(
+                                    &["Category", "Impact", "Problem"],
+                                    &[14, 10, 40],
+                                );
                                 for (category, impact, problem) in
                                     crate::handlers::parse_recommendation_rows(&data)
                                 {
-                                    table.add_row(vec![
-                                        Cell::new(&category),
-                                        Cell::new(&impact),
-                                        Cell::new(&problem),
-                                    ]);
+                                    table.add_row(vec![category, impact, problem]);
                                 }
                                 println!(
                                     "{}",
@@ -92,20 +85,14 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
                                     crate::handlers::format_no_cost_actions(&resource_group)
                                 );
                             } else {
-                                let mut table = Table::new();
-                                table.load_preset(UTF8_FULL_CONDENSED).set_header(vec![
-                                    Cell::new("Resource").add_attribute(Attribute::Bold),
-                                    Cell::new("Impact").add_attribute(Attribute::Bold),
-                                    Cell::new("Recommendation").add_attribute(Attribute::Bold),
-                                ]);
+                                let mut table = crate::table_render::SimpleTable::new(
+                                    &["Resource", "Impact", "Recommendation"],
+                                    &[25, 10, 40],
+                                );
                                 for (resource, impact, problem) in
                                     crate::handlers::parse_cost_action_rows(&data)
                                 {
-                                    table.add_row(vec![
-                                        Cell::new(&resource),
-                                        Cell::new(&impact),
-                                        Cell::new(&problem),
-                                    ]);
+                                    table.add_row(vec![resource, impact, problem]);
                                 }
                                 println!(
                                     "{}",
