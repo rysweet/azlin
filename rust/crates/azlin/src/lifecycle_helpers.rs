@@ -1,5 +1,5 @@
-/// Pure helper functions for lifecycle commands (start/stop/delete/kill/destroy/killall/os-update).
-/// Extracted from cmd_lifecycle.rs for testability.
+// Pure helper functions for lifecycle commands (start/stop/delete/kill/destroy/killall/os-update).
+// Extracted from cmd_lifecycle.rs for testability.
 
 /// Build the confirmation prompt for deleting a single VM.
 pub fn delete_confirm_prompt(vm_name: &str) -> String {
