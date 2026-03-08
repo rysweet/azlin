@@ -1,11 +1,9 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 
-use comfy_table::{
-    modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Attribute, Cell, Color, Table,
-};
+use comfy_table::{presets::UTF8_FULL_CONDENSED, Attribute, Cell, Color, Table};
 
-/// Create a styled table with the standard UTF8 rounded preset and bold headers.
+/// Create a styled table with solid UTF8 borders and bold headers.
 /// Automatically adapts width to the current terminal size.
 fn new_table(headers: &[&str]) -> Table {
     let mut table = Table::new();
@@ -13,8 +11,7 @@ fn new_table(headers: &[&str]) -> Table {
         .map(|(w, _)| w as u16)
         .unwrap_or(120);
     table
-        .load_preset(UTF8_FULL)
-        .apply_modifier(UTF8_ROUND_CORNERS)
+        .load_preset(UTF8_FULL_CONDENSED)
         .set_width(term_width)
         .set_header(
             headers
@@ -620,14 +617,11 @@ fn run_on_fleet(vms: &[(String, String, String)], command: &str, show_output: bo
         .collect();
 
     let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .apply_modifier(UTF8_ROUND_CORNERS)
-        .set_header(vec![
-            Cell::new("VM").add_attribute(Attribute::Bold),
-            Cell::new("Status").add_attribute(Attribute::Bold),
-            Cell::new("Output").add_attribute(Attribute::Bold),
-        ]);
+    table.load_preset(UTF8_FULL_CONDENSED).set_header(vec![
+        Cell::new("VM").add_attribute(Attribute::Bold),
+        Cell::new("Status").add_attribute(Attribute::Bold),
+        Cell::new("Output").add_attribute(Attribute::Bold),
+    ]);
 
     for (i, (name, ip, user)) in vms.iter().enumerate() {
         bars[i].set_message(format!("running: {}", command));

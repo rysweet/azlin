@@ -46,8 +46,7 @@ pub(crate) async fn dispatch(
                 let output = target.exec_checked(crate::env_helpers::env_list_cmd())?;
                 let mut table = Table::new();
                 table
-                    .load_preset(UTF8_FULL)
-                    .apply_modifier(UTF8_ROUND_CORNERS)
+                    .load_preset(UTF8_FULL_CONDENSED)
                     .set_header(vec!["Variable", "Value"]);
                 for line in output.lines() {
                     if let Some((k, v)) = line.split_once('=') {

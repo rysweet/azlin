@@ -177,9 +177,7 @@ pub(crate) async fn dispatch(
                 if let Ok(bastions) = crate::list_helpers::detect_bastion_hosts(effective_rg) {
                     if !bastions.is_empty() {
                         let mut bastion_table = Table::new();
-                        bastion_table
-                            .load_preset(UTF8_FULL)
-                            .apply_modifier(UTF8_ROUND_CORNERS);
+                        bastion_table.load_preset(UTF8_FULL_CONDENSED);
                         bastion_table.set_header(vec![
                             Cell::new("Name").add_attribute(Attribute::Bold),
                             Cell::new("Location").add_attribute(Attribute::Bold),

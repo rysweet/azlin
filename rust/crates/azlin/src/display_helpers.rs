@@ -22,7 +22,9 @@ pub fn truncate_vm_name(name: &str, max_len: usize) -> String {
 
 /// Format a list of tmux session names for display, collapsing long lists.
 /// If the list has more than `max_show` entries, the remainder is summarised
-/// as `"+N more"`.
+/// as `"+N more"`. Used in JSON/CSV output and tests; table rendering uses
+/// `format_tmux_colored` for attached/detached coloring.
+#[allow(dead_code)]
 pub fn format_tmux_sessions(sessions: &[String], max_show: usize) -> String {
     if sessions.is_empty() {
         "-".to_string()

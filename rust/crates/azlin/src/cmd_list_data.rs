@@ -51,7 +51,8 @@ pub(crate) fn collect_tmux_sessions(
             .admin_username
             .as_deref()
             .unwrap_or(DEFAULT_ADMIN_USERNAME);
-        let tmux_cmd = "tmux list-sessions -F '#{session_name}' 2>/dev/null || true";
+        let tmux_cmd =
+            "tmux list-sessions -F '#{session_name}:#{session_attached}' 2>/dev/null || true";
 
         // Determine whether to use direct SSH or bastion tunnel
         let output = if let Some(ip) = vm.public_ip.as_deref() {

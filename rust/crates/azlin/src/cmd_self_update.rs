@@ -28,8 +28,8 @@ fn platform_suffix() -> Option<&'static str> {
 /// Query GitHub API for the latest Rust release.
 /// Returns (download_url, version) or error.
 fn find_latest_release() -> Result<(String, String)> {
-    let suffix = platform_suffix()
-        .ok_or_else(|| anyhow::anyhow!("Unsupported platform for self-update"))?;
+    let suffix =
+        platform_suffix().ok_or_else(|| anyhow::anyhow!("Unsupported platform for self-update"))?;
 
     // Try gh CLI first (authenticated, no rate limits), fall back to curl
     let output = std::process::Command::new("gh")
@@ -86,7 +86,8 @@ fn find_latest_release() -> Result<(String, String)> {
 
 /// Download and extract the binary, replacing the current executable.
 fn download_and_replace(url: &str, version: &str) -> Result<()> {
-    let current_exe = std::env::current_exe().context("Cannot determine current executable path")?;
+    let current_exe =
+        std::env::current_exe().context("Cannot determine current executable path")?;
     let tmp_dir = std::env::temp_dir().join(format!("azlin-update-{}", std::process::id()));
     fs::create_dir_all(&tmp_dir).context("Failed to create temp directory")?;
     let archive_path = tmp_dir.join("azlin.tar.gz");
@@ -110,7 +111,12 @@ fn download_and_replace(url: &str, version: &str) -> Result<()> {
 
     // Extract
     let tar_status = std::process::Command::new("tar")
-        .args(["xzf", archive_path.to_str().unwrap(), "-C", &tmp_dir.to_str().unwrap()])
+        .args([
+            "xzf",
+            archive_path.to_str().unwrap(),
+            "-C",
+            &tmp_dir.to_str().unwrap(),
+        ])
         .status()
         .context("Failed to extract archive")?;
 

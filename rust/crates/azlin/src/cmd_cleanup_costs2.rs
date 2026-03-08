@@ -1,7 +1,7 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::Result;
-use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Attribute, Cell, Table};
+use comfy_table::{presets::UTF8_FULL_CONDENSED, Attribute, Cell, Table};
 
 pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<()> {
     match action {
@@ -29,14 +29,11 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
                                 );
                             } else {
                                 let mut table = Table::new();
-                                table
-                                    .load_preset(UTF8_FULL)
-                                    .apply_modifier(UTF8_ROUND_CORNERS)
-                                    .set_header(vec![
-                                        Cell::new("Category").add_attribute(Attribute::Bold),
-                                        Cell::new("Impact").add_attribute(Attribute::Bold),
-                                        Cell::new("Problem").add_attribute(Attribute::Bold),
-                                    ]);
+                                table.load_preset(UTF8_FULL_CONDENSED).set_header(vec![
+                                    Cell::new("Category").add_attribute(Attribute::Bold),
+                                    Cell::new("Impact").add_attribute(Attribute::Bold),
+                                    Cell::new("Problem").add_attribute(Attribute::Bold),
+                                ]);
                                 for (category, impact, problem) in
                                     crate::handlers::parse_recommendation_rows(&data)
                                 {
@@ -96,14 +93,11 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
                                 );
                             } else {
                                 let mut table = Table::new();
-                                table
-                                    .load_preset(UTF8_FULL)
-                                    .apply_modifier(UTF8_ROUND_CORNERS)
-                                    .set_header(vec![
-                                        Cell::new("Resource").add_attribute(Attribute::Bold),
-                                        Cell::new("Impact").add_attribute(Attribute::Bold),
-                                        Cell::new("Recommendation").add_attribute(Attribute::Bold),
-                                    ]);
+                                table.load_preset(UTF8_FULL_CONDENSED).set_header(vec![
+                                    Cell::new("Resource").add_attribute(Attribute::Bold),
+                                    Cell::new("Impact").add_attribute(Attribute::Bold),
+                                    Cell::new("Recommendation").add_attribute(Attribute::Bold),
+                                ]);
                                 for (resource, impact, problem) in
                                     crate::handlers::parse_cost_action_rows(&data)
                                 {

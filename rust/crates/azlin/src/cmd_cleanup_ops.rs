@@ -1,7 +1,7 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::{Context, Result};
-use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Attribute, Cell, Table};
+use comfy_table::{presets::UTF8_FULL_CONDENSED, Attribute, Cell, Table};
 use dialoguer::Confirm;
 
 pub(crate) fn handle_cleanup(
@@ -133,15 +133,12 @@ pub(crate) fn handle_cleanup(
     }
 
     let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .apply_modifier(UTF8_ROUND_CORNERS)
-        .set_header(vec![
-            Cell::new("Type").add_attribute(Attribute::Bold),
-            Cell::new("Name").add_attribute(Attribute::Bold),
-            Cell::new("Resource Group").add_attribute(Attribute::Bold),
-            Cell::new("Est. Cost/mo").add_attribute(Attribute::Bold),
-        ]);
+    table.load_preset(UTF8_FULL_CONDENSED).set_header(vec![
+        Cell::new("Type").add_attribute(Attribute::Bold),
+        Cell::new("Name").add_attribute(Attribute::Bold),
+        Cell::new("Resource Group").add_attribute(Attribute::Bold),
+        Cell::new("Est. Cost/mo").add_attribute(Attribute::Bold),
+    ]);
     for r in &all_orphans {
         table.add_row(vec![
             Cell::new(format!("{}", r.resource_type)),

@@ -4,7 +4,8 @@
 use anyhow::Result;
 use azlin_core::models::VmInfo;
 use comfy_table::{
-    modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Attribute, Cell, Color, Table,
+    presets::UTF8_FULL_CONDENSED, Attribute, Cell, CellAlignment, Color, ColumnConstraint, Table,
+    Width,
 };
 use std::collections::HashMap;
 
@@ -161,11 +162,48 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData, headers: &[&str]) {
     }
 }
 
+/// Set a maximum width constraint on a table column.
+fn set_col_max(table: &mut Table, idx: usize, max: u16) {
+    if let Some(col) = table.column_mut(idx) {
+        col.set_constraint(ColumnConstraint::UpperBoundary(Width::Fixed(max)));
+    }
+}
+
+/// Format tmux sessions with attached/detached coloring.
+/// Input format from `tmux list-sessions -F '#{session_name}:#{session_attached}'`
+/// e.g. ["main:1", "build:0"] → "main" (bold), "build" (dim)
+fn format_tmux_colored(sessions: &[String], max_show: usize) -> String {
+    if sessions.is_empty() {
+        return "-".to_string();
+    }
+    let bold = console::Style::new().white().bold();
+    let dim = console::Style::new().dim();
+    let shown: Vec<String> = sessions
+        .iter()
+        .take(max_show)
+        .map(|s| {
+            if let Some((name, attached)) = s.rsplit_once(':') {
+                if attached == "1" {
+                    bold.apply_to(name).to_string()
+                } else {
+                    dim.apply_to(name).to_string()
+                }
+            } else {
+                // No colon — legacy format, show as-is
+                s.clone()
+            }
+        })
+        .collect();
+    let mut result = shown.join(", ");
+    if sessions.len() > max_show {
+        result.push_str(&format!(" (+{} more)", sessions.len() - max_show));
+    }
+    result
+}
+
 fn render_table(cfg: &ListRenderConfig, data: &ListRenderData, headers: &[&str]) {
     let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .apply_modifier(UTF8_ROUND_CORNERS);
+    table.load_preset(UTF8_FULL_CONDENSED);
     let header_cells: Vec<Cell> = headers
         .iter()
         .map(|h| Cell::new(h).add_attribute(Attribute::Bold))
@@ -181,6 +219,44 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData, headers: &[&str])
         table.set_width(term_width);
     }
 
+    // Set column constraints matching Python's explicit widths.
+    // Column indices depend on which optional columns are present.
+    let mut col_idx = 0usize;
+    // Session
+    set_col_max(&mut table, col_idx, if cfg.compact { 12 } else { 14 });
+    col_idx += 1;
+    // Tmux (optional)
+    if cfg.show_tmux_col {
+        set_col_max(&mut table, col_idx, if cfg.compact { 20 } else { 25 });
+        col_idx += 1;
+    }
+    // VM Name (optional, wide only)
+    if cfg.wide {
+        col_idx += 1; // no constraint — let it expand
+    }
+    // OS
+    set_col_max(&mut table, col_idx, if cfg.compact { 12 } else { 18 });
+    col_idx += 1;
+    // Status
+    set_col_max(&mut table, col_idx, 8);
+    col_idx += 1;
+    // IP
+    set_col_max(&mut table, col_idx, 18);
+    col_idx += 1;
+    // Region
+    set_col_max(&mut table, col_idx, if cfg.compact { 6 } else { 16 });
+    col_idx += 1;
+    // SKU (optional, wide only)
+    if cfg.wide {
+        set_col_max(&mut table, col_idx, 15);
+        col_idx += 1;
+    }
+    // CPU
+    set_col_max(&mut table, col_idx, 4);
+    col_idx += 1;
+    // Mem
+    set_col_max(&mut table, col_idx, 7);
+
     for vm in data.vms {
         let session = vm
             .tags
@@ -190,7 +266,7 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData, headers: &[&str])
         let tmux = data
             .tmux_sessions
             .get(&vm.name)
-            .map(|s| crate::display_helpers::format_tmux_sessions(s, 3))
+            .map(|s| format_tmux_colored(s, 3))
             .unwrap_or_else(|| "-".to_string());
         let ip_display = crate::display_helpers::format_ip_display(
             vm.public_ip.as_deref(),
@@ -227,8 +303,12 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData, headers: &[&str])
             row.push(Cell::new(&vm.vm_size));
         }
         row.extend_from_slice(&[
-            Cell::new(&cpu).fg(Color::Grey),
-            Cell::new(&mem).fg(Color::Grey),
+            Cell::new(&cpu)
+                .fg(Color::Grey)
+                .set_alignment(CellAlignment::Right),
+            Cell::new(&mem)
+                .fg(Color::Grey)
+                .set_alignment(CellAlignment::Right),
         ]);
         if cfg.with_latency {
             let lat = data

@@ -119,9 +119,7 @@ pub(crate) async fn handle_vm_new(
         println!("VM '{}' created successfully!", vm.name);
 
         let mut table = Table::new();
-        table
-            .load_preset(UTF8_FULL)
-            .apply_modifier(UTF8_ROUND_CORNERS);
+        table.load_preset(UTF8_FULL_CONDENSED);
         table.set_header(vec!["Property", "Value"]);
         table.add_row(vec!["Name", &vm.name]);
         table.add_row(vec!["Resource Group", &rg]);

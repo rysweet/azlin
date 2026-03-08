@@ -81,8 +81,7 @@ pub(crate) fn handle_storage_list(resource_group: Option<String>) -> Result<()> 
         } else {
             let mut table = Table::new();
             table
-                .load_preset(UTF8_FULL)
-                .apply_modifier(UTF8_ROUND_CORNERS)
+                .load_preset(UTF8_FULL_CONDENSED)
                 .set_header(vec!["Name", "Location", "Kind", "SKU", "State"]);
             for acct in &accounts {
                 table.add_row(crate::storage_helpers::storage_account_row(acct));
