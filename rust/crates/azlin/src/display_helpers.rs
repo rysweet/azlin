@@ -11,6 +11,8 @@ pub fn config_value_display(v: &serde_json::Value) -> String {
 
 /// Truncate a VM name to `max_len` characters, appending "..." if truncated.
 /// Returns the name unchanged if it fits within `max_len`.
+/// Used by JSON/CSV renderers and tests; table renderer uses its own `trunc()`.
+#[allow(dead_code)]
 pub fn truncate_vm_name(name: &str, max_len: usize) -> String {
     if name.len() > max_len && max_len > 3 {
         let truncated: String = name.chars().take(max_len.saturating_sub(3)).collect();

@@ -101,7 +101,7 @@ fn border_line(widths: &[usize], left: char, mid: char, right: char, fill: char)
 /// Render a single row with box-drawing borders.
 fn render_row(cells: &[String], widths: &[usize]) -> String {
     let mut line = String::from("│");
-    for (i, (cell, w)) in cells.iter().zip(widths.iter()).enumerate() {
+    for (i, (cell, _w)) in cells.iter().zip(widths.iter()).enumerate() {
         line.push(' ');
         // Cell is already exactly *w chars (padded/truncated by trunc/trunc_right)
         line.push_str(cell);
