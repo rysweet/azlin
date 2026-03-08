@@ -1,5 +1,7 @@
 # Using azlin with uv
 
+> **Note**: This document covers the Python packaging of azlin via uv/uvx. As of v2.3.0-rust, the primary azlin binary is written in Rust and can be downloaded directly from [GitHub Releases](https://github.com/rysweet/azlin/releases/tag/v2.3.0-rust). When installed via uvx, the Python package auto-routes to the Rust binary. Use `azlin-py` to run the Python CLI directly.
+
 azlin is now configured as a `uv` project for ultra-fast dependency management and execution.
 
 ## Installation Methods

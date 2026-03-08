@@ -5,6 +5,18 @@ All notable changes to azlin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0-rust] - 2026-03-08
+
+### Rust Rewrite
+- Complete rewrite from Python to Rust -- 75-85x faster startup
+- 2,536 tests, 53 commands, 154 subcommand variants
+- Pre-built binaries for Linux, macOS, Windows
+- `azlin self-update` for automatic updates
+- `azlin-py` preserves access to Python CLI
+- Migration bridge: existing uvx alias auto-routes to Rust binary
+- Custom table renderer with guaranteed single-line truncation
+- Non-TTY safe: all confirmation prompts handle piped input
+
 ## [2.3.0] - 2026-02-27
 
 ### Major Features

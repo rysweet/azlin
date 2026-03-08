@@ -2,9 +2,9 @@
 
 **[Full Documentation](https://rysweet.github.io/azlin/)** | **[Quick Start](https://rysweet.github.io/azlin/getting-started/quickstart/)** | **[Discussions](https://github.com/rysweet/azlin/discussions)**
 
-**Version:** 2.3.0
-**Last Updated:** 2026-02-27
-**[Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.3.0)** | **[Changelog](CHANGELOG.md)** | **[Latest Release](https://github.com/rysweet/azlin/releases/tag/v2.3.0)**
+**Version:** 2.3.0-rust
+**Last Updated:** 2026-03-08
+**[Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.3.0-rust)** | **[Changelog](CHANGELOG.md)** | **[Latest Release](https://github.com/rysweet/azlin/releases/tag/v2.3.0-rust)**
 
 **One command to create a fully-equipped development VM on Azure**
 
@@ -53,7 +53,16 @@ The Azlin Mobile PWA brings full VM management to your mobile device. Install it
 
 **[PWA Documentation](docs/pwa/README.md)** | **[Getting Started](docs/pwa/getting-started.md)** | **[Architecture](docs/pwa/architecture.md)**
 
-## What's New in v2.3.0
+## What's New in v2.3.0-rust
+
+### Rust Rewrite -- 75-85x Faster
+
+azlin has been completely rewritten from Python to Rust. The `azlin` command now routes through a thin Python bridge to a native Rust binary, delivering 75-85x faster startup. Everything works the same -- all 53 commands, 154 subcommand variants, 2,536 tests passing.
+
+- **Pre-built binaries** for Linux (x86_64, aarch64), macOS (x86_64, aarch64), and Windows (x86_64)
+- **Self-update**: `azlin self-update` downloads the latest binary from GitHub Releases
+- **Python CLI preserved**: Run `azlin-py` to use the original Python implementation directly
+- **Migration bridge**: Existing `uvx` installs auto-route to the Rust binary
 
 ### VM Health Dashboard
 Monitor all your VMs with Four Golden Signals:
@@ -87,7 +96,7 @@ Address VMs with `hostname:session_name` syntax across all commands.
 - Batch storage quota queries eliminate N+1 Azure CLI calls
 - Per-VM incremental cache refresh
 
-See [Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.3.0) and [Changelog](CHANGELOG.md) for the complete list.
+See [Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.3.0-rust) and [Changelog](CHANGELOG.md) for the complete list.
 
 ## Development Tools Installed
 
@@ -174,7 +183,7 @@ azlin list --help
 
 ### Option 1: Zero-Install with uvx (Recommended for Trying)
 
-Run azlin instantly without installation using [uvx](https://docs.astral.sh/uv/concepts/tools/):
+Run azlin instantly without installation using [uvx](https://docs.astral.sh/uv/concepts/tools/). The Python package auto-migrates to the Rust binary on first run:
 
 ```bash
 # Run directly from GitHub (no installation needed)
@@ -196,21 +205,61 @@ alias azlin-git='uvx --from git+https://github.com/rysweet/azlin azlin'
 azlin-git list
 ```
 
-### Option 2: Install with uv (Recommended)
+### Option 2: Download Pre-Built Binary (Fastest)
+
+Download the native Rust binary directly from [GitHub Releases](https://github.com/rysweet/azlin/releases/tag/v2.3.0-rust):
 
 ```bash
-# Install azlin using uv (fastest)
-uv tool install azlin
+# Linux x86_64
+curl -sSL https://github.com/rysweet/azlin/releases/download/v2.3.0-rust/azlin-linux-x86_64 -o ~/.local/bin/azlin && chmod +x ~/.local/bin/azlin
 
-# Or install from GitHub
-uv tool install git+https://github.com/rysweet/azlin
+# Linux aarch64
+curl -sSL https://github.com/rysweet/azlin/releases/download/v2.3.0-rust/azlin-linux-aarch64 -o ~/.local/bin/azlin && chmod +x ~/.local/bin/azlin
 
-# Now use azlin commands
-azlin list
-azlin --help
+# macOS x86_64
+curl -sSL https://github.com/rysweet/azlin/releases/download/v2.3.0-rust/azlin-macos-x86_64 -o /usr/local/bin/azlin && chmod +x /usr/local/bin/azlin
+
+# macOS aarch64 (Apple Silicon)
+curl -sSL https://github.com/rysweet/azlin/releases/download/v2.3.0-rust/azlin-macos-aarch64 -o /usr/local/bin/azlin && chmod +x /usr/local/bin/azlin
 ```
 
-### Option 3: Install with pip
+### Option 3: Build from Source with Cargo
+
+```bash
+# Install from the workspace
+cd rust && cargo install --path crates/azlin
+
+# Or build locally
+cd rust && cargo build --release
+# Binary at rust/target/release/azlin
+```
+
+### Self-Update
+
+Keep azlin up to date with a single command:
+
+```bash
+azlin self-update
+```
+
+This downloads the latest binary from [GitHub Releases](https://github.com/rysweet/azlin/releases/tag/v2.3.0-rust) and replaces the current binary in place.
+
+### Python Version
+
+The original Python CLI is still available as `azlin-py`:
+
+```bash
+# Use the Python CLI directly
+azlin-py list
+azlin-py new --name my-vm
+
+# Install Python version with pip/uv
+uv tool install git+https://github.com/rysweet/azlin
+```
+
+When you run `azlin` (without `-py`), it routes through the Python bridge to the Rust binary for 75-85x faster startup.
+
+### Option 4: Install with pip (Python version)
 
 ```bash
 # Create and activate virtual environment

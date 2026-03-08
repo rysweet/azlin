@@ -1,21 +1,24 @@
 # azlin - Quick Reference Guide
 
-**Version:** 2.0.0
-**Last Updated:** 2025-10-27
+**Version:** 2.3.0-rust
+**Last Updated:** 2026-03-08
 
 ---
 
 ## Installation
 
 ```bash
-# Install azlin using uv (recommended)
-uv tool install azlin
+# Option 1: Download pre-built Rust binary (fastest)
+curl -sSL https://github.com/rysweet/azlin/releases/download/v2.3.0-rust/azlin-linux-x86_64 -o ~/.local/bin/azlin && chmod +x ~/.local/bin/azlin
 
-# Or install from GitHub
-uv tool install git+https://github.com/rysweet/azlin
+# Option 2: Run via uvx (auto-migrates to Rust)
+uvx --from git+https://github.com/rysweet/azlin azlin --help
 
-# Or use pip
-pip install azlin
+# Option 3: Build from source
+cd rust && cargo install --path crates/azlin
+
+# Self-update to latest version
+azlin self-update
 ```
 
 ---
@@ -616,9 +619,9 @@ azlin <command> --help
 
 ## Version Information
 
-**Current Version:** 2.0.0
-**Last Updated:** 2025-10-27
-**Status:** Production Ready
+**Current Version:** 2.3.0-rust
+**Last Updated:** 2026-03-08
+**Status:** Production Ready (Rust rewrite)
 
 **Key Features:**
 - Natural language commands with AI

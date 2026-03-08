@@ -1,8 +1,10 @@
 # AI Agent Developer Guide
 
+> **Note**: This guide describes the Python codebase (`src/azlin/`). As of v2.3.0-rust, the primary implementation is in Rust (`rust/crates/`). The Python code is still used for the `azlin-py` command and as the migration bridge. For Rust development, see the `rust/` directory and run `cd rust && cargo build --workspace` to build, `RUST_MIN_STACK=8388608 cargo test --workspace` to test.
+
 **Target Audience**: AI agents working on azlin development
 **Purpose**: Comprehensive guide to understanding and contributing to azlin
-**Last Updated**: 2025-10-15
+**Last Updated**: 2026-03-08
 
 ---
 
