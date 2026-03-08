@@ -1,7 +1,6 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::Result;
-use dialoguer::Confirm;
 
 pub(crate) async fn dispatch(
     command: azlin_cli::Commands,
@@ -15,19 +14,15 @@ pub(crate) async fn dispatch(
             azlin_cli::BatchAction::Stop {
                 resource_group,
                 tag,
-                confirm,
+                yes,
                 ..
             } => {
                 let rg = resolve_resource_group(resource_group)?;
                 let filter_msg = crate::batch_helpers::resolve_filter_display(tag.as_deref());
-                if !confirm {
+                {
                     let prompt =
                         crate::batch_helpers::build_confirmation_prompt("Stop", filter_msg, &rg);
-                    let ok = Confirm::new()
-                        .with_prompt(prompt)
-                        .default(false)
-                        .interact()?;
-                    if !ok {
+                    if !safe_confirm(&prompt, yes)? {
                         println!("Cancelled.");
                         return Ok(());
                     }
@@ -56,19 +51,15 @@ pub(crate) async fn dispatch(
             azlin_cli::BatchAction::Start {
                 resource_group,
                 tag,
-                confirm,
+                yes,
                 ..
             } => {
                 let rg = resolve_resource_group(resource_group)?;
                 let filter_msg = crate::batch_helpers::resolve_filter_display(tag.as_deref());
-                if !confirm {
+                {
                     let prompt =
                         crate::batch_helpers::build_confirmation_prompt("Start", filter_msg, &rg);
-                    let ok = Confirm::new()
-                        .with_prompt(prompt)
-                        .default(false)
-                        .interact()?;
-                    if !ok {
+                    if !safe_confirm(&prompt, yes)? {
                         println!("Cancelled.");
                         return Ok(());
                     }

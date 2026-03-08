@@ -1,24 +1,21 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::Result;
-use dialoguer::Confirm;
+
 pub(crate) async fn handle_snapshot_delete(
     snapshot_name: &str,
     force: bool,
     rg: &str,
 ) -> Result<()> {
-    if !force {
-        let confirmed = Confirm::new()
-            .with_prompt(format!(
-                "Delete snapshot '{}'? This cannot be undone.",
-                snapshot_name
-            ))
-            .default(false)
-            .interact()?;
-        if !confirmed {
-            println!("Cancelled.");
-            return Ok(());
-        }
+    if !safe_confirm(
+        &format!(
+            "Delete snapshot '{}'? This cannot be undone.",
+            snapshot_name
+        ),
+        force,
+    )? {
+        println!("Cancelled.");
+        return Ok(());
     }
 
     let pb = indicatif::ProgressBar::new_spinner();

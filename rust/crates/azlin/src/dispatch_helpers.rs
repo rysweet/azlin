@@ -1,6 +1,30 @@
+use std::io::IsTerminal;
+
 use anyhow::{Context, Result};
 
 use super::*;
+
+/// Prompt the user for confirmation, handling non-TTY stdin gracefully.
+///
+/// - If `force` is true, returns `Ok(true)` immediately (skip prompt).
+/// - If stdin is a TTY, shows a dialoguer confirmation prompt.
+/// - If stdin is NOT a TTY (piped, cron, CI), returns an error advising
+///   the caller to use `--yes` or `--force`.
+pub(crate) fn safe_confirm(prompt: &str, force: bool) -> Result<bool> {
+    if force {
+        return Ok(true);
+    }
+    if !std::io::stdin().is_terminal() {
+        anyhow::bail!(
+            "Confirmation required but stdin is not a terminal. \
+             Use --yes or --force to skip."
+        );
+    }
+    Ok(dialoguer::Confirm::new()
+        .with_prompt(prompt)
+        .default(false)
+        .interact()?)
+}
 
 pub(crate) fn create_auth() -> Result<azlin_azure::AzureAuth> {
     azlin_azure::AzureAuth::new().map_err(|e| {
@@ -178,4 +202,45 @@ pub(crate) async fn resolve_vm_targets(
         anyhow::bail!("No running VMs found. Use --vm or --ip to target a specific VM.");
     }
     Ok(targets)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn safe_confirm_force_true_returns_ok_true() {
+        // When force=true, should always return Ok(true) regardless of TTY state
+        assert_eq!(safe_confirm("Delete everything?", true).unwrap(), true);
+    }
+
+    #[test]
+    fn safe_confirm_force_true_ignores_prompt() {
+        // Even with an empty prompt, force=true should succeed
+        assert_eq!(safe_confirm("", true).unwrap(), true);
+    }
+
+    #[test]
+    fn safe_confirm_non_tty_returns_error() {
+        // In test environment, stdin is not a TTY, so force=false should error
+        let result = safe_confirm("Proceed?", false);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("stdin is not a terminal"),
+            "Expected TTY error, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn safe_confirm_non_tty_error_suggests_flags() {
+        let result = safe_confirm("Proceed?", false);
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("--yes") || err_msg.contains("--force"),
+            "Error should suggest --yes or --force, got: {}",
+            err_msg
+        );
+    }
 }

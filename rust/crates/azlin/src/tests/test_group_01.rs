@@ -195,7 +195,7 @@ fn test_home_dir_returns_path() {
 
 #[test]
 fn test_new_table_creates_table_with_headers() {
-    let table = crate::new_table(&["Name", "Value", "Status"]);
+    let table = crate::new_table(&["Name", "Value", "Status"], &[10, 10, 10]);
     let rendered = table.to_string();
     assert!(rendered.contains("Name"), "should contain header 'Name'");
     assert!(rendered.contains("Value"), "should contain header 'Value'");
@@ -208,7 +208,7 @@ fn test_new_table_creates_table_with_headers() {
 #[test]
 fn test_new_table_empty_headers() {
     // Should not panic with empty headers
-    let table = crate::new_table(&[]);
+    let table = crate::new_table(&[], &[]);
     let _rendered = table.to_string();
 }
 

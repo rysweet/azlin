@@ -1,7 +1,6 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::Result;
-use dialoguer::Confirm;
 
 pub(crate) async fn dispatch(
     command: azlin_cli::Commands,
@@ -121,18 +120,15 @@ pub(crate) async fn dispatch(
                 ip,
                 ..
             } => {
-                if !force {
-                    let confirmed = Confirm::new()
-                        .with_prompt(format!(
-                            "Clear all custom env vars on VM '{}'? This cannot be undone.",
-                            vm_identifier
-                        ))
-                        .default(false)
-                        .interact()?;
-                    if !confirmed {
-                        println!("Cancelled.");
-                        return Ok(());
-                    }
+                if !safe_confirm(
+                    &format!(
+                        "Clear all custom env vars on VM '{}'? This cannot be undone.",
+                        vm_identifier
+                    ),
+                    force,
+                )? {
+                    println!("Cancelled.");
+                    return Ok(());
                 }
                 let target =
                     resolve_vm_ssh_target(&vm_identifier, ip.as_deref(), resource_group).await?;

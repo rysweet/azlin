@@ -2,7 +2,6 @@
 use super::*;
 use anyhow::{Context, Result};
 use console::Style;
-use dialoguer::Confirm;
 
 pub(crate) async fn dispatch(
     command: azlin_cli::Commands,
@@ -103,15 +102,9 @@ pub(crate) async fn dispatch(
                 if !path.exists() {
                     anyhow::bail!("Session '{}' not found.", session_name);
                 }
-                if !force {
-                    let confirmed = Confirm::new()
-                        .with_prompt(format!("Delete session '{}'?", session_name))
-                        .default(false)
-                        .interact()?;
-                    if !confirmed {
-                        println!("Cancelled.");
-                        return Ok(());
-                    }
+                if !safe_confirm(&format!("Delete session '{}'?", session_name), force)? {
+                    println!("Cancelled.");
+                    return Ok(());
                 }
                 std::fs::remove_file(&path)?;
                 println!("Deleted session '{}'.", session_name);

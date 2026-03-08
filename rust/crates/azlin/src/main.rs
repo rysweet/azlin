@@ -1,25 +1,16 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 
+// Re-exported for sub-modules that still use comfy_table via `use super::*`.
+#[allow(unused_imports)]
 use comfy_table::{presets::UTF8_FULL_CONDENSED, Attribute, Cell, Color, Table};
+#[allow(unused_imports)]
+use dialoguer::Confirm;
 
-/// Create a styled table with solid UTF8 borders and bold headers.
+/// Create a styled table with box-drawing borders and truncation.
 /// Automatically adapts width to the current terminal size.
-fn new_table(headers: &[&str]) -> Table {
-    let mut table = Table::new();
-    let term_width = crossterm::terminal::size()
-        .map(|(w, _)| w as u16)
-        .unwrap_or(120);
-    table
-        .load_preset(UTF8_FULL_CONDENSED)
-        .set_width(term_width)
-        .set_header(
-            headers
-                .iter()
-                .map(|h| Cell::new(*h).add_attribute(Attribute::Bold))
-                .collect::<Vec<_>>(),
-        );
-    table
+fn new_table(headers: &[&str], widths: &[usize]) -> table_render::SimpleTable {
+    table_render::SimpleTable::new(headers, widths)
 }
 use crossterm::{
     event::{self, Event, KeyCode},
@@ -380,46 +371,97 @@ fn collect_health_metrics(
     }
 }
 
-/// Map a threshold classification to a comfy_table Color.
-fn threshold_to_table_color(level: error_helpers::ThresholdLevel) -> Color {
+/// Apply ANSI color based on threshold level.
+fn threshold_ansi(level: error_helpers::ThresholdLevel, s: &str) -> String {
     match level {
-        error_helpers::ThresholdLevel::Normal => Color::Green,
-        error_helpers::ThresholdLevel::Warning => Color::Yellow,
-        error_helpers::ThresholdLevel::Critical => Color::Red,
+        error_helpers::ThresholdLevel::Normal => format!("\x1b[32m{}\x1b[0m", s),
+        error_helpers::ThresholdLevel::Warning => format!("\x1b[33m{}\x1b[0m", s),
+        error_helpers::ThresholdLevel::Critical => format!("\x1b[31m{}\x1b[0m", s),
     }
 }
 
 /// Render a health metrics table.
 fn render_health_table(metrics: &[HealthMetrics]) {
-    let mut table = new_table(&[
-        "VM Name", "State", "Agent", "Errors", "CPU %", "Memory %", "Disk %",
-    ]);
+    let mut table = new_table(
+        &[
+            "VM Name", "State", "Agent", "Errors", "CPU %", "Memory %", "Disk %",
+        ],
+        &[20, 10, 10, 6, 6, 8, 6],
+    );
 
     for m in metrics {
-        let state_color =
-            threshold_to_table_color(error_helpers::classify_power_state(&m.power_state));
-        let agent_color =
-            threshold_to_table_color(error_helpers::classify_agent_level(&m.agent_status));
-        let error_color =
-            threshold_to_table_color(error_helpers::classify_error_count(m.error_count));
-        let cpu_color =
-            threshold_to_table_color(error_helpers::classify_metric_70_90(m.cpu_percent));
-        let mem_color =
-            threshold_to_table_color(error_helpers::classify_metric_70_90(m.mem_percent));
-        let disk_color =
-            threshold_to_table_color(error_helpers::classify_metric_70_90(m.disk_percent));
-
+        // Pass plain text to table for correct width calculation.
+        // Colors are applied per-line after rendering.
         table.add_row(vec![
-            Cell::new(&m.vm_name),
-            Cell::new(&m.power_state).fg(state_color),
-            Cell::new(&m.agent_status).fg(agent_color),
-            Cell::new(m.error_count.to_string()).fg(error_color),
-            Cell::new(format!("{:.1}", m.cpu_percent)).fg(cpu_color),
-            Cell::new(format!("{:.1}", m.mem_percent)).fg(mem_color),
-            Cell::new(format!("{:.1}", m.disk_percent)).fg(disk_color),
+            m.vm_name.clone(),
+            m.power_state.clone(),
+            m.agent_status.clone(),
+            m.error_count.to_string(),
+            format!("{:.1}", m.cpu_percent),
+            format!("{:.1}", m.mem_percent),
+            format!("{:.1}", m.disk_percent),
         ]);
     }
-    println!("{table}");
+
+    // Render table as plain text, then colorize each data row
+    let rendered = format!("{table}");
+    for (line_idx, line) in rendered.lines().enumerate() {
+        if line_idx < 3 || metrics.is_empty() {
+            // Header rows (top border, header, separator) — print as-is
+            println!("{line}");
+        } else {
+            let data_idx = line_idx - 3;
+            if data_idx < metrics.len() {
+                // Color individual cell values in the rendered line
+                let m = &metrics[data_idx];
+                let mut colored = line.to_string();
+                // Replace plain values with colored versions (rightmost first to preserve positions)
+                let replacements = [
+                    (
+                        &format!("{:.1}", m.disk_percent),
+                        error_helpers::classify_metric_70_90(m.disk_percent),
+                    ),
+                    (
+                        &format!("{:.1}", m.mem_percent),
+                        error_helpers::classify_metric_70_90(m.mem_percent),
+                    ),
+                    (
+                        &format!("{:.1}", m.cpu_percent),
+                        error_helpers::classify_metric_70_90(m.cpu_percent),
+                    ),
+                    (
+                        &m.error_count.to_string(),
+                        error_helpers::classify_error_count(m.error_count),
+                    ),
+                    (
+                        &m.agent_status,
+                        error_helpers::classify_agent_level(&m.agent_status),
+                    ),
+                    (
+                        &m.power_state,
+                        error_helpers::classify_power_state(&m.power_state),
+                    ),
+                ];
+                for (val, level) in &replacements {
+                    if !val.is_empty() {
+                        let ansi = threshold_ansi(*level, val);
+                        // Replace last occurrence to avoid matching substrings in VM name
+                        if let Some(pos) = colored.rfind(val.as_str()) {
+                            colored = format!(
+                                "{}{}{}",
+                                &colored[..pos],
+                                ansi,
+                                &colored[pos + val.len()..]
+                            );
+                        }
+                    }
+                }
+                println!("{colored}");
+            } else {
+                println!("{line}");
+            }
+        }
+    }
     println!();
     println!(
         "Signals: Latency=Agent | Traffic=State | Errors=Agent fails | Saturation=CPU/Mem/Disk"
@@ -616,12 +658,7 @@ fn run_on_fleet(vms: &[(String, String, String)], command: &str, show_output: bo
         })
         .collect();
 
-    let mut table = Table::new();
-    table.load_preset(UTF8_FULL_CONDENSED).set_header(vec![
-        Cell::new("VM").add_attribute(Attribute::Bold),
-        Cell::new("Status").add_attribute(Attribute::Bold),
-        Cell::new("Output").add_attribute(Attribute::Bold),
-    ]);
+    let mut table = new_table(&["VM", "Status", "Output"], &[20, 8, 60]);
 
     for (i, (name, ip, user)) in vms.iter().enumerate() {
         bars[i].set_message(format!("running: {}", command));
@@ -633,13 +670,13 @@ fn run_on_fleet(vms: &[(String, String, String)], command: &str, show_output: bo
         bars[i].finish_with_message(fleet_helpers::finish_message(code, &stdout, &stderr));
 
         let (status, ok) = fleet_helpers::classify_result(code);
-        let status_color = if ok { Color::Green } else { Color::Red };
+        let status_str = if ok {
+            format!("\x1b[32m{}\x1b[0m", status)
+        } else {
+            format!("\x1b[31m{}\x1b[0m", status)
+        };
         let output_text = fleet_helpers::format_output_text(code, &stdout, &stderr, show_output);
-        table.add_row(vec![
-            Cell::new(name),
-            Cell::new(status).fg(status_color),
-            Cell::new(&output_text),
-        ]);
+        table.add_row(vec![name.to_string(), status_str, output_text]);
     }
     println!("{table}");
 }
@@ -682,7 +719,7 @@ async fn async_main() -> Result<()> {
 // Re-export common utilities from dispatch_helpers for cmd_* modules via `use super::*`.
 pub(crate) use dispatch_helpers::{
     create_auth, home_dir, resolve_resource_group, resolve_vm_ssh_target, resolve_vm_targets,
-    shell_escape,
+    safe_confirm, shell_escape,
 };
 
 mod handlers;
@@ -902,6 +939,7 @@ mod cmd_vm;
 mod cmd_vm_ops;
 mod cmd_vm_ops2;
 mod lifecycle_helpers;
+mod table_render;
 
 #[cfg(test)]
 #[allow(deprecated)]

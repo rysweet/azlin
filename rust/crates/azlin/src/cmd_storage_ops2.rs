@@ -1,7 +1,7 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::Result;
-use dialoguer::Confirm;
+
 pub(crate) fn handle_storage_delete(
     name: &str,
     resource_group: Option<String>,
@@ -9,18 +9,12 @@ pub(crate) fn handle_storage_delete(
 ) -> Result<()> {
     let rg = resolve_resource_group(resource_group)?;
 
-    if !force {
-        let confirmed = Confirm::new()
-            .with_prompt(format!(
-                "Delete storage account '{}'? This cannot be undone.",
-                name
-            ))
-            .default(false)
-            .interact()?;
-        if !confirmed {
-            println!("Cancelled.");
-            return Ok(());
-        }
+    if !safe_confirm(
+        &format!("Delete storage account '{}'? This cannot be undone.", name),
+        force,
+    )? {
+        println!("Cancelled.");
+        return Ok(());
     }
 
     let pb = indicatif::ProgressBar::new_spinner();

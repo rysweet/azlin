@@ -62,7 +62,7 @@ fn test_stop_action_labels_variants() {
 
 #[test]
 fn test_new_table_with_data() {
-    let table = crate::new_table(&["Col1", "Col2"]);
+    let table = crate::new_table(&["Col1", "Col2"], &[10, 10]);
     let output = format!("{table}");
     assert!(output.contains("Col1"));
     assert!(output.contains("Col2"));

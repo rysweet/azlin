@@ -1,7 +1,6 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::{Context, Result};
-use dialoguer::Confirm;
 
 pub(crate) async fn handle_ask(
     query: Option<String>,
@@ -66,15 +65,9 @@ pub(crate) async fn handle_do(
         return Ok(());
     }
 
-    if !yes {
-        let confirmed = Confirm::new()
-            .with_prompt("Execute these commands?")
-            .default(false)
-            .interact()?;
-        if !confirmed {
-            println!("Cancelled.");
-            return Ok(());
-        }
+    if !safe_confirm("Execute these commands?", yes)? {
+        println!("Cancelled.");
+        return Ok(());
     }
 
     for cmd in &commands {
@@ -118,7 +111,7 @@ pub(crate) async fn handle_do(
     Ok(())
 }
 
-pub(crate) async fn handle_doit_deploy(request: &str, dry_run: bool) -> Result<()> {
+pub(crate) async fn handle_doit_deploy(request: &str, dry_run: bool, yes: bool) -> Result<()> {
     let client = azlin_ai::AnthropicClient::new()?;
 
     let system_context = "You are azlin, an Azure VM fleet management tool. \
@@ -139,11 +132,7 @@ pub(crate) async fn handle_doit_deploy(request: &str, dry_run: bool) -> Result<(
         return Ok(());
     }
 
-    let confirmed = Confirm::new()
-        .with_prompt("Execute this plan?")
-        .default(false)
-        .interact()?;
-    if !confirmed {
+    if !safe_confirm("Execute this plan?", yes)? {
         println!("Cancelled.");
         return Ok(());
     }

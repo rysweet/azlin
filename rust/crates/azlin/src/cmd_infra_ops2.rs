@@ -1,7 +1,6 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::Result;
-use dialoguer::Confirm;
 
 pub(crate) async fn handle_compose_action(
     subcommand: &str,
@@ -111,15 +110,9 @@ pub(crate) fn handle_template_delete(
     if crate::templates::load_template(azlin_dir, name).is_err() {
         anyhow::bail!("Template '{}' not found.", name);
     }
-    if !force {
-        let ok = Confirm::new()
-            .with_prompt(format!("Delete template '{}'?", name))
-            .default(false)
-            .interact()?;
-        if !ok {
-            println!("Cancelled.");
-            return Ok(());
-        }
+    if !safe_confirm(&format!("Delete template '{}'?", name), force)? {
+        println!("Cancelled.");
+        return Ok(());
     }
     crate::templates::delete_template(azlin_dir, name)?;
     println!("Deleted template '{}'", name);

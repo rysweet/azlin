@@ -1,7 +1,6 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::Result;
-use dialoguer::Confirm;
 
 pub(crate) fn handle_doit_status(session: Option<String>) -> Result<()> {
     let rg = resolve_resource_group(None)?;
@@ -111,15 +110,9 @@ pub(crate) fn handle_doit_cleanup(
         return Ok(());
     }
 
-    if !force {
-        let confirmed = Confirm::new()
-            .with_prompt("Delete these resources?")
-            .default(false)
-            .interact()?;
-        if !confirmed {
-            println!("Cancelled.");
-            return Ok(());
-        }
+    if !safe_confirm("Delete these resources?", force)? {
+        println!("Cancelled.");
+        return Ok(());
     }
 
     for vm in &to_delete {

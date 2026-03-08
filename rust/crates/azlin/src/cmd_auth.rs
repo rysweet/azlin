@@ -2,7 +2,6 @@
 use super::*;
 use anyhow::{Context, Result};
 use console::Style;
-use dialoguer::Confirm;
 
 pub(crate) async fn dispatch(
     command: azlin_cli::Commands,
@@ -163,15 +162,9 @@ pub(crate) async fn dispatch(
                         anyhow::bail!("Profile '{}' not found.", profile);
                     }
 
-                    if !yes {
-                        let confirmed = Confirm::new()
-                            .with_prompt(format!("Remove profile '{}'?", profile))
-                            .default(false)
-                            .interact()?;
-                        if !confirmed {
-                            println!("Cancelled.");
-                            return Ok(());
-                        }
+                    if !safe_confirm(&format!("Remove profile '{}'?", profile), yes)? {
+                        println!("Cancelled.");
+                        return Ok(());
                     }
 
                     std::fs::remove_file(&profile_path)?;

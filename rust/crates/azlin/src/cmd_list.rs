@@ -176,18 +176,15 @@ pub(crate) async fn dispatch(
             if matches!(output, azlin_cli::OutputFormat::Table) && !effective_rg.is_empty() {
                 if let Ok(bastions) = crate::list_helpers::detect_bastion_hosts(effective_rg) {
                     if !bastions.is_empty() {
-                        let mut bastion_table = Table::new();
-                        bastion_table.load_preset(UTF8_FULL_CONDENSED);
-                        bastion_table.set_header(vec![
-                            Cell::new("Name").add_attribute(Attribute::Bold),
-                            Cell::new("Location").add_attribute(Attribute::Bold),
-                            Cell::new("SKU").add_attribute(Attribute::Bold),
-                        ]);
+                        let mut bastion_table = crate::table_render::SimpleTable::new(
+                            &["Name", "Location", "SKU"],
+                            &[30, 14, 15],
+                        );
                         for (name, location, sku) in &bastions {
                             bastion_table.add_row(vec![
-                                Cell::new(name),
-                                Cell::new(location),
-                                Cell::new(sku),
+                                name.clone(),
+                                location.clone(),
+                                sku.clone(),
                             ]);
                         }
                         println!("Azure Bastion Hosts");

@@ -1,7 +1,6 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::{Context, Result};
-use dialoguer::Confirm;
 
 pub(crate) async fn dispatch(
     command: azlin_cli::Commands,
@@ -102,15 +101,9 @@ pub(crate) async fn dispatch(
                     if !path.exists() {
                         anyhow::bail!("Context '{}' not found.", name);
                     }
-                    if !force {
-                        let ok = Confirm::new()
-                            .with_prompt(format!("Delete context '{}'?", name))
-                            .default(false)
-                            .interact()?;
-                        if !ok {
-                            println!("Cancelled.");
-                            return Ok(());
-                        }
+                    if !safe_confirm(&format!("Delete context '{}'?", name), force)? {
+                        println!("Cancelled.");
+                        return Ok(());
                     }
                     std::fs::remove_file(&path)?;
                     // Clear active context if it was the deleted one

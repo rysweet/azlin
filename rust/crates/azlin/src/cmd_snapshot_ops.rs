@@ -1,7 +1,6 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::Result;
-use dialoguer::Confirm;
 
 pub(crate) async fn handle_snapshot_create(vm_name: &str, rg: &str) -> Result<()> {
     let (disk_id, location) = crate::dispatch_helpers::lookup_vm_disk_info(rg, vm_name)?;
@@ -62,7 +61,10 @@ pub(crate) async fn handle_snapshot_list(vm_name: &str, rg: &str) -> Result<()> 
         if filtered.is_empty() {
             println!("No snapshots found for VM '{}'.", vm_name);
         } else {
-            let mut table = new_table(&["Name", "Disk Size (GB)", "Time Created", "State"]);
+            let mut table = new_table(
+                &["Name", "Disk Size (GB)", "Time Created", "State"],
+                &[35, 14, 22, 10],
+            );
             for snap in &filtered {
                 let row = crate::snapshot_helpers::snapshot_row(snap);
                 table.add_row(row);
@@ -85,18 +87,15 @@ pub(crate) async fn handle_snapshot_restore(
     force: bool,
     rg: &str,
 ) -> Result<()> {
-    if !force {
-        let confirmed = Confirm::new()
-            .with_prompt(format!(
-                "Restore VM '{}' from snapshot '{}'? This will replace the current disk.",
-                vm_name, snapshot_name
-            ))
-            .default(false)
-            .interact()?;
-        if !confirmed {
-            println!("Cancelled.");
-            return Ok(());
-        }
+    if !safe_confirm(
+        &format!(
+            "Restore VM '{}' from snapshot '{}'? This will replace the current disk.",
+            vm_name, snapshot_name
+        ),
+        force,
+    )? {
+        println!("Cancelled.");
+        return Ok(());
     }
 
     let pb = indicatif::ProgressBar::new_spinner();

@@ -1,3 +1,5 @@
+use std::io::IsTerminal;
+
 use anyhow::Result;
 use clap::Parser;
 
@@ -21,6 +23,10 @@ struct Args {
     /// Show plan without executing
     #[arg(long)]
     dry_run: bool,
+
+    /// Skip confirmation prompts
+    #[arg(short, long)]
+    yes: bool,
 
     /// Enable verbose output
     #[arg(short, long)]
@@ -124,13 +130,21 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    if !dialoguer::Confirm::new()
-        .with_prompt(format!("Execute {} command(s)?", commands.len()))
-        .default(false)
-        .interact()?
-    {
-        println!("Cancelled.");
-        return Ok(());
+    if !args.yes {
+        if !std::io::stdin().is_terminal() {
+            anyhow::bail!(
+                "Confirmation required but stdin is not a terminal. \
+                 Use --yes to skip."
+            );
+        }
+        if !dialoguer::Confirm::new()
+            .with_prompt(format!("Execute {} command(s)?", commands.len()))
+            .default(false)
+            .interact()?
+        {
+            println!("Cancelled.");
+            return Ok(());
+        }
     }
 
     for (i, cmd) in commands.iter().enumerate() {

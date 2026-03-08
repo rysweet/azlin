@@ -49,38 +49,7 @@ struct ColDef {
     right_align: bool,
 }
 
-/// Truncate to exactly `w` visible characters, using `…` (single char) if needed.
-fn trunc(s: &str, w: usize) -> String {
-    if w == 0 {
-        return String::new();
-    }
-    let chars: Vec<char> = s.chars().collect();
-    if chars.len() <= w {
-        // Pad to width
-        format!("{:<width$}", s, width = w)
-    } else if w <= 1 {
-        chars[..w].iter().collect()
-    } else {
-        let truncated: String = chars[..w - 1].iter().collect();
-        format!("{}…", truncated)
-    }
-}
-
-/// Right-aligned truncate.
-fn trunc_right(s: &str, w: usize) -> String {
-    if w == 0 {
-        return String::new();
-    }
-    let chars: Vec<char> = s.chars().collect();
-    if chars.len() <= w {
-        format!("{:>width$}", s, width = w)
-    } else if w <= 1 {
-        chars[..w].iter().collect()
-    } else {
-        let truncated: String = chars[..w - 1].iter().collect();
-        format!("{}…", truncated)
-    }
-}
+use crate::table_render::{trunc, trunc_right};
 
 /// Draw a horizontal border line.
 fn border_line(widths: &[usize], left: char, mid: char, right: char, fill: char) -> String {

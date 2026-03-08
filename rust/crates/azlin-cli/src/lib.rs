@@ -1464,8 +1464,8 @@ pub enum BatchAction {
         #[arg(long, default_value = "10")]
         max_workers: u32,
         /// Skip confirmation prompt
-        #[arg(long)]
-        confirm: bool,
+        #[arg(long, alias = "confirm")]
+        yes: bool,
     },
     /// Start multiple VMs
     Start {
@@ -1481,8 +1481,9 @@ pub enum BatchAction {
         config: Option<PathBuf>,
         #[arg(long, default_value = "10")]
         max_workers: u32,
-        #[arg(long)]
-        confirm: bool,
+        /// Skip confirmation prompt
+        #[arg(long, alias = "confirm")]
+        yes: bool,
     },
     /// Execute command on multiple VMs
     Command {
@@ -1990,6 +1991,9 @@ pub enum DoitAction {
         /// Reduce output verbosity
         #[arg(short, long)]
         quiet: bool,
+        /// Skip confirmation prompts
+        #[arg(short, long)]
+        yes: bool,
     },
     /// Check deployment status
     Status {
@@ -3604,11 +3608,11 @@ mod tests {
     fn test_batch_stop() {
         let cli = Cli::parse_from(["azlin", "batch", "stop", "--all", "--confirm"]);
         if let Commands::Batch {
-            action: BatchAction::Stop { all, confirm, .. },
+            action: BatchAction::Stop { all, yes, .. },
         } = cli.command
         {
             assert!(all);
-            assert!(confirm);
+            assert!(yes);
         } else {
             panic!("Expected Batch Stop");
         }

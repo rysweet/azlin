@@ -2,7 +2,6 @@
 use super::*;
 use anyhow::{Context, Result};
 use comfy_table::{presets::UTF8_FULL_CONDENSED, Attribute, Cell, Table};
-use dialoguer::Confirm;
 
 pub(crate) fn handle_cleanup(
     resource_group: Option<String>,
@@ -155,19 +154,16 @@ pub(crate) fn handle_cleanup(
         return Ok(());
     }
 
-    if !force {
-        let ok = Confirm::new()
-            .with_prompt(format!(
-                "Delete {} orphaned resource(s) in '{}'?",
-                all_orphans.len(),
-                rg
-            ))
-            .default(false)
-            .interact()?;
-        if !ok {
-            println!("Cancelled.");
-            return Ok(());
-        }
+    if !safe_confirm(
+        &format!(
+            "Delete {} orphaned resource(s) in '{}'?",
+            all_orphans.len(),
+            rg
+        ),
+        force,
+    )? {
+        println!("Cancelled.");
+        return Ok(());
     }
 
     let mut deleted = 0usize;

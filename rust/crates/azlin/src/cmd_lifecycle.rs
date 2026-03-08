@@ -2,7 +2,6 @@
 use super::*;
 use anyhow::Result;
 use console::Style;
-use dialoguer::Confirm;
 use indicatif::ProgressBar;
 
 pub(crate) async fn dispatch(
@@ -61,15 +60,12 @@ pub(crate) async fn dispatch(
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
 
-            if !force {
-                let confirmed = Confirm::new()
-                    .with_prompt(crate::lifecycle_helpers::delete_confirm_prompt(&vm_name))
-                    .default(false)
-                    .interact()?;
-                if !confirmed {
-                    println!("Cancelled.");
-                    return Ok(());
-                }
+            if !safe_confirm(
+                &crate::lifecycle_helpers::delete_confirm_prompt(&vm_name),
+                force,
+            )? {
+                println!("Cancelled.");
+                return Ok(());
             }
 
             let pb = ProgressBar::new_spinner();
@@ -115,15 +111,12 @@ pub(crate) async fn dispatch(
                 return Ok(());
             }
 
-            if !force {
-                let confirmed = Confirm::new()
-                    .with_prompt(crate::lifecycle_helpers::destroy_confirm_prompt(&vm_name))
-                    .default(false)
-                    .interact()?;
-                if !confirmed {
-                    println!("Cancelled.");
-                    return Ok(());
-                }
+            if !safe_confirm(
+                &crate::lifecycle_helpers::destroy_confirm_prompt(&vm_name),
+                force,
+            )? {
+                println!("Cancelled.");
+                return Ok(());
             }
 
             let auth = create_auth()?;
@@ -147,17 +140,12 @@ pub(crate) async fn dispatch(
             ..
         } => {
             let rg = resolve_resource_group(resource_group)?;
-            if !force {
-                let ok = Confirm::new()
-                    .with_prompt(crate::lifecycle_helpers::killall_confirm_prompt(
-                        &prefix, &rg,
-                    ))
-                    .default(false)
-                    .interact()?;
-                if !ok {
-                    println!("Cancelled.");
-                    return Ok(());
-                }
+            if !safe_confirm(
+                &crate::lifecycle_helpers::killall_confirm_prompt(&prefix, &rg),
+                force,
+            )? {
+                println!("Cancelled.");
+                return Ok(());
             }
 
             let pb = indicatif::ProgressBar::new_spinner();
