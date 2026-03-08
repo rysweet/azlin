@@ -1,0 +1,131 @@
+# Autopilot Commands — Validates autonomous cost optimization commands
+# Works with BOTH Python (uv run azlin) and Rust (./rust/target/debug/azlin).
+# Set AZLIN_BIN env var to switch versions.
+
+name: "Autopilot Commands"
+description: "Validates autopilot enable/disable/status/config/run help text"
+version: "2.0.0"
+tags:
+  - "autopilot"
+  - "dual-parity"
+  - "outside-in"
+  - "dual-version"
+
+config:
+  timeout: 60000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "autopilot top-level help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} autopilot --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "autopilot"
+        - "Usage"
+    timeout: 10000
+
+  - name: "autopilot enable help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} autopilot enable --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "enable"
+        - "Usage"
+    timeout: 10000
+
+  - name: "autopilot disable help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} autopilot disable --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "disable"
+        - "Usage"
+    timeout: 10000
+
+  - name: "autopilot status help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} autopilot status --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "status"
+        - "Usage"
+    timeout: 10000
+
+  - name: "autopilot config help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} autopilot config --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "config"
+        - "Usage"
+    timeout: 10000
+
+  - name: "autopilot run help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} autopilot run --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "run"
+        - "Usage"
+    timeout: 10000
+
+  - name: "autopilot enable has budget option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} autopilot enable --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "budget"
+    timeout: 10000
+
+  - name: "autopilot enable has strategy option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} autopilot enable --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "strategy"
+    timeout: 10000
+
+  - name: "autopilot run has dry-run option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} autopilot run --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "dry-run"
+    timeout: 10000

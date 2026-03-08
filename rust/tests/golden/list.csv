@@ -1,0 +1,6 @@
+Session,OS,Status,IP,Region,CPU,Mem
+devo,Ubuntu 25.10,Running,10.0.0.4 (Bast),westus,32,256 GB
+dev,Ubuntu 25.10,Running,10.0.0.4 (Bast),northcentralus,32,256 GB
+deva,Ubuntu 25.10,Running,10.0.0.11 (Bast),westus2,32,256 GB
+devr,Ubuntu 25.10,Running,10.0.0.10 (Bast),westus3,32,256 GB
+devy,Ubuntu 25.10,Running,10.0.0.5 (Bast),westus3,32,256 GB

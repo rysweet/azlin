@@ -1,0 +1,96 @@
+# Compose Commands — Validates multi-VM compose workflows
+# Works with BOTH Python (uv run azlin) and Rust (./rust/target/debug/azlin).
+# Set AZLIN_BIN env var to switch versions.
+
+name: "Compose Commands"
+description: "Validates compose up/down/ps help text"
+version: "2.0.0"
+tags:
+  - "compose"
+  - "dual-parity"
+  - "outside-in"
+  - "dual-version"
+
+config:
+  timeout: 60000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "compose top-level help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} compose --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "compose"
+        - "Usage"
+    timeout: 10000
+
+  - name: "compose up help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} compose up --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "up"
+        - "Usage"
+    timeout: 10000
+
+  - name: "compose down help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} compose down --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "down"
+        - "Usage"
+    timeout: 10000
+
+  - name: "compose ps help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} compose ps --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "ps"
+        - "Usage"
+    timeout: 10000
+
+  - name: "compose up has file option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} compose up --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "file"
+    timeout: 10000
+
+  - name: "compose down has file option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} compose down --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "file"
+    timeout: 10000

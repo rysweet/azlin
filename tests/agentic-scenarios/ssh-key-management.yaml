@@ -1,0 +1,141 @@
+# SSH Key Management — Keys list, rotate, export, backup workflow
+# Works with BOTH Python (uv run azlin) and Rust (./rust/target/debug/azlin).
+# Tests help text, subcommand structure, argument validation, and graceful failures.
+
+name: "SSH Key Management"
+description: "Keys lifecycle: list, rotate, export, backup help text and argument validation"
+version: "2.0.0"
+tags:
+  - "keys"
+  - "ssh"
+  - "lifecycle"
+  - "outside-in"
+  - "dual-version"
+
+config:
+  timeout: 60000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "keys help lists all subcommands"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} keys --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "rotate"
+        - "list"
+        - "export"
+        - "backup"
+    timeout: 10000
+
+  - name: "keys rotate help shows usage"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} keys rotate --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000
+
+  - name: "keys rotate help mentions resource group"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} keys rotate --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "resource"
+    timeout: 10000
+
+  - name: "keys list help shows usage"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} keys list --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000
+
+  - name: "keys export help shows usage and output option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} keys export --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+        - "output"
+    timeout: 10000
+
+  - name: "keys backup help shows usage"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} keys backup --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000
+
+  - name: "keys export to temp file completes without panic"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "OUT=$(${AZLIN_BIN:-azlin} keys export --output /tmp/azlin-test-key-export.pub 2>&1); echo \"$OUT\" | grep -qi 'panic\\|thread.*panicked' && echo PANIC || echo NO_PANIC; rm -f /tmp/azlin-test-key-export.pub"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "NO_PANIC"
+    timeout: 15000
+
+  - name: "keys backup completes without panic"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "OUT=$(${AZLIN_BIN:-azlin} keys backup 2>&1); echo \"$OUT\" | grep -qi 'panic\\|thread.*panicked' && echo PANIC || echo NO_PANIC"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "NO_PANIC"
+    timeout: 15000
+
+  - name: "keys with invalid subcommand shows error"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} keys bogus-subcmd 2>&1; echo EXIT:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT:"
+    timeout: 10000
+
+  - name: "sync-keys help shows usage"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} sync-keys --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000

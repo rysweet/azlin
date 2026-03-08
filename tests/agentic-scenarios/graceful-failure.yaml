@@ -1,0 +1,70 @@
+# Graceful Failure Without Azure — Verify Azure commands fail gracefully, not with panics
+# Works with BOTH Python and Rust versions.
+# Tests that missing auth/nonexistent resources produce helpful errors, not crashes.
+# Uses consolidated steps to minimize Azure API roundtrips during test suite runs.
+
+name: "Graceful Failure Without Azure"
+description: "Verify all Azure commands fail with helpful messages, not panics"
+version: "2.0.0"
+tags:
+  - "resilience"
+  - "functional"
+  - "dual-parity"
+
+config:
+  timeout: 180000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 60000
+      capture_output: true
+
+steps:
+  - name: "start and stop nonexistent VMs produce errors not panics"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "PANICS=0; for cmd in 'start nonexistent-vm-test' 'stop nonexistent-vm-test'; do OUT=$(${AZLIN_BIN:-azlin} $cmd 2>&1); echo \"$OUT\" | grep -qi 'panic\\|thread.*panicked' && PANICS=$((PANICS+1)); done; echo PANICS:$PANICS"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "PANICS:0"
+    timeout: 45000
+
+  - name: "cost command completes without panic"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "OUT=$(${AZLIN_BIN:-azlin} cost 2>&1); echo \"$OUT\" | grep -qi 'panic\\|thread.*panicked' && echo PANIC || echo NO_PANIC"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "NO_PANIC"
+    timeout: 45000
+
+  - name: "connect and destroy handle missing VMs gracefully"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "PANICS=0; OUT=$(${AZLIN_BIN:-azlin} connect nonexistent-vm-test 2>&1); echo \"$OUT\" | grep -qi 'panic' && PANICS=$((PANICS+1)); OUT=$(${AZLIN_BIN:-azlin} destroy nonexistent-vm-test --force 2>&1); echo \"$OUT\" | grep -qi 'panic' && PANICS=$((PANICS+1)); echo PANICS:$PANICS"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "PANICS:0"
+    timeout: 45000
+
+  - name: "no panic in any error scenario"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "OUT=$(${AZLIN_BIN:-azlin} list --resource-group nonexistent-rg-12345 2>&1); echo \"$OUT\" | grep -qi 'panic\\|thread.*panicked' && echo PANIC || echo NO_PANIC"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "NO_PANIC"
+    timeout: 45000

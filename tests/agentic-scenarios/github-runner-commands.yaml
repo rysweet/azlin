@@ -1,0 +1,119 @@
+# GitHub Runner Commands — Validates GitHub Actions runner fleet management
+# Works with BOTH Python (uv run azlin) and Rust (./rust/target/debug/azlin).
+# Set AZLIN_BIN env var to switch versions.
+
+name: "GitHub Runner Commands"
+description: "Validates github-runner enable/disable/status/scale help text"
+version: "2.0.0"
+tags:
+  - "github-runner"
+  - "dual-parity"
+  - "outside-in"
+  - "dual-version"
+
+config:
+  timeout: 60000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "github-runner top-level help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} github-runner --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "github-runner"
+        - "Usage"
+    timeout: 10000
+
+  - name: "github-runner enable help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} github-runner enable --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "enable"
+        - "Usage"
+    timeout: 10000
+
+  - name: "github-runner disable help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} github-runner disable --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "disable"
+        - "Usage"
+    timeout: 10000
+
+  - name: "github-runner status help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} github-runner status --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "status"
+        - "Usage"
+    timeout: 10000
+
+  - name: "github-runner scale help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} github-runner scale --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "scale"
+        - "Usage"
+    timeout: 10000
+
+  - name: "github-runner enable has repo option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} github-runner enable --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "repo"
+    timeout: 10000
+
+  - name: "github-runner scale has count option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} github-runner scale --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "count"
+    timeout: 10000
+
+  - name: "github-runner enable has labels option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} github-runner enable --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "labels"
+    timeout: 10000

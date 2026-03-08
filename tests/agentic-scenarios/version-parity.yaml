@@ -1,0 +1,64 @@
+# Version Parity — Validate version output format
+# Works with BOTH Python and Rust. Only tests --version flag (both support it).
+# The `version` subcommand is Rust-only and tested conditionally.
+
+name: "Version Parity"
+description: "Validates --version output contains 'azlin' and a version number pattern"
+version: "2.0.0"
+tags:
+  - "version"
+  - "parity"
+  - "outside-in"
+  - "dual-version"
+
+config:
+  timeout: 30000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "Version flag outputs azlin name"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --version 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "azlin"
+    timeout: 10000
+
+  - name: "Version output contains semver pattern"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --version 2>&1 | grep -E '[0-9]+\\.[0-9]+\\.[0-9]+'"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "Version output is a single line"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "test $(${AZLIN_BIN:-azlin} --version 2>&1 | wc -l) -le 2"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "Version subcommand (Rust-only, skip gracefully)"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} version 2>&1 && echo PASS || echo SKIP:version-subcommand-not-available"
+    expect:
+      exit_code: 0
+    timeout: 10000

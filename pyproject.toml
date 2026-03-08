@@ -52,7 +52,8 @@ dev = [
 ]
 
 [project.scripts]
-azlin = "azlin.cli:main"
+azlin = "azlin.rust_bridge:entry"
+azlin-py = "azlin.cli:main"
 azdoit = "azlin.cli:azdoit_main"
 
 [tool.hatch.build.targets.wheel]

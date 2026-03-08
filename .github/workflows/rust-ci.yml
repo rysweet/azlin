@@ -1,0 +1,30 @@
+name: Rust CI
+
+on:
+  push:
+    paths: ['rust/**']
+  pull_request:
+    paths: ['rust/**']
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Build
+        run: cargo build --release
+      - name: Test
+        run: cargo test --all
+        env:
+          RUST_MIN_STACK: "8388608"
+      - name: Clippy
+        run: cargo clippy --all -- -D warnings

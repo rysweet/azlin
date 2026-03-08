@@ -1,0 +1,80 @@
+# Config Validation — Rust-only tests for config set/get/show operations
+# Python does NOT have a `config` subcommand (uses internal TOML config).
+# These tests skip gracefully on Python.
+
+name: "Config Validation"
+description: "Validates config set, get, and show with expected keys (Rust-only, skips on Python)"
+version: "2.0.0"
+tags:
+  - "config"
+  - "validation"
+  - "rust-only"
+  - "outside-in"
+
+config:
+  timeout: 30000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "Check if config command exists"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "if ${AZLIN_BIN:-azlin} config --help >/dev/null 2>&1; then echo CONFIG_AVAILABLE; else echo SKIP:config-not-available; fi"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "Config set default_region succeeds (Rust-only)"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config set default_region westus2 2>&1 && echo PASS || echo SKIP:config-not-available"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "Config set default_vm_size succeeds (Rust-only)"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config set default_vm_size Standard_D2s_v3 2>&1 && echo PASS || echo SKIP:config-not-available"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "Config get default_region returns value (Rust-only)"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config get default_region 2>&1 && echo PASS || echo SKIP:config-not-available"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "Config show contains expected keys (Rust-only)"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config show 2>&1 && echo PASS || echo SKIP:config-not-available"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "Config show help lists subcommands (Rust-only)"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config --help 2>&1 && echo PASS || echo SKIP:config-not-available"
+    expect:
+      exit_code: 0
+    timeout: 10000

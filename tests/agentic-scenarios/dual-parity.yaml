@@ -1,0 +1,244 @@
+# Dual Version Parity — Comprehensive parity test
+# Validates Python and Rust versions produce equivalent CLI structure.
+# Runs the SAME commands on whichever version is set via AZLIN_BIN
+# and checks that core commands and behaviors are present.
+
+name: "Dual Version Parity"
+description: "Validates Python and Rust produce equivalent CLI structure and behavior"
+version: "2.0.0"
+tags:
+  - "parity"
+  - "dual-version"
+  - "outside-in"
+  - "comprehensive"
+
+config:
+  timeout: 60000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 120000
+      capture_output: true
+
+steps:
+  - name: "Top-level help lists core VM lifecycle commands"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "list"
+        - "start"
+        - "stop"
+        - "connect"
+        - "new"
+    timeout: 10000
+
+  - name: "Top-level help lists management commands"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "env"
+        - "snapshot"
+        - "storage"
+        - "keys"
+        - "auth"
+    timeout: 10000
+
+  - name: "Top-level help lists monitoring commands"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "health"
+        - "cost"
+        - "logs"
+    timeout: 10000
+
+  - name: "Top-level help lists fleet and batch commands"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "batch"
+        - "fleet"
+        - "compose"
+    timeout: 10000
+
+  - name: "Top-level help lists utility commands"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "cp"
+        - "sync"
+        - "code"
+        - "template"
+    timeout: 10000
+
+  - name: "Version flag produces consistent output"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --version 2>&1 | grep -cE 'azlin.*[0-9]+\\.[0-9]+\\.[0-9]+'"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "1"
+    timeout: 10000
+
+  - name: "Core lifecycle commands all have --help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} list --help >/dev/null 2>&1 && ${AZLIN_BIN:-azlin} start --help >/dev/null 2>&1 && ${AZLIN_BIN:-azlin} stop --help >/dev/null 2>&1 && ${AZLIN_BIN:-azlin} connect --help >/dev/null 2>&1 && ${AZLIN_BIN:-azlin} new --help >/dev/null 2>&1 && echo LIFECYCLE_OK"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "LIFECYCLE_OK"
+    timeout: 30000
+
+  - name: "Management commands all have --help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} env --help >/dev/null 2>&1 && ${AZLIN_BIN:-azlin} snapshot --help >/dev/null 2>&1 && ${AZLIN_BIN:-azlin} storage --help >/dev/null 2>&1 && ${AZLIN_BIN:-azlin} keys --help >/dev/null 2>&1 && ${AZLIN_BIN:-azlin} auth --help >/dev/null 2>&1 && echo MGMT_OK"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "MGMT_OK"
+    timeout: 30000
+
+  - name: "Monitoring and fleet commands all have --help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} cost --help >/dev/null 2>&1 && ${AZLIN_BIN:-azlin} health --help >/dev/null 2>&1 && ${AZLIN_BIN:-azlin} logs --help >/dev/null 2>&1 && ${AZLIN_BIN:-azlin} batch --help >/dev/null 2>&1 && ${AZLIN_BIN:-azlin} fleet --help >/dev/null 2>&1 && echo MONITOR_OK"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "MONITOR_OK"
+    timeout: 30000
+
+  - name: "Subcommand groups have consistent subcommands - env"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} env --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "set"
+        - "list"
+        - "delete"
+        - "export"
+        - "import"
+        - "clear"
+    timeout: 10000
+
+  - name: "Subcommand groups have consistent subcommands - auth"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} auth --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "setup"
+        - "test"
+        - "list"
+        - "show"
+        - "remove"
+    timeout: 10000
+
+  - name: "Subcommand groups have consistent subcommands - snapshot"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} snapshot --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "create"
+        - "list"
+        - "restore"
+        - "delete"
+    timeout: 10000
+
+  - name: "Subcommand groups have consistent subcommands - storage"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} storage --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "create"
+        - "list"
+        - "mount"
+        - "unmount"
+        - "delete"
+    timeout: 10000
+
+  - name: "Subcommand groups have consistent subcommands - keys"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} keys --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "rotate"
+        - "list"
+        - "export"
+        - "backup"
+    timeout: 10000
+
+  - name: "Error behavior - unknown command exits non-zero"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "! ${AZLIN_BIN:-azlin} totally-bogus-command 2>/dev/null"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "Error behavior - missing required arg exits non-zero"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "! ${AZLIN_BIN:-azlin} start 2>/dev/null"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "Help flag is consistent (-h works)"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} -h 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000
