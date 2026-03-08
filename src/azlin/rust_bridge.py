@@ -88,7 +88,7 @@ def _download_from_release() -> str | None:
     api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
     try:
         req = urllib.request.Request(api_url, headers={"Accept": "application/vnd.github+json"})  # noqa: S310
-        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310  # nosec B310
             import json
 
             releases = json.loads(resp.read())
@@ -119,7 +119,7 @@ def _download_from_release() -> str | None:
     sys.stderr.write(f"azlin: installing Rust binary v{version} from GitHub Releases...\n")
     try:
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
-            urllib.request.urlretrieve(download_url, tmp.name)  # noqa: S310
+            urllib.request.urlretrieve(download_url, tmp.name)  # noqa: S310  # nosec B310
             tmp_path = tmp.name
 
         with tarfile.open(tmp_path, "r:gz") as tar:
