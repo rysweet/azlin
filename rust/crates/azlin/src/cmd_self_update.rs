@@ -2,7 +2,6 @@
 
 use anyhow::{Context, Result};
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 const GITHUB_REPO: &str = "rysweet/azlin";
@@ -138,7 +137,11 @@ fn download_and_replace(url: &str, version: &str) -> Result<()> {
         .context("Failed to backup current binary (try running with sudo)")?;
 
     fs::copy(&new_bin, &current_exe).context("Failed to install new binary")?;
-    fs::set_permissions(&current_exe, fs::Permissions::from_mode(0o755))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&current_exe, fs::Permissions::from_mode(0o755))?;
+    }
 
     // Clean up backup and temp dir
     fs::remove_file(&backup).ok();

@@ -95,7 +95,6 @@ pub(crate) fn handle_storage_mount_file(
         eprintln!("Warning: failed to create mount point {}", mount_str);
     }
 
-    use std::os::unix::fs::PermissionsExt;
     let creds_dir = home_dir()?.join(".azlin");
     std::fs::create_dir_all(&creds_dir)?;
     let creds_path = creds_dir.join(format!(".mount_creds_{}", account));
@@ -103,7 +102,11 @@ pub(crate) fn handle_storage_mount_file(
         &creds_path,
         format!("username={}\npassword={}\n", account, key),
     )?;
-    std::fs::set_permissions(&creds_path, std::fs::Permissions::from_mode(0o600))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&creds_path, std::fs::Permissions::from_mode(0o600))?;
+    }
 
     let status = std::process::Command::new("sudo")
         .args([

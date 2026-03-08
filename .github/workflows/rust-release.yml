@@ -121,7 +121,8 @@ jobs:
           path: rust/dist/*.whl
 
   release:
-    needs: [build, wheels]
+    needs: [build]
+    if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
 
     steps:
