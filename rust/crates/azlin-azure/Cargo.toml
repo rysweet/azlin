@@ -1,0 +1,23 @@
+[package]
+name = "azlin-azure"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Azure SDK integration for azlin - VM management, auth, networking"
+
+[dependencies]
+azlin-core = { path = "../azlin-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+openssl = { workspace = true }
+tempfile = { workspace = true }
+wait-timeout = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

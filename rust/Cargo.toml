@@ -1,0 +1,96 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/azlin-core",
+    "crates/azlin-azure",
+    "crates/azlin-ai",
+    "crates/azlin-cli",
+    "crates/azlin",
+]
+
+[workspace.package]
+version = "2.3.0"
+edition = "2021"
+rust-version = "1.85"
+authors = ["Ryan Sweet <rysweet@microsoft.com>"]
+license = "MIT"
+description = "Azure VM fleet management CLI"
+repository = "https://github.com/rysweet/azlin"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+toml = "0.8"
+
+# CLI
+clap = { version = "4", features = ["derive", "env", "wrap_help"] }
+clap_complete = "4"
+
+# Terminal UI
+comfy-table = "7"
+indicatif = "0.17"
+dialoguer = "0.11"
+console = "0.15"
+ratatui = "0.30"
+crossterm = "0.29"
+
+# Azure SDK
+azure_identity = "0.22"
+azure_core = "0.22"
+azure_mgmt_compute = "0.2"
+azure_mgmt_network = "0.2"
+azure_mgmt_resources = "0.2"
+azure_mgmt_storage = "0.2"
+azure_security_keyvault_secrets = "0.2"
+azure_mgmt_costmanagement = "0.2"
+
+# HTTP (for Anthropic API)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+color-eyre = "0.6"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Crypto
+sha2 = "0.10"
+
+# Misc
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+regex = "1"
+dirs = "6"
+which = "7"
+tempfile = "3"
+shell-escape = "0.1"
+shlex = "1"
+async-trait = "0.1"
+wait-timeout = "0.2"
+openssl = { version = "0.10", features = ["vendored"] }
+
+# Testing
+assert_cmd = "2"
+predicates = "3"
+
+# Profile: dev — minimal debug info to save disk (line tables only)
+[profile.dev]
+debug = "line-tables-only"
+
+# Profile: release — stripped, optimized
+[profile.release]
+strip = true
+lto = "thin"
+debug = false
+
+# Profile: test — same as dev, minimal debug info
+[profile.test]
+debug = "line-tables-only"

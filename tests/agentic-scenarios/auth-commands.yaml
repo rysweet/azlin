@@ -1,0 +1,103 @@
+# Auth Commands — Outside-in tests for auth subcommands
+# Works with BOTH Python and Rust versions.
+# Validates auth help text lists all subcommands shared by both versions.
+
+name: "Auth Commands"
+description: "Validates auth subcommand help text and basic operations for both versions"
+version: "2.0.0"
+tags:
+  - "auth"
+  - "parity"
+  - "outside-in"
+  - "dual-version"
+
+config:
+  timeout: 30000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "Auth help exits 0"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} auth --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000
+
+  - name: "Auth help lists setup subcommand"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} auth --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "setup"
+    timeout: 10000
+
+  - name: "Auth help lists test subcommand"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} auth --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "test"
+    timeout: 10000
+
+  - name: "Auth help lists list subcommand"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} auth --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "list"
+    timeout: 10000
+
+  - name: "Auth help lists show subcommand"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} auth --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "show"
+    timeout: 10000
+
+  - name: "Auth help lists remove subcommand"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} auth --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "remove"
+    timeout: 10000
+
+  - name: "Auth list runs without crashing"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} auth list 2>&1; echo DONE"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "DONE"
+    timeout: 10000

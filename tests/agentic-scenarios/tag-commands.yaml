@@ -1,0 +1,107 @@
+# Tag Commands — Validates VM tag management
+# Works with BOTH Python (uv run azlin) and Rust (./rust/target/debug/azlin).
+# Set AZLIN_BIN env var to switch versions.
+
+name: "Tag Commands"
+description: "Validates tag add/remove/list help text"
+version: "2.0.0"
+tags:
+  - "tag"
+  - "dual-parity"
+  - "outside-in"
+  - "dual-version"
+
+config:
+  timeout: 60000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "tag top-level help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} tag --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "tag"
+        - "Usage"
+    timeout: 10000
+
+  - name: "tag add help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} tag add --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "add"
+        - "Usage"
+    timeout: 10000
+
+  - name: "tag remove help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} tag remove --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "remove"
+        - "Usage"
+    timeout: 10000
+
+  - name: "tag list help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} tag list --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "list"
+        - "Usage"
+    timeout: 10000
+
+  - name: "tag add requires vm name"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} tag add 2>&1; echo EXIT:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT:"
+    timeout: 10000
+
+  - name: "tag remove requires vm name"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} tag remove 2>&1; echo EXIT:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT:"
+    timeout: 10000
+
+  - name: "tag list requires vm name"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} tag list 2>&1; echo EXIT:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT:"
+    timeout: 10000

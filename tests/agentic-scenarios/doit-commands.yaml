@@ -1,0 +1,121 @@
+# Doit Commands — Outside-in tests for azlin doit subcommands
+# Works with BOTH Python (uv run azlin) and Rust (./rust/target/debug/azlin).
+# Set AZLIN_BIN env var to switch versions.
+
+name: "Doit Commands"
+description: "Validates doit deploy/status/list/show command help in both versions"
+version: "1.0.0"
+tags:
+  - "doit"
+  - "dual-parity"
+  - "outside-in"
+
+config:
+  timeout: 30000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "doit help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} doit --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "deploy"
+        - "status"
+        - "list"
+        - "show"
+    timeout: 10000
+
+  - name: "doit deploy help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} doit deploy --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Deploy"
+        - "natural language"
+        - "REQUEST"
+    timeout: 10000
+
+  - name: "doit deploy help shows dry-run option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} doit deploy --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "dry-run"
+    timeout: 10000
+
+  - name: "doit deploy help shows max-iterations option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} doit deploy --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "max-iterations"
+    timeout: 10000
+
+  - name: "doit status help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} doit status --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "status"
+        - "session"
+    timeout: 10000
+
+  - name: "doit list help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} doit list --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "List"
+        - "resources"
+    timeout: 10000
+
+  - name: "doit show help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} doit show --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Show"
+        - "RESOURCE_ID"
+    timeout: 10000
+
+  - name: "doit deploy requires request argument"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} doit deploy 2>&1; echo EXIT:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT:"
+    timeout: 10000

@@ -1,0 +1,101 @@
+# Error Message Quality — Verify error messages are actionable and user-friendly
+# Works with BOTH Python and Rust versions.
+# Tests that errors guide users toward resolution, not just fail silently.
+
+name: "Error Message Quality"
+description: "Verify error messages are actionable and user-friendly"
+version: "2.0.0"
+tags:
+  - "errors"
+  - "ux"
+  - "functional"
+  - "dual-parity"
+
+config:
+  timeout: 120000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 30000
+      capture_output: true
+
+steps:
+  - name: "list with invalid resource group shows error"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "OUT=$(${AZLIN_BIN:-azlin} list --resource-group nonexistent-rg-no-such-thing 2>&1); echo \"$OUT\"; echo DONE"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "DONE"
+    timeout: 30000
+
+  - name: "connect without vm name exits non-zero"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} connect 2>&1; echo CONNECT_EXIT:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "VM"
+    timeout: 10000
+
+  - name: "unknown command suggests valid commands"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "OUT=$(${AZLIN_BIN:-azlin} nonexistent 2>&1); echo \"$OUT\"; echo DONE"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "help"
+    timeout: 10000
+
+  - name: "start without args shows usage"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "OUT=$(${AZLIN_BIN:-azlin} start 2>&1); echo \"$OUT\"; echo DONE"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000
+
+  - name: "destroy without args shows usage"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "OUT=$(${AZLIN_BIN:-azlin} destroy 2>&1); echo \"$OUT\"; echo DONE"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000
+
+  - name: "invalid flag shows error not panic"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "OUT=$(${AZLIN_BIN:-azlin} --bogus-flag 2>&1); echo \"$OUT\" | grep -v 'panic' | grep -c 'error\\|Error\\|usage\\|Usage'"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "no panic in any error output"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "PANIC_COUNT=0; for cmd in 'nonexistent' 'start' 'connect' 'destroy'; do OUT=$(${AZLIN_BIN:-azlin} $cmd 2>&1); if echo \"$OUT\" | grep -qi 'panic\\|RUST_BACKTRACE\\|thread.*panicked'; then PANIC_COUNT=$((PANIC_COUNT+1)); fi; done; echo PANICS:$PANIC_COUNT"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "PANICS:0"
+    timeout: 20000

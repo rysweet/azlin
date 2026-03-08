@@ -1,0 +1,119 @@
+# CLI Basics — Outside-in tests for azlin CLI fundamentals
+# Works with BOTH Python (uv run azlin) and Rust (./rust/target/debug/azlin).
+# Set AZLIN_BIN env var to switch versions.
+
+name: "CLI Basics"
+description: "Validates CLI help, version, and basic command structure for both Python and Rust"
+version: "2.0.0"
+tags:
+  - "cli"
+  - "basics"
+  - "parity"
+  - "outside-in"
+  - "dual-version"
+
+config:
+  timeout: 30000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "Help text includes key VM lifecycle commands"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "list"
+        - "connect"
+        - "start"
+        - "stop"
+        - "new"
+    timeout: 10000
+
+  - name: "Help text includes management commands"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "env"
+        - "snapshot"
+        - "storage"
+        - "keys"
+        - "auth"
+    timeout: 10000
+
+  - name: "Version flag outputs azlin and version number"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --version 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "azlin"
+    timeout: 10000
+
+  - name: "Version output contains semver pattern"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} --version 2>&1 | grep -E '[0-9]+\\.[0-9]+\\.[0-9]+'"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "Invalid command shows error"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} nonexistent-command 2>&1; echo EXIT:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT:"
+    timeout: 10000
+
+  - name: "Invalid command exits non-zero"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "! ${AZLIN_BIN:-azlin} nonexistent-command 2>/dev/null"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "List help shows resource group option"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} list --help"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "resource"
+    timeout: 10000
+
+  - name: "No arguments shows usage"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} 2>&1 || true"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000

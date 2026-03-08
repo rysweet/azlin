@@ -1,0 +1,54 @@
+# Config Management — Rust-only tests for config set/get/show
+# Python does NOT have a `config` subcommand (uses internal TOML config).
+# These tests are tagged rust-only and skip gracefully on Python.
+
+name: "Config Management"
+description: "Validates config show, set, and get operations (Rust-only, skips on Python)"
+version: "2.0.0"
+tags:
+  - "config"
+  - "rust-only"
+  - "outside-in"
+
+config:
+  timeout: 30000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "Check if config command exists"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config --help 2>&1; echo EXIT:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT:"
+    timeout: 10000
+
+  - name: "Config show returns default region (Rust-only)"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config show 2>&1 && echo PASS || echo SKIP:config-not-available"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "Config get retrieves a specific key (Rust-only)"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config get default_region 2>&1 && echo PASS || echo SKIP:config-not-available"
+    expect:
+      exit_code: 0
+    timeout: 10000

@@ -1,0 +1,222 @@
+#[allow(unused_imports)]
+use super::*;
+use anyhow::{Context, Result};
+
+pub(crate) async fn dispatch(
+    command: azlin_cli::Commands,
+    verbose: bool,
+    output: &azlin_cli::OutputFormat,
+) -> Result<()> {
+    #[allow(unused_variables)]
+    let _ = (verbose, output);
+    match command {
+        azlin_cli::Commands::Connect {
+            vm_identifier,
+            resource_group,
+            user,
+            key,
+            no_tmux,
+            tmux_session,
+            no_reconnect,
+            max_retries,
+            yes,
+            remote_command,
+            ..
+        } => {
+            let auth = create_auth()?;
+            let vm_manager = azlin_azure::VmManager::new(&auth);
+            let rg = resolve_resource_group(resource_group)?;
+
+            // If no VM specified, show interactive picker of running VMs
+            let name = if let Some(id) = vm_identifier {
+                id
+            } else {
+                let vms = vm_manager.list_vms(&rg)?;
+                let running: Vec<_> = vms
+                    .iter()
+                    .filter(|v| v.power_state == azlin_core::models::PowerState::Running)
+                    .collect();
+                if running.is_empty() {
+                    anyhow::bail!("No running VMs found in resource group '{}'", rg);
+                }
+                println!("Select a VM to connect to:");
+                for (i, vm) in running.iter().enumerate() {
+                    let ip = vm
+                        .public_ip
+                        .as_deref()
+                        .or(vm.private_ip.as_deref())
+                        .unwrap_or("-");
+                    println!("  [{}] {} ({})", i + 1, vm.name, ip);
+                }
+                print!("> ");
+                use std::io::Write;
+                std::io::stdout().flush()?;
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input)?;
+                let idx: usize = input
+                    .trim()
+                    .parse::<usize>()
+                    .context("Invalid selection")?
+                    .checked_sub(1)
+                    .context("Selection out of range")?;
+                if idx >= running.len() {
+                    anyhow::bail!("Selection out of range");
+                }
+                running[idx].name.clone()
+            };
+
+            let pb = indicatif::ProgressBar::new_spinner();
+            pb.set_message(format!("Looking up {}...", name));
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            let vm = vm_manager.get_vm(&rg, &name)?;
+            pb.finish_and_clear();
+
+            let username = vm.admin_username.unwrap_or_else(|| user.clone());
+            let use_bastion = vm.public_ip.is_none();
+
+            // Build the remote command (with optional tmux wrapping)
+            let tmux_sess = if !no_tmux {
+                let sess = tmux_session.as_deref().unwrap_or("azlin");
+                if !sess
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+                {
+                    anyhow::bail!(
+                        "Invalid tmux session name: must be alphanumeric, underscore, or hyphen"
+                    );
+                }
+                Some(sess.to_string())
+            } else {
+                None
+            };
+
+            let mut attempt = 0u32;
+            let max = if no_reconnect { 1 } else { max_retries + 1 };
+            loop {
+                let status = if use_bastion {
+                    // Route through Azure Bastion for private-only VMs
+                    let bastion_map: std::collections::HashMap<String, String> =
+                        if let Ok(bastions) = crate::list_helpers::detect_bastion_hosts(&rg) {
+                            bastions.into_iter().map(|(n, l, _)| (l, n)).collect()
+                        } else {
+                            std::collections::HashMap::new()
+                        };
+                    let bastion_name = bastion_map.get(&vm.location).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "No bastion host found for region '{}'. Cannot connect to private VM.",
+                            vm.location
+                        )
+                    })?;
+                    let vm_rid = format!(
+                        "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
+                        vm_manager.subscription_id(), rg, name
+                    );
+                    let ssh_key = resolve_ssh_key();
+                    let mut args = vec![
+                        "network".to_string(),
+                        "bastion".to_string(),
+                        "ssh".to_string(),
+                        "--name".to_string(),
+                        bastion_name.clone(),
+                        "--resource-group".to_string(),
+                        rg.clone(),
+                        "--target-resource-id".to_string(),
+                        vm_rid,
+                        "--auth-type".to_string(),
+                        "ssh-key".to_string(),
+                        "--username".to_string(),
+                        username.clone(),
+                    ];
+                    if let Some(ref k) = ssh_key {
+                        args.push("--ssh-key".to_string());
+                        args.push(k.to_string_lossy().to_string());
+                    }
+                    args.push("--".to_string());
+                    // Build the remote command
+                    if let Some(ref sess) = tmux_sess {
+                        if remote_command.is_empty() {
+                            args.push(format!("tmux new-session -A -s {}", sess));
+                        } else {
+                            args.extend(remote_command.iter().cloned());
+                        }
+                    } else if !remote_command.is_empty() {
+                        args.extend(remote_command.iter().cloned());
+                    }
+                    let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+                    std::process::Command::new("az").args(&str_args).status()?
+                } else {
+                    // Direct SSH for VMs with public IPs
+                    let ip = vm.public_ip.as_deref().unwrap();
+                    let mut ssh_args =
+                        crate::connect_helpers::build_ssh_args(&username, ip, key.as_deref());
+                    if let Some(ref sess) = tmux_sess {
+                        if remote_command.is_empty() {
+                            ssh_args.push("-t".to_string());
+                            ssh_args.push(format!("tmux new-session -A -s {}", sess));
+                        } else {
+                            ssh_args.extend(remote_command.iter().cloned());
+                        }
+                    } else if !remote_command.is_empty() {
+                        ssh_args.extend(remote_command.iter().cloned());
+                    }
+                    std::process::Command::new("ssh").args(&ssh_args).status()?
+                };
+                attempt += 1;
+                if status.success() || attempt >= max {
+                    std::process::exit(status.code().unwrap_or(1));
+                }
+                if !yes {
+                    eprint!(
+                        "SSH disconnected. Reconnect? (attempt {}/{}) [Y/n] ",
+                        attempt,
+                        max - 1
+                    );
+                    let mut input = String::new();
+                    std::io::stdin().read_line(&mut input)?;
+                    if input.trim().eq_ignore_ascii_case("n") {
+                        std::process::exit(status.code().unwrap_or(1));
+                    }
+                } else {
+                    eprintln!(
+                        "SSH disconnected. Reconnecting (attempt {}/{})...",
+                        attempt,
+                        max - 1
+                    );
+                }
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
+        }
+        azlin_cli::Commands::Show {
+            name,
+            resource_group,
+            config: _,
+            output,
+            verbose: _,
+            auth_profile: _,
+        } => {
+            let auth = create_auth()?;
+            let vm_manager = azlin_azure::VmManager::new(&auth);
+            let rg = resolve_resource_group(resource_group)?;
+
+            let pb = indicatif::ProgressBar::new_spinner();
+            pb.set_message(format!("Fetching {}...", name));
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            let vm = crate::handlers::handle_show(&vm_manager, &rg, &name)?;
+            pb.finish_and_clear();
+
+            match output {
+                azlin_cli::OutputFormat::Json => {
+                    println!("{}", crate::handlers::format_show_json(&vm)?);
+                }
+                azlin_cli::OutputFormat::Csv => {
+                    print!("{}", crate::handlers::format_show_csv(&vm));
+                }
+                azlin_cli::OutputFormat::Table => {
+                    print!("{}", crate::handlers::format_show_table(&vm));
+                }
+            }
+        }
+        _ => unreachable!(),
+    }
+    Ok(())
+}

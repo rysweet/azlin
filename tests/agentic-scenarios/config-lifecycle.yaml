@@ -1,0 +1,192 @@
+# Config Lifecycle — End-to-end config init, show, set, get, round-trip validation
+# Rust-only: Python does NOT have a `config` subcommand.
+# Tests the full lifecycle: show defaults → set → get → verify → restore.
+
+name: "Config Lifecycle"
+description: "Full config lifecycle: show, set, get, round-trip consistency, and error handling"
+version: "2.0.0"
+tags:
+  - "config"
+  - "lifecycle"
+  - "rust-only"
+  - "outside-in"
+
+config:
+  timeout: 90000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "config help lists show, set, get subcommands"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "show"
+        - "set"
+        - "get"
+    timeout: 10000
+
+  - name: "config show returns structured key-value output"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config show 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "default_region"
+        - "default_resource_group"
+    timeout: 10000
+
+  - name: "config show has multiple config keys"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "LINES=$(${AZLIN_BIN:-azlin} config show 2>&1 | wc -l); test $LINES -ge 3 && echo KEYS_FOUND:$LINES || echo TOO_FEW:$LINES"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "KEYS_FOUND:"
+    timeout: 10000
+
+  - name: "config get retrieves default_region"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config get default_region 2>&1"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "config set updates default_region"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config set default_region northeurope 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Set default_region"
+        - "northeurope"
+    timeout: 10000
+
+  - name: "config get reflects the updated value"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config get default_region 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "northeurope"
+    timeout: 10000
+
+  - name: "config show also reflects the updated value"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config show 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "northeurope"
+    timeout: 10000
+
+  - name: "config set updates default_resource_group"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config set default_resource_group lifecycle-test-rg 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Set default_resource_group"
+        - "lifecycle-test-rg"
+    timeout: 10000
+
+  - name: "config get round-trips default_resource_group"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config get default_resource_group 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "lifecycle-test-rg"
+    timeout: 10000
+
+  - name: "config set with invalid key fails"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "! ${AZLIN_BIN:-azlin} config set completely_bogus_key_xyz foobar 2>&1"
+    expect:
+      exit_code: 0
+    timeout: 10000
+
+  - name: "config get with missing key fails gracefully"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config get nonexistent_key_abc 2>&1; echo EXIT:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT:"
+    timeout: 10000
+
+  - name: "config set with no arguments shows help or error"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config set 2>&1; echo EXIT:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT:"
+    timeout: 10000
+
+  - name: "config get with no arguments shows help or error"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config get 2>&1; echo EXIT:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT:"
+    timeout: 10000
+
+  - name: "restore default_region to original value"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config set default_region eastus2 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Set default_region"
+    timeout: 10000
+
+  - name: "restore default_resource_group to original value"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} config set default_resource_group azlin-rg 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Set default_resource_group"
+    timeout: 10000

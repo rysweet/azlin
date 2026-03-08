@@ -666,3 +666,4 @@ index.scip
 
 # Kuzu database (amplihack runtime)
 .amplihack/
+outputs/

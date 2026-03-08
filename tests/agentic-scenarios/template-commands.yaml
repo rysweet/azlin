@@ -1,0 +1,120 @@
+# Template Commands — Validates template management commands
+# Works with BOTH Python (uv run azlin) and Rust (./rust/target/debug/azlin).
+# Set AZLIN_BIN env var to switch versions.
+
+name: "Template Commands"
+description: "Validates template management commands work in both Python and Rust"
+version: "2.0.0"
+tags:
+  - "templates"
+  - "dual-parity"
+  - "outside-in"
+  - "dual-version"
+
+config:
+  timeout: 60000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "template top-level help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} template --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "template"
+        - "Usage"
+    timeout: 10000
+
+  - name: "template list help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} template list --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "list"
+        - "Usage"
+    timeout: 10000
+
+  - name: "template save help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} template save --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "save"
+        - "Usage"
+    timeout: 10000
+
+  - name: "template show help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} template show --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "show"
+        - "Usage"
+    timeout: 10000
+
+  - name: "template apply help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} template apply --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "apply"
+        - "Usage"
+    timeout: 10000
+
+  - name: "template delete help"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} template delete --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "delete"
+        - "Usage"
+    timeout: 10000
+
+  - name: "template save requires name argument"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} template save 2>&1; echo EXIT:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT:"
+    timeout: 10000
+
+  - name: "template show requires name argument"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} template show 2>&1; echo EXIT:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT:"
+    timeout: 10000

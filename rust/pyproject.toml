@@ -1,0 +1,30 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "azlin-rs"
+version = "2.3.0"
+description = "Azure VM fleet management CLI (Rust) — provision, manage, and monitor development VMs"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [{name = "Ryan Sweet", email = "rysweet@microsoft.com"}]
+readme = "../README.md"
+keywords = ["azure", "vm", "cli", "rust", "devops", "cloud", "provisioning"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+    "Environment :: Console",
+]
+
+[project.urls]
+Homepage = "https://github.com/rysweet/azlin"
+Repository = "https://github.com/rysweet/azlin"
+Documentation = "https://rysweet.github.io/azlin/"
+
+[tool.maturin]
+manifest-path = "crates/azlin/Cargo.toml"
+bindings = "bin"

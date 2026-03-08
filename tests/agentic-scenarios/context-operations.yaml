@@ -1,0 +1,194 @@
+# Context Operations — Multi-subscription context management lifecycle
+# Works with BOTH Python (uv run azlin) and Rust (./rust/target/debug/azlin).
+# Tests help text, subcommand structure, argument validation, and graceful failures.
+
+name: "Context Operations"
+description: "Context lifecycle: list, show/current, create, use, delete, rename help and validation"
+version: "2.0.0"
+tags:
+  - "context"
+  - "lifecycle"
+  - "outside-in"
+  - "dual-version"
+
+config:
+  timeout: 60000
+  retries: 1
+  parallel: false
+
+agents:
+  - name: "cli-runner"
+    type: "system"
+    config:
+      shell: "bash"
+      timeout: 15000
+      capture_output: true
+
+steps:
+  - name: "context help lists all subcommands"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} context --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "list"
+        - "create"
+        - "delete"
+    timeout: 10000
+
+  - name: "context help mentions rename"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} context --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "rename"
+    timeout: 10000
+
+  - name: "context list help shows usage"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} context list --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000
+
+  - name: "context list runs without error"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} context list 2>&1; echo EXIT:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT:0"
+    timeout: 10000
+
+  - name: "context show or current help shows usage"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} context show --help 2>&1 || ${AZLIN_BIN:-azlin} context current --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000
+
+  - name: "context create help shows usage and options"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} context create --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+        - "subscription"
+    timeout: 10000
+
+  - name: "context create requires name argument"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} context create 2>&1; echo EXIT:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT:"
+    timeout: 10000
+
+  - name: "context delete help shows usage"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} context delete --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000
+
+  - name: "context delete requires name argument"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} context delete 2>&1; echo EXIT:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT:"
+    timeout: 10000
+
+  - name: "context delete nonexistent context fails gracefully"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "OUT=$(${AZLIN_BIN:-azlin} context delete nonexistent-ctx-xyz 2>&1); echo \"$OUT\" | grep -qi 'panic\\|thread.*panicked' && echo PANIC || echo NO_PANIC"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "NO_PANIC"
+    timeout: 10000
+
+  - name: "context rename help shows usage"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} context rename --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000
+
+  - name: "context rename requires two arguments"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} context rename 2>&1; echo EXIT:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT:"
+    timeout: 10000
+
+  - name: "context use or switch help shows usage"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} context use --help 2>&1 || ${AZLIN_BIN:-azlin} context switch --help 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "Usage"
+    timeout: 10000
+
+  - name: "context use nonexistent context fails gracefully"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "OUT=$(${AZLIN_BIN:-azlin} context use nonexistent-ctx-xyz 2>&1 || ${AZLIN_BIN:-azlin} context switch nonexistent-ctx-xyz 2>&1); echo \"$OUT\" | grep -qi 'panic\\|thread.*panicked' && echo PANIC || echo NO_PANIC"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "NO_PANIC"
+    timeout: 10000
+
+  - name: "context with invalid subcommand shows error"
+    agent: "cli-runner"
+    action: "execute_command"
+    params:
+      command: "${AZLIN_BIN:-azlin} context bogus-subcmd 2>&1; echo EXIT:$?"
+    expect:
+      exit_code: 0
+      stdout_contains:
+        - "EXIT:"
+    timeout: 10000

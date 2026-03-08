@@ -1,0 +1,3 @@
+# Python golden files are machine-specific.
+*.txt
+*.json
