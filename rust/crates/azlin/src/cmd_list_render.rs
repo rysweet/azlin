@@ -181,52 +181,44 @@ fn truncate_str(s: &str, max_len: usize) -> String {
     }
 }
 
-/// Format tmux sessions with attached/detached coloring and truncation.
-/// Input format from `tmux list-sessions -F '#{session_name}:#{session_attached}'`
-/// `max_width` truncates the final plain-text to fit the column.
-fn format_tmux_colored(sessions: &[String], max_show: usize, max_width: usize) -> String {
+/// Format tmux sessions as plain text, truncated to max_width.
+/// Input format: `session_name:attached_flag` (e.g. "main:1", "build:0")
+/// Returns plain text only — no ANSI codes (comfy_table can't measure them).
+fn format_tmux_plain(sessions: &[String], max_show: usize, max_width: usize) -> String {
     if sessions.is_empty() {
         return "-".to_string();
     }
-    let bold = console::Style::new().white().bold();
-    let dim = console::Style::new().dim();
 
-    // Extract plain names for width calculation
-    let mut names: Vec<(&str, bool)> = Vec::new();
-    for s in sessions.iter().take(max_show) {
-        if let Some((name, attached)) = s.rsplit_once(':') {
-            names.push((name, attached == "1"));
-        } else {
-            names.push((s.as_str(), false));
-        }
-    }
+    // Strip the `:0`/`:1` suffix to get plain session names
+    let names: Vec<&str> = sessions
+        .iter()
+        .take(max_show)
+        .map(|s| {
+            s.rsplit_once(':')
+                .map(|(name, _)| name)
+                .unwrap_or(s.as_str())
+        })
+        .collect();
     let overflow_count = sessions.len().saturating_sub(max_show);
 
-    // Build truncated plain text, then apply styles
+    let mut result = String::new();
     let mut plain_len = 0usize;
-    let mut styled = String::new();
-    let mut count = 0usize;
-    for (i, (name, is_attached)) in names.iter().enumerate() {
+    for (i, name) in names.iter().enumerate() {
         let sep = if i > 0 { ", " } else { "" };
         let needed = sep.len() + name.len();
-        if plain_len + needed > max_width && count > 0 {
-            // Won't fit — truncate here
-            styled.push_str("...");
-            return styled;
+        if plain_len + needed > max_width && !result.is_empty() {
+            result.push_str("...");
+            return result;
         }
         plain_len += needed;
-        styled.push_str(sep);
-        if *is_attached {
-            styled.push_str(&bold.apply_to(name).to_string());
-        } else {
-            styled.push_str(&dim.apply_to(name).to_string());
-        }
-        count += 1;
+        result.push_str(sep);
+        result.push_str(name);
     }
     if overflow_count > 0 {
-        styled.push_str(&format!(", +{}", overflow_count));
+        result.push_str(&format!(", +{}", overflow_count));
     }
-    styled
+    // Final truncation safety net
+    truncate_str(&result, max_width)
 }
 
 fn render_table(cfg: &ListRenderConfig, data: &ListRenderData, headers: &[&str]) {
@@ -295,8 +287,8 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData, headers: &[&str])
             .tmux_sessions
             .get(&vm.name)
             .map(|s| {
-                let max_w = if cfg.compact { 20 } else { 25 };
-                format_tmux_colored(s, 3, max_w)
+                let max_w = if cfg.compact { 18 } else { 22 };
+                format_tmux_plain(s, 3, max_w)
             })
             .unwrap_or_else(|| "-".to_string());
         let ip_raw = crate::display_helpers::format_ip_display(
