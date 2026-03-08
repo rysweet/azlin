@@ -1,5 +1,7 @@
 # azlin Documentation
 
+> **Note**: As of v2.3.0-rust, azlin is implemented in Rust. The `azlin` command routes through a Python bridge to the native Rust binary (75-85x faster). The Python CLI remains available as `azlin-py`. See [../README.md](../README.md) for updated installation instructions.
+
 This directory contains comprehensive documentation for azlin - Azure VM provisioning CLI.
 
 ## Documentation by Audience
@@ -58,8 +60,11 @@ Documentation in `archive/` contains implementation records and historical snaps
 
 **Getting Started**
 ```bash
-# Install azlin
-pip install azlin
+# Download pre-built binary (fastest)
+curl -sSL https://github.com/rysweet/azlin/releases/download/v2.3.0-rust/azlin-linux-x86_64 -o ~/.local/bin/azlin && chmod +x ~/.local/bin/azlin
+
+# Or run via uvx (auto-migrates to Rust)
+uvx --from git+https://github.com/rysweet/azlin azlin --help
 
 # See all commands
 azlin --help

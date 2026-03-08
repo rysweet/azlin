@@ -87,9 +87,10 @@ def _download_from_release() -> str | None:
 
     api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
     try:
-        req = urllib.request.Request(api_url, headers={"Accept": "application/vnd.github+json"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        req = urllib.request.Request(api_url, headers={"Accept": "application/vnd.github+json"})  # noqa: S310
+        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310  # nosec B310
             import json
+
             releases = json.loads(resp.read())
     except Exception:
         return None
@@ -118,7 +119,7 @@ def _download_from_release() -> str | None:
     sys.stderr.write(f"azlin: installing Rust binary v{version} from GitHub Releases...\n")
     try:
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
-            urllib.request.urlretrieve(download_url, tmp.name)
+            urllib.request.urlretrieve(download_url, tmp.name)  # noqa: S310  # nosec B310
             tmp_path = tmp.name
 
         with tarfile.open(tmp_path, "r:gz") as tar:
@@ -131,7 +132,9 @@ def _download_from_release() -> str | None:
         os.unlink(tmp_path)
 
         if MANAGED_BIN.exists():
-            MANAGED_BIN.chmod(MANAGED_BIN.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+            MANAGED_BIN.chmod(
+                MANAGED_BIN.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH
+            )
             sys.stderr.write(f"azlin: installed to {MANAGED_BIN}\n")
             return str(MANAGED_BIN)
     except Exception as e:
@@ -148,7 +151,15 @@ def _build_from_source() -> str | None:
     sys.stderr.write("azlin: building from source with cargo (this takes ~60s)...\n")
     try:
         result = subprocess.run(
-            [cargo, "install", "--git", f"https://github.com/{GITHUB_REPO}", "--bin", "azlin", "--force"],
+            [
+                cargo,
+                "install",
+                "--git",
+                f"https://github.com/{GITHUB_REPO}",
+                "--bin",
+                "azlin",
+                "--force",
+            ],
             timeout=600,
         )
         if result.returncode == 0:
@@ -164,10 +175,10 @@ def _build_from_source() -> str | None:
 def _exec_rust(binary: str, args: list[str]) -> None:
     """Replace this process with the Rust binary."""
     if platform.system() == "Windows":
-        result = subprocess.run([binary] + args)
+        result = subprocess.run([binary, *args])
         sys.exit(result.returncode)
     else:
-        os.execvp(binary, [binary] + args)
+        os.execvp(binary, [binary, *args])  # noqa: S606
 
 
 def entry() -> None:
