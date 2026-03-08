@@ -161,7 +161,10 @@ fn find_binary_in_dir(dir: &std::path::Path) -> Result<PathBuf> {
         let entries = fs::read_dir(dir).ok()?;
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() && entry.file_name() == "azlin" {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if path.is_file()
+                && (name == "azlin" || (name.starts_with("azlin-") && !name.starts_with("azdoit")))
+            {
                 return Some(path);
             }
             if path.is_dir() {
