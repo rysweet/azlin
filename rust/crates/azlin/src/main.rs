@@ -380,88 +380,64 @@ fn threshold_ansi(level: error_helpers::ThresholdLevel, s: &str) -> String {
     }
 }
 
-/// Render a health metrics table.
+/// Render a health metrics table with per-cell coloring.
+/// Colors are applied AFTER truncation to avoid ANSI width corruption.
 fn render_health_table(metrics: &[HealthMetrics]) {
-    let mut table = new_table(
-        &[
-            "VM Name", "State", "Agent", "Errors", "CPU %", "Memory %", "Disk %",
-        ],
-        &[20, 10, 10, 6, 6, 8, 6],
-    );
+    use crate::table_render::{trunc, trunc_right};
 
+    let headers = [
+        "VM Name", "State", "Agent", "Errors", "CPU %", "Memory %", "Disk %",
+    ];
+    let widths = [20usize, 10, 10, 6, 6, 8, 6];
+
+    // Build border lines
+    let top = table_render::border_line(&widths, '┌', '┬', '┐', '─');
+    let sep = table_render::border_line(&widths, '├', '┼', '┤', '─');
+    let bot = table_render::border_line(&widths, '└', '┴', '┘', '─');
+
+    // Header row — bold
+    let hdr_cells: Vec<String> = headers
+        .iter()
+        .zip(widths.iter())
+        .map(|(h, w)| format!("\x1b[1m{}\x1b[0m", trunc(h, *w)))
+        .collect();
+
+    println!("{top}");
+    println!("{}", table_render::render_row(&hdr_cells, &widths));
+    println!("{sep}");
+
+    // Data rows — color applied per-cell after truncation
     for m in metrics {
-        // Pass plain text to table for correct width calculation.
-        // Colors are applied per-line after rendering.
-        table.add_row(vec![
-            m.vm_name.clone(),
-            m.power_state.clone(),
-            m.agent_status.clone(),
-            m.error_count.to_string(),
-            format!("{:.1}", m.cpu_percent),
-            format!("{:.1}", m.mem_percent),
-            format!("{:.1}", m.disk_percent),
-        ]);
+        let cells = vec![
+            trunc(&m.vm_name, widths[0]),
+            threshold_ansi(
+                error_helpers::classify_power_state(&m.power_state),
+                &trunc(&m.power_state, widths[1]),
+            ),
+            threshold_ansi(
+                error_helpers::classify_agent_level(&m.agent_status),
+                &trunc(&m.agent_status, widths[2]),
+            ),
+            threshold_ansi(
+                error_helpers::classify_error_count(m.error_count),
+                &trunc_right(&m.error_count.to_string(), widths[3]),
+            ),
+            threshold_ansi(
+                error_helpers::classify_metric_70_90(m.cpu_percent),
+                &trunc_right(&format!("{:.1}", m.cpu_percent), widths[4]),
+            ),
+            threshold_ansi(
+                error_helpers::classify_metric_70_90(m.mem_percent),
+                &trunc_right(&format!("{:.1}", m.mem_percent), widths[5]),
+            ),
+            threshold_ansi(
+                error_helpers::classify_metric_70_90(m.disk_percent),
+                &trunc_right(&format!("{:.1}", m.disk_percent), widths[6]),
+            ),
+        ];
+        println!("{}", table_render::render_row(&cells, &widths));
     }
-
-    // Render table as plain text, then colorize each data row
-    let rendered = format!("{table}");
-    for (line_idx, line) in rendered.lines().enumerate() {
-        if line_idx < 3 || metrics.is_empty() {
-            // Header rows (top border, header, separator) — print as-is
-            println!("{line}");
-        } else {
-            let data_idx = line_idx - 3;
-            if data_idx < metrics.len() {
-                // Color individual cell values in the rendered line
-                let m = &metrics[data_idx];
-                let mut colored = line.to_string();
-                // Replace plain values with colored versions (rightmost first to preserve positions)
-                let replacements = [
-                    (
-                        &format!("{:.1}", m.disk_percent),
-                        error_helpers::classify_metric_70_90(m.disk_percent),
-                    ),
-                    (
-                        &format!("{:.1}", m.mem_percent),
-                        error_helpers::classify_metric_70_90(m.mem_percent),
-                    ),
-                    (
-                        &format!("{:.1}", m.cpu_percent),
-                        error_helpers::classify_metric_70_90(m.cpu_percent),
-                    ),
-                    (
-                        &m.error_count.to_string(),
-                        error_helpers::classify_error_count(m.error_count),
-                    ),
-                    (
-                        &m.agent_status,
-                        error_helpers::classify_agent_level(&m.agent_status),
-                    ),
-                    (
-                        &m.power_state,
-                        error_helpers::classify_power_state(&m.power_state),
-                    ),
-                ];
-                for (val, level) in &replacements {
-                    if !val.is_empty() {
-                        let ansi = threshold_ansi(*level, val);
-                        // Replace last occurrence to avoid matching substrings in VM name
-                        if let Some(pos) = colored.rfind(val.as_str()) {
-                            colored = format!(
-                                "{}{}{}",
-                                &colored[..pos],
-                                ansi,
-                                &colored[pos + val.len()..]
-                            );
-                        }
-                    }
-                }
-                println!("{colored}");
-            } else {
-                println!("{line}");
-            }
-        }
-    }
+    println!("{bot}");
     println!();
     println!(
         "Signals: Latency=Agent | Traffic=State | Errors=Agent fails | Saturation=CPU/Mem/Disk"

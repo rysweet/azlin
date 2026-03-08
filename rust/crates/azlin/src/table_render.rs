@@ -37,7 +37,13 @@ pub(crate) fn trunc_right(s: &str, w: usize) -> String {
 }
 
 /// Draw a horizontal border line with box-drawing characters.
-fn border_line(widths: &[usize], left: char, mid: char, right: char, fill: char) -> String {
+pub(crate) fn border_line(
+    widths: &[usize],
+    left: char,
+    mid: char,
+    right: char,
+    fill: char,
+) -> String {
     let mut line = String::new();
     line.push(left);
     for (i, w) in widths.iter().enumerate() {
@@ -53,7 +59,7 @@ fn border_line(widths: &[usize], left: char, mid: char, right: char, fill: char)
 }
 
 /// Render a single row with box-drawing vertical borders.
-fn render_row(cells: &[String], widths: &[usize]) -> String {
+pub(crate) fn render_row(cells: &[String], widths: &[usize]) -> String {
     let mut line = String::from("│");
     for (i, (cell, _w)) in cells.iter().zip(widths.iter()).enumerate() {
         line.push(' ');
