@@ -169,36 +169,64 @@ fn set_col_max(table: &mut Table, idx: usize, max: u16) {
     }
 }
 
-/// Format tmux sessions with attached/detached coloring.
+/// Truncate a string to max_len visible characters, appending "..." if needed.
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else if max_len <= 3 {
+        s.chars().take(max_len).collect()
+    } else {
+        let truncated: String = s.chars().take(max_len - 3).collect();
+        format!("{}...", truncated)
+    }
+}
+
+/// Format tmux sessions with attached/detached coloring and truncation.
 /// Input format from `tmux list-sessions -F '#{session_name}:#{session_attached}'`
-/// e.g. ["main:1", "build:0"] → "main" (bold), "build" (dim)
-fn format_tmux_colored(sessions: &[String], max_show: usize) -> String {
+/// `max_width` truncates the final plain-text to fit the column.
+fn format_tmux_colored(sessions: &[String], max_show: usize, max_width: usize) -> String {
     if sessions.is_empty() {
         return "-".to_string();
     }
     let bold = console::Style::new().white().bold();
     let dim = console::Style::new().dim();
-    let shown: Vec<String> = sessions
-        .iter()
-        .take(max_show)
-        .map(|s| {
-            if let Some((name, attached)) = s.rsplit_once(':') {
-                if attached == "1" {
-                    bold.apply_to(name).to_string()
-                } else {
-                    dim.apply_to(name).to_string()
-                }
-            } else {
-                // No colon — legacy format, show as-is
-                s.clone()
-            }
-        })
-        .collect();
-    let mut result = shown.join(", ");
-    if sessions.len() > max_show {
-        result.push_str(&format!(" (+{} more)", sessions.len() - max_show));
+
+    // Extract plain names for width calculation
+    let mut names: Vec<(&str, bool)> = Vec::new();
+    for s in sessions.iter().take(max_show) {
+        if let Some((name, attached)) = s.rsplit_once(':') {
+            names.push((name, attached == "1"));
+        } else {
+            names.push((s.as_str(), false));
+        }
     }
-    result
+    let overflow_count = sessions.len().saturating_sub(max_show);
+
+    // Build truncated plain text, then apply styles
+    let mut plain_len = 0usize;
+    let mut styled = String::new();
+    let mut count = 0usize;
+    for (i, (name, is_attached)) in names.iter().enumerate() {
+        let sep = if i > 0 { ", " } else { "" };
+        let needed = sep.len() + name.len();
+        if plain_len + needed > max_width && count > 0 {
+            // Won't fit — truncate here
+            styled.push_str("...");
+            return styled;
+        }
+        plain_len += needed;
+        styled.push_str(sep);
+        if *is_attached {
+            styled.push_str(&bold.apply_to(name).to_string());
+        } else {
+            styled.push_str(&dim.apply_to(name).to_string());
+        }
+        count += 1;
+    }
+    if overflow_count > 0 {
+        styled.push_str(&format!(", +{}", overflow_count));
+    }
+    styled
 }
 
 fn render_table(cfg: &ListRenderConfig, data: &ListRenderData, headers: &[&str]) {
@@ -266,14 +294,23 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData, headers: &[&str])
         let tmux = data
             .tmux_sessions
             .get(&vm.name)
-            .map(|s| format_tmux_colored(s, 3))
+            .map(|s| {
+                let max_w = if cfg.compact { 20 } else { 25 };
+                format_tmux_colored(s, 3, max_w)
+            })
             .unwrap_or_else(|| "-".to_string());
-        let ip_display = crate::display_helpers::format_ip_display(
+        let ip_raw = crate::display_helpers::format_ip_display(
             vm.public_ip.as_deref(),
             vm.private_ip.as_deref(),
         );
-        let os_display =
-            crate::display_helpers::format_os_display(vm.os_offer.as_deref(), &vm.os_type);
+        let ip_display = truncate_str(&ip_raw, 18);
+        let os_max = if cfg.compact { 12 } else { 18 };
+        let os_display = truncate_str(
+            &crate::display_helpers::format_os_display(vm.os_offer.as_deref(), &vm.os_type),
+            os_max,
+        );
+        let rgn_max = if cfg.compact { 6 } else { 16 };
+        let region_display = truncate_str(&vm.location, rgn_max);
         let (cpu, mem) = crate::display_helpers::query_vm_size_specs(&vm.vm_size, &vm.location);
         let state_color = match vm.power_state {
             azlin_core::models::PowerState::Running => Color::Green,
@@ -281,12 +318,13 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData, headers: &[&str])
             | azlin_core::models::PowerState::Deallocated => Color::Red,
             _ => Color::Yellow,
         };
+        let session_display = truncate_str(session, if cfg.compact { 12 } else { 14 });
         let vm_name_display = if cfg.wide {
             vm.name.clone()
         } else {
             crate::display_helpers::truncate_vm_name(&vm.name, 20)
         };
-        let mut row = vec![Cell::new(session).fg(Color::Cyan)];
+        let mut row = vec![Cell::new(&session_display).fg(Color::Cyan)];
         if cfg.show_tmux_col {
             row.push(Cell::new(&tmux));
         }
@@ -297,10 +335,10 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData, headers: &[&str])
             Cell::new(&os_display),
             Cell::new(vm.power_state.to_string()).fg(state_color),
             Cell::new(&ip_display).fg(Color::DarkYellow),
-            Cell::new(&vm.location).fg(Color::Grey),
+            Cell::new(&region_display).fg(Color::Grey),
         ]);
         if cfg.wide {
-            row.push(Cell::new(&vm.vm_size));
+            row.push(Cell::new(truncate_str(&vm.vm_size, 15)));
         }
         row.extend_from_slice(&[
             Cell::new(&cpu)
