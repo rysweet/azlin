@@ -1,5 +1,4 @@
 //! Data collection helpers for the list command (tmux, latency, health, procs).
-#![allow(dead_code)]
 
 use super::*;
 use azlin_core::models::VmInfo;

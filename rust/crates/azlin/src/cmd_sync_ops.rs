@@ -236,7 +236,7 @@ pub(crate) async fn handle_logs(
             args.push(format!("sudo tail -f {}", log_path));
             let status = std::process::Command::new("az").args(&args).status()?;
             if !status.success() {
-                std::process::exit(status.code().unwrap_or(1));
+                anyhow::bail!("Log follow exited with code {}", status.code().unwrap_or(1));
             }
         } else {
             let follow_args =
@@ -245,7 +245,7 @@ pub(crate) async fn handle_logs(
                 .args(&follow_args)
                 .status()?;
             if !status.success() {
-                std::process::exit(status.code().unwrap_or(1));
+                anyhow::bail!("Log follow exited with code {}", status.code().unwrap_or(1));
             }
         }
     } else {

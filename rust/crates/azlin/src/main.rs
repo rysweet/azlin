@@ -655,7 +655,9 @@ fn run_on_fleet(vms: &[(String, String, String)], command: &str, show_output: bo
 }
 
 fn main() {
-    color_eyre::install().ok();
+    if let Err(e) = color_eyre::install() {
+        eprintln!("Warning: failed to install error reporter: {e}");
+    }
 
     let result = tokio::runtime::Runtime::new()
         .expect("Failed to create tokio runtime")

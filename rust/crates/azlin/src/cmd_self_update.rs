@@ -140,9 +140,13 @@ fn download_and_replace(url: &str, version: &str) -> Result<()> {
     fs::copy(&new_bin, &current_exe).context("Failed to install new binary")?;
     fs::set_permissions(&current_exe, fs::Permissions::from_mode(0o755))?;
 
-    // Clean up backup and temp dir
-    fs::remove_file(&backup).ok();
-    fs::remove_dir_all(&tmp_dir).ok();
+    // Clean up backup and temp dir (warn but don't fail on cleanup errors)
+    if let Err(e) = fs::remove_file(&backup) {
+        eprintln!("Warning: failed to remove backup file: {e}");
+    }
+    if let Err(e) = fs::remove_dir_all(&tmp_dir) {
+        eprintln!("Warning: failed to remove temp dir: {e}");
+    }
 
     pb.finish_and_clear();
     println!("Updated azlin: {} → {}", CURRENT_VERSION, version);
