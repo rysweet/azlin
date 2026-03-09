@@ -27,9 +27,20 @@ pub(crate) async fn dispatch(
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
 
+            // Parse compound identifier: "vm:session" → (vm_name, Some(session))
+            let (raw_name, colon_session) = if let Some(ref id) = vm_identifier {
+                if let Some((vm_part, sess_part)) = id.split_once(':') {
+                    (Some(vm_part.to_string()), Some(sess_part.to_string()))
+                } else {
+                    (Some(id.clone()), None)
+                }
+            } else {
+                (None, None)
+            };
+
             // If no VM specified, show interactive picker of running VMs
-            let name = if let Some(id) = vm_identifier {
-                id
+            let name = if let Some(n) = raw_name {
+                n
             } else {
                 let vms = vm_manager.list_vms(&rg)?;
                 let running: Vec<_> = vms
@@ -75,8 +86,12 @@ pub(crate) async fn dispatch(
             let use_bastion = vm.public_ip.is_none();
 
             // Build the remote command (with optional tmux wrapping)
+            // Priority: --tmux-session flag > colon notation (vm:session) > default "azlin"
             let tmux_sess = if !no_tmux {
-                let sess = tmux_session.as_deref().unwrap_or("azlin");
+                let sess = tmux_session
+                    .as_deref()
+                    .or(colon_session.as_deref())
+                    .unwrap_or("azlin");
                 if !sess
                     .chars()
                     .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
@@ -132,6 +147,10 @@ pub(crate) async fn dispatch(
                         args.push(k.to_string_lossy().to_string());
                     }
                     args.push("--".to_string());
+                    // Force TTY allocation for interactive sessions (tmux needs it)
+                    if tmux_sess.is_some() || remote_command.is_empty() {
+                        args.push("-t".to_string());
+                    }
                     // Build the remote command
                     if let Some(ref sess) = tmux_sess {
                         if remote_command.is_empty() {
