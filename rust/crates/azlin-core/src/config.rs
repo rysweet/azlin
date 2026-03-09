@@ -126,8 +126,13 @@ impl Default for AzlinConfig {
 }
 
 impl AzlinConfig {
-    /// Returns the config directory path (~/.azlin/)
+    /// Returns the config directory path.
+    ///
+    /// Checks `AZLIN_CONFIG_DIR` env var first, falls back to `~/.azlin/`.
     pub fn config_dir() -> crate::Result<PathBuf> {
+        if let Ok(dir) = std::env::var("AZLIN_CONFIG_DIR") {
+            return Ok(PathBuf::from(dir));
+        }
         Ok(dirs::home_dir()
             .ok_or_else(|| crate::AzlinError::Config("Home directory not found".into()))?
             .join(".azlin"))
@@ -206,6 +211,15 @@ impl AzlinConfig {
                 },
             )?;
         }
+
+        // Verify the serialized TOML is valid before committing the write.
+        // This prevents corrupt data from reaching config.toml.
+        let _: AzlinConfig = toml::from_str(&contents).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp_path);
+            crate::AzlinError::Config(format!(
+                "BUG: save() produced invalid TOML — not writing: {e}"
+            ))
+        })?;
 
         // Atomic rename (on same filesystem, this is atomic on Unix)
         std::fs::rename(&tmp_path, &path).map_err(|e| {
