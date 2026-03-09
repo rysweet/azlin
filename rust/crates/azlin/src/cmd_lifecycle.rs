@@ -204,8 +204,6 @@ pub(crate) async fn dispatch(
             timeout: _,
             ..
         } => {
-            let auth = create_auth()?;
-            let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
 
             let pb = indicatif::ProgressBar::new_spinner();
