@@ -39,7 +39,7 @@ pub(crate) async fn dispatch(
             timeout: _,
             ..
         } => {
-            crate::cmd_vm_ops2::handle_vm_update(&vm_identifier, resource_group)?;
+            crate::cmd_vm_ops2::handle_vm_update(&vm_identifier, resource_group).await?;
         }
         azlin_cli::Commands::Clone {
             source_vm,

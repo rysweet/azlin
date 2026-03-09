@@ -7,7 +7,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_run_on_fleet_show_output_false() {
-    let vms: Vec<(String, String, String)> = vec![];
+    let vms: Vec<crate::VmSshTarget> = vec![];
     crate::run_on_fleet(&vms, "ls", false);
 }
 

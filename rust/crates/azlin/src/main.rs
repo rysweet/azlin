@@ -586,24 +586,10 @@ fn run_health_tui(metrics: &[HealthMetrics]) -> Result<()> {
 
 /// Get running VMs with their IPs from Azure for SSH-based commands.
 /// Returns Vec of (vm_name, ip, admin_user).
-async fn get_running_vms_with_ips(
-    vm_manager: &azlin_azure::VmManager,
-    rg: &str,
-) -> Result<Vec<(String, String, String)>> {
-    let vms = vm_manager.list_vms(rg)?;
-    let mut results = Vec::new();
-    for vm in &vms {
-        if vm.power_state == azlin_core::models::PowerState::Running {
-            if let Some(ip) = vm.public_ip.as_ref().or(vm.private_ip.as_ref()) {
-                let user = vm
-                    .admin_username
-                    .clone()
-                    .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
-                results.push((vm.name.clone(), ip.clone(), user));
-            }
-        }
-    }
-    Ok(results)
+async fn get_running_vm_targets(
+    resource_group: Option<String>,
+) -> Result<Vec<VmSshTarget>> {
+    resolve_vm_targets(None, None, resource_group).await
 }
 
 /// Create a consistent spinner style used across all operations.
@@ -615,16 +601,17 @@ fn fleet_spinner_style() -> ProgressStyle {
 
 /// Execute a command on all running VMs with MultiProgress bars, then print a
 /// summary table. Each VM gets its own spinner showing live status.
-fn run_on_fleet(vms: &[(String, String, String)], command: &str, show_output: bool) {
+/// Uses VmSshTarget for proper bastion routing on private VMs.
+fn run_on_fleet(targets: &[VmSshTarget], command: &str, show_output: bool) {
     let mp = MultiProgress::new();
     let style = fleet_spinner_style();
 
-    let bars: Vec<_> = vms
+    let bars: Vec<_> = targets
         .iter()
-        .map(|(name, _ip, _user)| {
+        .map(|t| {
             let pb = mp.add(ProgressBar::new_spinner());
             pb.set_style(style.clone());
-            pb.set_prefix(format!("{:>20}", name));
+            pb.set_prefix(format!("{:>20}", t.vm_name));
             pb.set_message("connecting...");
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
             pb
@@ -633,9 +620,9 @@ fn run_on_fleet(vms: &[(String, String, String)], command: &str, show_output: bo
 
     let mut table = new_table(&["VM", "Status", "Output"], &[20, 8, 60]);
 
-    for (i, (name, ip, user)) in vms.iter().enumerate() {
+    for (i, target) in targets.iter().enumerate() {
         bars[i].set_message(format!("running: {}", command));
-        let (code, stdout, stderr) = match ssh_exec(ip, user, command) {
+        let (code, stdout, stderr) = match target.exec(command) {
             Ok(r) => r,
             Err(e) => (-1, String::new(), e.to_string()),
         };
@@ -649,7 +636,7 @@ fn run_on_fleet(vms: &[(String, String, String)], command: &str, show_output: bo
             format!("\x1b[31m{}\x1b[0m", status)
         };
         let output_text = fleet_helpers::format_output_text(code, &stdout, &stderr, show_output);
-        table.add_row(vec![name.to_string(), status_str, output_text]);
+        table.add_row(vec![target.vm_name.clone(), status_str, output_text]);
     }
     println!("{table}");
 }

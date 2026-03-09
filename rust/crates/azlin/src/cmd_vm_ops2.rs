@@ -2,28 +2,20 @@
 use super::*;
 use anyhow::Result;
 use console::Style;
-pub(crate) fn handle_vm_update(vm_identifier: &str, resource_group: Option<String>) -> Result<()> {
-    let auth = create_auth()?;
-    let vm_manager = azlin_azure::VmManager::new(&auth);
-    let rg = resolve_resource_group(resource_group)?;
-
+pub(crate) async fn handle_vm_update(
+    vm_identifier: &str,
+    resource_group: Option<String>,
+) -> Result<()> {
     let pb = indicatif::ProgressBar::new_spinner();
     pb.set_message(format!("Looking up {}...", vm_identifier));
     pb.enable_steady_tick(std::time::Duration::from_millis(100));
-    let vm = vm_manager.get_vm(&rg, vm_identifier)?;
+    let target =
+        resolve_vm_ssh_target(vm_identifier, None, resource_group).await?;
     pb.finish_and_clear();
-
-    let ip = vm
-        .public_ip
-        .or(vm.private_ip)
-        .ok_or_else(|| anyhow::anyhow!("No IP found for VM '{}'", vm_identifier))?;
-    let user = vm
-        .admin_username
-        .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
 
     println!("Updating development tools on '{}'...", vm_identifier);
     let update_script = crate::update_helpers::build_dev_update_script();
-    let (code, stdout, stderr) = ssh_exec(&ip, &user, update_script)?;
+    let (code, stdout, stderr) = target.exec(update_script)?;
     if code == 0 {
         let green = Style::new().green();
         println!(

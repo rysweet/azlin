@@ -165,9 +165,9 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
     });
 
     if cfg.show_tmux_col {
-        let tmux_w = if cfg.compact { 18 } else { 22 };
+        let tmux_w = if cfg.compact { 20 } else { 30 };
         cols.push(ColDef {
-            header: "Tmux",
+            header: "Tmux Sessions",
             width: tmux_w,
             right_align: false,
         });
@@ -248,15 +248,41 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
         });
     }
 
-    // If total width exceeds terminal, shrink the widest flexible columns
+    // If total width exceeds terminal, shrink less important columns first.
+    // Priority: protect Session + Tmux, shrink Status/Region/CPU/Mem aggressively.
     let border_overhead = cols.len() * 3 + 1; // "│ " + " " per col + final "│"
     let content_budget = term_width.saturating_sub(border_overhead);
     let total_content: usize = cols.iter().map(|c| c.width).sum();
     if total_content > content_budget {
-        // Shrink columns proportionally, minimum 3 chars each
-        let ratio = content_budget as f64 / total_content as f64;
-        for col in &mut cols {
-            col.width = (col.width as f64 * ratio).floor().max(3.0) as usize;
+        let excess = total_content - content_budget;
+        // Shrink columns by priority: low-priority columns first
+        let shrinkable: Vec<&'static str> = vec![
+            "CPU", "Mem", "Region", "Status", "SKU", "OS", "IP", "Latency", "Health",
+        ];
+        let mut remaining = excess;
+        for target in &shrinkable {
+            if remaining == 0 {
+                break;
+            }
+            for col in cols.iter_mut() {
+                if col.header == *target && col.width > 3 {
+                    let can_shrink = col.width - 3;
+                    let shrink = can_shrink.min(remaining);
+                    col.width -= shrink;
+                    remaining -= shrink;
+                    break;
+                }
+            }
+        }
+        // If still over budget, shrink everything proportionally
+        if remaining > 0 {
+            let current: usize = cols.iter().map(|c| c.width).sum();
+            if current > content_budget {
+                let ratio = content_budget as f64 / current as f64;
+                for col in &mut cols {
+                    col.width = (col.width as f64 * ratio).floor().max(3.0) as usize;
+                }
+            }
         }
     }
 

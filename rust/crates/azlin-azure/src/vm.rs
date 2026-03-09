@@ -387,10 +387,19 @@ impl VmManager {
             params.ssh_key_path.display()
         ))?;
 
-        // 1. Create or verify resource group
-        debug!(rg, location, "Creating/verifying resource group");
-        az(&["group", "create", "--name", rg, "--location", location])
-            .context(format!("Failed to create resource group '{rg}'"))?;
+        // 1. Create or verify resource group (only create if it doesn't exist)
+        debug!(rg, location, "Checking resource group");
+        let rg_check = std::process::Command::new("az")
+            .args(["group", "exists", "--name", rg])
+            .output()?;
+        let rg_exists = String::from_utf8_lossy(&rg_check.stdout)
+            .trim()
+            .eq_ignore_ascii_case("true");
+        if !rg_exists {
+            debug!(rg, location, "Creating resource group");
+            az(&["group", "create", "--name", rg, "--location", location])
+                .context(format!("Failed to create resource group '{rg}'"))?;
+        }
 
         // 2. Create NSG with SSH + HTTPS rules
         debug!(nsg_name = %names.nsg, "Creating NSG");
