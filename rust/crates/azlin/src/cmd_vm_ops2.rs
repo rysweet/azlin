@@ -109,6 +109,8 @@ pub(crate) fn handle_vm_clone(
                 &disk_name,
                 "--source",
                 &snapshot_name,
+                "--location",
+                &location,
                 "--output",
                 "json",
             ])
@@ -132,6 +134,8 @@ pub(crate) fn handle_vm_clone(
                     &disk_name,
                     "--os-type",
                     "Linux",
+                    "--location",
+                    &location,
                     "--nsg",
                     "",
                     "--output",

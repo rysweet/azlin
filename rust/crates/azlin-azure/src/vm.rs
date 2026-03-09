@@ -389,8 +389,11 @@ impl VmManager {
 
         // 1. Create or verify resource group
         debug!(rg, location, "Creating/verifying resource group");
-        az(&["group", "create", "--name", rg, "--location", location])
-            .context(format!("Failed to create resource group '{rg}'"))?;
+        let rg_exists = az(&["group", "show", "--name", rg, "--output", "json"]).is_ok();
+        if !rg_exists {
+            az(&["group", "create", "--name", rg, "--location", location])
+                .context(format!("Failed to create resource group '{rg}'"))?;
+        }
 
         // 2. Create NSG with SSH + HTTPS rules
         debug!(nsg_name = %names.nsg, "Creating NSG");
@@ -533,6 +536,8 @@ impl VmManager {
             rg,
             "--name",
             vm_name,
+            "--location",
+            location,
             "--nics",
             &names.nic,
             "--image",

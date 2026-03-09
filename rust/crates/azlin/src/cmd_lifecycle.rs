@@ -34,12 +34,13 @@ pub(crate) async fn dispatch(
         azlin_cli::Commands::Stop {
             vm_name,
             resource_group,
-            deallocate,
+            no_deallocate,
             ..
         } => {
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
+            let deallocate = !no_deallocate;
 
             let (action, _done) = crate::stop_helpers::stop_action_labels(deallocate);
             let pb = ProgressBar::new_spinner();
