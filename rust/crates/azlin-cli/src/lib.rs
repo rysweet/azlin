@@ -123,7 +123,7 @@ pub enum Commands {
 
     // ── VM Lifecycle ───────────────────────────────────────────────────
     /// Provision a new VM
-    #[command(alias = "vm", alias = "create")]
+    #[command(alias = "create")]
     New {
         /// GitHub repository URL to clone
         #[arg(long)]
@@ -409,22 +409,10 @@ pub enum Commands {
         remote_command: Vec<String>,
     },
 
-    /// Update all development tools on a VM
-    Update {
-        /// VM name or session name
-        vm_identifier: String,
-
-        /// Resource group
-        #[arg(long, alias = "rg")]
-        resource_group: Option<String>,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
-
-        /// Timeout per update in seconds
-        #[arg(long, default_value = "300")]
-        timeout: u32,
+    /// VM management subcommands
+    Vm {
+        #[command(subcommand)]
+        action: VmAction,
     },
 
     /// Manage VM tags
@@ -971,8 +959,8 @@ pub enum Commands {
     Version,
 
     /// Update azlin to the latest version from GitHub Releases
-    #[command(name = "self-update")]
-    SelfUpdate,
+    #[command(name = "update", alias = "self-update")]
+    Update,
 
     /// Generate shell completions
     Completions {
@@ -985,6 +973,30 @@ pub enum Commands {
 // ---------------------------------------------------------------------------
 // Subcommand enums
 // ---------------------------------------------------------------------------
+
+// ── VM subcommands ────────────────────────────────────────────────────────
+
+#[derive(Subcommand, Debug)]
+pub enum VmAction {
+    /// Update development tools on a VM
+    #[command(name = "update-tools")]
+    UpdateTools {
+        /// VM name or session name
+        vm_identifier: String,
+
+        /// Resource group
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+
+        /// Config file path
+        #[arg(long)]
+        config: Option<PathBuf>,
+
+        /// Timeout per update in seconds
+        #[arg(long, default_value = "300")]
+        timeout: u32,
+    },
+}
 
 #[derive(Subcommand, Debug)]
 pub enum BastionAction {
@@ -2803,12 +2815,55 @@ mod tests {
     }
 
     #[test]
-    fn test_update_command() {
-        let cli = Cli::parse_from(["azlin", "update", "my-vm"]);
-        if let Commands::Update { vm_identifier, .. } = cli.command {
+    fn test_update_self_update() {
+        // `azlin update` should trigger the binary self-update
+        let cli = Cli::parse_from(["azlin", "update"]);
+        assert!(matches!(cli.command, Commands::Update));
+    }
+
+    #[test]
+    fn test_self_update_alias() {
+        // `azlin self-update` should still work as a backward-compat alias
+        let cli = Cli::parse_from(["azlin", "self-update"]);
+        assert!(matches!(cli.command, Commands::Update));
+    }
+
+    #[test]
+    fn test_vm_update_tools() {
+        let cli = Cli::parse_from(["azlin", "vm", "update-tools", "my-vm"]);
+        if let Commands::Vm {
+            action: VmAction::UpdateTools { vm_identifier, .. },
+        } = cli.command
+        {
             assert_eq!(vm_identifier, "my-vm");
         } else {
-            panic!("Expected Update command");
+            panic!("Expected Vm UpdateTools command");
+        }
+    }
+
+    #[test]
+    fn test_vm_update_tools_with_rg() {
+        let cli = Cli::parse_from([
+            "azlin",
+            "vm",
+            "update-tools",
+            "my-vm",
+            "--resource-group",
+            "my-rg",
+        ]);
+        if let Commands::Vm {
+            action:
+                VmAction::UpdateTools {
+                    vm_identifier,
+                    resource_group,
+                    ..
+                },
+        } = cli.command
+        {
+            assert_eq!(vm_identifier, "my-vm");
+            assert_eq!(resource_group, Some("my-rg".to_string()));
+        } else {
+            panic!("Expected Vm UpdateTools command");
         }
     }
 

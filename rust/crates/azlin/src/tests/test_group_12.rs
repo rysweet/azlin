@@ -157,9 +157,28 @@ fn test_sync_help() {
 
 #[test]
 fn test_update_help() {
+    // `azlin update` is now the self-update command
     assert_cmd::Command::cargo_bin("azlin")
         .unwrap()
         .args(["update", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_vm_update_tools_help() {
+    assert_cmd::Command::cargo_bin("azlin")
+        .unwrap()
+        .args(["vm", "update-tools", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_self_update_alias_help() {
+    assert_cmd::Command::cargo_bin("azlin")
+        .unwrap()
+        .args(["self-update", "--help"])
         .assert()
         .success();
 }

@@ -60,9 +60,7 @@ pub(crate) fn dispatch_costs(action: azlin_cli::CostsAction) -> Result<()> {
                         "⚠ Cost history unavailable: {}",
                         azlin_core::sanitizer::sanitize(&e.to_string())
                     );
-                    eprintln!(
-                        "  Run 'az consumption usage list' for cost data via Azure CLI."
-                    );
+                    eprintln!("  Run 'az consumption usage list' for cost data via Azure CLI.");
                     return Ok(());
                 }
             };
@@ -94,21 +92,15 @@ pub(crate) fn dispatch_costs(action: azlin_cli::CostsAction) -> Result<()> {
             if date_costs.is_empty() {
                 println!("No cost data available for the last {} days.", days);
             } else {
-                let mut table = crate::table_render::SimpleTable::new(
-                    &["Date", "Cost (USD)"],
-                    &[12, 14],
-                );
+                let mut table =
+                    crate::table_render::SimpleTable::new(&["Date", "Cost (USD)"], &[12, 14]);
                 let mut total = 0.0;
                 for (date, cost) in &date_costs {
                     table.add_row(vec![date.clone(), format!("${:.2}", cost)]);
                     total += cost;
                 }
                 println!("{table}");
-                println!(
-                    "Total: ${:.2} ({} days with data)",
-                    total,
-                    date_costs.len()
-                );
+                println!("Total: ${:.2} ({} days with data)", total, date_costs.len());
             }
         }
         azlin_cli::CostsAction::Budget {

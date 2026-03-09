@@ -586,9 +586,7 @@ fn run_health_tui(metrics: &[HealthMetrics]) -> Result<()> {
 
 /// Get running VMs with their IPs from Azure for SSH-based commands.
 /// Returns Vec of (vm_name, ip, admin_user).
-async fn get_running_vm_targets(
-    resource_group: Option<String>,
-) -> Result<Vec<VmSshTarget>> {
+async fn get_running_vm_targets(resource_group: Option<String>) -> Result<Vec<VmSshTarget>> {
     resolve_vm_targets(None, None, resource_group).await
 }
 
