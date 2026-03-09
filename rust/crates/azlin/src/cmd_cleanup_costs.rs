@@ -1,6 +1,6 @@
 #[allow(unused_imports)]
 use super::*;
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 pub(crate) fn dispatch_costs(action: azlin_cli::CostsAction) -> Result<()> {
     match action {
@@ -32,64 +32,82 @@ pub(crate) fn dispatch_costs(action: azlin_cli::CostsAction) -> Result<()> {
             resource_group,
             days,
         } => {
-            let (start_date, end_date) = crate::handlers::build_cost_history_dates(days);
+            let cost_timeout = azlin_core::AzlinConfig::load()
+                .map(|c| c.az_cli_timeout)
+                .unwrap_or(120);
 
-            // Get subscription ID first
-            let sub_output = std::process::Command::new("az")
-                .args(["account", "show", "--query", "id", "-o", "tsv"])
-                .output()?;
-            let sub_id = String::from_utf8_lossy(&sub_output.stdout)
-                .trim()
-                .to_string();
-            if sub_id.is_empty() {
-                anyhow::bail!("Could not determine subscription ID. Run 'az login' first.");
+            let end_date = chrono::Utc::now();
+            let start_date = end_date - chrono::Duration::days(days as i64);
+            let start_str = start_date.format("%Y-%m-%d").to_string();
+            let end_str = end_date.format("%Y-%m-%d").to_string();
+
+            // Use az consumption usage list — same API as costs dashboard
+            let json = match azlin_azure::vm::az_cli_with_timeout(
+                &[
+                    "consumption",
+                    "usage",
+                    "list",
+                    "--start-date",
+                    &start_str,
+                    "--end-date",
+                    &end_str,
+                ],
+                cost_timeout,
+            ) {
+                Ok(j) => j,
+                Err(e) => {
+                    eprintln!(
+                        "⚠ Cost history unavailable: {}",
+                        azlin_core::sanitizer::sanitize(&e.to_string())
+                    );
+                    eprintln!(
+                        "  Run 'az consumption usage list' for cost data via Azure CLI."
+                    );
+                    return Ok(());
+                }
+            };
+
+            let entries: Vec<serde_json::Value> =
+                serde_json::from_str(&json).context("Failed to parse cost data JSON")?;
+
+            // Aggregate costs by date
+            let mut date_costs: std::collections::BTreeMap<String, f64> =
+                std::collections::BTreeMap::new();
+            for entry in &entries {
+                let date = entry
+                    .get("usageStart")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.get(..10))
+                    .unwrap_or("unknown");
+                let cost = entry
+                    .get("pretaxCost")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                *date_costs.entry(date.to_string()).or_insert(0.0) += cost;
             }
 
-            let scope = crate::handlers::build_cost_management_scope(&sub_id, &resource_group);
-            let output = std::process::Command::new("az")
-                .args([
-                    "costmanagement",
-                    "query",
-                    "--type",
-                    "ActualCost",
-                    "--scope",
-                    &scope,
-                    "--timeframe",
-                    "Custom",
-                    "--time-period",
-                    &format!("start={}&end={}", start_date, end_date),
-                    "-o",
-                    "json",
-                ])
-                .output()?;
+            println!(
+                "{}",
+                crate::handlers::format_cost_history_header(&resource_group, days)
+            );
 
-            if output.status.success() {
-                let json_str = String::from_utf8_lossy(&output.stdout);
-                match serde_json::from_str::<serde_json::Value>(&json_str) {
-                    Ok(data) => {
-                        let mut table = crate::table_render::SimpleTable::new(
-                            &["Date", "Cost (USD)"],
-                            &[12, 14],
-                        );
-                        for (date, cost) in crate::handlers::parse_cost_history_rows(&data) {
-                            table.add_row(vec![date, cost]);
-                        }
-                        println!(
-                            "{}",
-                            crate::handlers::format_cost_history_header(&resource_group, days)
-                        );
-                        println!("{table}");
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to parse cost data: {}", e);
-                        println!("{}", json_str);
-                    }
-                }
+            if date_costs.is_empty() {
+                println!("No cost data available for the last {} days.", days);
             } else {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                anyhow::bail!(
-                    "Failed to query cost history: {}",
-                    azlin_core::sanitizer::sanitize(stderr.trim())
+                let mut table = crate::table_render::SimpleTable::new(
+                    &["Date", "Cost (USD)"],
+                    &[12, 14],
+                );
+                let mut total = 0.0;
+                for (date, cost) in &date_costs {
+                    table.add_row(vec![date.clone(), format!("${:.2}", cost)]);
+                    total += cost;
+                }
+                println!("{table}");
+                println!(
+                    "Total: ${:.2} ({} days with data)",
+                    total,
+                    date_costs.len()
                 );
             }
         }
