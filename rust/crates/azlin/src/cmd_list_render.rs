@@ -337,12 +337,20 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
 
         // Tmux
         if cfg.show_tmux_col {
-            let tmux = data
+            // Tmux column never truncates — show all session names.
+            // Pad to column width for alignment, but allow overflow (terminal wraps).
+            let tmux_text = data
                 .tmux_sessions
                 .get(&vm.name)
-                .map(|s| trunc(&format_tmux_plain(s, usize::MAX), cols[col_i].width))
-                .unwrap_or_else(|| trunc("-", cols[col_i].width));
-            cells.push(tmux);
+                .map(|s| format_tmux_plain(s, usize::MAX))
+                .unwrap_or_else(|| "-".to_string());
+            let w = cols[col_i].width;
+            let padded = if tmux_text.len() < w {
+                format!("{:<width$}", tmux_text, width = w)
+            } else {
+                tmux_text
+            };
+            cells.push(padded);
             col_i += 1;
         }
 
