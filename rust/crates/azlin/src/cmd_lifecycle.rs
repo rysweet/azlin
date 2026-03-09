@@ -209,12 +209,7 @@ pub(crate) async fn dispatch(
             let pb = indicatif::ProgressBar::new_spinner();
             pb.set_message(format!("Looking up {}...", vm_identifier));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            let target = resolve_vm_ssh_target(
-                &vm_identifier,
-                None,
-                Some(rg.clone()),
-            )
-            .await?;
+            let target = resolve_vm_ssh_target(&vm_identifier, None, Some(rg.clone())).await?;
             pb.finish_and_clear();
 
             println!("Running OS updates on '{}'...", vm_identifier);

@@ -200,8 +200,8 @@ fn test_show_graceful_error_no_auth() {
 }
 
 #[test]
-fn test_update_graceful_error_no_auth() {
-    assert_graceful_auth_error(&["update", "test-vm"]);
+fn test_vm_update_tools_graceful_error_no_auth() {
+    assert_graceful_auth_error(&["vm", "update-tools", "test-vm"]);
 }
 
 #[test]

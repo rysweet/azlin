@@ -9,8 +9,7 @@ pub(crate) async fn handle_vm_update(
     let pb = indicatif::ProgressBar::new_spinner();
     pb.set_message(format!("Looking up {}...", vm_identifier));
     pb.enable_steady_tick(std::time::Duration::from_millis(100));
-    let target =
-        resolve_vm_ssh_target(vm_identifier, None, resource_group).await?;
+    let target = resolve_vm_ssh_target(vm_identifier, None, resource_group).await?;
     pb.finish_and_clear();
 
     println!("Updating development tools on '{}'...", vm_identifier);
