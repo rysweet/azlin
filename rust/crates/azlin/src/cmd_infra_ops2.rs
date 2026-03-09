@@ -14,7 +14,7 @@ pub(crate) async fn handle_compose_action(
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "docker-compose.yml".to_string());
 
-    let vms = get_running_vms_with_ips(&vm_manager, &rg).await?;
+    let vms = get_running_vm_targets(Some(rg.clone())).await?;
     if vms.is_empty() {
         println!("No running VMs found in resource group '{}'", rg);
         return Ok(());

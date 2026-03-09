@@ -102,7 +102,7 @@ pub(crate) async fn dispatch(
                 pb.set_message(format!("Running '{}' on all VMs in '{}'...", command, rg));
                 pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-                let vms = get_running_vms_with_ips(&vm_manager, &rg).await?;
+                let vms = get_running_vm_targets(Some(rg.clone())).await?;
                 pb.finish_and_clear();
 
                 if vms.is_empty() {
@@ -127,7 +127,7 @@ pub(crate) async fn dispatch(
                 let vm_manager = azlin_azure::VmManager::new(&auth);
                 let rg = resolve_resource_group(resource_group)?;
 
-                let vms = get_running_vms_with_ips(&vm_manager, &rg).await?;
+                let vms = get_running_vm_targets(Some(rg.clone())).await?;
                 if vms.is_empty() {
                     println!(
                         "{}",
@@ -139,7 +139,8 @@ pub(crate) async fn dispatch(
                 let home = home_dir()?;
                 let dotfiles = crate::sync_helpers::default_dotfiles();
 
-                for (name, ip, user) in &vms {
+                for target in &vms {
+                    let (name, ip, user) = (&target.vm_name, &target.ip, &target.user);
                     for dotfile in &dotfiles {
                         let local = home.join(dotfile);
                         if !local.exists() {
@@ -198,7 +199,7 @@ pub(crate) async fn dispatch(
                     pb.set_message(format!("Gathering fleet VMs in '{}'...", rg));
                     pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-                    let vms = get_running_vms_with_ips(&vm_manager, &rg).await?;
+                    let vms = get_running_vm_targets(Some(rg.clone())).await?;
                     pb.finish_and_clear();
 
                     if vms.is_empty() {
@@ -250,7 +251,7 @@ pub(crate) async fn dispatch(
                             anyhow::anyhow!("Workflow YAML must contain a 'steps' array")
                         })?;
 
-                    let vms = get_running_vms_with_ips(&vm_manager, &rg).await?;
+                    let vms = get_running_vm_targets(Some(rg.clone())).await?;
                     if vms.is_empty() {
                         println!(
                             "{}",
