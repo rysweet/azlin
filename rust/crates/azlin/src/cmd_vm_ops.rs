@@ -12,6 +12,7 @@ pub(crate) async fn handle_vm_new(
     pool: Option<u32>,
     no_auto_connect: bool,
     template: Option<String>,
+    force_private: bool,
 ) -> Result<()> {
     let auth = create_auth()?;
     let vm_manager = azlin_azure::VmManager::new(&auth);
@@ -83,6 +84,23 @@ pub(crate) async fn handle_vm_new(
         loc
     };
 
+    // Auto-detect bastion in resource group to determine public IP behaviour.
+    // Matches Python: if bastion exists or --private is set, disable public IP.
+    let bastion_detected = match crate::list_helpers::detect_bastion_hosts(&rg) {
+        Ok(bastions) => !bastions.is_empty(),
+        Err(_) => false,
+    };
+    let use_bastion = force_private || bastion_detected;
+    let public_ip_enabled = !use_bastion;
+    if use_bastion {
+        let reason = if force_private {
+            "--private flag"
+        } else {
+            "bastion detected"
+        };
+        eprintln!("{reason} — creating VM without public IP in '{rg}'");
+    }
+
     for i in 0..vm_count {
         let vm_name = if let Some(ref n) = name {
             if vm_count > 1 {
@@ -91,7 +109,11 @@ pub(crate) async fn handle_vm_new(
                 n.clone()
             }
         } else {
-            format!("azlin-vm-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"))
+            // Use microsecond timestamps to avoid pool name collisions
+            format!(
+                "azlin-vm-{}",
+                chrono::Utc::now().format("%Y%m%d-%H%M%S-%6f")
+            )
         };
 
         azlin_core::models::validate_vm_name(&vm_name).map_err(|e| anyhow::anyhow!(e))?;
@@ -105,6 +127,8 @@ pub(crate) async fn handle_vm_new(
             ssh_key_path: ssh_key_path.clone(),
             image: azlin_core::models::VmImage::default(),
             tags: std::collections::HashMap::new(),
+            public_ip_enabled,
+            disk_ids: vec![],
         };
 
         if let Err(e) = params.validate() {
