@@ -130,7 +130,11 @@ jobs:
 
       - name: Get version
         id: version
-        run: grep '^version' rust/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/' | xargs -I{} echo "version={}" >> $GITHUB_OUTPUT
+        run: |
+          BASE=$(grep '^version' rust/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "version=${BASE}" >> $GITHUB_OUTPUT
+          echo "tag=${BASE}-rust.${SHORT_SHA}" >> $GITHUB_OUTPUT
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -147,8 +151,8 @@ jobs:
       - name: Create/Update Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.version }}-rust
-          name: "azlin v${{ steps.version.outputs.version }} (Rust)"
+          tag_name: v${{ steps.version.outputs.tag }}
+          name: "azlin v${{ steps.version.outputs.version }} (${{ github.sha }})"
           body: |
             ## Rust CLI Release
 

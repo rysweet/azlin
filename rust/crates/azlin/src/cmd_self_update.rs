@@ -74,7 +74,8 @@ fn find_latest_release() -> Result<(String, String)> {
                     let dl_url = asset["browser_download_url"]
                         .as_str()
                         .ok_or_else(|| anyhow::anyhow!("Missing download URL"))?;
-                    let version = tag.replace('v', "").replace("-rust", "");
+                    // Tag format: v2.5.0-rust.abc1234 — extract base version + commit
+                    let version = tag.strip_prefix('v').unwrap_or(tag).to_string();
                     return Ok((dl_url.to_string(), version));
                 }
             }
