@@ -249,7 +249,7 @@ fn test_render_health_table_does_not_panic() {
 
 #[test]
 fn test_run_on_fleet_empty_list() {
-    let vms: Vec<(String, String, String)> = vec![];
+    let vms: Vec<crate::VmSshTarget> = vec![];
     // Should not panic on empty list
     crate::run_on_fleet(&vms, "echo hi", true);
 }
