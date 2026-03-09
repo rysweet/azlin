@@ -8,7 +8,7 @@ pub(crate) async fn handle_compose_action(
     resource_group: Option<String>,
 ) -> Result<()> {
     let auth = create_auth()?;
-    let vm_manager = azlin_azure::VmManager::new(&auth);
+    let _vm_manager = azlin_azure::VmManager::new(&auth);
     let rg = resolve_resource_group(resource_group)?;
     let f = file
         .map(|p| p.display().to_string())

@@ -95,7 +95,7 @@ pub(crate) async fn dispatch(
                 ..
             } => {
                 let auth = create_auth()?;
-                let vm_manager = azlin_azure::VmManager::new(&auth);
+                let _vm_manager = azlin_azure::VmManager::new(&auth);
                 let rg = resolve_resource_group(resource_group)?;
 
                 let pb = indicatif::ProgressBar::new_spinner();
@@ -124,7 +124,7 @@ pub(crate) async fn dispatch(
                 ..
             } => {
                 let auth = create_auth()?;
-                let vm_manager = azlin_azure::VmManager::new(&auth);
+                let _vm_manager = azlin_azure::VmManager::new(&auth);
                 let rg = resolve_resource_group(resource_group)?;
 
                 let vms = get_running_vm_targets(Some(rg.clone())).await?;
@@ -193,7 +193,7 @@ pub(crate) async fn dispatch(
                     println!("Would run '{}' across fleet in '{}'", command, rg);
                 } else {
                     let auth = create_auth()?;
-                    let vm_manager = azlin_azure::VmManager::new(&auth);
+                    let _vm_manager = azlin_azure::VmManager::new(&auth);
 
                     let pb = indicatif::ProgressBar::new_spinner();
                     pb.set_message(format!("Gathering fleet VMs in '{}'...", rg));
@@ -232,7 +232,7 @@ pub(crate) async fn dispatch(
                     );
                 } else {
                     let auth = create_auth()?;
-                    let vm_manager = azlin_azure::VmManager::new(&auth);
+                    let _vm_manager = azlin_azure::VmManager::new(&auth);
 
                     let content = std::fs::read_to_string(&workflow_file).map_err(|e| {
                         anyhow::anyhow!(
