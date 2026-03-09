@@ -222,7 +222,7 @@ fn test_verbose_version() {
         .output()
         .unwrap();
     assert!(out.status.success());
-    assert!(String::from_utf8_lossy(&out.stdout).contains("2.3.0"));
+    assert!(String::from_utf8_lossy(&out.stdout).contains(env!("CARGO_PKG_VERSION")));
 }
 
 // ── CLI integration: json output format ──────────────────────
