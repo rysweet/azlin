@@ -115,7 +115,7 @@ fn download_and_replace(url: &str, version: &str) -> Result<()> {
             "xzf",
             archive_path.to_str().unwrap(),
             "-C",
-            &tmp_dir.to_str().unwrap(),
+            tmp_dir.to_str().unwrap(),
         ])
         .status()
         .context("Failed to extract archive")?;

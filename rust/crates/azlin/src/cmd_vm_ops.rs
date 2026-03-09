@@ -2,6 +2,7 @@
 use super::*;
 use anyhow::Result;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_vm_new(
     repo: Option<String>,
     vm_size: Option<String>,
