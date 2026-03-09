@@ -182,7 +182,7 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
 
     if cfg.show_tmux_col {
         // Size the tmux column to fit the widest entry (capped at 60).
-        let tmux_w = compute_tmux_content_width(data.tmux_sessions, 3, 60).max(if cfg.compact {
+        let tmux_w = compute_tmux_content_width(data.tmux_sessions, usize::MAX, 60).max(if cfg.compact {
             18
         } else {
             22
@@ -340,7 +340,7 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
             let tmux = data
                 .tmux_sessions
                 .get(&vm.name)
-                .map(|s| trunc(&format_tmux_plain(s, 3), cols[col_i].width))
+                .map(|s| trunc(&format_tmux_plain(s, usize::MAX), cols[col_i].width))
                 .unwrap_or_else(|| trunc("-", cols[col_i].width));
             cells.push(tmux);
             col_i += 1;
