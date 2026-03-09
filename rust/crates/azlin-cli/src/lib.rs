@@ -410,7 +410,8 @@ pub enum Commands {
     },
 
     /// Update all development tools on a VM
-    Update {
+    #[command(name = "dev-update")]
+    DevUpdate {
         /// VM name or session name
         vm_identifier: String,
 
@@ -971,8 +972,8 @@ pub enum Commands {
     Version,
 
     /// Update azlin to the latest version from GitHub Releases
-    #[command(name = "self-update")]
-    SelfUpdate,
+    #[command(name = "update", alias = "self-update")]
+    Update,
 
     /// Generate shell completions
     Completions {
@@ -2803,13 +2804,25 @@ mod tests {
     }
 
     #[test]
-    fn test_update_command() {
-        let cli = Cli::parse_from(["azlin", "update", "my-vm"]);
-        if let Commands::Update { vm_identifier, .. } = cli.command {
+    fn test_dev_update_command() {
+        let cli = Cli::parse_from(["azlin", "dev-update", "my-vm"]);
+        if let Commands::DevUpdate { vm_identifier, .. } = cli.command {
             assert_eq!(vm_identifier, "my-vm");
         } else {
-            panic!("Expected Update command");
+            panic!("Expected DevUpdate command");
         }
+    }
+
+    #[test]
+    fn test_update_is_self_update() {
+        let cli = Cli::parse_from(["azlin", "update"]);
+        assert!(matches!(cli.command, Commands::Update));
+    }
+
+    #[test]
+    fn test_self_update_alias() {
+        let cli = Cli::parse_from(["azlin", "self-update"]);
+        assert!(matches!(cli.command, Commands::Update));
     }
 
     #[test]

@@ -165,6 +165,24 @@ fn test_update_help() {
 }
 
 #[test]
+fn test_dev_update_help() {
+    assert_cmd::Command::cargo_bin("azlin")
+        .unwrap()
+        .args(["dev-update", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_self_update_alias_help() {
+    assert_cmd::Command::cargo_bin("azlin")
+        .unwrap()
+        .args(["self-update", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
 fn test_logs_help() {
     assert_cmd::Command::cargo_bin("azlin")
         .unwrap()

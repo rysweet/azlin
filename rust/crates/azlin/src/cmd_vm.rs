@@ -33,7 +33,7 @@ pub(crate) async fn dispatch(
             )
             .await?;
         }
-        azlin_cli::Commands::Update {
+        azlin_cli::Commands::DevUpdate {
             vm_identifier,
             resource_group,
             timeout: _,

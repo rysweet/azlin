@@ -74,7 +74,7 @@ pub(crate) async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
             crate::cmd_ai::dispatch(cmd, cli.verbose, &cli.output).await?;
         }
         cmd @ azlin_cli::Commands::New { .. }
-        | cmd @ azlin_cli::Commands::Update { .. }
+        | cmd @ azlin_cli::Commands::DevUpdate { .. }
         | cmd @ azlin_cli::Commands::Clone { .. } => {
             crate::cmd_vm::dispatch(cmd, cli.verbose, &cli.output).await?;
         }
@@ -115,7 +115,7 @@ pub(crate) async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
         | cmd @ azlin_cli::Commands::Logs { .. } => {
             crate::cmd_sync::dispatch(cmd, cli.verbose, &cli.output).await?;
         }
-        azlin_cli::Commands::SelfUpdate => {
+        azlin_cli::Commands::Update => {
             crate::cmd_self_update::handle_self_update()?;
         }
         azlin_cli::Commands::Completions { shell } => {

@@ -178,7 +178,7 @@ fn find_binary_in_dir(dir: &std::path::Path) -> Result<PathBuf> {
 
 /// Run the self-update flow.
 pub fn handle_self_update() -> Result<()> {
-    println!("azlin self-update (current: v{})", CURRENT_VERSION);
+    println!("azlin update (current: v{})", CURRENT_VERSION);
 
     let (url, version) = find_latest_release()?;
 

@@ -49,15 +49,15 @@ def _platform_suffix() -> str | None:
 
 
 def _is_rust_binary(path: Path) -> bool:
-    """Check if a binary is the Rust azlin (has self-update command)."""
+    """Check if a binary is the Rust azlin (has update command)."""
     try:
         result = subprocess.run(
-            [str(path), "self-update", "--help"],
+            [str(path), "update", "--help"],
             capture_output=True,
             text=True,
             timeout=5,
         )
-        return result.returncode == 0 and "self-update" in result.stdout.lower()
+        return result.returncode == 0 and "update" in result.stdout.lower()
     except (subprocess.TimeoutExpired, OSError):
         return False
 
