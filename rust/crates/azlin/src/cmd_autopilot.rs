@@ -150,10 +150,28 @@ pub(crate) async fn dispatch(
                             if out.status.success() {
                                 let text = String::from_utf8_lossy(&out.stdout);
                                 let lines: Vec<&str> = text.trim().lines().collect();
-                                let cpu_pct: f64 =
-                                    lines.first().and_then(|s| s.parse().ok()).unwrap_or(100.0);
+                                let cpu_pct: f64 = match lines.first().and_then(|s| s.parse().ok())
+                                {
+                                    Some(v) => v,
+                                    None => {
+                                        eprintln!(
+                                            "  Warning: {} — failed to parse CPU stats, skipping",
+                                            vm.name
+                                        );
+                                        continue;
+                                    }
+                                };
                                 let uptime_secs: f64 =
-                                    lines.get(1).and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                                    match lines.get(1).and_then(|s| s.parse().ok()) {
+                                        Some(v) => v,
+                                        None => {
+                                            eprintln!(
+                                                "  Warning: {} — failed to parse uptime, skipping",
+                                                vm.name
+                                            );
+                                            continue;
+                                        }
+                                    };
                                 if let Some(action_name) = crate::handlers::classify_autopilot_vm(
                                     cpu_pct,
                                     uptime_secs,

@@ -88,9 +88,7 @@ async fn main() -> Result<()> {
 
     let request = args.request.join(" ");
     if request.is_empty() {
-        eprintln!("Error: No request provided.");
-        eprintln!("Usage: azdoit \"create a VM called dev-box\"");
-        std::process::exit(1);
+        anyhow::bail!("No request provided. Usage: azdoit \"create a VM called dev-box\"");
     }
 
     let client = azlin_ai::AnthropicClient::new()

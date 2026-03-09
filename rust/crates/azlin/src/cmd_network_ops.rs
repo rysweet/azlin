@@ -140,7 +140,10 @@ pub(crate) fn handle_web_start(port: u32, host: &str) -> Result<()> {
     let status = child.wait()?;
     let _ = std::fs::remove_file(&pid_path);
     if !status.success() {
-        std::process::exit(status.code().unwrap_or(1));
+        anyhow::bail!(
+            "Web dev server exited with code {}",
+            status.code().unwrap_or(1)
+        );
     }
     Ok(())
 }

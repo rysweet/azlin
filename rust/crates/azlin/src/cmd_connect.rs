@@ -162,8 +162,11 @@ pub(crate) async fn dispatch(
                     std::process::Command::new("ssh").args(&ssh_args).status()?
                 };
                 attempt += 1;
-                if status.success() || attempt >= max {
-                    std::process::exit(status.code().unwrap_or(1));
+                if status.success() {
+                    return Ok(());
+                }
+                if attempt >= max {
+                    anyhow::bail!("SSH exited with code {}", status.code().unwrap_or(1));
                 }
                 if !yes {
                     eprint!(
@@ -174,7 +177,7 @@ pub(crate) async fn dispatch(
                     let mut input = String::new();
                     std::io::stdin().read_line(&mut input)?;
                     if input.trim().eq_ignore_ascii_case("n") {
-                        std::process::exit(status.code().unwrap_or(1));
+                        anyhow::bail!("SSH exited with code {}", status.code().unwrap_or(1));
                     }
                 } else {
                     eprintln!(
