@@ -85,11 +85,12 @@ fn render_row(cells: &[String], widths: &[usize]) -> String {
 
 // ── Plain tmux formatting ────────────────────────────────────────────
 
-/// Format tmux sessions as plain text, truncated to width.
-/// Input: `session_name:attached_flag` (e.g. "main:1", "build:0")
-fn format_tmux(sessions: &[String], max_show: usize, width: usize) -> String {
+/// Format tmux sessions as a plain comma-separated string.
+/// Strips `:N` suffixes (e.g. "main:1" -> "main", "build:0" -> "build").
+/// Shows up to `max_show` sessions; overflow is summarised as "+N".
+fn format_tmux_plain(sessions: &[String], max_show: usize) -> String {
     if sessions.is_empty() {
-        return trunc("-", width);
+        return "-".to_string();
     }
     let names: Vec<&str> = sessions
         .iter()
@@ -101,7 +102,22 @@ fn format_tmux(sessions: &[String], max_show: usize, width: usize) -> String {
     if overflow > 0 {
         result.push_str(&format!(", +{}", overflow));
     }
-    trunc(&result, width)
+    result
+}
+
+/// Compute the width needed for the tmux column by scanning all tmux data.
+/// Returns the length of the widest formatted entry, capped at `max_width`.
+fn compute_tmux_content_width(
+    tmux_sessions: &HashMap<String, Vec<String>>,
+    max_show: usize,
+    max_width: usize,
+) -> usize {
+    let mut widest: usize = 4; // minimum: "Tmux" header
+    for sessions in tmux_sessions.values() {
+        let formatted = format_tmux_plain(sessions, max_show);
+        widest = widest.max(formatted.len());
+    }
+    widest.min(max_width)
 }
 
 // ── ANSI color helpers ───────────────────────────────────────────────
@@ -165,7 +181,12 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
     });
 
     if cfg.show_tmux_col {
-        let tmux_w = if cfg.compact { 18 } else { 22 };
+        // Size the tmux column to fit the widest entry (capped at 60).
+        let tmux_w = compute_tmux_content_width(data.tmux_sessions, 3, 60).max(if cfg.compact {
+            18
+        } else {
+            22
+        });
         cols.push(ColDef {
             header: "Tmux",
             width: tmux_w,
@@ -248,15 +269,43 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
         });
     }
 
-    // If total width exceeds terminal, shrink the widest flexible columns
+    // If total width exceeds terminal, shrink less-important columns first
+    // (Status, Region, CPU, Mem down to 3 chars each) before touching
+    // Session or Tmux, so session names stay fully visible.
     let border_overhead = cols.len() * 3 + 1; // "│ " + " " per col + final "│"
     let content_budget = term_width.saturating_sub(border_overhead);
     let total_content: usize = cols.iter().map(|c| c.width).sum();
     if total_content > content_budget {
-        // Shrink columns proportionally, minimum 3 chars each
-        let ratio = content_budget as f64 / total_content as f64;
-        for col in &mut cols {
-            col.width = (col.width as f64 * ratio).floor().max(3.0) as usize;
+        let mut excess = total_content - content_budget;
+        // Priority 1: shrink these columns first (order: Region, Status, CPU, Mem)
+        let shrinkable_first = ["Region", "Status", "CPU", "Mem"];
+        for header in &shrinkable_first {
+            if excess == 0 {
+                break;
+            }
+            if let Some(col) = cols.iter_mut().find(|c| c.header == *header) {
+                let can_give = col.width.saturating_sub(3);
+                let give = can_give.min(excess);
+                col.width -= give;
+                excess -= give;
+            }
+        }
+        // Priority 2: if still over, shrink remaining columns proportionally
+        if excess > 0 {
+            let remaining_total: usize = cols.iter().map(|c| c.width.saturating_sub(3)).sum();
+            if remaining_total > 0 {
+                let ratio = excess.min(remaining_total) as f64 / remaining_total as f64;
+                for col in &mut cols {
+                    let can_give = col.width.saturating_sub(3);
+                    let give = (can_give as f64 * ratio).ceil() as usize;
+                    let give = give.min(can_give).min(excess);
+                    col.width -= give;
+                    excess -= give;
+                    if excess == 0 {
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -291,7 +340,7 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
             let tmux = data
                 .tmux_sessions
                 .get(&vm.name)
-                .map(|s| format_tmux(s, 3, cols[col_i].width))
+                .map(|s| trunc(&format_tmux_plain(s, 3), cols[col_i].width))
                 .unwrap_or_else(|| trunc("-", cols[col_i].width));
             cells.push(tmux);
             col_i += 1;
