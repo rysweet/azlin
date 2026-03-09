@@ -542,6 +542,8 @@ impl VmManager {
             rg,
             "--name",
             vm_name,
+            "--location",
+            location,
             "--nics",
             &names.nic,
             "--image",
