@@ -354,9 +354,9 @@ pub enum Commands {
         #[arg(long)]
         config: Option<PathBuf>,
 
-        /// Deallocate to save costs (default: yes)
-        #[arg(long, default_value = "true")]
-        deallocate: bool,
+        /// Power off without deallocating (keeps reserved IP and avoids reboot delay)
+        #[arg(long)]
+        no_deallocate: bool,
     },
 
     /// Connect to existing VM via SSH
@@ -2156,12 +2156,28 @@ mod tests {
         let cli = Cli::parse_from(["azlin", "stop", "my-vm"]);
         if let Commands::Stop {
             vm_name,
-            deallocate,
+            no_deallocate,
             ..
         } = cli.command
         {
             assert_eq!(vm_name, "my-vm");
-            assert!(deallocate);
+            assert!(!no_deallocate); // default: deallocate (no_deallocate = false)
+        } else {
+            panic!("Expected Stop command");
+        }
+    }
+
+    #[test]
+    fn test_stop_no_deallocate_flag() {
+        let cli = Cli::parse_from(["azlin", "stop", "my-vm", "--no-deallocate"]);
+        if let Commands::Stop {
+            vm_name,
+            no_deallocate,
+            ..
+        } = cli.command
+        {
+            assert_eq!(vm_name, "my-vm");
+            assert!(no_deallocate);
         } else {
             panic!("Expected Stop command");
         }

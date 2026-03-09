@@ -19,6 +19,7 @@ pub(crate) async fn dispatch(
             pool,
             no_auto_connect,
             template,
+            private,
             ..
         } => {
             crate::cmd_vm_ops::handle_vm_new(
@@ -30,6 +31,7 @@ pub(crate) async fn dispatch(
                 pool,
                 no_auto_connect,
                 template,
+                private,
             )
             .await?;
         }

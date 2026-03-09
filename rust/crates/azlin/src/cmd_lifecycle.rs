@@ -34,13 +34,14 @@ pub(crate) async fn dispatch(
         azlin_cli::Commands::Stop {
             vm_name,
             resource_group,
-            deallocate,
+            no_deallocate,
             ..
         } => {
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
 
+            let deallocate = !no_deallocate;
             let (action, _done) = crate::stop_helpers::stop_action_labels(deallocate);
             let pb = ProgressBar::new_spinner();
             pb.set_style(fleet_spinner_style());
@@ -209,12 +210,7 @@ pub(crate) async fn dispatch(
             let pb = indicatif::ProgressBar::new_spinner();
             pb.set_message(format!("Looking up {}...", vm_identifier));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            let target = resolve_vm_ssh_target(
-                &vm_identifier,
-                None,
-                Some(rg.clone()),
-            )
-            .await?;
+            let target = resolve_vm_ssh_target(&vm_identifier, None, Some(rg.clone())).await?;
             pb.finish_and_clear();
 
             println!("Running OS updates on '{}'...", vm_identifier);

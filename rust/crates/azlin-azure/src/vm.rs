@@ -372,11 +372,18 @@ impl VmManager {
     /// Provision a new VM with all required networking resources.
     ///
     /// Creates: resource group -> NSG -> VNet/subnet -> public IP -> NIC -> VM.
+    /// Create a new VM, letting `az vm create` handle networking automatically.
+    ///
+    /// This matches the Python reference implementation:
+    /// - No manual NSG/VNet/subnet/PIP/NIC creation
+    /// - `az vm create` creates all networking resources
+    /// - `--public-ip-address ""` disables public IP for bastion VMs
+    /// - `--subnet` + `--vnet-name` routes bastion VMs to the correct VNet
+    /// - `--attach-data-disks` attaches disks during creation for cloud-init
     pub fn create_vm(&self, params: &CreateVmParams) -> Result<VmInfo> {
         let rg = &params.resource_group;
         let location = &params.region;
         let vm_name = &params.name;
-        let names = build_vm_resource_names(vm_name);
         let timeout = self.az_cli_timeout;
 
         let az = |args: &[&str]| -> Result<String> { az_cli_with_timeout(args, timeout) };
@@ -401,135 +408,7 @@ impl VmManager {
                 .context(format!("Failed to create resource group '{rg}'"))?;
         }
 
-        // 2. Create NSG with SSH + HTTPS rules
-        debug!(nsg_name = %names.nsg, "Creating NSG");
-        az(&[
-            "network",
-            "nsg",
-            "create",
-            "--resource-group",
-            rg,
-            "--name",
-            &names.nsg,
-            "--location",
-            location,
-        ])
-        .context(format!("Failed to create NSG '{}'", names.nsg))?;
-
-        az(&[
-            "network",
-            "nsg",
-            "rule",
-            "create",
-            "--resource-group",
-            rg,
-            "--nsg-name",
-            &names.nsg,
-            "--name",
-            "AllowSSH",
-            "--priority",
-            "1000",
-            "--protocol",
-            "Tcp",
-            "--destination-port-ranges",
-            "22",
-            "--access",
-            "Allow",
-            "--direction",
-            "Inbound",
-        ])
-        .context("Failed to create SSH NSG rule")?;
-
-        az(&[
-            "network",
-            "nsg",
-            "rule",
-            "create",
-            "--resource-group",
-            rg,
-            "--nsg-name",
-            &names.nsg,
-            "--name",
-            "AllowHTTPS",
-            "--priority",
-            "1001",
-            "--protocol",
-            "Tcp",
-            "--destination-port-ranges",
-            "443",
-            "--access",
-            "Allow",
-            "--direction",
-            "Inbound",
-        ])
-        .context("Failed to create HTTPS NSG rule")?;
-
-        // 3. Create VNet + subnet
-        debug!(vnet_name = %names.vnet, subnet_name = %names.subnet, "Creating VNet and subnet");
-        az(&[
-            "network",
-            "vnet",
-            "create",
-            "--resource-group",
-            rg,
-            "--name",
-            &names.vnet,
-            "--address-prefix",
-            "10.0.0.0/16",
-            "--subnet-name",
-            &names.subnet,
-            "--subnet-prefix",
-            "10.0.0.0/24",
-            "--location",
-            location,
-            "--network-security-group",
-            &names.nsg,
-        ])
-        .context(format!("Failed to create VNet '{}'", names.vnet))?;
-
-        // 4. Create public IP
-        debug!(pip_name = %names.pip, "Creating public IP");
-        az(&[
-            "network",
-            "public-ip",
-            "create",
-            "--resource-group",
-            rg,
-            "--name",
-            &names.pip,
-            "--sku",
-            "Standard",
-            "--allocation-method",
-            "Static",
-            "--location",
-            location,
-        ])
-        .context(format!("Failed to create public IP '{}'", names.pip))?;
-
-        // 5. Create NIC
-        debug!(nic_name = %names.nic, "Creating NIC");
-        az(&[
-            "network",
-            "nic",
-            "create",
-            "--resource-group",
-            rg,
-            "--name",
-            &names.nic,
-            "--vnet-name",
-            &names.vnet,
-            "--subnet",
-            &names.subnet,
-            "--public-ip-address",
-            &names.pip,
-            "--network-security-group",
-            &names.nsg,
-            "--location",
-            location,
-        ])
-        .context(format!("Failed to create NIC '{}'", names.nic))?;
-
-        // 6. Create the VM
+        // 2. Build az vm create command — let Azure handle networking
         debug!(%vm_name, "Creating VM");
         let image_urn = params.image.to_string();
 
@@ -542,8 +421,8 @@ impl VmManager {
             rg,
             "--name",
             vm_name,
-            "--nics",
-            &names.nic,
+            "--location",
+            location,
             "--image",
             &image_urn,
             "--size",
@@ -558,6 +437,36 @@ impl VmManager {
             &cloud_init_path,
         ];
 
+        // Public IP handling — matches Python: --public-ip-address "" disables PIP
+        if params.public_ip_enabled {
+            az_args.push("--public-ip-sku");
+            az_args.push("Standard");
+        } else {
+            az_args.push("--public-ip-address");
+            az_args.push("");
+        }
+
+        // For bastion VMs, specify the bastion VNet and default subnet so Azure
+        // doesn't pick the AzureBastionSubnet by mistake.
+        let vnet_name;
+        if !params.public_ip_enabled {
+            vnet_name = format!("azlin-bastion-{location}-vnet");
+            az_args.push("--subnet");
+            az_args.push("default");
+            az_args.push("--vnet-name");
+            az_args.push(&vnet_name);
+        }
+
+        // Attach data disks during VM creation (not after!) so cloud-init can find them.
+        // Order matters: first disk = lun0, second = lun1, etc.
+        let disk_id_refs: Vec<&str> = params.disk_ids.iter().map(|s| s.as_str()).collect();
+        if !disk_id_refs.is_empty() {
+            az_args.push("--attach-data-disks");
+            for d in &disk_id_refs {
+                az_args.push(d);
+            }
+        }
+
         let tag_strs = format_tag_cli_args(&params.tags);
         if !tag_strs.is_empty() {
             az_args.push("--tags");
@@ -570,7 +479,7 @@ impl VmManager {
 
         // cloud_init_file is dropped here, which auto-deletes the temp file
 
-        // 7. Fetch and return VM info
+        // 3. Fetch and return VM info
         debug!(%vm_name, "Fetching created VM details");
         let vm_info = self.get_vm(rg, vm_name)?;
         Ok(vm_info)
@@ -781,28 +690,7 @@ echo "cloud-init provisioning complete"
     )
 }
 
-// ── Resource naming helpers ────────────────────────────────────────────
-
-/// Struct holding derived resource names for VM provisioning.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct VmResourceNames {
-    nsg: String,
-    vnet: String,
-    subnet: String,
-    pip: String,
-    nic: String,
-}
-
-/// Build the conventional resource names for a VM (NSG, VNet, subnet, PIP, NIC).
-fn build_vm_resource_names(vm_name: &str) -> VmResourceNames {
-    VmResourceNames {
-        nsg: format!("{vm_name}-nsg"),
-        vnet: format!("{vm_name}-vnet"),
-        subnet: format!("{vm_name}-subnet"),
-        pip: format!("{vm_name}-pip"),
-        nic: format!("{vm_name}-nic"),
-    }
-}
+// ── Tag helpers ───────────────────────────────────────────────────────
 
 /// Format a tag map into CLI args suitable for `az ... --tags key=value`.
 ///
@@ -1188,46 +1076,6 @@ mod tests {
         match result {
             Ok(_) | Err(_) => {}
         }
-    }
-
-    // ── build_vm_resource_names tests ───────────────────────────────
-
-    #[test]
-    fn test_build_vm_resource_names_basic() {
-        let names = build_vm_resource_names("my-vm");
-        assert_eq!(names.nsg, "my-vm-nsg");
-        assert_eq!(names.vnet, "my-vm-vnet");
-        assert_eq!(names.subnet, "my-vm-subnet");
-        assert_eq!(names.pip, "my-vm-pip");
-        assert_eq!(names.nic, "my-vm-nic");
-    }
-
-    #[test]
-    fn test_build_vm_resource_names_with_hyphens() {
-        let names = build_vm_resource_names("dev-vm-01");
-        assert_eq!(names.nsg, "dev-vm-01-nsg");
-        assert_eq!(names.nic, "dev-vm-01-nic");
-    }
-
-    #[test]
-    fn test_build_vm_resource_names_equality() {
-        let n1 = build_vm_resource_names("vm");
-        let n2 = build_vm_resource_names("vm");
-        assert_eq!(n1, n2);
-    }
-
-    #[test]
-    fn test_build_vm_resource_names_inequality() {
-        let n1 = build_vm_resource_names("vm1");
-        let n2 = build_vm_resource_names("vm2");
-        assert_ne!(n1, n2);
-    }
-
-    #[test]
-    fn test_build_vm_resource_names_debug() {
-        let names = build_vm_resource_names("vm");
-        let debug = format!("{names:?}");
-        assert!(debug.contains("vm-nsg"));
     }
 
     // ── format_tag_cli_args tests ───────────────────────────────────

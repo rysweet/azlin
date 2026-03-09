@@ -167,6 +167,8 @@ fn test_create_vm_via_mock() {
         admin_username: "azureuser".to_string(),
         ssh_key_path: PathBuf::from("/tmp/fake-key.pub"),
         tags: HashMap::new(),
+        public_ip_enabled: true,
+        disk_ids: vec![],
     };
     let vm = mock.create_vm(&params).unwrap();
     assert_eq!(vm.name, "new-vm");
