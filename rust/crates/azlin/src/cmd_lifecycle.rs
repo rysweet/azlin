@@ -211,20 +211,17 @@ pub(crate) async fn dispatch(
             let pb = indicatif::ProgressBar::new_spinner();
             pb.set_message(format!("Looking up {}...", vm_identifier));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            let vm = vm_manager.get_vm(&rg, &vm_identifier)?;
+            let target = resolve_vm_ssh_target(
+                &vm_identifier,
+                None,
+                Some(rg.clone()),
+            )
+            .await?;
             pb.finish_and_clear();
-
-            let ip = vm
-                .public_ip
-                .or(vm.private_ip)
-                .ok_or_else(|| anyhow::anyhow!("No IP found for VM '{}'", vm_identifier))?;
-            let user = vm
-                .admin_username
-                .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
 
             println!("Running OS updates on '{}'...", vm_identifier);
             let cmd = crate::update_helpers::build_os_update_cmd().to_string();
-            let (code, stdout, stderr) = ssh_exec(&ip, &user, &cmd)?;
+            let (code, stdout, stderr) = target.exec(&cmd)?;
             if code == 0 {
                 let green = Style::new().green();
                 println!(
