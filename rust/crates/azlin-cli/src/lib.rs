@@ -180,6 +180,10 @@ pub enum Commands {
         /// Create VM without public IP (Bastion-only)
         #[arg(long)]
         private: bool,
+
+        /// Skip confirmation prompts (auto-accept auth forwarding)
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 
     /// Clone a VM with its home directory contents

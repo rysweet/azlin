@@ -12,6 +12,7 @@ pub(crate) async fn handle_vm_new(
     pool: Option<u32>,
     no_auto_connect: bool,
     template: Option<String>,
+    yes: bool,
 ) -> Result<()> {
     let auth = create_auth()?;
     let vm_manager = azlin_azure::VmManager::new(&auth);
@@ -132,6 +133,13 @@ pub(crate) async fn handle_vm_new(
             table.add_row(vec!["Private IP".to_string(), ip.clone()]);
         }
         println!("{table}");
+
+        // Forward auth credentials to the new VM (best-effort)
+        if let Some(ip) = vm.public_ip.as_ref().or(vm.private_ip.as_ref()) {
+            if let Err(e) = crate::auth_forward::forward_auth_credentials(ip, &admin_user, yes) {
+                eprintln!("Warning: auth forwarding failed: {}", e);
+            }
+        }
 
         if let Some(ref repo_url) = repo {
             if let Some(ip) = vm.public_ip.as_ref().or(vm.private_ip.as_ref()) {
