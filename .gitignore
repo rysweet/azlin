@@ -656,6 +656,7 @@ template.yaml
 .claude.backup.*/
 
 # Claude Code runtime (managed by amplihack)
+.claude/settings.json
 .claude/logs/
 .claude/runtime/
 .claude/worktrees/
