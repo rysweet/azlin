@@ -10,7 +10,88 @@ permissions:
   contents: write
 
 jobs:
+  # ── Auto-increment patch version ──────────────────────────────────────
+  version-bump:
+    runs-on: ubuntu-latest
+    # Skip if this push is already a version-bump commit (prevent loops)
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      sha: ${{ steps.bump.outputs.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bump patch version
+        id: bump
+        run: |
+          set -euo pipefail
+
+          # Read current version from workspace Cargo.toml
+          CURRENT=$(grep '^version' rust/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          echo "Current Cargo.toml version: ${CURRENT}"
+
+          # Parse major.minor.patch
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${CURRENT}"
+
+          # Find the latest release tag matching this major.minor
+          LATEST_TAG=$(gh release list --limit 100 --json tagName --jq '.[].tagName' \
+            | grep -E "^v${MAJOR}\.${MINOR}\.[0-9]+-rust\." \
+            | sort -t. -k3 -n -r \
+            | head -1 || true)
+
+          if [ -n "${LATEST_TAG}" ]; then
+            # Extract patch from tag: v2.6.3-rust.abc1234 → 3
+            LATEST_PATCH=$(echo "${LATEST_TAG}" | sed 's/^v[0-9]*\.[0-9]*\.\([0-9]*\)-.*/\1/')
+            NEW_PATCH=$((LATEST_PATCH + 1))
+            echo "Latest release tag: ${LATEST_TAG} (patch=${LATEST_PATCH})"
+          else
+            # No prior release for this major.minor — use current patch
+            NEW_PATCH="${PATCH}"
+            echo "No prior release found for v${MAJOR}.${MINOR}.x"
+          fi
+
+          NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+          echo "New version: ${NEW_VERSION}"
+
+          if [ "${NEW_VERSION}" = "${CURRENT}" ]; then
+            echo "Version unchanged — skipping commit"
+            echo "version=${CURRENT}" >> "$GITHUB_OUTPUT"
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # ── Update all version files ──────────────────────────────────
+          # 1. rust/Cargo.toml (workspace)
+          sed -i "s/^version = \"${CURRENT}\"/version = \"${NEW_VERSION}\"/" rust/Cargo.toml
+
+          # 2. pyproject.toml (root)
+          sed -i "s/^version = \"${CURRENT}\"/version = \"${NEW_VERSION}\"/" pyproject.toml
+
+          # 3. rust/pyproject.toml (maturin)
+          sed -i "s/^version = \"${CURRENT}\"/version = \"${NEW_VERSION}\"/" rust/pyproject.toml
+
+          # 4. src/azlin/__init__.py
+          sed -i "s/__version__ = \"${CURRENT}\"/__version__ = \"${NEW_VERSION}\"/" src/azlin/__init__.py
+
+          # ── Commit and push ───────────────────────────────────────────
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add rust/Cargo.toml pyproject.toml rust/pyproject.toml src/azlin/__init__.py
+          git commit -m "chore: bump version ${CURRENT} → ${NEW_VERSION} [skip ci]"
+          git push
+
+          echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Build native binaries ─────────────────────────────────────────────
   build:
+    needs: [version-bump]
     strategy:
       matrix:
         include:
@@ -37,6 +118,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version-bump.outputs.sha }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -83,6 +166,7 @@ jobs:
 
   # Build Python wheels with maturin for uvx/pip install
   wheels:
+    needs: [version-bump]
     strategy:
       matrix:
         include:
@@ -101,6 +185,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version-bump.outputs.sha }}
 
       - uses: actions/setup-python@v5
         with:
@@ -121,20 +207,23 @@ jobs:
           name: wheel-${{ matrix.os }}-${{ matrix.target }}
           path: rust/dist/*.whl
 
+  # ── Create GitHub Release ─────────────────────────────────────────────
   release:
-    needs: [build]
+    needs: [version-bump, build]
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version-bump.outputs.sha }}
 
       - name: Get version
         id: version
         run: |
-          BASE=$(grep '^version' rust/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
-          SHORT_SHA=$(git rev-parse --short HEAD)
-          echo "version=${BASE}" >> $GITHUB_OUTPUT
-          echo "tag=${BASE}-rust.${SHORT_SHA}" >> $GITHUB_OUTPUT
+          VERSION="${{ needs.version-bump.outputs.version }}"
+          SHORT_SHA=$(echo "${{ needs.version-bump.outputs.sha }}" | cut -c1-7)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=${VERSION}-rust.${SHORT_SHA}" >> $GITHUB_OUTPUT
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -152,7 +241,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.tag }}
-          name: "azlin v${{ steps.version.outputs.version }} (${{ github.sha }})"
+          name: "azlin v${{ steps.version.outputs.version }} (${{ needs.version-bump.outputs.sha }})"
           body: |
             ## Rust CLI Release
 
