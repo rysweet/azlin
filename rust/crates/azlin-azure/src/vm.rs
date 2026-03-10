@@ -780,11 +780,13 @@ usermod -aG docker {username}
 # Install Rust and Cargo
 su - {username} -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
 
-# Install .NET 10 SDK
+# Install .NET 10 SDK (preview until GA release, then remove --quality flag)
 curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
 chmod +x /tmp/dotnet-install.sh
-/tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet
-ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet
+/tmp/dotnet-install.sh --channel 10.0 --quality preview --install-dir /usr/share/dotnet \
+    || /tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet \
+    || echo "WARNING: .NET 10 SDK install failed (may not be available yet)"
+ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet 2>/dev/null || true
 rm -f /tmp/dotnet-install.sh
 
 # Install amplihack
