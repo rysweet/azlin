@@ -391,8 +391,7 @@ mono_crash.*
 project.lock.json
 project.fragment.lock.json
 artifacts/
-# But allow the doit artifacts module (source code)
-!src/azlin/doit/artifacts/
+# (Python src/azlin/doit removed — Rust rewrite is canonical)
 
 # ============================================
 # RUST
@@ -656,9 +655,10 @@ template.yaml
 # Claude Code backup directories
 .claude.backup.*/
 
-# Amplihack runtime directories (auto-generated)
+# Claude Code runtime (managed by amplihack)
 .claude/logs/
 .claude/runtime/
+.claude/worktrees/
 
 # Code intelligence indexes (Sourcegraph SCIP format)
 *.scip
