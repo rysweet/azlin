@@ -769,13 +769,28 @@ apt-get upgrade -y -qq
 
 apt-get install -y -qq \
     git curl wget jq unzip \
-    build-essential \
+    build-essential make \
     tmux ripgrep fd-find \
     docker.io
 
 systemctl enable docker
 systemctl start docker
 usermod -aG docker {username}
+
+# Install Rust and Cargo
+su - {username} -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
+
+# Install .NET 10 SDK (preview until GA release, then remove --quality flag)
+curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+chmod +x /tmp/dotnet-install.sh
+/tmp/dotnet-install.sh --channel 10.0 --quality preview --install-dir /usr/share/dotnet \
+    || /tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet \
+    || echo "WARNING: .NET 10 SDK install failed (may not be available yet)"
+ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet 2>/dev/null || true
+rm -f /tmp/dotnet-install.sh
+
+# Install amplihack
+su - {username} -c 'git clone https://github.com/rysweet/amplihack.git ~/amplihack && cd ~/amplihack && make install || true'
 
 echo "cloud-init provisioning complete"
 "#,
@@ -1075,9 +1090,37 @@ mod tests {
     #[test]
     fn test_cloud_init_script_installs_essential_tools() {
         let script = cloud_init_script("testuser");
-        for tool in &["git", "curl", "tmux", "docker.io"] {
+        for tool in &["git", "curl", "tmux", "docker.io", "make"] {
             assert!(script.contains(tool), "Missing tool: {tool}");
         }
+    }
+
+    #[test]
+    fn test_cloud_init_script_installs_rust() {
+        let script = cloud_init_script("testuser");
+        assert!(script.contains("rustup.rs"), "Missing Rust installer");
+    }
+
+    #[test]
+    fn test_cloud_init_script_installs_dotnet() {
+        let script = cloud_init_script("testuser");
+        assert!(
+            script.contains("dotnet-install.sh"),
+            "Missing .NET installer"
+        );
+        assert!(
+            script.contains("--channel 10.0"),
+            "Missing .NET 10 channel"
+        );
+    }
+
+    #[test]
+    fn test_cloud_init_script_installs_amplihack() {
+        let script = cloud_init_script("testuser");
+        assert!(
+            script.contains("github.com/rysweet/amplihack"),
+            "Missing amplihack clone"
+        );
     }
 
     #[test]

@@ -83,6 +83,23 @@ pub fn generate_cloud_init(
 }
 
 /// Default packages for development VMs
+/// Default setup commands for development VMs (run after packages install).
+///
+/// These install toolchains that aren't available as apt packages:
+/// - Rust/Cargo via rustup
+/// - .NET 10 SDK via Microsoft install script
+/// - amplihack from github.com/rysweet/amplihack
+pub fn default_dev_setup_commands() -> Vec<String> {
+    vec![
+        // Install Rust/Cargo for the default user
+        "su - azureuser -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'".to_string(),
+        // Install .NET 10 SDK (preview until GA, then remove --quality flag)
+        "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && chmod +x /tmp/dotnet-install.sh && (/tmp/dotnet-install.sh --channel 10.0 --quality preview --install-dir /usr/share/dotnet || /tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet || echo 'WARNING: .NET 10 SDK install failed') && ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet; rm -f /tmp/dotnet-install.sh".to_string(),
+        // Install amplihack
+        "su - azureuser -c 'git clone https://github.com/rysweet/amplihack.git ~/amplihack && cd ~/amplihack && make install || true'".to_string(),
+    ]
+}
+
 pub fn default_dev_packages() -> Vec<&'static str> {
     vec![
         "git",
@@ -92,6 +109,7 @@ pub fn default_dev_packages() -> Vec<&'static str> {
         "tmux",
         "vim",
         "build-essential",
+        "make",
         "python3-pip",
         "python3-venv",
         "docker.io",
@@ -167,7 +185,25 @@ mod tests {
         assert!(pkgs.contains(&"git"));
         assert!(pkgs.contains(&"docker.io"));
         assert!(pkgs.contains(&"python3-pip"));
+        assert!(pkgs.contains(&"make"));
         assert!(pkgs.len() >= 10);
+    }
+
+    #[test]
+    fn test_default_dev_setup_commands() {
+        let cmds = default_dev_setup_commands();
+        assert!(
+            cmds.iter().any(|c| c.contains("rustup.rs")),
+            "Missing Rust install command"
+        );
+        assert!(
+            cmds.iter().any(|c| c.contains("dotnet-install.sh")),
+            "Missing .NET install command"
+        );
+        assert!(
+            cmds.iter().any(|c| c.contains("rysweet/amplihack")),
+            "Missing amplihack install command"
+        );
     }
 
     #[test]
