@@ -25,6 +25,7 @@ use ratatui::{
 use tracing_subscriber::EnvFilter;
 
 /// Estimated monthly cost for an orphaned Azure Standard public IP address.
+mod auth_forward;
 mod dispatch;
 mod dispatch_helpers;
 const ORPHANED_PUBLIC_IP_MONTHLY_COST: f64 = 3.65;
