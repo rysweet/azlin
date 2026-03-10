@@ -28,6 +28,7 @@ use tracing_subscriber::EnvFilter;
 mod auth_forward;
 mod dispatch;
 mod dispatch_helpers;
+mod update_check;
 const ORPHANED_PUBLIC_IP_MONTHLY_COST: f64 = 3.65;
 
 /// Default admin username for Azure VMs.
@@ -672,7 +673,12 @@ async fn async_main() -> Result<()> {
         .init();
 
     let cli = azlin_cli::Cli::parse();
-    dispatch::dispatch_command(cli).await
+    let result = dispatch::dispatch_command(cli).await;
+
+    // Check for updates after command completes (non-blocking, best-effort)
+    update_check::check_for_updates();
+
+    result
 }
 
 // Re-export common utilities from dispatch_helpers for cmd_* modules via `use super::*`.
