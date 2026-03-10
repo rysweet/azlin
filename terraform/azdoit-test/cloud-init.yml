@@ -3,8 +3,33 @@
 # Runs during cloud-init final stage before VM is fully ready
 
 package_update: true
+package_upgrade: true
 
 packages:
+  - git
+  - curl
+  - wget
+  - jq
+  - unzip
+  - build-essential
+  - make
+  - tmux
   - ripgrep
+  - fd-find
   - python3-pip
+  - python3-venv
   - pipx
+  - docker.io
+  - htop
+  - tree
+
+runcmd:
+  - systemctl enable docker
+  - systemctl start docker
+  - usermod -aG docker azureuser
+  # Install Rust and Cargo
+  - su - azureuser -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
+  # Install .NET 10 SDK
+  - curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && chmod +x /tmp/dotnet-install.sh && /tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet && ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet && rm -f /tmp/dotnet-install.sh
+  # Install amplihack
+  - su - azureuser -c 'git clone https://github.com/rysweet/amplihack.git ~/amplihack && cd ~/amplihack && make install || true'
