@@ -30,9 +30,7 @@ pub(crate) fn handle_doit_list(username: Option<String>) -> Result<()> {
     let auth = create_auth()?;
     let vm_manager = azlin_azure::VmManager::new(&auth);
     let rg = resolve_resource_group(None)?;
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.set_message("Listing doit-created resources...");
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    let pb = penguin_spinner("Listing doit-created resources...");
     let vms = vm_manager.list_vms(&rg)?;
     pb.finish_and_clear();
     let filtered: Vec<_> = vms
@@ -79,9 +77,7 @@ pub(crate) fn handle_doit_cleanup(
     let vm_manager = azlin_azure::VmManager::new(&auth);
     let rg = resolve_resource_group(None)?;
 
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.set_message("Finding doit-created resources...");
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    let pb = penguin_spinner("Finding doit-created resources...");
     let vms = vm_manager.list_vms(&rg)?;
     pb.finish_and_clear();
 

@@ -74,12 +74,10 @@ pub(crate) async fn dispatch(
                     }
                 }
                 azlin_cli::AuthAction::Test { profile, .. } => {
-                    let pb = indicatif::ProgressBar::new_spinner();
-                    pb.set_message(format!(
+                    let pb = penguin_spinner(&format!(
                         "Testing authentication for profile '{}'...",
                         profile
                     ));
-                    pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
                     let output = std::process::Command::new("az")
                         .args(["account", "show", "--output", "json"])

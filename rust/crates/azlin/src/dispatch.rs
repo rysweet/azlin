@@ -195,9 +195,7 @@ fn handle_cost(
         .map(|c| c.az_cli_timeout)
         .unwrap_or(120);
 
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.set_message("Fetching cost data...");
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    let pb = penguin_spinner("Fetching cost data...");
     match azlin_azure::get_cost_summary(&auth, &rg, cost_timeout) {
         Ok(summary) => {
             pb.finish_and_clear();

@@ -138,9 +138,7 @@ pub(crate) async fn dispatch(
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
 
-            let pb = indicatif::ProgressBar::new_spinner();
-            pb.set_message("Fetching VM status...");
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            let pb = penguin_spinner("Fetching VM status...");
 
             let vms = vm_manager.list_vms(&rg)?;
             pb.finish_and_clear();
@@ -185,9 +183,7 @@ pub(crate) async fn dispatch(
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
 
-            let pb = indicatif::ProgressBar::new_spinner();
-            pb.set_message(format!("Looking up {}...", name));
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            let pb = penguin_spinner(&format!("Looking up {}...", name));
             let vm = vm_manager.get_vm(&rg, &name)?;
             pb.finish_and_clear();
 

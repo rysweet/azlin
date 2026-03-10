@@ -18,9 +18,7 @@ pub(crate) async fn handle_snapshot_delete(
         return Ok(());
     }
 
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.set_message(format!("Deleting snapshot {}...", snapshot_name));
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    let pb = penguin_spinner(&format!("Deleting snapshot {}...", snapshot_name));
 
     let output = std::process::Command::new("az")
         .args([
@@ -139,9 +137,7 @@ pub(crate) async fn handle_snapshot_sync(vm: Option<&str>, _rg: &str) -> Result<
             let ts = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
             let snap_name = crate::snapshot_helpers::build_snapshot_name(&sched.vm_name, &ts);
 
-            let pb = indicatif::ProgressBar::new_spinner();
-            pb.set_message(format!("Creating snapshot {}...", snap_name));
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            let pb = penguin_spinner(&format!("Creating snapshot {}...", snap_name));
 
             let disk_info =
                 crate::dispatch_helpers::lookup_vm_disk_info(&sched.resource_group, &sched.vm_name);

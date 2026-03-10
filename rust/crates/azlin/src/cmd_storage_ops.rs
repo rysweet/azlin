@@ -13,9 +13,7 @@ pub(crate) async fn handle_storage_create(
     let rg = resolve_resource_group(resource_group)?;
     let loc = region.unwrap_or_else(|| "westus2".to_string());
 
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.set_message(format!("Creating storage account {}...", name));
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    let pb = penguin_spinner(&format!("Creating storage account {}...", name));
 
     let sku = crate::storage_helpers::storage_sku_from_tier(tier);
 
@@ -142,9 +140,7 @@ pub(crate) fn handle_storage_mount(
     let auth = create_auth()?;
     let vm_manager = azlin_azure::VmManager::new(&auth);
 
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.set_message(format!("Looking up VM {}...", vm));
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    let pb = penguin_spinner(&format!("Looking up VM {}...", vm));
     let vm_info = vm_manager.get_vm(&rg, vm)?;
     pb.finish_and_clear();
 
@@ -189,9 +185,7 @@ pub(crate) fn handle_storage_unmount(vm: &str, resource_group: Option<String>) -
     let auth = create_auth()?;
     let vm_manager = azlin_azure::VmManager::new(&auth);
 
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.set_message(format!("Looking up VM {}...", vm));
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    let pb = penguin_spinner(&format!("Looking up VM {}...", vm));
     let vm_info = vm_manager.get_vm(&rg, vm)?;
     pb.finish_and_clear();
 
