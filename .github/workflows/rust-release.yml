@@ -107,9 +107,6 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             suffix: macos-aarch64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            suffix: windows-x86_64
 
     runs-on: ${{ matrix.os }}
     defaults:
@@ -141,22 +138,13 @@ jobs:
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
-      - name: Package binaries (Unix)
-        if: runner.os != 'Windows'
+      - name: Package binaries
         run: |
           mkdir -p dist
           cp target/${{ matrix.target }}/release/azlin dist/azlin-${{ matrix.suffix }}
           cp target/${{ matrix.target }}/release/azdoit dist/azdoit-${{ matrix.suffix }}
           chmod +x dist/*
           cd dist && tar czf azlin-${{ matrix.suffix }}.tar.gz azlin-${{ matrix.suffix }} azdoit-${{ matrix.suffix }}
-
-      - name: Package binaries (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          mkdir dist
-          copy target\${{ matrix.target }}\release\azlin.exe dist\azlin-${{ matrix.suffix }}.exe
-          copy target\${{ matrix.target }}\release\azdoit.exe dist\azdoit-${{ matrix.suffix }}.exe
-          cd dist && tar czf azlin-${{ matrix.suffix }}.tar.gz azlin-${{ matrix.suffix }}.exe azdoit-${{ matrix.suffix }}.exe
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -178,8 +166,6 @@ jobs:
             target: x86_64
           - os: macos-latest
             target: aarch64
-          - os: windows-latest
-            target: x86_64
 
     runs-on: ${{ matrix.os }}
 
