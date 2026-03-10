@@ -18,6 +18,7 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, ClassVar
 
 from azlin.azure_cli_visibility import AzureCLIExecutor
@@ -963,6 +964,82 @@ class VMProvisioner:
         logger.info(f"Disk attached successfully at LUN {lun}")
         return lun
 
+    # Size threshold for user tmux.conf warning (cloud-init custom-data limit is 64KB)
+    _TMUX_CONF_SIZE_WARN_BYTES = 8192
+
+    def _get_user_tmux_conf(self) -> str | None:
+        """Read user's local .tmux.conf for merging into cloud-init.
+
+        Checks two locations in priority order:
+        1. ~/.azlin/home/.tmux.conf (azlin sync convention)
+        2. ~/.tmux.conf (standard location)
+
+        Security: Rejects symlinks pointing outside the home directory to prevent
+        leaking sensitive files into cloud-init metadata.
+
+        Returns:
+            File content as string, or None if no user config found.
+        """
+        home = Path.home()
+        candidates = [
+            home / ".azlin" / "home" / ".tmux.conf",
+            home / ".tmux.conf",
+        ]
+        for path in candidates:
+            if not path.is_file():
+                continue
+            # Reject symlinks that escape the home directory
+            resolved = path.resolve()
+            if not resolved.is_relative_to(home):
+                logger.warning(f"Skipping {path}: symlink points outside home directory")
+                continue
+            try:
+                content = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError) as exc:
+                logger.warning(f"Failed to read {path}: {exc}. Skipping user tmux config.")
+                continue
+            if len(content.encode()) > self._TMUX_CONF_SIZE_WARN_BYTES:
+                logger.warning(
+                    f"User .tmux.conf is large ({len(content.encode())} bytes); "
+                    "cloud-init custom-data has a 64KB total limit"
+                )
+            logger.info(f"Found user tmux.conf at {path}")
+            return content
+        return None
+
+    def _build_tmux_conf_content(self, user_conf: str | None = None) -> str:
+        """Build merged tmux.conf content from azlin defaults and user config.
+
+        Azlin defaults are placed first. User settings are appended after,
+        so tmux's last-wins semantics let user settings override defaults.
+
+        Args:
+            user_conf: Optional user tmux.conf content to append.
+
+        Returns:
+            Merged tmux.conf content string.
+        """
+        azlin_defaults = (
+            "# === AZLIN DEFAULTS ===\n"
+            "# Display hostname and session name in status bar\n"
+            "set -g status-left-length 50\n"
+            'set -g status-left "#[fg=cyan][#h]#[fg=green] #S #[fg=yellow]| "\n'
+            'set -g status-right "#[fg=cyan]%Y-%m-%d %H:%M"\n'
+            "\n"
+            "# Additional useful settings\n"
+            "set -g status-interval 60\n"
+            "set -g status-bg black\n"
+            "set -g status-fg white"
+        )
+        if not user_conf or not user_conf.strip():
+            return azlin_defaults
+
+        return (
+            f"{azlin_defaults}\n\n"
+            "# === USER SETTINGS (merged from local .tmux.conf) ===\n"
+            f"{user_conf.rstrip()}"
+        )
+
     def _generate_cloud_init(
         self,
         ssh_public_key: str | None = None,
@@ -1076,6 +1153,14 @@ cloud_final_modules:
         if has_tmp_disk:
             tmp_disk_runcmd = "  # Set /tmp permissions (sticky bit) after separate disk mount\n  - chmod 1777 /tmp\n\n"
 
+        # Build merged tmux.conf (azlin defaults + user settings)
+        user_tmux_conf = self._get_user_tmux_conf()
+        tmux_conf_content = self._build_tmux_conf_content(user_tmux_conf)
+        # Indent each line with 4 spaces for YAML block scalar embedding
+        tmux_conf_indented = "\n".join(
+            f"    {line}" if line else "" for line in tmux_conf_content.splitlines()
+        )
+
         return f"""#cloud-config
 {ssh_keys_section}{disk_setup_section}package_update: true
 package_upgrade: true
@@ -1162,18 +1247,10 @@ runcmd:
     echo "[AZLIN_VERSION] rg=$(rg --version | head -1 | awk '{{print $2}}')"
     echo "[AZLIN_VERSION_CHECK] Version verification complete"
 
-  # Tmux configuration for session name display
+  # Tmux configuration (azlin defaults + user settings if found)
   - |
     cat > /home/azureuser/.tmux.conf << 'EOF'
-    # Display hostname and session name in status bar
-    set -g status-left-length 50
-    set -g status-left "#[fg=cyan][#h]#[fg=green] #S #[fg=yellow]| "
-    set -g status-right "#[fg=cyan]%Y-%m-%d %H:%M"
-
-    # Additional useful settings
-    set -g status-interval 60
-    set -g status-bg black
-    set -g status-fg white
+{tmux_conf_indented}
     EOF
   - chown azureuser:azureuser /home/azureuser/.tmux.conf
 
