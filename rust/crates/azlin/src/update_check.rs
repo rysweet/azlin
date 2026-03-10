@@ -49,9 +49,11 @@ fn now_secs() -> u64 {
 /// Query GitHub for the latest Rust release version string.
 /// Uses gh CLI first (authenticated), falls back to curl.
 fn fetch_latest_version() -> Option<String> {
-    // Try gh CLI first
-    let output = std::process::Command::new("gh")
+    // Try gh CLI first (wrapped with timeout to prevent hanging)
+    let output = std::process::Command::new("timeout")
         .args([
+            "5",
+            "gh",
             "api",
             &format!("repos/{}/releases", GITHUB_REPO),
             "--jq",
@@ -69,6 +71,8 @@ fn fetch_latest_version() -> Option<String> {
                     "-sS",
                     "--connect-timeout",
                     "3",
+                    "--max-time",
+                    "5",
                     "-H",
                     "Accept: application/vnd.github+json",
                     &format!(
