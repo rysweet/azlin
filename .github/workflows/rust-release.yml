@@ -199,7 +199,7 @@ jobs:
           args: --release --out dist
           working-directory: rust
           manylinux: 2_28
-          before-script-linux: (dnf install -y perl-IPC-Cmd make 2>/dev/null || yum install -y perl-IPC-Cmd make 2>/dev/null || apt-get update -q && apt-get install -yq perl make)
+          before-script-linux: (dnf install -y perl-IPC-Cmd make 2>/dev/null || yum install -y perl-IPC-Cmd make 2>/dev/null || (apt-get update -q && apt-get install -yq perl make))
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4
