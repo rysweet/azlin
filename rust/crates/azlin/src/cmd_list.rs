@@ -60,7 +60,6 @@ pub(crate) async fn dispatch(
                     resource_group.as_deref().unwrap_or("(default)")
                 );
             }
-            let pb = penguin_spinner("Fetching VMs...");
             let mut all_vms = if all_contexts {
                 // Read all context files from ~/.azlin/contexts/ and aggregate VMs
                 let ctx_dir = home_dir()?.join(".azlin").join("contexts");
@@ -150,7 +149,6 @@ pub(crate) async fn dispatch(
                 }
             };
 
-            pb.finish_and_clear();
             if verbose {
                 eprintln!("[VERBOSE] Fetched {} VMs", all_vms.len());
             }
@@ -176,10 +174,7 @@ pub(crate) async fn dispatch(
                 .map(|v| v.resource_group.as_str())
                 .unwrap_or("");
             if matches!(output, azlin_cli::OutputFormat::Table) && !effective_rg.is_empty() {
-                let pb = penguin_spinner("Detecting bastion hosts...");
-                let bastion_result = crate::list_helpers::detect_bastion_hosts(effective_rg);
-                pb.finish_and_clear();
-                if let Ok(bastions) = bastion_result {
+                if let Ok(bastions) = crate::list_helpers::detect_bastion_hosts(effective_rg) {
                     if !bastions.is_empty() {
                         let mut bastion_table = crate::table_render::SimpleTable::new(
                             &["Name", "Location", "SKU"],
@@ -203,43 +198,31 @@ pub(crate) async fn dispatch(
                 eprintln!("[VERBOSE] Collecting tmux sessions via bastion SSH...");
             }
             let tmux_sessions = if !no_tmux {
-                let pb = penguin_spinner("Collecting tmux sessions...");
-                let sessions = crate::cmd_list_data::collect_tmux_sessions(
+                crate::cmd_list_data::collect_tmux_sessions(
                     &all_vms,
                     effective_rg,
                     matches!(output, azlin_cli::OutputFormat::Table),
                     verbose,
                     vm_manager.subscription_id(),
-                );
-                pb.finish_and_clear();
-                sessions
+                )
             } else {
                 std::collections::HashMap::new()
             };
 
             let latencies = if with_latency {
-                let pb = penguin_spinner("Measuring latencies...");
-                let result = crate::cmd_list_data::collect_latencies(&all_vms);
-                pb.finish_and_clear();
-                result
+                crate::cmd_list_data::collect_latencies(&all_vms)
             } else {
                 std::collections::HashMap::new()
             };
 
             let health_data = if with_health {
-                let pb = penguin_spinner("Checking VM health...");
-                let result = crate::cmd_list_data::collect_health(&all_vms, verbose);
-                pb.finish_and_clear();
-                result
+                crate::cmd_list_data::collect_health(&all_vms, verbose)
             } else {
                 std::collections::HashMap::new()
             };
 
             let proc_data = if show_procs {
-                let pb = penguin_spinner("Collecting process data...");
-                let result = crate::cmd_list_data::collect_procs(&all_vms);
-                pb.finish_and_clear();
-                result
+                crate::cmd_list_data::collect_procs(&all_vms)
             } else {
                 std::collections::HashMap::new()
             };
