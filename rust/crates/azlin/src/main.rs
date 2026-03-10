@@ -592,9 +592,38 @@ async fn get_running_vm_targets(resource_group: Option<String>) -> Result<Vec<Vm
     resolve_vm_targets(None, None, resource_group).await
 }
 
-/// Create a consistent spinner style used across all operations.
+/// Penguin tick frames — the penguin waddles back and forth across dots.
+const PENGUIN_TICKS: &[&str] = &[
+    "🐧·····",
+    "·🐧····",
+    "··🐧···",
+    "···🐧··",
+    "····🐧·",
+    "·····🐧",
+    "····🐧·",
+    "···🐧··",
+    "··🐧···",
+    "·🐧····",
+];
+
+/// Create a penguin-themed spinner for slow operations.
+pub(crate) fn penguin_spinner(msg: &str) -> indicatif::ProgressBar {
+    let pb = indicatif::ProgressBar::new_spinner();
+    pb.set_style(
+        indicatif::ProgressStyle::default_spinner()
+            .tick_strings(PENGUIN_TICKS)
+            .template("{spinner} {msg}")
+            .expect("valid spinner template"),
+    );
+    pb.set_message(msg.to_string());
+    pb.enable_steady_tick(std::time::Duration::from_millis(120));
+    pb
+}
+
+/// Create a consistent spinner style used across fleet operations.
 fn fleet_spinner_style() -> ProgressStyle {
     ProgressStyle::default_spinner()
+        .tick_strings(PENGUIN_TICKS)
         .template("{prefix:.bold} {spinner} {msg}")
         .expect("valid spinner template")
 }
@@ -613,7 +642,7 @@ fn run_on_fleet(targets: &[VmSshTarget], command: &str, show_output: bool) {
             pb.set_style(style.clone());
             pb.set_prefix(format!("{:>20}", t.vm_name));
             pb.set_message("connecting...");
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            pb.enable_steady_tick(std::time::Duration::from_millis(120));
             pb
         })
         .collect();

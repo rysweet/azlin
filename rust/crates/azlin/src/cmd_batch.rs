@@ -98,9 +98,7 @@ pub(crate) async fn dispatch(
                 let _vm_manager = azlin_azure::VmManager::new(&auth);
                 let rg = resolve_resource_group(resource_group)?;
 
-                let pb = indicatif::ProgressBar::new_spinner();
-                pb.set_message(format!("Running '{}' on all VMs in '{}'...", command, rg));
-                pb.enable_steady_tick(std::time::Duration::from_millis(100));
+                let pb = penguin_spinner(&format!("Running '{}' on all VMs in '{}'...", command, rg));
 
                 let vms = get_running_vm_targets(Some(rg.clone())).await?;
                 pb.finish_and_clear();
@@ -195,9 +193,7 @@ pub(crate) async fn dispatch(
                     let auth = create_auth()?;
                     let _vm_manager = azlin_azure::VmManager::new(&auth);
 
-                    let pb = indicatif::ProgressBar::new_spinner();
-                    pb.set_message(format!("Gathering fleet VMs in '{}'...", rg));
-                    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+                    let pb = penguin_spinner(&format!("Gathering fleet VMs in '{}'...", rg));
 
                     let vms = get_running_vm_targets(Some(rg.clone())).await?;
                     pb.finish_and_clear();

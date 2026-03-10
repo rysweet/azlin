@@ -6,9 +6,7 @@ pub(crate) async fn handle_vm_update(
     vm_identifier: &str,
     resource_group: Option<String>,
 ) -> Result<()> {
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.set_message(format!("Looking up {}...", vm_identifier));
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    let pb = penguin_spinner(&format!("Looking up {}...", vm_identifier));
     let target = resolve_vm_ssh_target(vm_identifier, None, resource_group).await?;
     pb.finish_and_clear();
 
@@ -54,9 +52,7 @@ pub(crate) fn handle_vm_clone(
 
     let (disk_id, location) = crate::dispatch_helpers::lookup_vm_disk_info(&rg, source_vm)?;
 
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.set_message(format!("Snapshotting {}...", source_vm));
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    let pb = penguin_spinner(&format!("Snapshotting {}...", source_vm));
 
     let snap_out = std::process::Command::new("az")
         .args([
@@ -107,9 +103,7 @@ pub(crate) fn handle_vm_clone(
 
         if disk_out.status.success() {
             println!("  Created disk '{}' from snapshot", disk_name);
-            let pb = indicatif::ProgressBar::new_spinner();
-            pb.set_message(format!("Creating VM '{}'...", clone_name));
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            let pb = penguin_spinner(&format!("Creating VM '{}'...", clone_name));
 
             let vm_out = std::process::Command::new("az")
                 .args([

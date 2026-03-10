@@ -48,9 +48,7 @@ pub(crate) async fn handle_runner_enable(
 
     for i in 0..count {
         let vm_name = format!("azlin-runner-{}-{}", pool, i + 1);
-        let pb = indicatif::ProgressBar::new_spinner();
-        pb.set_message(format!("Provisioning {}...", vm_name));
-        pb.enable_steady_tick(std::time::Duration::from_millis(100));
+        let pb = penguin_spinner(&format!("Provisioning {}...", vm_name));
         let out = std::process::Command::new("az")
             .args([
                 "vm",

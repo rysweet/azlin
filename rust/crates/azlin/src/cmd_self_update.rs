@@ -93,9 +93,7 @@ fn download_and_replace(url: &str, version: &str) -> Result<()> {
     let archive_path = tmp_dir.join("azlin.tar.gz");
 
     // Download
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.set_message(format!("Downloading azlin v{}...", version));
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    let pb = crate::penguin_spinner(&format!("Downloading azlin v{}...", version));
 
     let dl_status = std::process::Command::new("curl")
         .args(["-sS", "-L", "-o", archive_path.to_str().unwrap(), url])

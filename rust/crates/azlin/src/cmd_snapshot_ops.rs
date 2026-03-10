@@ -7,9 +7,7 @@ pub(crate) async fn handle_snapshot_create(vm_name: &str, rg: &str) -> Result<()
 
     let ts = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
     let snapshot_name = crate::snapshot_helpers::build_snapshot_name(vm_name, &ts);
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.set_message(format!("Creating snapshot {}...", snapshot_name));
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    let pb = penguin_spinner(&format!("Creating snapshot {}...", snapshot_name));
 
     let output = std::process::Command::new("az")
         .args([
@@ -98,9 +96,7 @@ pub(crate) async fn handle_snapshot_restore(
         return Ok(());
     }
 
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.set_message(format!("Restoring {} from {}...", vm_name, snapshot_name));
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    let pb = penguin_spinner(&format!("Restoring {} from {}...", vm_name, snapshot_name));
 
     let snap_output = std::process::Command::new("az")
         .args([
@@ -149,9 +145,7 @@ pub(crate) async fn handle_snapshot_restore(
             new_disk, snapshot_name
         );
         // Step 3: Deallocate the VM so we can swap the OS disk
-        let pb2 = indicatif::ProgressBar::new_spinner();
-        pb2.set_message(format!("Deallocating VM '{}'...", vm_name));
-        pb2.enable_steady_tick(std::time::Duration::from_millis(100));
+        let pb2 = penguin_spinner(&format!("Deallocating VM '{}'...", vm_name));
         let dealloc = std::process::Command::new("az")
             .args([
                 "vm",
@@ -176,9 +170,7 @@ pub(crate) async fn handle_snapshot_restore(
         }
 
         // Step 4: Swap the OS disk
-        let pb3 = indicatif::ProgressBar::new_spinner();
-        pb3.set_message("Swapping OS disk...");
-        pb3.enable_steady_tick(std::time::Duration::from_millis(100));
+        let pb3 = penguin_spinner("Swapping OS disk...");
         let swap = std::process::Command::new("az")
             .args([
                 "vm",
@@ -203,9 +195,7 @@ pub(crate) async fn handle_snapshot_restore(
         }
 
         // Step 5: Start the VM back up
-        let pb4 = indicatif::ProgressBar::new_spinner();
-        pb4.set_message(format!("Starting VM '{}'...", vm_name));
-        pb4.enable_steady_tick(std::time::Duration::from_millis(100));
+        let pb4 = penguin_spinner(&format!("Starting VM '{}'...", vm_name));
         let start = std::process::Command::new("az")
             .args(["vm", "start", "--resource-group", rg, "--name", vm_name])
             .output()?;

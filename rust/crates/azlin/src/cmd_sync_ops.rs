@@ -249,12 +249,10 @@ pub(crate) async fn handle_logs(
             }
         }
     } else {
-        let pb = indicatif::ProgressBar::new_spinner();
-        pb.set_message(format!(
+        let pb = penguin_spinner(&format!(
             "Fetching {:?} logs for {}...",
             log_type, vm_identifier
         ));
-        pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
         let tail_cmd = crate::sync_helpers::build_tail_command(lines, log_path);
         let result = target.exec(&tail_cmd);

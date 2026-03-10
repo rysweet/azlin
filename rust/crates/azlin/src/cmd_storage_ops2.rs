@@ -17,9 +17,7 @@ pub(crate) fn handle_storage_delete(
         return Ok(());
     }
 
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.set_message(format!("Deleting storage account {}...", name));
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    let pb = penguin_spinner(&format!("Deleting storage account {}...", name));
 
     let output = std::process::Command::new("az")
         .args([

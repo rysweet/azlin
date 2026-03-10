@@ -73,9 +73,7 @@ pub(crate) async fn dispatch(
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
 
-            let pb = indicatif::ProgressBar::new_spinner();
-            pb.set_message("Collecting health metrics...");
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            let pb = penguin_spinner("Collecting health metrics...");
 
             // Detect bastion hosts for private-IP-only VMs
             let bastion_map: std::collections::HashMap<String, String> =

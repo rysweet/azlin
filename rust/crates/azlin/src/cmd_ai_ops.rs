@@ -28,9 +28,7 @@ pub(crate) async fn handle_ask(
     };
 
     let context = format!("Resource group: {}", rg);
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.set_message("Querying Claude...");
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    let pb = penguin_spinner("Querying Claude...");
     let answer = client.ask(&query_text, &context).await?;
     pb.finish_and_clear();
     println!("{}", answer);
@@ -45,9 +43,7 @@ pub(crate) async fn handle_do(
 ) -> Result<()> {
     let client = azlin_ai::AnthropicClient::new()?;
 
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.set_message("Generating commands...");
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    let pb = penguin_spinner("Generating commands...");
     let commands = client.execute(request).await?;
     pb.finish_and_clear();
 
@@ -120,9 +116,7 @@ pub(crate) async fn handle_doit_deploy(request: &str, dry_run: bool, yes: bool) 
         Available operations: az vm list, az vm start, az vm stop, az vm create, \
         az vm delete, az group create, az network nsg create, etc.";
 
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.set_message("Generating deployment plan...");
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    let pb = penguin_spinner("Generating deployment plan...");
     let commands = client.ask(request, system_context).await?;
     pb.finish_and_clear();
 

@@ -27,7 +27,7 @@ pub(crate) async fn dispatch(
             pb.set_message(crate::lifecycle_helpers::progress_message(
                 "Starting", &vm_name,
             ));
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            pb.enable_steady_tick(std::time::Duration::from_millis(120));
             let msg = crate::handlers::handle_start(&vm_manager, &rg, &vm_name)?;
             pb.finish_with_message(crate::lifecycle_helpers::finished_ok(&msg));
         }
@@ -46,7 +46,7 @@ pub(crate) async fn dispatch(
             pb.set_style(fleet_spinner_style());
             pb.set_prefix(format!("{:>20}", vm_name));
             pb.set_message(crate::lifecycle_helpers::progress_message(action, &vm_name));
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            pb.enable_steady_tick(std::time::Duration::from_millis(120));
             let msg = crate::handlers::handle_stop(&vm_manager, &rg, &vm_name, deallocate)?;
             pb.finish_with_message(crate::lifecycle_helpers::finished_ok(&msg));
         }
@@ -74,7 +74,7 @@ pub(crate) async fn dispatch(
             pb.set_message(crate::lifecycle_helpers::progress_message(
                 "Deleting", &vm_name,
             ));
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            pb.enable_steady_tick(std::time::Duration::from_millis(120));
             let msg = crate::handlers::handle_delete(&vm_manager, &rg, &vm_name)?;
             pb.finish_with_message(crate::lifecycle_helpers::finished_ok(&msg));
         }
@@ -93,7 +93,7 @@ pub(crate) async fn dispatch(
             pb.set_message(crate::lifecycle_helpers::progress_message(
                 "Killing", &vm_name,
             ));
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            pb.enable_steady_tick(std::time::Duration::from_millis(120));
             let _msg = crate::handlers::handle_delete(&vm_manager, &rg, &vm_name)?;
             pb.finish_with_message(crate::lifecycle_helpers::killed_message(&vm_name));
         }
@@ -129,7 +129,7 @@ pub(crate) async fn dispatch(
                 "Destroying",
                 &vm_name,
             ));
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            pb.enable_steady_tick(std::time::Duration::from_millis(120));
             crate::handlers::handle_delete(&vm_manager, &rg, &vm_name)?;
             pb.finish_with_message(crate::lifecycle_helpers::destroyed_message(&vm_name));
         }
@@ -148,12 +148,10 @@ pub(crate) async fn dispatch(
                 return Ok(());
             }
 
-            let pb = indicatif::ProgressBar::new_spinner();
-            pb.set_message(crate::lifecycle_helpers::progress_message(
+            let pb = penguin_spinner(&crate::lifecycle_helpers::progress_message(
                 "Deleting VMs with prefix",
                 &format!("'{}'", prefix),
             ));
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
             let query = crate::lifecycle_helpers::killall_jmespath_query(&prefix);
             let args = crate::lifecycle_helpers::killall_list_args(&rg, &query);
@@ -206,9 +204,7 @@ pub(crate) async fn dispatch(
         } => {
             let rg = resolve_resource_group(resource_group)?;
 
-            let pb = indicatif::ProgressBar::new_spinner();
-            pb.set_message(format!("Looking up {}...", vm_identifier));
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            let pb = penguin_spinner(&format!("Looking up {}...", vm_identifier));
             let target = resolve_vm_ssh_target(&vm_identifier, None, Some(rg.clone())).await?;
             pb.finish_and_clear();
 

@@ -112,9 +112,7 @@ pub(crate) async fn handle_vm_new(
             anyhow::bail!("Invalid VM parameters: {}", e);
         }
 
-        let pb = indicatif::ProgressBar::new_spinner();
-        pb.set_message(format!("Creating VM '{}'...", vm_name));
-        pb.enable_steady_tick(std::time::Duration::from_millis(100));
+        let pb = penguin_spinner(&format!("Creating VM '{}'...", vm_name));
         let vm = vm_manager.create_vm(&params)?;
         pb.finish_and_clear();
 

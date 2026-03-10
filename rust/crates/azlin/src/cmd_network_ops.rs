@@ -12,9 +12,7 @@ pub(crate) fn handle_disk_add(
     let rg = resolve_resource_group(resource_group)?;
     let disk_name = format!("{}_datadisk_{}", vm_name, lun.unwrap_or(0));
 
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.set_message(format!("Adding {} GB disk to {}...", size, vm_name));
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    let pb = penguin_spinner(&format!("Adding {} GB disk to {}...", size, vm_name));
 
     let output = std::process::Command::new("az")
         .args([
