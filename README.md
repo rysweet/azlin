@@ -2223,8 +2223,8 @@ azlin doit cleanup --force      # Delete all doit resources
 ```
 
 **📖 Learn More:**
-- [Quick Start Guide](QUICKSTART_DOIT.md)
-- [Tagging & Management](DOIT_TAGGING_AND_MANAGEMENT.md)
+- [Quick Start Guide](docs/AZDOIT.md)
+- [Tagging & Management](docs/AZDOIT.md)
 - [Architecture Docs](src/azlin/doit/README.md)
 
 ---
