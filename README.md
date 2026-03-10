@@ -2,9 +2,9 @@
 
 **[Full Documentation](https://rysweet.github.io/azlin/)** | **[Quick Start](https://rysweet.github.io/azlin/getting-started/quickstart/)** | **[Discussions](https://github.com/rysweet/azlin/discussions)**
 
-**Version:** 2.3.0-rust
-**Last Updated:** 2026-03-08
-**[Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.3.0-rust)** | **[Changelog](CHANGELOG.md)** | **[Latest Release](https://github.com/rysweet/azlin/releases/tag/v2.3.0-rust)**
+**Version:** 2.6.1
+**Last Updated:** 2026-03-10
+**[Release Notes](https://github.com/rysweet/azlin/releases/latest)** | **[Changelog](CHANGELOG.md)** | **[Latest Release](https://github.com/rysweet/azlin/releases/latest)**
 
 **One command to create a fully-equipped development VM on Azure**
 
@@ -244,44 +244,25 @@ azlin self-update
 
 This downloads the latest binary from [GitHub Releases](https://github.com/rysweet/azlin/releases/tag/v2.3.0-rust) and replaces the current binary in place.
 
-### Python Version
+### Legacy Python Version
 
-The original Python CLI is still available as `azlin-py`:
+The Python implementation has been retired (the Rust rewrite has full command parity). The final Python release is preserved as tag `v2.6.0-python-final`.
+
+To run the legacy Python version via uvx:
 
 ```bash
-# Use the Python CLI directly
-azlin-py list
-azlin-py new --name my-vm
+# Run the final Python release directly (no install needed)
+uvx --from git+https://github.com/rysweet/azlin@v2.6.0-python-final azlin list
+uvx --from git+https://github.com/rysweet/azlin@v2.6.0-python-final azlin new --name my-vm
 
-# Install Python version with pip/uv
-uv tool install git+https://github.com/rysweet/azlin
+# Or pin to the tag for repeated use
+uv tool install git+https://github.com/rysweet/azlin@v2.6.0-python-final
+azlin list
 ```
 
-When you run `azlin` (without `-py`), it routes through the Python bridge to the Rust binary for 75-85x faster startup.
-
-### Option 4: Install with pip (Python version)
+### Copy Files to/from VMs
 
 ```bash
-# Create and activate virtual environment
-uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install azlin
-uv pip install azlin
-
-# Or use regular pip
-pip install azlin
-
-# Create a development VM
-azlin new
-
-# Create VM and clone a repo
-azlin new --repo https://github.com/microsoft/vscode
-
-# Sync your dotfiles to existing VMs
-azlin sync
-
-# Copy files to/from VMs
 azlin cp myfile.txt vm1:~/
 azlin cp vm1:~/data.txt ./
 ```
