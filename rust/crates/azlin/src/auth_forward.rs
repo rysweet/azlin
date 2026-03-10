@@ -71,12 +71,14 @@ fn detect_credentials() -> Vec<CredentialSource> {
         });
     }
 
-    // Azure CLI: always present (we just created a VM with it)
-    sources.push(CredentialSource {
-        name: "az",
-        description: "Azure CLI (guidance only)",
-        forward_fn: forward_az,
-    });
+    // Azure CLI
+    if azure_config_dir().is_some() {
+        sources.push(CredentialSource {
+            name: "az",
+            description: "Azure CLI credentials (~/.azure/)",
+            forward_fn: forward_az,
+        });
+    }
 
     sources
 }
@@ -107,6 +109,15 @@ fn copilot_config_dir() -> Option<PathBuf> {
 fn claude_config_path() -> Option<PathBuf> {
     let p = dirs::home_dir()?.join(".claude.json");
     if p.exists() {
+        Some(p)
+    } else {
+        None
+    }
+}
+
+fn azure_config_dir() -> Option<PathBuf> {
+    let p = dirs::home_dir()?.join(".azure");
+    if p.is_dir() {
         Some(p)
     } else {
         None
@@ -214,9 +225,33 @@ fn forward_claude(ip: &str, user: &str) -> Result<()> {
     Ok(())
 }
 
-/// Azure CLI: print guidance only — no token copying.
-fn forward_az(_ip: &str, _user: &str) -> Result<()> {
-    println!("  Run 'az login' on the VM to authenticate with Azure CLI.");
+/// Forward Azure CLI credentials via scp.
+fn forward_az(ip: &str, user: &str) -> Result<()> {
+    let src = azure_config_dir().ok_or_else(|| anyhow::anyhow!("azure config not found"))?;
+
+    // Ensure remote directory exists
+    let _ = std::process::Command::new("ssh")
+        .args([
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            &format!("{}@{}", user, ip),
+            "mkdir -p ~/.azure",
+        ])
+        .output();
+
+    let status = std::process::Command::new("scp")
+        .args([
+            "-r",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            &src.to_string_lossy(),
+            &format!("{}@{}:~/.azure/", user, ip),
+        ])
+        .status()?;
+    if !status.success() {
+        anyhow::bail!("scp failed for Azure CLI credentials");
+    }
+    println!("  Azure CLI credentials forwarded.");
     Ok(())
 }
 
