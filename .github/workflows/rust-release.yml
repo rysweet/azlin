@@ -199,7 +199,7 @@ jobs:
           args: --release --out dist
           working-directory: rust
           manylinux: 2_28
-          before-script-linux: dnf install -y perl-IPC-Cmd perl-FindBin make
+          before-script-linux: dnf install -y perl-IPC-Cmd make
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4
