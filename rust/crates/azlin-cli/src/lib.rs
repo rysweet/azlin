@@ -219,7 +219,7 @@ pub enum Commands {
     /// List VMs in resource group
     List {
         /// Resource group name
-        #[arg(short, long, alias = "rg")]
+        #[arg(long, alias = "rg")]
         resource_group: Option<String>,
 
         /// Show all VMs including stopped
@@ -287,7 +287,7 @@ pub enum Commands {
         contexts: Option<String>,
 
         /// Restore tmux sessions after listing
-        #[arg(long, short = 'R')]
+        #[arg(long, short = 'r')]
         restore: bool,
 
         /// Config file path
@@ -2166,7 +2166,7 @@ mod tests {
 
     #[test]
     fn test_list_with_resource_group() {
-        let cli = Cli::parse_from(["azlin", "list", "-r", "my-rg"]);
+        let cli = Cli::parse_from(["azlin", "list", "--rg", "my-rg"]);
         if let Commands::List { resource_group, .. } = cli.command {
             assert_eq!(resource_group, Some("my-rg".to_string()));
         } else {

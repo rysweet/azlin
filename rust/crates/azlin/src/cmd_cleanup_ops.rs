@@ -248,6 +248,7 @@ pub(crate) fn handle_restore(resource_group: Option<String>) -> Result<()> {
     let running: Vec<_> = vms
         .iter()
         .filter(|v| v.power_state == azlin_core::models::PowerState::Running)
+        .cloned()
         .collect();
 
     if running.is_empty() {
@@ -255,20 +256,22 @@ pub(crate) fn handle_restore(resource_group: Option<String>) -> Result<()> {
         return Ok(());
     }
 
-    println!("Found {} running VM(s):", running.len());
-    for vm in &running {
-        let session = vm
-            .tags
-            .get("azlin-session")
-            .map(|s| s.as_str())
-            .unwrap_or("-");
-        let ip = vm
-            .public_ip
-            .as_deref()
-            .or(vm.private_ip.as_deref())
-            .unwrap_or("no-ip");
-        println!("  {} (session: {}, ip: {})", vm.name, session, ip);
+    println!("Found {} running VM(s), collecting tmux sessions...", running.len());
+
+    let tmux_sessions = crate::cmd_list_data::collect_tmux_sessions(
+        &running,
+        &rg,
+        true,  // is_table_output (enables bastion detection)
+        false, // verbose
+        vm_manager.subscription_id(),
+    );
+
+    if tmux_sessions.is_empty() {
+        println!("No active tmux sessions found on running VMs.");
+        println!("Use 'azlin connect <vm-name>' to start a new session.");
+        return Ok(());
     }
-    println!("Session restore complete. Use 'azlin connect <vm-name>' to reconnect.");
+
+    crate::cmd_list_data::restore_tmux_sessions(&tmux_sessions);
     Ok(())
 }
