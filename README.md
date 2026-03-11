@@ -1,17 +1,59 @@
 # azlin - Azure Ubuntu VM Provisioning CLI
 
-**[Full Documentation](https://rysweet.github.io/azlin/)** | **[Quick Start](https://rysweet.github.io/azlin/getting-started/quickstart/)** | **[Discussions](https://github.com/rysweet/azlin/discussions)**
+[![Latest Release](https://img.shields.io/github/v/release/rysweet/azlin?label=latest&sort=semver)](https://github.com/rysweet/azlin/releases/latest)
 
-**Version:** 2.6.1
-**Last Updated:** 2026-03-10
-**[Release Notes](https://github.com/rysweet/azlin/releases/latest)** | **[Changelog](CHANGELOG.md)** | **[Latest Release](https://github.com/rysweet/azlin/releases/latest)**
+**[Full Documentation](https://rysweet.github.io/azlin/)** | **[Quick Start](https://rysweet.github.io/azlin/getting-started/quickstart/)** | **[Discussions](https://github.com/rysweet/azlin/discussions)** | **[Release Notes](https://github.com/rysweet/azlin/releases/latest)** | **[Changelog](CHANGELOG.md)**
 
 **One command to create a fully-equipped development VM on Azure**
 
-```bash
-# Run directly from GitHub (no installation needed)
-uvx --from git+https://github.com/rysweet/azlin azlin new
+## Install
 
+### Option 1: Download Pre-Built Binary (Recommended)
+
+Download the native binary from [GitHub Releases](https://github.com/rysweet/azlin/releases/latest):
+
+```bash
+# Linux x86_64
+curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-linux-x86_64.tar.gz | tar xz -C ~/.local/bin
+
+# Linux aarch64
+curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-linux-aarch64.tar.gz | tar xz -C ~/.local/bin
+
+# macOS x86_64
+curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-macos-x86_64.tar.gz | tar xz -C /usr/local/bin
+
+# macOS aarch64 (Apple Silicon)
+curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-macos-aarch64.tar.gz | tar xz -C /usr/local/bin
+```
+
+### Option 2: Build from Source with Cargo
+
+```bash
+cargo install --git https://github.com/rysweet/azlin
+```
+
+### Option 3: Run via uvx (No Install)
+
+```bash
+uvx --from git+https://github.com/rysweet/azlin azlin list
+```
+
+### Self-Update
+
+```bash
+azlin self-update
+```
+
+### Verify
+
+```bash
+azlin --version
+azlin --help
+```
+
+## Quick Start
+
+```bash
 # Create VM with custom name
 azlin new --name myproject
 
@@ -53,16 +95,9 @@ The Azlin Mobile PWA brings full VM management to your mobile device. Install it
 
 **[PWA Documentation](docs/pwa/README.md)** | **[Getting Started](docs/pwa/getting-started.md)** | **[Architecture](docs/pwa/architecture.md)**
 
-## What's New in v2.3.0-rust
+## Highlights
 
-### Rust Rewrite -- 75-85x Faster
-
-azlin has been completely rewritten from Python to Rust. The `azlin` command now routes through a thin Python bridge to a native Rust binary, delivering 75-85x faster startup. Everything works the same -- all 53 commands, 154 subcommand variants, 2,536 tests passing.
-
-- **Pre-built binaries** for Linux (x86_64, aarch64), macOS (x86_64, aarch64), and Windows (x86_64)
-- **Self-update**: `azlin self-update` downloads the latest binary from GitHub Releases
-- **Python CLI preserved**: Run `azlin-py` to use the original Python implementation directly
-- **Migration bridge**: Existing `uvx` installs auto-route to the Rust binary
+azlin is written in Rust with pre-built binaries for Linux (x86_64, aarch64) and macOS (x86_64, aarch64). Self-update with `azlin self-update`.
 
 ### VM Health Dashboard
 Monitor all your VMs with Four Golden Signals:
@@ -96,7 +131,7 @@ Address VMs with `hostname:session_name` syntax across all commands.
 - Batch storage quota queries eliminate N+1 Azure CLI calls
 - Per-VM incremental cache refresh
 
-See [Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.3.0-rust) and [Changelog](CHANGELOG.md) for the complete list.
+See [Release Notes](https://github.com/rysweet/azlin/releases/latest) and [Changelog](CHANGELOG.md) for the complete list.
 
 ## Development Tools Installed
 
@@ -164,101 +199,6 @@ Before using azlin, ensure these tools are installed:
 
 **macOS**: `brew install azure-cli gh git tmux`
 **Linux**: See platform-specific installation in Prerequisites module
-
-## Quick Start
-
-### Getting Help
-
-```bash
-# Show all available commands
-azlin
-
-# Or use the help flag
-azlin --help
-
-# Get help for specific commands
-azlin new --help
-azlin list --help
-```
-
-### Option 1: Zero-Install with uvx (Recommended for Trying)
-
-Run azlin instantly without installation using [uvx](https://docs.astral.sh/uv/concepts/tools/). The Python package auto-migrates to the Rust binary on first run:
-
-```bash
-# Run directly from GitHub (no installation needed)
-uvx --from git+https://github.com/rysweet/azlin azlin list
-
-# Provision a VM
-uvx --from git+https://github.com/rysweet/azlin azlin new
-
-# Clone a repo on the VM
-uvx --from git+https://github.com/rysweet/azlin azlin new --repo https://github.com/microsoft/vscode
-
-# Any azlin command works
-uvx --from git+https://github.com/rysweet/azlin azlin status
-```
-
-**Tip**: For shorter commands, set an alias:
-```bash
-alias azlin-git='uvx --from git+https://github.com/rysweet/azlin azlin'
-azlin-git list
-```
-
-### Option 2: Download Pre-Built Binary (Fastest)
-
-Download the native Rust binary directly from [GitHub Releases](https://github.com/rysweet/azlin/releases/tag/v2.3.0-rust):
-
-```bash
-# Linux x86_64
-curl -sSL https://github.com/rysweet/azlin/releases/download/v2.3.0-rust/azlin-linux-x86_64 -o ~/.local/bin/azlin && chmod +x ~/.local/bin/azlin
-
-# Linux aarch64
-curl -sSL https://github.com/rysweet/azlin/releases/download/v2.3.0-rust/azlin-linux-aarch64 -o ~/.local/bin/azlin && chmod +x ~/.local/bin/azlin
-
-# macOS x86_64
-curl -sSL https://github.com/rysweet/azlin/releases/download/v2.3.0-rust/azlin-macos-x86_64 -o /usr/local/bin/azlin && chmod +x /usr/local/bin/azlin
-
-# macOS aarch64 (Apple Silicon)
-curl -sSL https://github.com/rysweet/azlin/releases/download/v2.3.0-rust/azlin-macos-aarch64 -o /usr/local/bin/azlin && chmod +x /usr/local/bin/azlin
-```
-
-### Option 3: Build from Source with Cargo
-
-```bash
-# Install from the workspace
-cd rust && cargo install --path crates/azlin
-
-# Or build locally
-cd rust && cargo build --release
-# Binary at rust/target/release/azlin
-```
-
-### Self-Update
-
-Keep azlin up to date with a single command:
-
-```bash
-azlin self-update
-```
-
-This downloads the latest binary from [GitHub Releases](https://github.com/rysweet/azlin/releases/tag/v2.3.0-rust) and replaces the current binary in place.
-
-### Legacy Python Version
-
-The Python implementation has been retired (the Rust rewrite has full command parity). The final Python release is preserved as tag `v2.6.0-python-final`.
-
-To run the legacy Python version via uvx:
-
-```bash
-# Run the final Python release directly (no install needed)
-uvx --from git+https://github.com/rysweet/azlin@v2.6.0-python-final azlin list
-uvx --from git+https://github.com/rysweet/azlin@v2.6.0-python-final azlin new --name my-vm
-
-# Or pin to the tag for repeated use
-uv tool install git+https://github.com/rysweet/azlin@v2.6.0-python-final
-azlin list
-```
 
 ### Copy Files to/from VMs
 
