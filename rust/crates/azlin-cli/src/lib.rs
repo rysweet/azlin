@@ -959,6 +959,23 @@ pub enum Commands {
         action: BastionAction,
     },
 
+    /// Create SSH port-forwarding tunnels to remote VMs
+    ///
+    /// Opens SSH local port forwards from a remote VM to localhost.
+    /// Supports direct SSH and Azure Bastion-routed VMs.
+    ///
+    /// Examples:
+    ///   azlin tunnel myvm 8080              # forward remote 8080 → localhost:8080
+    ///   azlin tunnel myvm 5432 --local-port 15432
+    ///   azlin tunnel myvm 8080 3000 5432    # forward multiple ports
+    ///   azlin tunnel list                   # show active tunnels
+    ///   azlin tunnel close myvm             # close tunnels for a VM
+    ///   azlin tunnel close --all            # close all tunnels
+    Tunnel {
+        #[command(subcommand)]
+        action: TunnelAction,
+    },
+
     /// Display version information
     Version,
 
@@ -1034,6 +1051,52 @@ pub enum BastionAction {
         /// Disable the mapping instead of enabling it
         #[arg(long)]
         disable: bool,
+    },
+}
+
+// ── Tunnel subcommands ────────────────────────────────────────────────────
+
+#[derive(Subcommand, Debug)]
+pub enum TunnelAction {
+    /// Open SSH port-forwarding tunnels to a VM (default action)
+    ///
+    /// Forward one or more remote ports to localhost.
+    Open {
+        /// VM name, session name, or IP address
+        vm_identifier: String,
+
+        /// Remote port(s) to forward
+        #[arg(required = true, num_args = 1..)]
+        ports: Vec<u16>,
+
+        /// Local port to use (only valid for single-port forwarding)
+        #[arg(long)]
+        local_port: Option<u16>,
+
+        /// SSH username
+        #[arg(long, default_value = "azureuser")]
+        user: String,
+
+        /// SSH private key path
+        #[arg(long)]
+        key: Option<PathBuf>,
+
+        /// Resource group
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+    },
+
+    /// List active SSH tunnels
+    List,
+
+    /// Close active SSH tunnel(s)
+    Close {
+        /// VM name whose tunnels should be closed (omit with --all to close all)
+        vm_identifier: Option<String>,
+
+        /// Close all active tunnels
+        #[arg(long)]
+        all: bool,
     },
 }
 
@@ -4521,6 +4584,107 @@ mod tests {
             assert!(dry_run);
         } else {
             panic!("Expected Costs Actions");
+        }
+    }
+
+    // ── Tunnel command tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_tunnel_open_single_port() {
+        let cli = Cli::parse_from(["azlin", "tunnel", "open", "myvm", "8080"]);
+        if let Commands::Tunnel {
+            action: TunnelAction::Open { vm_identifier, ports, local_port, .. },
+        } = cli.command
+        {
+            assert_eq!(vm_identifier, "myvm");
+            assert_eq!(ports, vec![8080]);
+            assert_eq!(local_port, None);
+        } else {
+            panic!("Expected Tunnel Open command");
+        }
+    }
+
+    #[test]
+    fn test_tunnel_open_with_local_port() {
+        let cli = Cli::parse_from([
+            "azlin", "tunnel", "open", "myvm", "5432", "--local-port", "15432",
+        ]);
+        if let Commands::Tunnel {
+            action: TunnelAction::Open { vm_identifier, ports, local_port, .. },
+        } = cli.command
+        {
+            assert_eq!(vm_identifier, "myvm");
+            assert_eq!(ports, vec![5432]);
+            assert_eq!(local_port, Some(15432));
+        } else {
+            panic!("Expected Tunnel Open command");
+        }
+    }
+
+    #[test]
+    fn test_tunnel_open_multiple_ports() {
+        let cli = Cli::parse_from(["azlin", "tunnel", "open", "myvm", "8080", "3000", "5432"]);
+        if let Commands::Tunnel {
+            action: TunnelAction::Open { vm_identifier, ports, .. },
+        } = cli.command
+        {
+            assert_eq!(vm_identifier, "myvm");
+            assert_eq!(ports, vec![8080, 3000, 5432]);
+        } else {
+            panic!("Expected Tunnel Open command");
+        }
+    }
+
+    #[test]
+    fn test_tunnel_list() {
+        let cli = Cli::parse_from(["azlin", "tunnel", "list"]);
+        assert!(matches!(
+            cli.command,
+            Commands::Tunnel { action: TunnelAction::List }
+        ));
+    }
+
+    #[test]
+    fn test_tunnel_close_vm() {
+        let cli = Cli::parse_from(["azlin", "tunnel", "close", "myvm"]);
+        if let Commands::Tunnel {
+            action: TunnelAction::Close { vm_identifier, all },
+        } = cli.command
+        {
+            assert_eq!(vm_identifier, Some("myvm".to_string()));
+            assert!(!all);
+        } else {
+            panic!("Expected Tunnel Close command");
+        }
+    }
+
+    #[test]
+    fn test_tunnel_close_all() {
+        let cli = Cli::parse_from(["azlin", "tunnel", "close", "--all"]);
+        if let Commands::Tunnel {
+            action: TunnelAction::Close { vm_identifier, all },
+        } = cli.command
+        {
+            assert_eq!(vm_identifier, None);
+            assert!(all);
+        } else {
+            panic!("Expected Tunnel Close --all command");
+        }
+    }
+
+    #[test]
+    fn test_tunnel_open_with_resource_group() {
+        let cli = Cli::parse_from([
+            "azlin", "tunnel", "open", "myvm", "8080", "--resource-group", "my-rg",
+        ]);
+        if let Commands::Tunnel {
+            action: TunnelAction::Open { vm_identifier, resource_group, .. },
+        } = cli.command
+        {
+            assert_eq!(vm_identifier, "myvm");
+            assert_eq!(resource_group, Some("my-rg".to_string()));
+        } else {
+            panic!("Expected Tunnel Open command");
         }
     }
 }
