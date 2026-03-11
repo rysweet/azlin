@@ -219,7 +219,7 @@ pub enum Commands {
     /// List VMs in resource group
     List {
         /// Resource group name
-        #[arg(short, long, alias = "rg")]
+        #[arg(long, alias = "rg")]
         resource_group: Option<String>,
 
         /// Show all VMs including stopped
@@ -287,7 +287,7 @@ pub enum Commands {
         contexts: Option<String>,
 
         /// Restore tmux sessions after listing
-        #[arg(long, short = 'R')]
+        #[arg(long, short = 'r')]
         restore: bool,
 
         /// Config file path
