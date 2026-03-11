@@ -929,6 +929,7 @@ mod cmd_storage_ops2;
 mod cmd_sync;
 mod cmd_sync_ops;
 mod cmd_tag;
+mod cmd_tunnel;
 mod cmd_vm;
 mod cmd_vm_ops;
 mod cmd_vm_ops2;
