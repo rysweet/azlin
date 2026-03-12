@@ -368,16 +368,22 @@ fn start_vnc_server(
     }
 
     // Create xstartup based on mode
-    // DISPLAY must be explicitly exported for apps to find the VNC X server
+    // DISPLAY must be explicitly exported for apps to find the VNC X server.
+    // xhost +local: allows local apps to connect without xauth issues
+    // (safe because VNC only listens on localhost).
+    let preamble = format!(
+        "export DISPLAY=:{}\nxhost +local: >/dev/null 2>&1\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexport XDG_SESSION_TYPE=x11",
+        VNC_DISPLAY
+    );
     let xstartup_body = match mode {
         VncMode::Desktop => {
-            format!("export DISPLAY=:{}\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexport XDG_SESSION_TYPE=x11\nexec startxfce4", VNC_DISPLAY)
+            format!("{}\nexec startxfce4", preamble)
         }
         VncMode::Minimal => {
-            format!("export DISPLAY=:{}\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexport XDG_SESSION_TYPE=x11\nexec openbox-session", VNC_DISPLAY)
+            format!("{}\nexec openbox-session", preamble)
         }
         VncMode::App(cmd) => {
-            format!("export DISPLAY=:{}\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexport XDG_SESSION_TYPE=x11\n{}\nvncserver -kill :{} 2>/dev/null", VNC_DISPLAY, cmd, VNC_DISPLAY)
+            format!("{}\n{}\nvncserver -kill :{} 2>/dev/null", preamble, cmd, VNC_DISPLAY)
         }
     };
 
