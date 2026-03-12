@@ -2,33 +2,24 @@
 //!
 //! These tests verify that:
 //!   1. The update notice appears on stderr **before** any command output when a
-//!      newer version is cached (TDD: FAILS until `check_for_updates()` is moved
-//!      to before `dispatch_command()` in `async_main()`).
+//!      newer version is cached.
 //!   2. The update notice is suppressed when `AZLIN_NO_UPDATE_CHECK=1` is set.
 //!   3. The update notice is suppressed when the cached version is not newer.
 //!   4. All azlin commands complete normally regardless of the update check result.
 //!
-//! # Why these tests exist
+//! # Implementation
 //!
-//! The implementation change is a one-line reorder in `async_main()`:
+//! `check_for_updates()` is called before `dispatch_command()` in `async_main()`:
 //!
-//! **Before (current code — update check runs AFTER command):**
 //! ```rust
-//! let result = dispatch_command(cli).await;
-//! update_check::check_for_updates();   // post-command
-//! result
-//! ```
-//!
-//! **After (target code — update check runs BEFORE command):**
-//! ```rust
-//! update_check::check_for_updates();   // startup notification
+//! update_check::check_for_updates();   // startup notification (runs first)
 //! dispatch_command(cli).await
 //! ```
 //!
-//! `test_update_notice_appears_before_command_output` is the primary *failing*
+//! `test_update_notice_appears_before_command_output` is the primary ordering
 //! test: it captures stderr+stdout combined (via `2>&1` shell redirect) and
 //! asserts that the update notice substring appears at a lower byte offset than
-//! the command output — which only holds when the notice is printed first.
+//! the command output — which holds because the notice is printed first.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempfile::TempDir;
@@ -68,12 +59,10 @@ fn azlin_bin() -> std::path::PathBuf {
 // Primary failing test — ordering assertion
 // ---------------------------------------------------------------------------
 
-/// **TDD FAILING TEST** (fails with current code, passes after implementation).
-///
 /// When a newer version is in the cache and the cooldown has not expired,
 /// `check_for_updates()` prints a one-line notice to **stderr**.
-/// After the reorder, that notice must appear *before* the `azlin version`
-/// output on *stdout*.
+/// That notice must appear *before* the `azlin version` output on *stdout*
+/// because `check_for_updates()` runs before `dispatch_command()`.
 ///
 /// We capture the two streams merged via a shell `2>&1` redirect and confirm
 /// that the notice byte-offset precedes the version-output byte-offset.
@@ -106,25 +95,26 @@ fn test_update_notice_appears_before_command_output() {
     );
 
     // --- Assert: command output is present ---
-    // `azlin version` prints the version string; it must contain a digit-dot pattern.
-    // We look for any version-like token as proof the command ran.
-    let version_line_pos = combined
-        .find(env!("CARGO_PKG_VERSION"))
-        .or_else(|| combined.find("azlin"));
+    // `azlin version` prints the exact CARGO_PKG_VERSION semver string.
+    // We do NOT fall back to a generic string like "azlin" because that word
+    // also appears inside the update notice ("Run 'azlin update'..."), which
+    // would cause the ordering assertion below to compare two offsets within
+    // the notice itself and pass vacuously.
+    let version_line_pos = combined.find(env!("CARGO_PKG_VERSION"));
     assert!(
         version_line_pos.is_some(),
-        "Expected version output in combined output.\nCombined output:\n{combined}"
+        "Expected version output containing '{}' in combined output.\n\
+         Combined output:\n{combined}",
+        env!("CARGO_PKG_VERSION")
     );
 
     // --- PRIMARY ASSERTION: notice BEFORE command output ---
-    // This assertion FAILS with the current code (update check runs after command)
-    // and PASSES after moving check_for_updates() before dispatch_command().
+    // check_for_updates() runs before dispatch_command() in async_main(),
+    // so the update notice must always precede the command output.
     assert!(
         notice_pos.unwrap() < version_line_pos.unwrap(),
         "FAIL: update notice (byte offset {}) appeared AFTER command output (byte offset {}).\n\
          The notice must appear BEFORE the command output (startup notification).\n\
-         This test will pass once check_for_updates() is moved before dispatch_command()\
-         in async_main().\n\
          Combined output:\n{combined}",
         notice_pos.unwrap(),
         version_line_pos.unwrap(),

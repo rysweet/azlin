@@ -28,6 +28,7 @@ fn read_cache() -> Option<(String, u64)> {
 }
 
 /// Write version and current timestamp to cache.
+/// The file is created with mode 0o600 (owner read/write only).
 fn write_cache(version: &str) {
     if let Some(path) = cache_path() {
         if let Some(parent) = path.parent() {
@@ -35,6 +36,17 @@ fn write_cache(version: &str) {
         }
         let now = now_secs();
         fs::write(&path, format!("{}\n{}", version, now)).ok();
+        // Restrict permissions to owner read/write — cache is in $HOME so
+        // it contains no secrets, but limiting access is a secure default.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = fs::metadata(&path) {
+                let mut perms = meta.permissions();
+                perms.set_mode(0o600);
+                fs::set_permissions(&path, perms).ok();
+            }
+        }
     }
 }
 
@@ -73,6 +85,10 @@ fn fetch_latest_version() -> Option<String> {
                     "3",
                     "--max-time",
                     "5",
+                    // Reject responses larger than 64 KB — prevents memory abuse
+                    // from a malicious or misbehaving server.
+                    "--max-filesize",
+                    "65536",
                     "-H",
                     "Accept: application/vnd.github+json",
                     &format!(
@@ -147,38 +163,55 @@ fn is_newer(current: &str, latest: &str) -> bool {
 /// - 24-hour cooldown between checks
 /// - Network failures silently ignored
 /// - Never blocks or slows normal operation
+///
+/// The notice is shown from the local cache (instant).  When the cache is
+/// missing or expired the network fetch runs in a background thread so
+/// startup latency is zero; the refreshed result is used on the next run.
 pub fn check_for_updates() {
     // Respect suppression env var
     if std::env::var("AZLIN_NO_UPDATE_CHECK").unwrap_or_default() == "1" {
         return;
     }
 
-    // Check cooldown
     let now = now_secs();
     if let Some((cached_version, timestamp)) = read_cache() {
+        // Show notice from cache immediately -- no network required
+        if is_newer(CURRENT_VERSION, &cached_version) {
+            print_update_notice(&cached_version);
+        }
         if now.saturating_sub(timestamp) < COOLDOWN_SECS {
-            // Within cooldown -- use cached result
-            if is_newer(CURRENT_VERSION, &cached_version) {
-                print_update_notice(&cached_version);
-            }
+            // Cache is fresh; nothing more to do
             return;
         }
     }
 
-    // Cooldown expired or no cache -- fetch fresh data
-    if let Some(latest) = fetch_latest_version() {
-        write_cache(&latest);
-        if is_newer(CURRENT_VERSION, &latest) {
-            print_update_notice(&latest);
+    // Cache missing or expired -- refresh in a background thread so the
+    // command starts without waiting for a network round-trip (up to 10 s).
+    // Detached intentionally — fire-and-forget; result available on next invocation.
+    std::thread::spawn(|| {
+        if let Some(latest) = fetch_latest_version() {
+            write_cache(&latest);
         }
-    }
+    });
+}
+
+/// Sanitise a version string for safe terminal display.
+/// Strips all ASCII control characters (including ESC / ANSI sequences) so a
+/// malicious cache file cannot inject terminal escape codes.
+fn sanitise_for_display(s: &str) -> String {
+    s.chars()
+        .filter(|c| !c.is_ascii_control())
+        .collect()
 }
 
 /// Print the update notice.
 fn print_update_notice(latest: &str) {
+    // Sanitise before embedding in an ANSI-escaped string to prevent terminal
+    // escape-sequence injection via a poisoned cache file.
+    let safe = sanitise_for_display(latest);
     eprintln!(
         "\x1b[33mA newer version of azlin is available (v{}). Run 'azlin update' to upgrade.\x1b[0m",
-        latest
+        safe
     );
 }
 
@@ -356,26 +389,30 @@ mod tests {
     }
 
     #[test]
-    fn test_read_cache_rejects_empty_version_line() {
+    fn test_read_cache_blank_line_returns_empty_version() {
+        // When the cache file has a blank first line (corrupted/edge case), read_cache
+        // returns Some(("", timestamp)) rather than None — it does NOT reject empty
+        // version strings.  The caller (check_for_updates) handles this gracefully:
+        // is_newer(CURRENT_VERSION, "") returns false, so no notice is printed.
         let _guard = ENV_MUTEX.lock().unwrap();
         let dir = tempfile::TempDir::new().unwrap();
         unsafe { std::env::set_var("HOME", dir.path()) };
 
-        // Empty first line — version is ""
         let cache_dir = dir.path().join(".config").join("azlin");
         std::fs::create_dir_all(&cache_dir).unwrap();
-        // write_cache always writes a non-empty version; we simulate a corrupted file
         let now = now_secs();
+        // write_cache always writes a non-empty version; we simulate a corrupted file
         std::fs::write(cache_dir.join("last_update_check"), format!("\n{}", now)).unwrap();
 
         let result = read_cache();
         unsafe { std::env::remove_var("HOME") };
 
-        // An empty version line is technically returned by read_cache (it parses the
-        // empty string as a version), but is_newer("", current) returns false so the
-        // notice is never printed.  Verify at minimum it does not panic.
-        // The actual None-ness depends on implementation; what matters is no panic.
-        let _ = result; // no panic is the contract
+        // The function returns Some with an empty version string (not None).
+        // Crucially it must not panic.
+        match result {
+            Some((version, _)) => assert_eq!(version, "", "version should be empty string"),
+            None => {} // also acceptable — either way no panic is the hard requirement
+        }
     }
 
     #[test]
@@ -495,6 +532,29 @@ mod tests {
         check_for_updates(); // Must be silent and not panic
 
         unsafe { std::env::remove_var("HOME") };
+    }
+
+    // -------------------------------------------------------------------------
+    // sanitise_for_display — control-char stripping (new)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_sanitise_strips_escape_sequences() {
+        // A malicious cache could embed ESC codes to hijack the terminal.
+        let poisoned = "2.6.0\x1b[2J\x1b[H"; // ESC codes for clear-screen
+        assert_eq!(sanitise_for_display(poisoned), "2.6.0[2J[H");
+    }
+
+    #[test]
+    fn test_sanitise_strips_null_bytes() {
+        let s = "2.6.0\x00-rust.abc";
+        assert_eq!(sanitise_for_display(s), "2.6.0-rust.abc");
+    }
+
+    #[test]
+    fn test_sanitise_passes_normal_version() {
+        let v = "2.6.0-rust.abc1234";
+        assert_eq!(sanitise_for_display(v), v);
     }
 
     // -------------------------------------------------------------------------
