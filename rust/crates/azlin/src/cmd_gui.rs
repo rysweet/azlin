@@ -436,7 +436,9 @@ fn launch_viewer(ssh_cmd_prefix: &[String], password: &str) -> Result<()> {
     };
 
     let mut cmd = std::process::Command::new("vncviewer");
-    cmd.arg("-passwd")
+    cmd.arg("-SecurityTypes")
+        .arg("VncAuth")
+        .arg("-passwd")
         .arg(&passwd_file)
         .arg(format!("127.0.0.1:{}", VNC_PORT));
 
