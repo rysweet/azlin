@@ -54,7 +54,7 @@ azlin gui my-vm
 azlin gui my-vm --minimal
 
 # Single application mode — VNC exits when the app closes
-azlin gui my-vm --app "chromium-browser"
+azlin gui my-vm --app "chromium-browser --no-sandbox"
 azlin gui my-vm --app "gimp"
 
 # Custom resolution
@@ -75,6 +75,8 @@ azlin gui my-vm --user azureuser --key ~/.ssh/azlin_key
 **Minimal mode** starts only the openbox window manager. Right-click on the desktop for an app launcher menu. Drag window edges to resize. Much lighter than a full desktop.
 
 **Single app mode** runs the specified command directly. The VNC window shows only that application. When the app is closed, the VNC server exits automatically.
+
+> **Note on Chromium/browsers**: Use `--no-sandbox` flag when running Chromium in VNC: `azlin gui my-vm --app "chromium-browser --no-sandbox"`. This is required because the VNC session runs as a regular user without a full desktop sandbox.
 
 ### How It Works
 
