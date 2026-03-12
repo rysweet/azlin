@@ -554,7 +554,7 @@ fi
 - [`azlin start`](start.md) - Start stopped VM before connecting
 - [`azlin status`](status.md) - Check VM status
 - [`azlin bastion status`](../bastion/status.md) - Check bastion availability
-- [`azlin keys get`](../keys/get.md) - Retrieve SSH keys from Key Vault
+- [`azlin keys list`](../keys/list.md) - List SSH keys
 
 ## Source Code
 

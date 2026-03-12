@@ -7,20 +7,21 @@ Get up and running with azlin in 5 minutes.
 
 - Azure account ([create free account](https://azure.microsoft.com/free/))
 - Azure CLI installed and configured (`az login`)
-- Python 3.12 or later
 
 ## Step 1: Install azlin
 
 ```bash
-# Run directly from GitHub (no installation needed)
+# Download pre-built binary (recommended)
+curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-linux-x86_64.tar.gz | tar xz -C ~/.local/bin
+```
+
+Or run without installing:
+
+```bash
 uvx --from git+https://github.com/rysweet/azlin azlin new
 ```
 
-Or install permanently:
-
-```bash
-uv tool install git+https://github.com/rysweet/azlin
-```
+See [Installation](installation.md) for all options including macOS, Cargo, and pip.
 
 ## Step 2: Login to Azure
 
@@ -36,11 +37,11 @@ azlin new --name myproject
 
 azlin will:
 
-1. ✓ Create an Ubuntu 24.04 VM
-2. ✓ Install 12 development tools
-3. ✓ Configure SSH access
-4. ✓ Start tmux session
-5. ✓ Connect you automatically
+1. Create an Ubuntu 24.04 VM
+2. Install 12 development tools
+3. Configure SSH access
+4. Start tmux session
+5. Connect you automatically
 
 **Total time: 4-7 minutes**
 
@@ -68,11 +69,14 @@ which docker az gh git node python3 rustc go dotnet
 # List all your VMs
 azlin list
 
-# Check VM status
-azlin status
+# Check VM health with Four Golden Signals
+azlin health
 
 # View distributed metrics
 azlin top
+
+# Keep azlin up to date
+azlin self-update
 ```
 
 ## What's Next?
@@ -80,6 +84,7 @@ azlin top
 - **[Create Shared Storage](../storage/creating.md)** - Set up NFS storage
 - **[Transfer Files](../file-transfer/copy.md)** - Copy files to/from VMs
 - **[Manage Multiple VMs](../vm-lifecycle/index.md)** - Scale your fleet
+- **[GUI Forwarding](../advanced/gui-forwarding.md)** - Run remote GUI apps locally
 - **[Set Up Authentication](../authentication/service-principal.md)** - Use service principals
 
 ## Troubleshooting
@@ -109,15 +114,23 @@ azlin stop myvm                # Stop VM
 azlin start myvm               # Start VM
 azlin destroy myvm             # Delete VM
 
+# GUI Forwarding
+azlin connect --x11 myvm      # X11 forwarding for lightweight GUI apps
+azlin gui myvm                 # Full VNC desktop session
+
 # Storage
 azlin storage create           # Create NFS storage
 azlin storage mount            # Mount storage
 
 # Monitoring
+azlin health                   # VM health dashboard
 azlin status                   # VM status
 azlin w                        # Who is logged in
 azlin top                      # Distributed metrics
 azlin cost                     # Cost tracking
+
+# Maintenance
+azlin self-update              # Update azlin to latest version
 ```
 
 ---

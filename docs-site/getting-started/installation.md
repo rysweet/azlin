@@ -4,63 +4,64 @@ Install azlin on your system to start provisioning Azure VMs.
 
 ## Prerequisites
 
-Before installing azlin, ensure you have:
-
 ### Required
 
-- **Python 3.12 or later** - [Download Python](https://www.python.org/downloads/)
 - **Azure CLI** - [Install Azure CLI](https://docs.microsoft.com/cli/azure/install-azure-cli)
 - **Azure Subscription** - [Create free account](https://azure.microsoft.com/free/)
 
 ### Optional
 
-- **uv** - Fast Python package installer (recommended)
+- **Python 3.12+** - Only needed if using the Python bridge (`azlin-py`) or `uvx`
+- **Cargo** - Only needed if building from source
 - **Git** - For cloning repositories
 
 ## Installation Methods
 
-=== "Using uvx (Recommended)"
+=== "Pre-Built Binary (Recommended)"
 
-    The fastest way to run azlin without installation:
+    Download the native Rust binary for instant startup:
+
+    ```bash
+    # Linux x86_64
+    curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-linux-x86_64.tar.gz | tar xz -C ~/.local/bin
+
+    # Linux aarch64
+    curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-linux-aarch64.tar.gz | tar xz -C ~/.local/bin
+
+    # macOS x86_64
+    curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-macos-x86_64.tar.gz | tar xz -C /usr/local/bin
+
+    # macOS aarch64 (Apple Silicon)
+    curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-macos-aarch64.tar.gz | tar xz -C /usr/local/bin
+    ```
+
+=== "Build from Source (Cargo)"
+
+    Build from source with the Rust toolchain:
+
+    ```bash
+    cargo install --git https://github.com/rysweet/azlin
+    ```
+
+=== "Using uvx (No Install)"
+
+    Run directly from GitHub without installing (requires Python and uv):
 
     ```bash
     uvx --from git+https://github.com/rysweet/azlin azlin new
     ```
 
-    This runs azlin directly from GitHub without installing it permanently.
-
-=== "Using uv"
-
-    Install with uv for a permanent installation:
-
-    ```bash
-    # Install uv if not already installed
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-
-    # Install azlin
-    uv tool install git+https://github.com/rysweet/azlin
-    ```
+    This runs azlin via the Python bridge. For best performance, use the pre-built binary.
 
 === "Using pip"
 
-    Traditional pip installation:
+    Install the Python bridge permanently:
 
     ```bash
     pip install git+https://github.com/rysweet/azlin
     ```
 
-=== "From Source"
-
-    For development or customization:
-
-    ```bash
-    # Clone repository
-    git clone https://github.com/rysweet/azlin.git
-    cd azlin
-
-    # Install in development mode
-    pip install -e .
-    ```
+    Note: This installs the Python bridge which routes to the native Rust binary if available, or falls back to the Python implementation (`azlin-py`).
 
 ## Verify Installation
 
@@ -70,11 +71,19 @@ Check that azlin is installed correctly:
 # Check version
 azlin --version
 
-# Should output: azlin version 0.3.2
-
 # View available commands
 azlin --help
 ```
+
+## Self-Update
+
+azlin can update itself to the latest release:
+
+```bash
+azlin self-update
+```
+
+This downloads and replaces the binary with the latest version from GitHub Releases.
 
 ## Azure CLI Setup
 
@@ -128,7 +137,6 @@ SSH is already installed. Verify:
 
 ```bash
 ssh -V
-# Should output: OpenSSH_X.X
 ```
 
 ### Windows
@@ -145,64 +153,31 @@ If not installed, enable it:
 Add-WindowsCapability -Online -Name OpenSSH.Client
 ```
 
-## Optional Tools
-
-### uv (Recommended)
-
-uv is a fast Python package installer:
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-### GitHub CLI
-
-For GitHub repository integration:
-
-```bash
-# macOS
-brew install gh
-
-# Linux
-sudo apt install gh
-
-# Windows
-winget install GitHub.cli
-```
-
 ## Troubleshooting Installation
 
 ### Issue: `command not found: azlin`
 
-**Solution**: Ensure Python's bin directory is in your PATH:
+**Solution**: Ensure the binary location is in your PATH:
 
 ```bash
-# Add to ~/.bashrc or ~/.zshrc
+# For pre-built binary in ~/.local/bin
 export PATH="$HOME/.local/bin:$PATH"
 
-# Reload shell
-source ~/.bashrc  # or ~/.zshrc
-```
-
-### Issue: `ModuleNotFoundError: No module named 'azlin'`
-
-**Solution**: Reinstall azlin:
-
-```bash
-pip uninstall azlin
-pip install git+https://github.com/rysweet/azlin
+# Add to ~/.bashrc or ~/.zshrc for persistence
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
 ```
 
 ### Issue: `az: command not found`
 
 **Solution**: Install Azure CLI (see above) and ensure it's in your PATH.
 
-### Issue: Permission denied
+### Issue: Permission denied downloading binary
 
-**Solution**: Don't use `sudo` with pip. Install in user directory:
+**Solution**: Ensure the target directory exists and is writable:
 
 ```bash
-pip install --user git+https://github.com/rysweet/azlin
+mkdir -p ~/.local/bin
 ```
 
 ## Next Steps
@@ -212,30 +187,6 @@ Now that azlin is installed:
 1. **[Quick Start →](quickstart.md)** - Create your first VM
 2. **[Authentication Setup →](../authentication/index.md)** - Configure Azure authentication
 3. **[Basic Concepts →](concepts.md)** - Learn how azlin works
-
-## Updating azlin
-
-To update to the latest version:
-
-```bash
-# Using uv
-uv tool upgrade azlin
-
-# Using pip
-pip install --upgrade git+https://github.com/rysweet/azlin
-```
-
-## Uninstalling azlin
-
-To remove azlin:
-
-```bash
-# Using uv
-uv tool uninstall azlin
-
-# Using pip
-pip uninstall azlin
-```
 
 ---
 

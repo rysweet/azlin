@@ -14,7 +14,7 @@ VM commands handle the complete lifecycle of Azure VMs - from provisioning to de
 - [**azlin clone**](clone.md) - Clone VM with home directory contents
 - [**azlin start**](start.md) - Start a stopped or deallocated VM
 - [**azlin stop**](stop.md) - Stop/deallocate VM to save costs
-- [**azlin kill**](../util/kill.md) - Delete VM and all associated resources
+- [**azlin kill**](kill.md) - Delete VM and all associated resources
 - [**azlin destroy**](destroy.md) - Delete VM with dry-run and resource group options
 
 ### Connection & Access

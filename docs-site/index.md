@@ -16,7 +16,7 @@
 
     ---
 
-    Complete reference for all 60+ azlin commands
+    Complete reference for all 50+ azlin commands
 
     [:octicons-arrow-right-24: Browse Commands](commands/index.md)
 
@@ -40,43 +40,48 @@
 
 ## What is azlin?
 
-azlin automates the tedious process of setting up Azure Ubuntu VMs for development. In one command, it:
+azlin automates the tedious process of setting up Azure Ubuntu VMs for development. Written in Rust for blazing-fast startup (75-85x faster than the original Python implementation), it provisions a fully configured VM in one command:
 
-1. ✓ Authenticates with Azure
-2. ✓ Provisions an Ubuntu 24.04 VM
-3. ✓ Installs 12 essential development tools
-4. ✓ Sets up SSH with key-based authentication
-5. ✓ Starts a persistent tmux session
-6. ✓ Optionally clones a GitHub repository
+1. Authenticates with Azure
+2. Provisions an Ubuntu 24.04 VM
+3. Installs 12 essential development tools
+4. Sets up SSH with key-based authentication
+5. Starts a persistent tmux session
+6. Optionally clones a GitHub repository
 
 **Total time**: 4-7 minutes from command to working development environment.
 
 ## Quick Example
 
 ```bash
-# Run directly from GitHub (no installation needed)
-uvx --from git+https://github.com/rysweet/azlin azlin new
+# Download pre-built binary (recommended)
+curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-linux-x86_64.tar.gz | tar xz -C ~/.local/bin
 
-# Create VM with custom name
+# Create a VM
 azlin new --name myproject
 
-# Fully automated provisioning (zero prompts!)
+# Fully automated provisioning (zero prompts)
 azlin new --name myvm --yes
 
-# Create VM and clone GitHub repo
+# Create VM and clone a GitHub repo
 azlin new --repo https://github.com/owner/repo
 
-# Mount Azure Files locally on macOS
-azlin storage mount local --mount-point ~/azure/
+# Keep azlin up to date
+azlin self-update
 ```
 
 ## Key Features
 
 ### :material-flash: Fast VM Provisioning
-Create fully configured development VMs in 4-7 minutes with a single command.
+Create fully configured development VMs in 4-7 minutes with a single command. Native Rust binary starts in milliseconds.
 
 ### :material-tools: 12 Pre-Installed Tools
-Every VM includes Docker, Azure CLI, GitHub CLI, Node.js, Python 3.13, Rust, Go, .NET, and AI coding assistants.
+Every VM includes Docker, Azure CLI, GitHub CLI, Node.js, Python, Rust, Go, .NET, and AI coding assistants (GitHub Copilot CLI, Claude Code, OpenAI Codex CLI).
+
+### :material-monitor: GUI Forwarding
+Run graphical applications on your VMs and display them locally. X11 forwarding for lightweight apps, VNC for full desktop sessions.
+
+[:octicons-arrow-right-24: GUI Forwarding Guide](advanced/gui-forwarding.md)
 
 ### :material-database: Shared NFS Storage
 Create Azure Files NFS storage and mount across multiple VMs for shared data.
@@ -88,95 +93,22 @@ Secure, browser-based SSH access without public IP addresses.
 Run commands across entire VM fleets in parallel.
 
 ### :material-robot: AI-Powered Features
-Natural language VM management with `azlin do` command.
+Natural language VM management with `azlin do` command and autonomous optimization with `azlin autopilot`.
 
 ### :material-shield-lock: Secure by Default
-SSH key rotation, Azure Key Vault integration, service principal support.
+SSH key rotation, NFS RootSquash, Azure AD auth for storage, service principal support.
 
 ### :material-speedometer: Cost Optimization
-Auto-stop idle VMs, quota management, cost tracking.
+Auto-stop idle VMs, quota management, cost tracking and recommendations.
 
-## What's New in v0.4.0
+### :material-camera: Snapshots & Backups
+Create point-in-time snapshots and schedule automated backups with cross-region replication.
 
-!!! tip "Latest Release - December 2025"
+### :material-format-list-group: Compound VM:Session Naming
+Address VMs with `hostname:session_name` syntax across all commands for multi-session workflows.
 
-### 🚀 10 Major New Features
-
-**1. VM Lifecycle Automation**
-Automated health monitoring, self-healing, and lifecycle hooks:
-```bash
-azlin autopilot enable myvm --health-checks --self-healing
-```
-[:octicons-arrow-right-24: Learn More](vm-lifecycle/automation.md)
-
-**2. Cost Optimization Intelligence**
-Real-time cost dashboard, budget alerts, and AI-powered recommendations:
-```bash
-azlin util cost --detailed
-azlin util cost recommendations --apply
-```
-[:octicons-arrow-right-24: Learn More](monitoring/cost-optimization.md)
-
-**3. Multi-Region Orchestration**
-Deploy and manage VMs across multiple regions with automatic failover:
-```bash
-azlin new myapp --regions eastus,westus,centralus --strategy active-active
-```
-[:octicons-arrow-right-24: Learn More](advanced/multi-region.md)
-
-**4. Enhanced Monitoring & Alerting**
-Comprehensive metrics, intelligent alerts, and cost forecasting:
-```bash
-azlin monitoring enable myvm --metrics all --alerts smart
-```
-[:octicons-arrow-right-24: Learn More](monitoring/enhanced-monitoring.md)
-
-**5. Backup & Disaster Recovery**
-Automated backups, DR testing, and point-in-time recovery:
-```bash
-azlin backup enable myvm --schedule daily --retention 30d
-azlin dr test production-app
-```
-[:octicons-arrow-right-24: Learn More](advanced/backup-dr.md)
-
-**6. Network Security Enhancements**
-NSG automation, Bastion pooling, and comprehensive audit logging:
-```bash
-azlin security nsg auto-configure myvm
-```
-[:octicons-arrow-right-24: Learn More](advanced/network-security.md)
-
-**7. Template System V2**
-Versioning, composition, validation, and marketplace:
-```bash
-azlin template create mytemplate --version 1.0.0
-azlin template validate mytemplate
-```
-[:octicons-arrow-right-24: Learn More](advanced/templates-v2.md)
-
-**8. Storage Management**
-Quota management, automated cleanup, and tier optimization:
-```bash
-azlin storage optimize --auto-tier --cleanup-old
-```
-[:octicons-arrow-right-24: Learn More](storage/management.md)
-
-**9. Natural Language Enhancements**
-Context-aware parsing and intelligent workflow suggestions:
-```bash
-azlin do "deploy 3 web servers with load balancing across regions"
-```
-[:octicons-arrow-right-24: Learn More](ai/natural-language.md)
-
-**10. Performance Optimization**
-API caching, connection pooling, and intelligent batching:
-- 3x faster bulk operations
-- 50% reduction in API calls
-- Smart request batching
-
-[:octicons-arrow-right-24: Learn More](advanced/performance.md)
-
-[View Full Changelog](changelog.md){ .md-button }
+### :material-heart-pulse: Health Dashboard
+Real-time monitoring with the Four Golden Signals: latency, traffic, errors, and saturation.
 
 ## Development Tools Installed
 
@@ -195,7 +127,7 @@ Every azlin VM comes pre-configured with:
     - **Python 3.13+** - Latest Python from deadsnakes PPA
     - **Rust** - Systems programming language
     - **Golang** - Go programming language
-    - **.NET 10 RC** - .NET development framework
+    - **.NET** - .NET development framework
 
 === "AI Tools"
 
@@ -208,22 +140,20 @@ Every azlin VM comes pre-configured with:
 ### Development Teams
 Share NFS storage and individual VMs for team collaboration.
 
-[:octicons-arrow-right-24: View Example](examples/dev-team-setup.md)
+[:octicons-arrow-right-24: Quick Start](getting-started/quickstart.md)
 
 ### CI/CD Runners
 Provision ephemeral GitHub Actions runners on demand.
 
-[:octicons-arrow-right-24: View Example](advanced/github-runners.md)
+[:octicons-arrow-right-24: GitHub Runners](advanced/github-runners.md)
 
 ### Machine Learning
 Create GPU-enabled VMs for training workloads.
 
-[:octicons-arrow-right-24: View Example](examples/ml-cluster.md)
-
 ### Cost Optimization
 Auto-stop idle VMs and manage quotas.
 
-[:octicons-arrow-right-24: View Example](examples/cost-optimization.md)
+[:octicons-arrow-right-24: Cost Tracking](monitoring/cost.md)
 
 ## Getting Help
 
@@ -246,10 +176,10 @@ Auto-stop idle VMs and manage quotas.
 ## Project Information
 
 - **License**: MIT
-- **Python**: 3.12+
+- **Written in**: Rust (with Python bridge for backward compatibility)
 - **Repository**: [rysweet/azlin](https://github.com/rysweet/azlin)
-- **PyPI**: [pypi.org/project/azlin](https://pypi.org/project/azlin/)
-- **Version**: 0.4.0
+- **Releases**: [GitHub Releases](https://github.com/rysweet/azlin/releases)
+- **Version**: 2.6.16
 
 ---
 

@@ -9,10 +9,10 @@ site_description: >-
 # Repository
 repo_name: rysweet/azlin
 repo_url: https://github.com/rysweet/azlin
-edit_uri: edit/main/docs/
+edit_uri: edit/main/docs-site/
 
 # Copyright
-copyright: Copyright &copy; 2025 Ryan Sweet
+copyright: Copyright &copy; 2025-2026 Ryan Sweet
 
 # Configuration
 theme:
@@ -234,7 +234,7 @@ nav:
     - What is Bastion: bastion/overview.md
     - Bastion Setup: bastion/setup.md
     - Connecting via Bastion: bastion/connecting.md
-    - Security Benefits: bastion/security.md
+    - Security: bastion/security.md
     - Cost Analysis: bastion/cost.md
 
   - Monitoring:
@@ -270,6 +270,7 @@ nav:
     - Docker Compose: advanced/compose.md
     - Quota Management: advanced/quotas.md
     - Pruning VMs: advanced/pruning.md
+    - GUI Forwarding: advanced/gui-forwarding.md
 
   - Command Reference:
     - commands/index.md
