@@ -240,31 +240,101 @@ pub(crate) fn collect_procs(vms: &[VmInfo]) -> HashMap<String, String> {
     proc_data
 }
 
+/// Parse a raw tmux session string (e.g. `"main:1"`) into a validated session name.
+///
+/// Splits on `:` to strip the `attached` count suffix, trims whitespace, then validates
+/// the name against the alphanumeric + `_` + `-` allowlist.  Returns `None` when the
+/// name is empty, exceeds 128 characters, or contains any disallowed character.
+pub(crate) fn parse_session_name(raw: &str) -> Option<String> {
+    let name = raw.split(':').next().unwrap_or("").trim().to_string();
+    if name.is_empty() || name.len() > 128 {
+        return None;
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return None;
+    }
+    Some(name)
+}
+
+/// Validate a VM name before using it in process arguments.
+///
+/// Allowlist permits alphanumeric characters, underscores, hyphens, and dots (dots are
+/// required for Azure FQDNs) and rejects everything else, preventing argument injection.
+pub(crate) fn is_valid_restore_vm_name(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    name.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+}
+
 /// Restore tmux sessions by connecting to each VM.
 pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>) {
     println!("\nRestoring tmux sessions...");
     let use_wt = std::env::var("WT_SESSION").is_ok();
+
     for (vm_name, sessions) in tmux_sessions {
-        if let Some(first_session) = sessions.first() {
+        if !is_valid_restore_vm_name(vm_name) {
+            eprintln!("  Warning: skipping VM with invalid name");
+            continue;
+        }
+
+        if let Some(raw_session) = sessions.first() {
+            let first_session = match parse_session_name(raw_session) {
+                Some(s) => s,
+                None => {
+                    eprintln!(
+                        "  Warning: skipping invalid session name for {}",
+                        vm_name
+                    );
+                    continue;
+                }
+            };
+
             if use_wt {
                 println!("  Opening tab: {} (session: {})", vm_name, first_session);
-                let _ = std::process::Command::new("wt.exe")
-                    .args([
-                        "-w",
-                        "0",
-                        "new-tab",
-                        "azlin",
-                        "connect",
-                        vm_name,
-                        "--tmux-session",
-                        first_session,
-                    ])
-                    .spawn();
+                // WT_SESSION is set inside WSL when running under Windows Terminal.
+                // wt.exe new-tab runs its command in the default WT profile (often
+                // PowerShell), so we must explicitly use wsl.exe to re-enter WSL
+                // where the azlin binary lives.
+                let wsl_distro =
+                    std::env::var("WSL_DISTRO_NAME").unwrap_or_else(|_| "".to_string());
+                let mut wt_args: Vec<&str> =
+                    vec!["-w", "0", "new-tab"];
+                if !wsl_distro.is_empty() {
+                    wt_args.extend_from_slice(&[
+                        "wsl.exe", "-d", &wsl_distro, "--",
+                    ]);
+                }
+                wt_args.extend_from_slice(&[
+                    "azlin", "connect", vm_name,
+                    "--tmux-session", &first_session,
+                ]);
+                if let Err(e) = std::process::Command::new("wt.exe")
+                    .args(&wt_args)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                {
+                    eprintln!("  Warning: failed to open tab for {}: {}", vm_name, e);
+                }
             } else {
                 println!("  Connecting to {} (session: {})", vm_name, first_session);
-                let _ = std::process::Command::new("azlin")
-                    .args(["connect", vm_name, "--tmux-session", first_session])
-                    .spawn();
+                // Isolate stdio so the spawned SSH process does not inherit the parent
+                // terminal handles — prevents display corruption and credential capture.
+                if let Err(e) = std::process::Command::new("azlin")
+                    .args(["connect", vm_name, "--tmux-session", &first_session])
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                {
+                    eprintln!("  Warning: failed to connect to {}: {}", vm_name, e);
+                }
             }
         }
     }

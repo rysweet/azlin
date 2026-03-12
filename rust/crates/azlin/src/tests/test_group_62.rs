@@ -1,0 +1,294 @@
+//! Unit tests for restore_tmux_sessions helper functions.
+//!
+//! Covers parse_session_name (24 cases) and is_valid_restore_vm_name (11 cases)
+//! plus behavioural smoke tests for restore_tmux_sessions itself (10 cases).
+
+use crate::cmd_list_data::{is_valid_restore_vm_name, parse_session_name, restore_tmux_sessions};
+use std::collections::HashMap;
+
+// ---------------------------------------------------------------------------
+// parse_session_name — valid inputs
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_parse_strips_attached_suffix() {
+    assert_eq!(parse_session_name("main:1"), Some("main".to_string()));
+}
+
+#[test]
+fn test_parse_strips_zero_attached() {
+    assert_eq!(parse_session_name("dev-work:0"), Some("dev-work".to_string()));
+}
+
+#[test]
+fn test_parse_strips_high_count() {
+    assert_eq!(parse_session_name("session99:42"), Some("session99".to_string()));
+}
+
+#[test]
+fn test_parse_trims_leading_whitespace() {
+    assert_eq!(parse_session_name("  dev-work:0"), Some("dev-work".to_string()));
+}
+
+#[test]
+fn test_parse_trims_trailing_whitespace() {
+    assert_eq!(parse_session_name("dev-work:0  "), Some("dev-work".to_string()));
+}
+
+#[test]
+fn test_parse_trims_both_sides_whitespace() {
+    assert_eq!(parse_session_name("  dev-work :0"), Some("dev-work".to_string()));
+}
+
+#[test]
+fn test_parse_single_char_name() {
+    assert_eq!(parse_session_name("a:0"), Some("a".to_string()));
+}
+
+#[test]
+fn test_parse_underscore_name() {
+    assert_eq!(parse_session_name("my_session:1"), Some("my_session".to_string()));
+}
+
+#[test]
+fn test_parse_hyphen_name() {
+    assert_eq!(parse_session_name("my-session:1"), Some("my-session".to_string()));
+}
+
+#[test]
+fn test_parse_alphanumeric_only() {
+    assert_eq!(parse_session_name("ABC123:0"), Some("ABC123".to_string()));
+}
+
+#[test]
+fn test_parse_name_no_colon_still_valid() {
+    // tmux format without attached count — treat the whole string as the name
+    assert_eq!(parse_session_name("plainname"), Some("plainname".to_string()));
+}
+
+#[test]
+fn test_parse_exactly_128_chars_valid() {
+    let name = "a".repeat(128);
+    let raw = format!("{}:0", name);
+    assert_eq!(parse_session_name(&raw), Some(name));
+}
+
+// ---------------------------------------------------------------------------
+// parse_session_name — invalid / rejected inputs
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_parse_empty_string_returns_none() {
+    assert_eq!(parse_session_name(""), None);
+}
+
+#[test]
+fn test_parse_colon_only_empty_name_returns_none() {
+    assert_eq!(parse_session_name(":1"), None);
+}
+
+#[test]
+fn test_parse_whitespace_only_before_colon_returns_none() {
+    assert_eq!(parse_session_name("   :1"), None);
+}
+
+#[test]
+fn test_parse_semicolon_metachar_returns_none() {
+    assert_eq!(parse_session_name("session;evil:0"), None);
+}
+
+#[test]
+fn test_parse_percent_expansion_returns_none() {
+    assert_eq!(parse_session_name("sess%COMSPEC%:0"), None);
+}
+
+#[test]
+fn test_parse_caret_escape_returns_none() {
+    assert_eq!(parse_session_name("sess^inject:0"), None);
+}
+
+#[test]
+fn test_parse_ampersand_returns_none() {
+    assert_eq!(parse_session_name("sess&cmd:0"), None);
+}
+
+#[test]
+fn test_parse_pipe_returns_none() {
+    assert_eq!(parse_session_name("sess|cmd:0"), None);
+}
+
+#[test]
+fn test_parse_dot_returns_none() {
+    // Dots are not in the session-name allowlist (only vm-name allows dots for FQDNs)
+    assert_eq!(parse_session_name("sess.ion:0"), None);
+}
+
+#[test]
+fn test_parse_slash_returns_none() {
+    assert_eq!(parse_session_name("../../evil:0"), None);
+}
+
+#[test]
+fn test_parse_129_chars_returns_none() {
+    let name = "a".repeat(129);
+    let raw = format!("{}:0", name);
+    assert_eq!(parse_session_name(&raw), None);
+}
+
+#[test]
+fn test_parse_ansi_escape_returns_none() {
+    // ANSI CSI sequence contains '[' and digits — '[' is not in the allowlist
+    assert_eq!(parse_session_name("\x1b[32mmain\x1b[0m:1"), None);
+}
+
+// ---------------------------------------------------------------------------
+// is_valid_restore_vm_name — valid inputs
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_vm_name_simple_valid() {
+    assert!(is_valid_restore_vm_name("myvm"));
+}
+
+#[test]
+fn test_vm_name_with_hyphen_valid() {
+    assert!(is_valid_restore_vm_name("my-vm-01"));
+}
+
+#[test]
+fn test_vm_name_with_underscore_valid() {
+    assert!(is_valid_restore_vm_name("my_vm"));
+}
+
+#[test]
+fn test_vm_name_with_dot_valid() {
+    // Dots permitted for Azure FQDNs
+    assert!(is_valid_restore_vm_name("vm.example.com"));
+}
+
+#[test]
+fn test_vm_name_alphanumeric_mixed_case_valid() {
+    assert!(is_valid_restore_vm_name("DevVM01"));
+}
+
+// ---------------------------------------------------------------------------
+// is_valid_restore_vm_name — invalid inputs
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_vm_name_empty_invalid() {
+    assert!(!is_valid_restore_vm_name(""));
+}
+
+#[test]
+fn test_vm_name_ampersand_invalid() {
+    assert!(!is_valid_restore_vm_name("vm&inject"));
+}
+
+#[test]
+fn test_vm_name_semicolon_invalid() {
+    assert!(!is_valid_restore_vm_name("vm;cmd"));
+}
+
+#[test]
+fn test_vm_name_path_traversal_invalid() {
+    assert!(!is_valid_restore_vm_name("../traversal"));
+}
+
+#[test]
+fn test_vm_name_space_invalid() {
+    assert!(!is_valid_restore_vm_name("my vm"));
+}
+
+#[test]
+fn test_vm_name_pipe_invalid() {
+    assert!(!is_valid_restore_vm_name("vm|cat"));
+}
+
+// ---------------------------------------------------------------------------
+// restore_tmux_sessions — behavioural smoke tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_restore_empty_map_no_panic() {
+    let sessions: HashMap<String, Vec<String>> = HashMap::new();
+    // Should complete without panic
+    restore_tmux_sessions(&sessions);
+}
+
+#[test]
+fn test_restore_empty_session_list_no_panic() {
+    let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
+    sessions.insert("myvm".to_string(), vec![]);
+    restore_tmux_sessions(&sessions);
+}
+
+#[test]
+fn test_restore_valid_colon_format_no_panic() {
+    // Bug 1 regression: "main:1" should be stripped to "main" without panic or warning
+    let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
+    sessions.insert("myvm".to_string(), vec!["main:1".to_string()]);
+    restore_tmux_sessions(&sessions);
+}
+
+#[test]
+fn test_restore_invalid_session_name_skipped_no_panic() {
+    // Security: session with injection chars must be skipped, not passed to spawn
+    let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
+    sessions.insert("myvm".to_string(), vec!["session;evil:0".to_string()]);
+    restore_tmux_sessions(&sessions);
+}
+
+#[test]
+fn test_restore_invalid_vm_name_skipped_no_panic() {
+    // Security: VM name with injection chars must be skipped
+    let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
+    sessions.insert("vm&inject".to_string(), vec!["main:0".to_string()]);
+    restore_tmux_sessions(&sessions);
+}
+
+#[test]
+fn test_restore_multiple_sessions_only_first_used_no_panic() {
+    // Only the first session per VM is used (by design)
+    let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
+    sessions.insert(
+        "myvm".to_string(),
+        vec!["first:1".to_string(), "second:0".to_string()],
+    );
+    restore_tmux_sessions(&sessions);
+}
+
+#[test]
+fn test_restore_multiple_vms_no_panic() {
+    let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
+    sessions.insert("vm-alpha".to_string(), vec!["work:1".to_string()]);
+    sessions.insert("vm-beta".to_string(), vec!["play:0".to_string()]);
+    restore_tmux_sessions(&sessions);
+}
+
+#[test]
+fn test_restore_empty_vm_name_skipped_no_panic() {
+    // Edge case: empty key in map
+    let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
+    sessions.insert("".to_string(), vec!["main:0".to_string()]);
+    restore_tmux_sessions(&sessions);
+}
+
+#[test]
+fn test_restore_session_name_at_max_length_no_panic() {
+    let name = "a".repeat(128);
+    let raw = format!("{}:0", name);
+    let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
+    sessions.insert("myvm".to_string(), vec![raw]);
+    restore_tmux_sessions(&sessions);
+}
+
+#[test]
+fn test_restore_session_name_over_max_length_skipped_no_panic() {
+    let name = "a".repeat(129);
+    let raw = format!("{}:0", name);
+    let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
+    sessions.insert("myvm".to_string(), vec![raw]);
+    // Should not panic; name is skipped with a warning
+    restore_tmux_sessions(&sessions);
+}
