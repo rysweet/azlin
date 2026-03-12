@@ -71,7 +71,11 @@ def _find_rust_binary() -> str | None:
         Path("/usr/bin/azlin"),
     ]
     for candidate in candidates:
-        if candidate.exists() and os.access(candidate, os.X_OK) and _is_rust_binary(candidate):
+        if (
+            candidate.exists()
+            and os.access(candidate, os.X_OK)
+            and _is_rust_binary(candidate)
+        ):
             return str(candidate)
     return None
 
@@ -87,7 +91,9 @@ def _download_from_release() -> str | None:
 
     api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
     try:
-        req = urllib.request.Request(api_url, headers={"Accept": "application/vnd.github+json"})  # noqa: S310
+        req = urllib.request.Request(
+            api_url, headers={"Accept": "application/vnd.github+json"}
+        )  # noqa: S310
         with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310  # nosec B310
             import json
 
@@ -116,7 +122,9 @@ def _download_from_release() -> str | None:
 
     # Download and extract
     MANAGED_BIN_DIR.mkdir(parents=True, exist_ok=True)
-    sys.stderr.write(f"azlin: installing Rust binary v{version} from GitHub Releases...\n")
+    sys.stderr.write(
+        f"azlin: installing Rust binary v{version} from GitHub Releases...\n"
+    )
     try:
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
             urllib.request.urlretrieve(download_url, tmp.name)  # noqa: S310  # nosec B310

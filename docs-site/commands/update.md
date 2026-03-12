@@ -1,82 +1,82 @@
 # azlin update
 
-Update all development tools on a VM.
+Update the azlin CLI itself to the latest release.
 
-Updates system packages, programming languages, CLIs, and other dev tools
-that were installed during VM provisioning.
-
-VM_IDENTIFIER can be:
-- VM name (requires --resource-group or default config)
-- Session name (will be resolved to VM name)
-- IP address (direct connection)
-
-Tools updated:
-- System packages (apt)
-- Azure CLI
-- GitHub CLI
-- npm and npm packages (Copilot, Codex, Claude Code)
-- Rust toolchain
-- astral-uv
-
-
-Examples:
-    # Update VM by name
-    azlin update my-vm
-
-    # Update VM by session name
-    azlin update my-project
-
-    # Update VM by IP
-    azlin update 20.1.2.3
-
-    # Update with custom timeout (default 300s per tool)
-    azlin update my-vm --timeout 600
-
-    # Update with explicit resource group
-    azlin update my-vm --rg my-resource-group
-
+!!! tip "Startup version notification"
+    azlin checks for a newer version of itself at startup and prints a one-line notice when an update is available. See [Startup Version Check](./util/version-check.md) for configuration options including how to disable the check.
 
 ## Description
 
-Update all development tools on a VM.
-Updates system packages, programming languages, CLIs, and other dev tools
-that were installed during VM provisioning.
-VM_IDENTIFIER can be:
-- VM name (requires --resource-group or default config)
-- Session name (will be resolved to VM name)
-- IP address (direct connection)
-Tools updated:
-- System packages (apt)
-- Azure CLI
-- GitHub CLI
-- npm and npm packages (Copilot, Codex, Claude Code)
-- Rust toolchain
-- astral-uv
-
-Examples:
-# Update VM by name
-azlin update my-vm
-# Update VM by session name
-azlin update my-project
-# Update VM by IP
-azlin update 20.1.2.3
-# Update with custom timeout (default 300s per tool)
-azlin update my-vm --timeout 600
-# Update with explicit resource group
-azlin update my-vm --rg my-resource-group
+`azlin update` downloads and installs the latest azlin binary from GitHub releases.
+This command updates **azlin itself** — not your VMs or the development tools on them.
+
+To update development tools on a VM, see [`azlin os-update`](./util/os-update.md).
 
 ## Usage
 
 ```bash
-azlin update VM_IDENTIFIER [OPTIONS]
+azlin update
 ```
 
-## Arguments
+No arguments required.
 
-- `VM_IDENTIFIER` - No description available
+## Examples
 
-## Options
+### Update azlin
 
-- `--resource-group`, `--rg` TEXT (default: `Sentinel.UNSET`) - Resource group
-- `--config` PATH (default: `Sentinel.UNSET`) - Config file path
-- `--timeout` INT (default: `300`) - Timeout per update in seconds
+```bash
+azlin update
+```
+
+**Output:**
+```
+Checking for updates...
+Current version: v2.6.1-rust.def5678
+Latest version:  v2.7.0-rust.abc1234
+
+Downloading v2.7.0-rust.abc1234...
+✓ Download complete
+✓ azlin updated to v2.7.0-rust.abc1234
+```
+
+### Check current version before updating
+
+```bash
+azlin version
+# azlin v2.6.1-rust.def5678
+
+azlin update
+
+azlin version
+# azlin v2.7.0-rust.abc1234
+```
+
+### Suppress the startup notice after updating
+
+The startup notice disappears automatically after you update — the cached version is written fresh. If you want to confirm you are current:
+
+```bash
+azlin update && azlin version
+```
+
+## What Gets Updated
+
+`azlin update` replaces the azlin binary in-place. It does not modify:
+
+- Your VMs or their contents
+- Development tools on VMs (use `azlin os-update <vm>` for those)
+- Ubuntu system packages on VMs (also `azlin os-update <vm>`)
+- Your azlin configuration (`~/.config/azlin/`)
+
+## After Updating
+
+The startup version check cache is refreshed on the next run. The update notice will not appear until a newer version is available.
+
+## Related Commands
+
+- [`azlin os-update`](./util/os-update.md) - Update Ubuntu system packages and development tools on a VM
+- [`azlin version`](./util/help.md) - Show current azlin version
+
+## See Also
+
+- [Startup Version Check](./util/version-check.md) - How azlin detects and notifies you about updates

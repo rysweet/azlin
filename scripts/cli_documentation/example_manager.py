@@ -86,7 +86,9 @@ class ExampleManager:
 
         if not yaml_file.exists():
             # Try with underscores instead of hyphens
-            yaml_file = self.examples_dir / f"{safe_command_name.replace('-', '_')}.yaml"
+            yaml_file = (
+                self.examples_dir / f"{safe_command_name.replace('-', '_')}.yaml"
+            )
 
         if not yaml_file.exists():
             return []
@@ -158,7 +160,10 @@ class ExampleManager:
 
         except Exception as e:
             # Log error but fail gracefully
-            print(f"Warning: Failed to load examples from '{yaml_file}': {e}", file=sys.stderr)
+            print(
+                f"Warning: Failed to load examples from '{yaml_file}': {e}",
+                file=sys.stderr,
+            )
             return []
 
     def save_examples(self, command_name: str, examples: list[CommandExample]) -> bool:

@@ -362,7 +362,9 @@ def main():
     """Main entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Extract Click command help text to Markdown")
+    parser = argparse.ArgumentParser(
+        description="Extract Click command help text to Markdown"
+    )
     parser.add_argument(
         "--output",
         type=Path,

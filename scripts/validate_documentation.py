@@ -80,7 +80,9 @@ class CommandInfo:
 class CLIExtractor:
     """Extract commands from Click CLI."""
 
-    def extract_commands(self, cli_group: click.Group, prefix: str = "") -> dict[str, CommandInfo]:
+    def extract_commands(
+        self, cli_group: click.Group, prefix: str = ""
+    ) -> dict[str, CommandInfo]:
         """Recursively extract all commands from a Click group."""
         commands = {}
 
@@ -174,7 +176,9 @@ class MarkdownParser:
 
             # Find section bounds
             start_pos = match.end()
-            end_pos = matches[i + 1].start() if i + 1 < len(matches) else len(self.content)
+            end_pos = (
+                matches[i + 1].start() if i + 1 < len(matches) else len(self.content)
+            )
 
             section_content = self.content[start_pos:end_pos]
 
@@ -212,7 +216,9 @@ class ExampleValidator:
             for example in example_list:
                 error = self._validate_example(example)
                 if error:
-                    errors.append(f"Example for '{cmd_name}': {error}\n  Example: {example}")
+                    errors.append(
+                        f"Example for '{cmd_name}': {error}\n  Example: {example}"
+                    )
 
         return errors
 
@@ -242,7 +248,10 @@ class ExampleValidator:
             if len(parts) > 1:
                 two_word_cmd = f"{parts[0]} {parts[1]}"
                 # Also check for aliases - combine conditions
-                if two_word_cmd not in self.cli_commands and cmd_name not in ["create", "vm"]:
+                if two_word_cmd not in self.cli_commands and cmd_name not in [
+                    "create",
+                    "vm",
+                ]:
                     return f"Command '{cmd_name}' not found in CLI"
             else:
                 if cmd_name not in ["create", "vm"]:  # Known aliases
@@ -321,11 +330,15 @@ class DocumentationValidator:
             for error in self.errors:
                 print(f"  ❌ {error}")
             print()
-            print(f"{Colors.RED}{Colors.BOLD}Documentation validation FAILED{Colors.RESET}")
+            print(
+                f"{Colors.RED}{Colors.BOLD}Documentation validation FAILED{Colors.RESET}"
+            )
             return False
         print(f"{Colors.GREEN}✓ Documentation is consistent with CLI!{Colors.RESET}")
         if self.warnings:
-            print(f"{Colors.YELLOW}  (with {len(self.warnings)} warnings){Colors.RESET}")
+            print(
+                f"{Colors.YELLOW}  (with {len(self.warnings)} warnings){Colors.RESET}"
+            )
         return True
 
     def _compare_commands(
@@ -349,7 +362,9 @@ class DocumentationValidator:
 
         if undocumented:
             for cmd in sorted(undocumented):
-                self.errors.append(f"Command '{cmd}' exists in CLI but is not documented in README")
+                self.errors.append(
+                    f"Command '{cmd}' exists in CLI but is not documented in README"
+                )
 
         # Find documented but non-existent commands
         non_existent = doc_command_names - cli_command_names
@@ -426,7 +441,9 @@ def main():
 
     # Fallback to worktree path
     if not readme_path.exists():
-        readme_path = REPO_ROOT / "worktrees" / "feat-issue-192-fix-documentation" / "README.md"
+        readme_path = (
+            REPO_ROOT / "worktrees" / "feat-issue-192-fix-documentation" / "README.md"
+        )
 
     if not readme_path.exists():
         print(f"{Colors.RED}Error: README.md not found at {readme_path}{Colors.RESET}")

@@ -394,11 +394,13 @@ nav:
       - commands/util/w.md
       - commands/util/top.md
       - commands/util/cost.md
+      - Self-Update: commands/update.md
       - commands/util/update.md
       - commands/util/os-update.md
       - commands/util/prune.md
       - commands/util/code.md
       - commands/util/help.md
+      - Startup Version Check: commands/util/version-check.md
 
   - Development:
     - development/index.md

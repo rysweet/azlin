@@ -120,7 +120,9 @@ def main(
         if validate:
             # Validate only mode
             click.echo("Validating existing documentation...")
-            validation_results = manager.validator.validate_directory(str(manager.output_dir))
+            validation_results = manager.validator.validate_directory(
+                str(manager.output_dir)
+            )
 
             # Aggregate results
             all_errors = []
@@ -215,7 +217,9 @@ def main(
             # Show validation warnings
             if verbose:
                 warnings_count = sum(
-                    len(r.validation_result.warnings) for r in results if r.validation_result
+                    len(r.validation_result.warnings)
+                    for r in results
+                    if r.validation_result
                 )
                 if warnings_count > 0:
                     click.echo(f"\nTotal validation warnings: {warnings_count}")
