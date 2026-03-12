@@ -20,6 +20,7 @@ pub(crate) async fn dispatch(
             no_reconnect,
             max_retries,
             yes,
+            x11,
             remote_command,
             ..
         } => {
@@ -103,6 +104,17 @@ pub(crate) async fn dispatch(
                 None
             };
 
+            // X11 forwarding: verify local X server is available
+            if x11 {
+                let display_set = std::env::var("DISPLAY").map(|d| !d.is_empty()).unwrap_or(false);
+                let x_socket_exists = std::path::Path::new("/tmp/.X11-unix/X0").exists();
+                if !display_set && !x_socket_exists {
+                    eprintln!("Warning: X11 forwarding requires a local X server.");
+                    eprintln!("  On WSL2, ensure WSLg is enabled (restart WSL if needed).");
+                    eprintln!("  Set DISPLAY env var or verify /tmp/.X11-unix/X0 exists.");
+                }
+            }
+
             let mut attempt = 0u32;
             let max = if no_reconnect { 1 } else { max_retries + 1 };
             loop {
@@ -145,6 +157,10 @@ pub(crate) async fn dispatch(
                         args.push(k.to_string_lossy().to_string());
                     }
                     args.push("--".to_string());
+                    // Enable X11 forwarding through bastion
+                    if x11 {
+                        args.push("-Y".to_string());
+                    }
                     // Force TTY allocation for interactive sessions (tmux needs it)
                     if tmux_sess.is_some() || remote_command.is_empty() {
                         args.push("-t".to_string());
@@ -166,6 +182,13 @@ pub(crate) async fn dispatch(
                     let ip = vm.public_ip.as_deref().unwrap();
                     let mut ssh_args =
                         crate::connect_helpers::build_ssh_args(&username, ip, key.as_deref());
+                    // Enable X11 forwarding for direct SSH
+                    if x11 {
+                        // Insert -Y before the user@host argument (last element)
+                        let user_host = ssh_args.pop().unwrap();
+                        ssh_args.push("-Y".to_string());
+                        ssh_args.push(user_host);
+                    }
                     if let Some(ref sess) = tmux_sess {
                         if remote_command.is_empty() {
                             ssh_args.push("-t".to_string());

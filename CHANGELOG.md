@@ -5,6 +5,19 @@ All notable changes to azlin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **GUI Forwarding**: Run remote Linux GUI applications locally (#828)
+  - `azlin connect --x11` / `-X` — X11 forwarding for lightweight GUI apps (gitk, meld, xeyes)
+  - `azlin gui [VM]` — Full VNC desktop session with XFCE, auto-managed dependencies
+  - `azlin gui --minimal` — Openbox window manager only (no full desktop overhead)
+  - `azlin gui --app "cmd"` — Single-app VNC mode, exits when app closes
+  - Automatic local/remote dependency detection and installation guidance
+  - VNC on localhost only with random per-session passwords
+  - Works through Azure Bastion for private VMs
+  - New docs: `docs/GUI_FORWARDING.md`
+
 ## [2.3.0-rust] - 2026-03-08
 
 ### Rust Rewrite

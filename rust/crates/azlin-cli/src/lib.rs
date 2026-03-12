@@ -408,9 +408,51 @@ pub enum Commands {
         #[arg(long)]
         disable_bastion_pool: bool,
 
+        /// Enable X11 forwarding for GUI applications
+        #[arg(long, short = 'X')]
+        x11: bool,
+
         /// Remote command to execute (use -- separator)
         #[arg(last = true)]
         remote_command: Vec<String>,
+    },
+
+    /// Open a remote GUI desktop session via VNC
+    Gui {
+        /// VM name or identifier
+        vm_identifier: Option<String>,
+
+        /// Resource group
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+
+        /// SSH username
+        #[arg(long, default_value = "azureuser")]
+        user: String,
+
+        /// SSH private key path
+        #[arg(long)]
+        key: Option<PathBuf>,
+
+        /// VNC display resolution
+        #[arg(long, default_value = "1920x1080")]
+        resolution: String,
+
+        /// VNC color depth
+        #[arg(long, default_value = "24")]
+        depth: u8,
+
+        /// Skip dependency installation prompts
+        #[arg(short, long)]
+        yes: bool,
+
+        /// Use minimal window manager (openbox) instead of full XFCE desktop
+        #[arg(long)]
+        minimal: bool,
+
+        /// Run a single application instead of a desktop (e.g. "chromium-browser")
+        #[arg(long)]
+        app: Option<String>,
     },
 
     /// VM management subcommands
