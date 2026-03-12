@@ -142,7 +142,7 @@ When you see the update notice, run:
 azlin update
 ```
 
-This updates azlin itself (the CLI binary). See [azlin update](../update.md) for the full reference.
+This updates azlin itself (the CLI binary). See [azlin update](./update.md) for the full reference.
 
 ## Troubleshooting
 

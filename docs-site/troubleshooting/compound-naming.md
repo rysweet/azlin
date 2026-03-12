@@ -419,6 +419,6 @@ If issues persist:
 ## See Also
 
 - [Compound Naming Guide](../getting-started/compound-naming.md) - Basic usage
-- [CLI Reference](../commands/compound-naming-reference.md) - Command details
+- [CLI Reference](../getting-started/compound-naming.md) - Command details
 - [Session Management](../advanced/session-management.md) - Advanced usage
 - [General Troubleshooting](./index.md) - Other common issues

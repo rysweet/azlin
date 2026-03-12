@@ -183,6 +183,7 @@ nav:
     - Quick Start: getting-started/quickstart.md
     - First VM: getting-started/first-vm.md
     - Basic Concepts: getting-started/concepts.md
+    - Compound VM:Session Naming: getting-started/compound-naming.md
 
   - Authentication:
     - authentication/index.md
@@ -271,6 +272,8 @@ nav:
     - Quota Management: advanced/quotas.md
     - Pruning VMs: advanced/pruning.md
     - GUI Forwarding: advanced/gui-forwarding.md
+    - Session Management: advanced/session-management.md
+    - Template System V2: advanced/templates-v2.md
 
   - Command Reference:
     - commands/index.md
@@ -376,6 +379,15 @@ nav:
         - commands/autopilot/status.md
         - commands/autopilot/config.md
         - commands/autopilot/run.md
+    - Fleet Commands:
+      - commands/fleet/index.md
+      - commands/fleet/overview.md
+    - Advanced Commands:
+      - commands/advanced/index.md
+      - commands/advanced/code-vscode.md
+      - commands/advanced/compose.md
+      - commands/advanced/github-runner.md
+      - commands/advanced/ip-diagnostics.md
     - Compose Commands:
       - commands/compose/index.md
       - commands/compose/up.md
@@ -395,7 +407,6 @@ nav:
       - commands/util/w.md
       - commands/util/top.md
       - commands/util/cost.md
-      - Self-Update: commands/update.md
       - commands/util/update.md
       - commands/util/os-update.md
       - commands/util/prune.md
@@ -424,6 +435,7 @@ nav:
     - Connection Issues: troubleshooting/connection.md
     - Quota Errors: troubleshooting/quota.md
     - Debug Mode: troubleshooting/debug.md
+    - Compound Naming: troubleshooting/compound-naming.md
 
   - FAQ: faq.md
   - Changelog: changelog.md
