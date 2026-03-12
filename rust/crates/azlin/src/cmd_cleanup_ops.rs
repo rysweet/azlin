@@ -283,7 +283,11 @@ pub(crate) fn handle_restore(
     }
 
     if running.is_empty() {
-        println!("No running VMs found in '{}'.", rg);
+        if force {
+            println!("No VMs found in '{}'.", rg);
+        } else {
+            println!("No running VMs found in '{}'.", rg);
+        }
         return Ok(());
     }
 
