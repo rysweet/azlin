@@ -107,6 +107,9 @@ pub(crate) async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
         cmd @ azlin_cli::Commands::Tunnel { .. } => {
             crate::cmd_tunnel::dispatch(cmd, cli.verbose, &cli.output).await?;
         }
+        cmd @ azlin_cli::Commands::Gui { .. } => {
+            crate::cmd_gui::dispatch(cmd, cli.verbose, &cli.output).await?;
+        }
         cmd @ azlin_cli::Commands::Cleanup { .. }
         | cmd @ azlin_cli::Commands::Costs { .. }
         | cmd @ azlin_cli::Commands::Restore { .. } => {

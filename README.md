@@ -466,6 +466,7 @@ This section provides detailed examples of all azlin commands with practical use
 - [VM Maintenance](#vm-maintenance) - Update tools and packages
 - [Connection](#connection) - Connect to VMs
 - [Azure Bastion](#azure-bastion-secure-vm-access) - Secure VM access without public IPs
+- [GUI & Remote Desktop](#gui--remote-desktop) - X11 forwarding and VNC desktop
 - [Monitoring](#monitoring) - Monitor VM status and processes
 - [File Operations](#file-operations) - Transfer and sync files
 - [Shared Storage](#shared-storage) - NFS storage across VMs
@@ -1147,6 +1148,29 @@ prefer_bastion = false  # Prefer direct connection when both available
 
 - **Security Requirements**: See [BASTION_SECURITY_REQUIREMENTS.md](docs/BASTION_SECURITY_REQUIREMENTS.md)
 - **Security Testing**: See [BASTION_SECURITY_TESTING.md](docs/BASTION_SECURITY_TESTING.md)
+
+---
+
+## GUI & Remote Desktop
+
+Run graphical applications from your Azure VMs. Two approaches are supported:
+
+```bash
+# X11 forwarding: display individual GUI apps locally
+azlin connect --x11 my-vm
+# Then on the VM: gitk --all &
+
+# VNC desktop: full remote desktop session
+azlin gui my-vm
+azlin gui my-vm --resolution 2560x1440
+```
+
+- **X11 forwarding** (`--x11`) tunnels individual app windows over SSH. Best for lightweight tools like gitk, meld, and xeyes.
+- **VNC desktop** (`azlin gui`) launches a full XFCE desktop, auto-installs dependencies, and opens your local VNC viewer. VNC runs on localhost only with random per-session passwords -- all traffic is encrypted through the SSH or bastion tunnel.
+
+Both approaches work transparently through Azure Bastion.
+
+See [GUI Forwarding Guide](docs/GUI_FORWARDING.md) for prerequisites, options, and troubleshooting.
 
 ---
 
