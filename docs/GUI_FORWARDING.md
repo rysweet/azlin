@@ -1,15 +1,15 @@
 # GUI Forwarding & Remote Desktop
 
-Run graphical applications on your Azure VMs and display them locally. azlin supports two approaches: **X11 forwarding** for lightweight GUI apps and **VNC** for a full remote desktop session.
+Run graphical applications on your Azure VMs and display them locally. azlin supports two approaches: **VNC** for a full remote desktop session and **X11 forwarding** for lightweight GUI apps.
 
 ## Overview
 
 | Approach | Best For | Latency | Setup |
 |----------|----------|---------|-------|
-| X11 Forwarding | Individual GUI apps (gitk, meld, xeyes) | Low (per-window) | Minimal |
 | VNC Desktop | Full desktop environment, multiple apps | Higher (full desktop) | Auto-managed |
 | VNC Minimal | Window manager only, no desktop overhead | Medium | Auto-managed |
 | VNC Single App | One app in VNC (e.g. browser), exits when app closes | Medium | Auto-managed |
+| X11 Forwarding | Individual GUI apps (gitk, meld, xeyes) | Low (per-window) | Minimal |
 
 Both approaches work transparently through Azure Bastion tunnels when your VM has no public IP.
 
@@ -38,100 +38,7 @@ Both approaches work transparently through Azure Bastion tunnels when your VM ha
 
 ### Remote VM
 
-No manual setup required. azlin automatically installs any missing packages on the VM when you use `azlin connect --x11` or `azlin gui`.
-
-## X11 Forwarding
-
-Forward individual GUI windows from the VM to your local display.
-
-### Usage
-
-```bash
-# Connect with X11 forwarding enabled
-azlin connect --x11 my-vm
-
-# Then on the VM, run any GUI app:
-xeyes &
-gitk --all &
-meld file1 file2 &
-```
-
-### How It Works
-
-1. `azlin connect --x11` adds the `-Y` flag (trusted X11 forwarding) to the SSH connection.
-2. SSH sets up an encrypted tunnel for X11 protocol traffic.
-3. The remote `DISPLAY` environment variable is set automatically by SSH.
-4. GUI windows render on your local X server through the tunnel.
-5. When connecting through Azure Bastion, the X11 tunnel is layered on top of the bastion tunnel seamlessly.
-
-### Running Specific Applications
-
-You can run any remote GUI app directly without opening an interactive session:
-
-```bash
-# Run a single app via X11 — app window appears locally
-azlin connect devo --x11 --no-tmux -- chromium-browser
-azlin connect devo --x11 --no-tmux -- eog ~/screenshot.png
-azlin connect devo --x11 --no-tmux -- thunar
-azlin connect devo --x11 --no-tmux -- gitk --all
-azlin connect devo --x11 --no-tmux -- meld file1.py file2.py
-```
-
-The `--no-tmux` flag avoids wrapping in tmux, and `--` separates azlin args from the remote command. The app renders locally and the connection closes when the app exits.
-
-### Common GUI Applications
-
-| Application | Command | Purpose |
-|-------------|---------|---------|
-| xeyes | `xeyes` | Quick test that X11 forwarding works |
-| gitk | `gitk --all` | Visual git history browser |
-| meld | `meld dir1 dir2` | Visual diff and merge tool |
-| gedit | `gedit file.py` | Lightweight text editor |
-| Chromium | `chromium-browser` | Web browser (consider VNC for better performance) |
-| eog | `eog image.png` | Image viewer |
-| thunar | `thunar` | File manager |
-| Firefox | `firefox` | Web browser (heavier, consider VNC) |
-| VS Code | `code --disable-gpu` | Editor (use `--disable-gpu` over SSH) |
-
-### X11 Troubleshooting
-
-**`Error: Can't open display`**
-
-The `DISPLAY` variable is not set on the VM. This usually means X11 forwarding was not enabled.
-
-```bash
-# Verify the connection was made with --x11
-azlin connect --x11 my-vm
-
-# On the VM, check DISPLAY is set
-echo $DISPLAY
-# Should show something like: localhost:10.0
-```
-
-**`X11 connection rejected because of wrong authentication`**
-
-xauth cookies are mismatched. Regenerate them:
-
-```bash
-# On the VM
-xauth generate $DISPLAY . trusted
-```
-
-**`Warning: No xauth data`**
-
-The xauth package may be missing on the VM. azlin installs it automatically, but if you connected without `--x11` first:
-
-```bash
-# On the VM
-sudo apt-get install -y xauth
-# Disconnect and reconnect with --x11
-```
-
-**Apps are slow or laggy**
-
-X11 forwarding sends individual draw commands over the network, which can be slow for complex UIs. Options:
-- Use `ssh -C` (compression) for lower-bandwidth connections -- azlin enables this automatically.
-- For heavy GUI usage, switch to VNC (`azlin gui`) which sends compressed screen updates instead.
+No manual setup required. azlin automatically installs any missing packages on the VM when you use `azlin gui` or `azlin connect --x11`.
 
 ## VNC Desktop
 
@@ -260,6 +167,99 @@ sudo apt-get install -y autocutsel
 autocutsel -fork
 ```
 
+## X11 Forwarding
+
+Forward individual GUI windows from the VM to your local display. Best for lightweight apps where you don't need a full desktop.
+
+### Usage
+
+```bash
+# Connect with X11 forwarding enabled
+azlin connect --x11 my-vm
+
+# Then on the VM, run any GUI app:
+xeyes &
+gitk --all &
+meld file1 file2 &
+```
+
+### How It Works
+
+1. `azlin connect --x11` adds the `-Y` flag (trusted X11 forwarding) to the SSH connection.
+2. SSH sets up an encrypted tunnel for X11 protocol traffic.
+3. The remote `DISPLAY` environment variable is set automatically by SSH.
+4. GUI windows render on your local X server through the tunnel.
+5. When connecting through Azure Bastion, the X11 tunnel is layered on top of the bastion tunnel seamlessly.
+
+### Running Specific Applications
+
+You can run any remote GUI app directly without opening an interactive session:
+
+```bash
+# Run a single app via X11 — app window appears locally
+azlin connect my-vm --x11 --no-tmux -- chromium-browser
+azlin connect my-vm --x11 --no-tmux -- eog ~/screenshot.png
+azlin connect my-vm --x11 --no-tmux -- thunar
+azlin connect my-vm --x11 --no-tmux -- gitk --all
+azlin connect my-vm --x11 --no-tmux -- meld file1.py file2.py
+```
+
+The `--no-tmux` flag avoids wrapping in tmux, and `--` separates azlin args from the remote command. The app renders locally and the connection closes when the app exits.
+
+### Common GUI Applications
+
+| Application | Command | Purpose |
+|-------------|---------|---------|
+| xeyes | `xeyes` | Quick test that X11 forwarding works |
+| gitk | `gitk --all` | Visual git history browser |
+| meld | `meld dir1 dir2` | Visual diff and merge tool |
+| gedit | `gedit file.py` | Lightweight text editor |
+| Chromium | `chromium-browser` | Web browser (consider VNC for better performance) |
+| eog | `eog image.png` | Image viewer |
+| thunar | `thunar` | File manager |
+| Firefox | `firefox` | Web browser (heavier, consider VNC) |
+| VS Code | `code --disable-gpu` | Editor (use `--disable-gpu` over SSH) |
+
+### X11 Troubleshooting
+
+**`Error: Can't open display`**
+
+The `DISPLAY` variable is not set on the VM. This usually means X11 forwarding was not enabled.
+
+```bash
+# Verify the connection was made with --x11
+azlin connect --x11 my-vm
+
+# On the VM, check DISPLAY is set
+echo $DISPLAY
+# Should show something like: localhost:10.0
+```
+
+**`X11 connection rejected because of wrong authentication`**
+
+xauth cookies are mismatched. Regenerate them:
+
+```bash
+# On the VM
+xauth generate $DISPLAY . trusted
+```
+
+**`Warning: No xauth data`**
+
+The xauth package may be missing on the VM. azlin installs it automatically, but if you connected without `--x11` first:
+
+```bash
+# On the VM
+sudo apt-get install -y xauth
+# Disconnect and reconnect with --x11
+```
+
+**Apps are slow or laggy**
+
+X11 forwarding sends individual draw commands over the network, which can be slow for complex UIs. Options:
+- Use `ssh -C` (compression) for lower-bandwidth connections -- azlin enables this automatically.
+- For heavy GUI usage, switch to VNC (`azlin gui`) which sends compressed screen updates instead.
+
 ## General Troubleshooting
 
 ### Bastion Tunnel Issues
@@ -283,7 +283,7 @@ No additional firewall or NSG rules are needed. Both X11 and VNC traffic travels
 
 ### Performance Tips
 
-- **X11**: Best for lightweight apps (gitk, meld, xeyes). Avoid full browsers or IDEs.
 - **VNC**: Best for multi-app workflows or desktop environments. Compress traffic by choosing a reasonable resolution.
+- **X11**: Best for lightweight apps (gitk, meld, xeyes). Avoid full browsers or IDEs.
 - **Region proximity**: VMs in regions closer to you will have noticeably lower GUI latency.
 - **VM size**: GUI rendering uses CPU; choose at least `Standard_D2s_v3` or above for a smooth experience.
