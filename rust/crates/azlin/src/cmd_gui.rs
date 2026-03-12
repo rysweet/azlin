@@ -368,15 +368,16 @@ fn start_vnc_server(
     }
 
     // Create xstartup based on mode
+    // DISPLAY must be explicitly exported for apps to find the VNC X server
     let xstartup_body = match mode {
         VncMode::Desktop => {
-            "unset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexport XDG_SESSION_TYPE=x11\nexec startxfce4".to_string()
+            format!("export DISPLAY=:{}\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexport XDG_SESSION_TYPE=x11\nexec startxfce4", VNC_DISPLAY)
         }
         VncMode::Minimal => {
-            "unset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexport XDG_SESSION_TYPE=x11\nexec openbox-session".to_string()
+            format!("export DISPLAY=:{}\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexport XDG_SESSION_TYPE=x11\nexec openbox-session", VNC_DISPLAY)
         }
         VncMode::App(cmd) => {
-            format!("unset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexport XDG_SESSION_TYPE=x11\n{}\nvncserver -kill :$DISPLAY 2>/dev/null", cmd)
+            format!("export DISPLAY=:{}\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexport XDG_SESSION_TYPE=x11\n{}\nvncserver -kill :{} 2>/dev/null", VNC_DISPLAY, cmd, VNC_DISPLAY)
         }
     };
 
