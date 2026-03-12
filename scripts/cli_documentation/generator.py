@@ -20,7 +20,9 @@ class DocGenerator:
     documentation suitable for MkDocs or other documentation systems.
     """
 
-    def generate(self, metadata: CLIMetadata, examples: list[CommandExample] | None = None) -> str:
+    def generate(
+        self, metadata: CLIMetadata, examples: list[CommandExample] | None = None
+    ) -> str:
         """Generate complete markdown documentation for a command.
 
         Args:
@@ -137,7 +139,9 @@ class DocGenerator:
             # Help text
             help_text = opt.help_text or "No description available"
 
-            lines.append(f"- {opt_names}{type_info}{default_info}{required_info} - {help_text}")
+            lines.append(
+                f"- {opt_names}{type_info}{default_info}{required_info} - {help_text}"
+            )
 
         lines.append("")
         return "\n".join(lines)

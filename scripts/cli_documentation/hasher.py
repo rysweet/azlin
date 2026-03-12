@@ -65,7 +65,9 @@ class CLIHasher:
         ]
 
         # Add arguments
-        parts.extend(f"arg:{arg.name}:{arg.type}:{arg.required}" for arg in metadata.arguments)
+        parts.extend(
+            f"arg:{arg.name}:{arg.type}:{arg.required}" for arg in metadata.arguments
+        )
 
         # Add options
         for opt in metadata.options:
@@ -73,7 +75,10 @@ class CLIHasher:
             parts.append(f"opt:{opt_names}:{opt.type}:{opt.required}:{opt.help_text}")
 
         # Add subcommands
-        parts.extend(f"subcmd:{subcmd.name}:{subcmd.help_text}" for subcmd in metadata.subcommands)
+        parts.extend(
+            f"subcmd:{subcmd.name}:{subcmd.help_text}"
+            for subcmd in metadata.subcommands
+        )
 
         # Compute hash
         content = "\n".join(parts)
@@ -138,7 +143,10 @@ class CLIHasher:
             return True
 
         except Exception as e:
-            print(f"Warning: Failed to save hashes to '{self.hash_file}': {e}", file=sys.stderr)
+            print(
+                f"Warning: Failed to save hashes to '{self.hash_file}': {e}",
+                file=sys.stderr,
+            )
             return False
 
     def compare_hashes(self, current_commands: dict[str, CLIMetadata]) -> ChangeSet:
@@ -185,7 +193,10 @@ class CLIHasher:
             with open(self.hash_file) as f:
                 self._hashes = json.load(f)
         except Exception as e:
-            print(f"Warning: Failed to load hashes from '{self.hash_file}': {e}", file=sys.stderr)
+            print(
+                f"Warning: Failed to load hashes from '{self.hash_file}': {e}",
+                file=sys.stderr,
+            )
             self._hashes = {}
 
     def clear_hashes(self) -> None:
