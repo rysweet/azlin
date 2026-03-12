@@ -238,31 +238,74 @@ pub(crate) fn handle_cleanup(
     Ok(())
 }
 
-pub(crate) fn handle_restore(resource_group: Option<String>) -> Result<()> {
+pub(crate) fn handle_restore(
+    resource_group: Option<String>,
+    verbose: bool,
+    skip_health_check: bool,
+    force: bool,
+    terminal: Option<String>,
+    exclude: Option<String>,
+) -> Result<()> {
     let rg = resolve_resource_group(resource_group)?;
     println!("Restoring azlin sessions in '{}'...", rg);
+    if verbose {
+        println!("  skip_health_check: {}", skip_health_check);
+        println!("  force: {}", force);
+        if let Some(ref t) = terminal {
+            println!("  terminal: {}", t);
+        }
+        if let Some(ref e) = exclude {
+            println!("  exclude: {}", e);
+        }
+    }
 
     let auth = create_auth()?;
     let vm_manager = azlin_azure::VmManager::new(&auth);
     let vms = vm_manager.list_vms(&rg)?;
-    let running: Vec<_> = vms
+
+    let mut running: Vec<_> = vms
         .iter()
-        .filter(|v| v.power_state == azlin_core::models::PowerState::Running)
+        .filter(|v| {
+            if force {
+                true
+            } else {
+                v.power_state == azlin_core::models::PowerState::Running
+            }
+        })
         .cloned()
         .collect();
 
+    if let Some(ref pattern) = exclude {
+        running.retain(|v| !v.name.contains(pattern.as_str()));
+        if verbose {
+            println!("After excluding '{}': {} VM(s) remaining", pattern, running.len());
+        }
+    }
+
     if running.is_empty() {
-        println!("No running VMs found in '{}'.", rg);
+        if force {
+            println!("No VMs found in '{}'.", rg);
+        } else {
+            println!("No running VMs found in '{}'.", rg);
+        }
         return Ok(());
     }
 
-    println!("Found {} running VM(s), collecting tmux sessions...", running.len());
+    if verbose {
+        println!("Found {} VM(s):", running.len());
+        for vm in &running {
+            println!("  - {} ({})", vm.name, vm.power_state);
+        }
+        println!("Collecting tmux sessions...");
+    } else {
+        println!("Found {} running VM(s), collecting tmux sessions...", running.len());
+    }
 
     let tmux_sessions = crate::cmd_list_data::collect_tmux_sessions(
         &running,
         &rg,
-        true,  // is_table_output (enables bastion detection)
-        false, // verbose
+        true,
+        verbose,
         vm_manager.subscription_id(),
     );
 
@@ -270,6 +313,13 @@ pub(crate) fn handle_restore(resource_group: Option<String>) -> Result<()> {
         println!("No active tmux sessions found on running VMs.");
         println!("Use 'azlin connect <vm-name>' to start a new session.");
         return Ok(());
+    }
+
+    if verbose {
+        println!("Found sessions on {} VM(s):", tmux_sessions.len());
+        for (vm, sessions) in &tmux_sessions {
+            println!("  {}: {:?}", vm, sessions);
+        }
     }
 
     crate::cmd_list_data::restore_tmux_sessions(&tmux_sessions);

@@ -8,7 +8,7 @@ pub(crate) async fn dispatch(
     output: &azlin_cli::OutputFormat,
 ) -> Result<()> {
     #[allow(unused_variables)]
-    let _ = (verbose, output);
+    let _ = output;
     match command {
         azlin_cli::Commands::Cleanup {
             resource_group,
@@ -24,8 +24,22 @@ pub(crate) async fn dispatch(
             crate::cmd_cleanup_costs::dispatch_costs(action)?;
         }
 
-        azlin_cli::Commands::Restore { resource_group, .. } => {
-            crate::cmd_cleanup_ops::handle_restore(resource_group)?;
+        azlin_cli::Commands::Restore {
+            resource_group,
+            skip_health_check,
+            force,
+            terminal,
+            exclude,
+            ..
+        } => {
+            crate::cmd_cleanup_ops::handle_restore(
+                resource_group,
+                verbose,
+                skip_health_check,
+                force,
+                terminal,
+                exclude,
+            )?;
         }
 
         _ => unreachable!(),
