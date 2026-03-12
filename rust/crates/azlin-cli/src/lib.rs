@@ -2842,6 +2842,25 @@ mod tests {
     }
 
     #[test]
+    fn test_restore_verbose_flag() {
+        let cli = Cli::parse_from(["azlin", "-v", "restore", "--force", "--exclude", "test-vm"]);
+        assert!(cli.verbose);
+        if let Commands::Restore {
+            force,
+            exclude,
+            skip_health_check,
+            ..
+        } = cli.command
+        {
+            assert!(force);
+            assert_eq!(exclude.as_deref(), Some("test-vm"));
+            assert!(!skip_health_check);
+        } else {
+            panic!("Expected Restore command");
+        }
+    }
+
+    #[test]
     fn test_sessions_save() {
         let cli = Cli::parse_from(["azlin", "sessions", "save", "my-session"]);
         if let Commands::Sessions {
