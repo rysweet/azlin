@@ -91,7 +91,7 @@ pub(crate) async fn dispatch(
     let use_bastion = vm.public_ip.is_none();
 
     // Resolve SSH key: use --key flag if provided, otherwise fall back to default
-    let effective_key = key.or_else(|| resolve_ssh_key());
+    let effective_key = key.or_else(resolve_ssh_key);
 
     // Build SSH command prefix for running commands on the remote VM.
     // This prefix is reused for all remote operations.
@@ -106,8 +106,8 @@ pub(crate) async fn dispatch(
     };
 
     // Determine VNC mode
-    let vnc_mode = if app.is_some() {
-        VncMode::App(app.unwrap())
+    let vnc_mode = if let Some(cmd) = app {
+        VncMode::App(cmd)
     } else if minimal {
         VncMode::Minimal
     } else {
