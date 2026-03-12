@@ -702,12 +702,11 @@ async fn async_main() -> Result<()> {
         .init();
 
     let cli = azlin_cli::Cli::parse();
-    let result = dispatch::dispatch_command(cli).await;
 
-    // Check for updates after command completes (non-blocking, best-effort)
+    // Check for updates on startup before executing command (non-blocking, best-effort)
     update_check::check_for_updates();
 
-    result
+    dispatch::dispatch_command(cli).await
 }
 
 // Re-export common utilities from dispatch_helpers for cmd_* modules via `use super::*`.
