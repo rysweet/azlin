@@ -445,6 +445,14 @@ pub enum Commands {
         /// Skip dependency installation prompts
         #[arg(short, long)]
         yes: bool,
+
+        /// Use minimal window manager (openbox) instead of full XFCE desktop
+        #[arg(long)]
+        minimal: bool,
+
+        /// Run a single application instead of a desktop (e.g. "chromium-browser")
+        #[arg(long)]
+        app: Option<String>,
     },
 
     /// VM management subcommands

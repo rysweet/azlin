@@ -15,6 +15,16 @@ use super::*;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 
+/// VNC session mode.
+enum VncMode {
+    /// Full XFCE desktop
+    Desktop,
+    /// Minimal window manager (openbox) only
+    Minimal,
+    /// Single application, no desktop or WM
+    App(String),
+}
+
 /// Bastion tunnel local port for SSH access to the VM.
 const BASTION_SSH_PORT: u16 = 50210;
 
@@ -41,6 +51,8 @@ pub(crate) async fn dispatch(
         resolution,
         depth,
         yes,
+        minimal,
+        app,
     } = command
     else {
         unreachable!()
@@ -93,14 +105,23 @@ pub(crate) async fn dispatch(
         (build_direct_ssh_prefix(ip, &username, effective_key.as_deref()), vec![])
     };
 
+    // Determine VNC mode
+    let vnc_mode = if app.is_some() {
+        VncMode::App(app.unwrap())
+    } else if minimal {
+        VncMode::Minimal
+    } else {
+        VncMode::Desktop
+    };
+
     // Step 3: Check/install remote dependencies
     let pb = penguin_spinner("Checking remote dependencies...");
-    check_remote_deps(&ssh_cmd_prefix, yes)?;
+    check_remote_deps(&ssh_cmd_prefix, yes, &vnc_mode)?;
     pb.finish_and_clear();
 
     // Step 4: Start VNC server on the remote VM
     let pb = penguin_spinner("Starting VNC server...");
-    let vnc_password = start_vnc_server(&ssh_cmd_prefix, &resolution, depth)?;
+    let vnc_password = start_vnc_server(&ssh_cmd_prefix, &resolution, depth, &vnc_mode)?;
     pb.finish_and_clear();
 
     // Step 5: Open SSH port-forward for VNC
@@ -266,17 +287,34 @@ fn build_bastion_ssh_prefix(
 // Remote dependency checks
 // ---------------------------------------------------------------------------
 
-fn check_remote_deps(ssh_cmd_prefix: &[String], auto_yes: bool) -> Result<()> {
-    let check_cmd = "which vncserver && which startxfce4 && echo DEPS_OK";
-    let output = run_ssh_command(ssh_cmd_prefix, check_cmd)?;
+fn check_remote_deps(ssh_cmd_prefix: &[String], auto_yes: bool, mode: &VncMode) -> Result<()> {
+    // Determine which deps to check based on mode
+    let (check_cmd, install_packages, desc) = match mode {
+        VncMode::Desktop => (
+            "which vncserver && which startxfce4 && echo DEPS_OK",
+            "tigervnc-standalone-server xfce4 xfce4-goodies dbus-x11",
+            "VNC server and XFCE desktop",
+        ),
+        VncMode::Minimal => (
+            "which vncserver && which openbox && echo DEPS_OK",
+            "tigervnc-standalone-server openbox",
+            "VNC server and openbox window manager",
+        ),
+        VncMode::App(_) => (
+            "which vncserver && echo DEPS_OK",
+            "tigervnc-standalone-server",
+            "VNC server",
+        ),
+    };
 
+    let output = run_ssh_command(ssh_cmd_prefix, check_cmd)?;
     if output.contains("DEPS_OK") {
         return Ok(());
     }
 
-    eprintln!("Remote VNC/desktop dependencies not found.");
+    eprintln!("Remote dependencies not found: {}", desc);
     if !auto_yes {
-        eprint!("Install tigervnc-standalone-server, xfce4, and xfce4-goodies? [Y/n] ");
+        eprint!("Install {}? [Y/n] ", install_packages);
         use std::io::Write;
         std::io::stdout().flush()?;
         let mut input = String::new();
@@ -286,11 +324,13 @@ fn check_remote_deps(ssh_cmd_prefix: &[String], auto_yes: bool) -> Result<()> {
         }
     }
 
-    eprintln!("Installing remote desktop packages (this may take a few minutes)...");
-    let install_cmd = "sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq && \
-                       sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-                       tigervnc-standalone-server xfce4 xfce4-goodies dbus-x11";
-    let (code, _stdout, stderr) = run_ssh_command_full(ssh_cmd_prefix, install_cmd)?;
+    eprintln!("Installing remote packages (this may take a few minutes)...");
+    let install_cmd = format!(
+        "sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq && \
+         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y {}",
+        install_packages
+    );
+    let (code, _stdout, stderr) = run_ssh_command_full(ssh_cmd_prefix, &install_cmd)?;
     if code != 0 {
         anyhow::bail!("Failed to install remote dependencies: {}", stderr);
     }
@@ -306,6 +346,7 @@ fn start_vnc_server(
     ssh_cmd_prefix: &[String],
     resolution: &str,
     depth: u8,
+    mode: &VncMode,
 ) -> Result<String> {
     // Generate random password using openssl on remote (avoids adding rand dep)
     let password = run_ssh_command(ssh_cmd_prefix, "openssl rand -hex 4")?
@@ -326,16 +367,24 @@ fn start_vnc_server(
         anyhow::bail!("Failed to set VNC password: {}", stderr);
     }
 
-    // Create xstartup for XFCE
-    let xstartup_cmd = r#"cat > ~/.vnc/xstartup << 'XSTARTUP'
-#!/bin/sh
-unset SESSION_MANAGER
-unset DBUS_SESSION_BUS_ADDRESS
-export XDG_SESSION_TYPE=x11
-exec startxfce4
-XSTARTUP
-chmod +x ~/.vnc/xstartup"#;
-    let (code, _, stderr) = run_ssh_command_full(ssh_cmd_prefix, xstartup_cmd)?;
+    // Create xstartup based on mode
+    let xstartup_body = match mode {
+        VncMode::Desktop => {
+            "unset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexport XDG_SESSION_TYPE=x11\nexec startxfce4".to_string()
+        }
+        VncMode::Minimal => {
+            "unset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexport XDG_SESSION_TYPE=x11\nexec openbox-session".to_string()
+        }
+        VncMode::App(cmd) => {
+            format!("unset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexport XDG_SESSION_TYPE=x11\n{}\nvncserver -kill :$DISPLAY 2>/dev/null", cmd)
+        }
+    };
+
+    let xstartup_cmd = format!(
+        "cat > ~/.vnc/xstartup << 'XSTARTUP'\n#!/bin/sh\n{}\nXSTARTUP\nchmod +x ~/.vnc/xstartup",
+        xstartup_body
+    );
+    let (code, _, stderr) = run_ssh_command_full(ssh_cmd_prefix, &xstartup_cmd)?;
     if code != 0 {
         anyhow::bail!("Failed to create VNC xstartup: {}", stderr);
     }

@@ -8,6 +8,8 @@ Run graphical applications on your Azure VMs and display them locally. azlin sup
 |----------|----------|---------|-------|
 | X11 Forwarding | Individual GUI apps (gitk, meld, xeyes) | Low (per-window) | Minimal |
 | VNC Desktop | Full desktop environment, multiple apps | Higher (full desktop) | Auto-managed |
+| VNC Minimal | Window manager only, no desktop overhead | Medium | Auto-managed |
+| VNC Single App | One app in VNC (e.g. browser), exits when app closes | Medium | Auto-managed |
 
 Both approaches work transparently through Azure Bastion tunnels when your VM has no public IP.
 
@@ -62,6 +64,21 @@ meld file1 file2 &
 4. GUI windows render on your local X server through the tunnel.
 5. When connecting through Azure Bastion, the X11 tunnel is layered on top of the bastion tunnel seamlessly.
 
+### Running Specific Applications
+
+You can run any remote GUI app directly without opening an interactive session:
+
+```bash
+# Run a single app via X11 — app window appears locally
+azlin connect devo --x11 --no-tmux -- chromium-browser
+azlin connect devo --x11 --no-tmux -- eog ~/screenshot.png
+azlin connect devo --x11 --no-tmux -- thunar
+azlin connect devo --x11 --no-tmux -- gitk --all
+azlin connect devo --x11 --no-tmux -- meld file1.py file2.py
+```
+
+The `--no-tmux` flag avoids wrapping in tmux, and `--` separates azlin args from the remote command. The app renders locally and the connection closes when the app exits.
+
 ### Common GUI Applications
 
 | Application | Command | Purpose |
@@ -70,6 +87,9 @@ meld file1 file2 &
 | gitk | `gitk --all` | Visual git history browser |
 | meld | `meld dir1 dir2` | Visual diff and merge tool |
 | gedit | `gedit file.py` | Lightweight text editor |
+| Chromium | `chromium-browser` | Web browser (consider VNC for better performance) |
+| eog | `eog image.png` | Image viewer |
+| thunar | `thunar` | File manager |
 | Firefox | `firefox` | Web browser (heavier, consider VNC) |
 | VS Code | `code --disable-gpu` | Editor (use `--disable-gpu` over SSH) |
 
@@ -120,8 +140,15 @@ Launch a full remote desktop session on the VM and view it locally.
 ### Usage
 
 ```bash
-# Start a VNC desktop session
+# Full XFCE desktop (default)
 azlin gui my-vm
+
+# Minimal window manager only (openbox) — no desktop overhead
+azlin gui my-vm --minimal
+
+# Single application mode — VNC exits when the app closes
+azlin gui my-vm --app "chromium-browser"
+azlin gui my-vm --app "gimp"
 
 # Custom resolution
 azlin gui my-vm --resolution 2560x1440
@@ -129,6 +156,18 @@ azlin gui my-vm --resolution 2560x1440
 # Specify SSH user and key
 azlin gui my-vm --user azureuser --key ~/.ssh/azlin_key
 ```
+
+### VNC Modes
+
+| Mode | Flag | Desktop | Window Manager | Best For |
+|------|------|---------|---------------|----------|
+| Full Desktop | *(default)* | XFCE | XFCE WM | Multi-app workflows, full desktop experience |
+| Minimal | `--minimal` | None | openbox | Lightweight sessions, launch apps from right-click menu |
+| Single App | `--app "cmd"` | None | None | Running one heavy GUI app (browser, IDE, GIMP) |
+
+**Minimal mode** starts only the openbox window manager. Right-click on the desktop for an app launcher menu. Drag window edges to resize. Much lighter than a full desktop.
+
+**Single app mode** runs the specified command directly. The VNC window shows only that application. When the app is closed, the VNC server exits automatically.
 
 ### How It Works
 
@@ -143,10 +182,12 @@ azlin gui my-vm --user azureuser --key ~/.ssh/azlin_key
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--resolution` | `1920x1080` | Desktop resolution (WIDTHxHEIGHT) |
+| `--depth` | `24` | VNC color depth (8, 16, or 24) |
 | `--user` | `azureuser` | SSH username on the VM |
 | `--key` | `~/.ssh/azlin_key` | Path to SSH private key |
-| `--vnc-viewer` | auto-detect | Path to VNC viewer binary |
-| `--no-viewer` | false | Start VNC server and tunnel but do not launch a viewer (connect manually) |
+| `--minimal` | false | Use openbox window manager instead of full XFCE desktop |
+| `--app` | none | Run a single application (e.g. `--app "chromium-browser"`) |
+| `-y, --yes` | false | Skip dependency installation prompts |
 
 ### Dependency Management
 
