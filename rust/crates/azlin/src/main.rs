@@ -57,6 +57,14 @@ fn ssh_exec(ip: &str, user: &str, cmd: &str) -> Result<(i32, String, String)> {
     ))
 }
 
+/// Try native SSH via russh connection pool. Uses `block_in_place` to bridge
+/// async russh into the synchronous `exec_inner` call path without deadlocking.
+fn try_native_ssh(ip: &str, user: &str, cmd: &str) -> Result<(i32, String, String)> {
+    let handle = tokio::runtime::Handle::try_current()
+        .map_err(|_| anyhow::anyhow!("no tokio runtime for native SSH"))?;
+    tokio::task::block_in_place(|| handle.block_on(native_ssh::native_exec(ip, user, cmd)))
+}
+
 /// Run a command on a VM through Azure Bastion and return (exit_code, stdout, stderr).
 fn bastion_ssh_exec(
     bastion_name: &str,
@@ -240,7 +248,19 @@ impl VmSshTarget {
                 cmd,
             )
         } else {
-            ssh_exec(&self.ip, &self.user, cmd)
+            // Try native russh first for direct SSH (lower latency, connection reuse).
+            // Fall back to subprocess SSH on any failure.
+            match try_native_ssh(&self.ip, &self.user, cmd) {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    tracing::debug!(
+                        "native SSH to {} failed ({}), falling back to subprocess",
+                        self.ip,
+                        e
+                    );
+                    ssh_exec(&self.ip, &self.user, cmd)
+                }
+            }
         }
     }
 
@@ -821,6 +841,10 @@ mod bastion_helpers;
 /// Scoped bastion tunnel for SSH/SCP through Azure Bastion.
 #[allow(dead_code)]
 mod bastion_tunnel;
+
+/// Native SSH execution via russh (connection pool).
+#[allow(dead_code)]
+mod native_ssh;
 
 /// Helpers for log tail computation.
 #[allow(dead_code)]
