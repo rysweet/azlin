@@ -31,6 +31,10 @@ pub struct Cli {
     /// Service principal authentication profile to use
     #[arg(long, global = true)]
     pub auth_profile: Option<String>,
+
+    /// Show startup time diagnostic and exit
+    #[arg(long, global = true)]
+    pub startup_time: bool,
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]

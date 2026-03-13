@@ -672,11 +672,12 @@ fn run_on_fleet(targets: &[VmSshTarget], command: &str, show_output: bool) {
 }
 
 fn main() {
+    let start = std::time::Instant::now();
     color_eyre::install().ok();
 
     let result = tokio::runtime::Runtime::new()
         .expect("Failed to create tokio runtime")
-        .block_on(async_main());
+        .block_on(async_main(start));
 
     if let Err(e) = result {
         let msg = format!("{e:?}");
@@ -696,17 +697,38 @@ fn main() {
     }
 }
 
-async fn async_main() -> Result<()> {
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .init();
-
+async fn async_main(start: std::time::Instant) -> Result<()> {
     let cli = azlin_cli::Cli::parse();
 
-    // Check for updates on startup before executing command (non-blocking, best-effort)
-    update_check::check_for_updates();
+    // --startup-time: print diagnostic timing and exit immediately
+    if cli.startup_time {
+        let parse_elapsed = start.elapsed();
+        println!("Startup diagnostics:");
+        println!("  CLI parse:  {:.2}ms", parse_elapsed.as_secs_f64() * 1000.0);
+        let config_start = std::time::Instant::now();
+        let _config = azlin_core::AzlinConfig::load();
+        let config_elapsed = config_start.elapsed();
+        println!("  Config load: {:.2}ms", config_elapsed.as_secs_f64() * 1000.0);
+        let total = start.elapsed();
+        println!("  Total:       {:.2}ms", total.as_secs_f64() * 1000.0);
+        if total.as_millis() < 15 {
+            println!("
+Startup time is within the <15ms target.");
+        } else {
+            println!("
+Startup time ({:.1}ms) exceeds the <15ms target.", total.as_secs_f64() * 1000.0);
+        }
+        return Ok(());
+    }
 
+    // Initialize tracing lazily -- only when verbose or RUST_LOG is set
+    if cli.verbose || std::env::var("RUST_LOG").is_ok() {
+        tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .init();
+    }
+
+    update_check::check_for_updates();
     dispatch::dispatch_command(cli).await
 }
 
@@ -889,6 +911,15 @@ mod autopilot_parse_helpers;
 
 /// Pure helpers for batch handler result parsing and aggregation.
 mod batch_helpers;
+
+/// Multi-progress bar support for batch VM operations.
+mod batch_progress;
+
+/// Cost dashboard TUI with budget tracking charts.
+mod cost_dashboard;
+
+/// Fleet run output with per-VM tab panels.
+mod fleet_tabs;
 
 /// Pure helpers for SSH argument building and target classification.
 mod ssh_arg_helpers;

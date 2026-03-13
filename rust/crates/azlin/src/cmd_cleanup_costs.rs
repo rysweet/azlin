@@ -9,24 +9,46 @@ pub(crate) fn dispatch_costs(action: azlin_cli::CostsAction) -> Result<()> {
             let cost_timeout = azlin_core::AzlinConfig::load()
                 .map(|c| c.az_cli_timeout)
                 .unwrap_or(120);
-            match azlin_azure::get_cost_summary(&auth, &resource_group, cost_timeout) {
-                Ok(summary) => {
-                    println!(
-                        "{}",
-                        crate::handlers::format_cost_dashboard(
-                            &resource_group,
-                            summary.total_cost,
-                            &summary.currency,
-                            &summary.period_start.format("%Y-%m-%d").to_string(),
-                            &summary.period_end.format("%Y-%m-%d").to_string(),
-                        )
-                    );
+            // Fetch cost summary for budget info
+            let budget_info = match azlin_azure::get_cost_summary(&auth, &resource_group, cost_timeout) {
+                Ok(summary) => Some(crate::cost_dashboard::BudgetInfo {
+                    limit: 0.0, current_spend: summary.total_cost, currency: summary.currency.clone(),
+                }),
+                Err(_) => None,
+            };
+            let end_date = chrono::Utc::now();
+            let start_date = end_date - chrono::Duration::days(30);
+            let start_str = start_date.format("%Y-%m-%d").to_string();
+            let end_str = end_date.format("%Y-%m-%d").to_string();
+            let (daily_costs, vm_costs) = match azlin_azure::vm::az_cli_with_timeout(
+                &["consumption", "usage", "list", "--start-date", &start_str, "--end-date", &end_str],
+                cost_timeout,
+            ) {
+                Ok(json) => {
+                    let entries: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap_or_default();
+                    (crate::cost_dashboard::parse_daily_costs(&entries), crate::cost_dashboard::parse_vm_costs(&entries))
                 }
-                Err(e) => {
-                    eprintln!("⚠ Cost data unavailable: {e}");
-                    eprintln!("  Run 'az consumption usage list' for cost data via Azure CLI.");
+                Err(_) => (Vec::new(), Vec::new()),
+            };
+            let budget = {
+                let budget_name = crate::handlers::build_budget_name(&resource_group);
+                match std::process::Command::new("az")
+                    .args(["consumption", "budget", "show", "--budget-name", &budget_name, "--resource-group", &resource_group, "-o", "json"])
+                    .output() {
+                    Ok(o) if o.status.success() => {
+                        let json_str = String::from_utf8_lossy(&o.stdout);
+                        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap_or_default();
+                        let limit = parsed.get("amount").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        budget_info.map(|mut b| { b.limit = limit; b })
+                    }
+                    _ => budget_info,
                 }
-            }
+            };
+            let data = crate::cost_dashboard::CostDashboardData {
+                resource_group: resource_group.clone(), daily_costs, vm_costs, budget,
+                period_label: "Last 30 days".to_string(),
+            };
+            crate::cost_dashboard::run_cost_dashboard(&data)?;
         }
         azlin_cli::CostsAction::History {
             resource_group,
