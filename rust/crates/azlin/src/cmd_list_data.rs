@@ -278,7 +278,36 @@ pub(crate) fn is_valid_restore_vm_name(name: &str) -> bool {
 /// Restore tmux sessions by connecting to each VM.
 pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>) {
     println!("\nRestoring tmux sessions...");
+
+    // In test builds, skip spawning real terminal processes to avoid
+    // opening windows on the developer's screen during cargo test.
+    if cfg!(test) || std::env::var("AZLIN_TEST_MODE").is_ok() {
+        for (vm_name, sessions) in tmux_sessions {
+            if !is_valid_restore_vm_name(vm_name) {
+                eprintln!("  Warning: skipping VM with invalid name");
+                continue;
+            }
+            if let Some(raw_session) = sessions.first() {
+                if let Some(session) = parse_session_name(raw_session) {
+                    println!("  [dry-run] Would connect to {} (session: {})", vm_name, session);
+                } else {
+                    eprintln!("  Warning: skipping invalid session name for {}", vm_name);
+                }
+            }
+        }
+        return;
+    }
+
     let use_wt = std::env::var("WT_SESSION").is_ok();
+
+    // Resolve the current executable path so we can re-invoke ourselves
+    // in new terminal tabs. Using bare "azlin" fails when installed via
+    // uvx or cargo install since it may not be in PATH for new shells.
+    let self_exe = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.to_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| "azlin".to_string());
+
 
     for (vm_name, sessions) in tmux_sessions {
         if !is_valid_restore_vm_name(vm_name) {
@@ -314,7 +343,7 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
                     ]);
                 }
                 wt_args.extend_from_slice(&[
-                    "azlin", "connect", vm_name,
+                    &self_exe, "connect", vm_name,
                     "--tmux-session", &first_session,
                 ]);
                 if let Err(e) = std::process::Command::new("wt.exe")
@@ -330,7 +359,7 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
                 println!("  Connecting to {} (session: {})", vm_name, first_session);
                 // Isolate stdio so the spawned SSH process does not inherit the parent
                 // terminal handles — prevents display corruption and credential capture.
-                if let Err(e) = std::process::Command::new("azlin")
+                if let Err(e) = std::process::Command::new(&self_exe)
                     .args(["connect", vm_name, "--tmux-session", &first_session])
                     .stdin(std::process::Stdio::null())
                     .stdout(std::process::Stdio::null())
