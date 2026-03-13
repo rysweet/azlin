@@ -35,19 +35,23 @@ pub(crate) async fn dispatch(
             vm_name,
             resource_group,
             deallocate,
+            no_deallocate,
             ..
         } => {
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
 
-            let (action, _done) = crate::stop_helpers::stop_action_labels(deallocate);
+            // --no-deallocate overrides the default deallocate=true
+            let effective_deallocate = deallocate && !no_deallocate;
+            let (action, _done) = crate::stop_helpers::stop_action_labels(effective_deallocate);
             let pb = ProgressBar::new_spinner();
             pb.set_style(fleet_spinner_style());
             pb.set_prefix(format!("{:>20}", vm_name));
             pb.set_message(crate::lifecycle_helpers::progress_message(action, &vm_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(120));
-            let msg = crate::handlers::handle_stop(&vm_manager, &rg, &vm_name, deallocate)?;
+            let msg =
+                crate::handlers::handle_stop(&vm_manager, &rg, &vm_name, effective_deallocate)?;
             pb.finish_with_message(crate::lifecycle_helpers::finished_ok(&msg));
         }
         azlin_cli::Commands::Delete {

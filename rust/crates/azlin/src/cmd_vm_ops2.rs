@@ -105,23 +105,43 @@ pub(crate) fn handle_vm_clone(
             println!("  Created disk '{}' from snapshot", disk_name);
             let pb = penguin_spinner(&format!("Creating VM '{}'...", clone_name));
 
+            let mut clone_args = vec![
+                "vm".to_string(),
+                "create".to_string(),
+                "--resource-group".to_string(),
+                rg.clone(),
+                "--name".to_string(),
+                clone_name.clone(),
+                "--attach-os-disk".to_string(),
+                disk_name.clone(),
+                "--os-type".to_string(),
+                "Linux".to_string(),
+                "--location".to_string(),
+                location.clone(),
+                "--output".to_string(),
+                "json".to_string(),
+            ];
+
+            // For bastion VMs (no public IP on source), route through bastion VNet
+            // and disable public IP on the clone too.
+            let is_bastion =
+                match crate::dispatch_helpers::lookup_vm_public_ip(&rg, source_vm) {
+                    Ok(None) => true,
+                    Ok(Some(ref ip)) if ip.is_empty() => true,
+                    _ => false,
+                };
+            if is_bastion {
+                clone_args.push("--public-ip-address".to_string());
+                clone_args.push(String::new());
+                let vnet_name = format!("azlin-bastion-{}-vnet", location);
+                clone_args.push("--subnet".to_string());
+                clone_args.push("default".to_string());
+                clone_args.push("--vnet-name".to_string());
+                clone_args.push(vnet_name);
+            }
+
             let vm_out = std::process::Command::new("az")
-                .args([
-                    "vm",
-                    "create",
-                    "--resource-group",
-                    &rg,
-                    "--name",
-                    &clone_name,
-                    "--attach-os-disk",
-                    &disk_name,
-                    "--os-type",
-                    "Linux",
-                    "--nsg",
-                    "",
-                    "--output",
-                    "json",
-                ])
+                .args(&clone_args)
                 .output()?;
             pb.finish_and_clear();
 

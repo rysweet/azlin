@@ -108,6 +108,41 @@ pub(crate) fn lookup_vm_disk_info(rg: &str, vm_name: &str) -> Result<(String, St
     Ok((parts[0].to_string(), parts[1].to_string()))
 }
 
+/// Look up a VM's public IP address. Returns `Ok(None)` if the VM has no public IP
+/// (bastion-only), `Ok(Some(ip))` if it has one.
+pub(crate) fn lookup_vm_public_ip(rg: &str, vm_name: &str) -> Result<Option<String>> {
+    let output = std::process::Command::new("az")
+        .args([
+            "vm",
+            "list-ip-addresses",
+            "--resource-group",
+            rg,
+            "--name",
+            vm_name,
+            "--query",
+            "[0].virtualMachine.network.publicIpAddresses[0].ipAddress",
+            "--output",
+            "tsv",
+        ])
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "Failed to get public IP for VM '{}': {}",
+            vm_name,
+            azlin_core::sanitizer::sanitize(stderr.trim())
+        );
+    }
+
+    let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if ip.is_empty() || ip == "None" {
+        Ok(None)
+    } else {
+        Ok(Some(ip))
+    }
+}
+
 /// Resolve a single VM to a `VmSshTarget`, using --ip flag if provided.
 /// Routes through bastion automatically for private-IP-only VMs.
 pub(crate) async fn resolve_vm_ssh_target(

@@ -92,7 +92,10 @@ pub(crate) async fn handle_vm_new(
                 n.clone()
             }
         } else {
-            format!("azlin-vm-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"))
+            format!(
+                "azlin-vm-{}",
+                chrono::Utc::now().format("%Y%m%d-%H%M%S%6f")
+            )
         };
 
         azlin_core::models::validate_vm_name(&vm_name).map_err(|e| anyhow::anyhow!(e))?;
@@ -106,6 +109,8 @@ pub(crate) async fn handle_vm_new(
             ssh_key_path: ssh_key_path.clone(),
             image: azlin_core::models::VmImage::default(),
             tags: std::collections::HashMap::new(),
+            public_ip_enabled: true,
+            disk_ids: vec![],
         };
 
         if let Err(e) = params.validate() {
