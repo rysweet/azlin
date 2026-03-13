@@ -168,20 +168,8 @@ fn handle_config(action: azlin_cli::ConfigAction) -> Result<()> {
             }
         }
         azlin_cli::ConfigAction::Set { key, value } => {
-            let mut config = azlin_core::AzlinConfig::load()?;
-            let mut json = serde_json::to_value(&config)?;
-            if let Some(obj) = json.as_object() {
-                if !obj.contains_key(&key) {
-                    anyhow::bail!("Unknown config key: {key}");
-                }
-            }
-            let validated = azlin_core::AzlinConfig::validate_field(&key, &value)?;
-            if let Some(obj) = json.as_object_mut() {
-                obj.insert(key.clone(), validated);
-                config = serde_json::from_value(json)?;
-                config.save()?;
-                println!("Set {key} = {value}");
-            }
+            azlin_core::AzlinConfig::set_field(&key, &value)?;
+            println!("Set {key} = {value}");
         }
     }
     Ok(())
