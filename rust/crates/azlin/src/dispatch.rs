@@ -124,9 +124,16 @@ pub(crate) async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
         azlin_cli::Commands::Update => {
             crate::cmd_self_update::handle_self_update()?;
         }
-        azlin_cli::Commands::Completions { shell } => {
-            let mut cmd = azlin_cli::Cli::command();
-            clap_complete::generate(shell, &mut cmd, "azlin", &mut std::io::stdout());
+        azlin_cli::Commands::Completions { shell, install } => {
+            if install {
+                crate::cmd_completions::install_completions(shell)?;
+            } else {
+                let mut cmd = azlin_cli::Cli::command();
+                clap_complete::generate(shell, &mut cmd, "azlin", &mut std::io::stdout());
+            }
+        }
+        azlin_cli::Commands::History { action, count } => {
+            crate::cmd_history::handle_history(action, count)?;
         }
         azlin_cli::Commands::AzlinHelp { command_name } => {
             println!("{}", handlers::build_extended_help(command_name.as_deref()));
@@ -170,6 +177,12 @@ fn handle_config(action: azlin_cli::ConfigAction) -> Result<()> {
         azlin_cli::ConfigAction::Set { key, value } => {
             azlin_core::AzlinConfig::set_field(&key, &value)?;
             println!("Set {key} = {value}");
+        }
+        azlin_cli::ConfigAction::Diff { all, format, file } => {
+            crate::cmd_config_diff::handle_config_diff(all, &format, file.as_deref())?;
+        }
+        azlin_cli::ConfigAction::Init { force } => {
+            crate::cmd_config_init::handle_config_init(force)?;
         }
     }
     Ok(())
