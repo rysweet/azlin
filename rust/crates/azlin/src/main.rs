@@ -695,7 +695,9 @@ fn run_on_fleet(targets: &[VmSshTarget], command: &str, show_output: bool) {
 
 fn main() {
     let start = std::time::Instant::now();
-    color_eyre::install().ok();
+    if let Err(e) = color_eyre::install() {
+        eprintln!("Warning: failed to install color_eyre error handler: {e}");
+    }
 
     let result = tokio::runtime::Runtime::new()
         .expect("Failed to create tokio runtime")

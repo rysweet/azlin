@@ -287,7 +287,13 @@ pub(crate) async fn dispatch(
                 };
                 println!("\nvCPU Quota:");
                 // Use the configured default region instead of hardcoding "westus"
-                let config_for_quota = azlin_core::AzlinConfig::load().unwrap_or_default();
+                let config_for_quota = match azlin_core::AzlinConfig::load() {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Warning: failed to load config for quota check, using defaults: {e}");
+                        azlin_core::AzlinConfig::default()
+                    }
+                };
                 let quota_location = config_for_quota.default_region.clone();
                 let output = std::process::Command::new("az")
                     .args([

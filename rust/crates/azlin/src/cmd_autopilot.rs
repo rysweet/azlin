@@ -106,7 +106,6 @@ pub(crate) async fn dispatch(
             }
             azlin_cli::AutopilotAction::Run { dry_run } => {
                 // Check VM utilization and recommend actions
-                let _config = azlin_core::AzlinConfig::load().unwrap_or_default();
                 let rg = resolve_resource_group(None)?;
                 let auth = create_auth()?;
                 let vm_manager = azlin_azure::VmManager::new(&auth);
@@ -141,11 +140,10 @@ pub(crate) async fn dispatch(
                     );
                     match ssh_result {
                         Ok((0, stdout, _)) => {
-                            let lines: Vec<&str> = stdout.trim().lines().collect();
-                            let cpu_pct: f64 =
-                                lines.first().and_then(|s| s.parse().ok()).unwrap_or(100.0);
-                            let uptime_secs: f64 =
-                                lines.get(1).and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                            // parse_idle_check defaults: cpu=100% (assume busy),
+                            // uptime=0 (assume just booted) — safe conservative defaults
+                            let (cpu_pct, uptime_secs) =
+                                crate::autopilot_parse_helpers::parse_idle_check(&stdout);
                             if let Some(action_name) = crate::handlers::classify_autopilot_vm(
                                 cpu_pct,
                                 uptime_secs,

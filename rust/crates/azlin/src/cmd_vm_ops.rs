@@ -19,7 +19,13 @@ pub(crate) async fn handle_vm_new(
     let rg = resolve_resource_group(resource_group)?;
 
     let vm_count = pool.unwrap_or(1);
-    let config_defaults = azlin_core::AzlinConfig::load().unwrap_or_default();
+    let config_defaults = match azlin_core::AzlinConfig::load() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Warning: failed to load config, using defaults: {e}");
+            azlin_core::AzlinConfig::default()
+        }
+    };
     let user_specified_size = vm_size.is_some();
     let user_specified_region = region.is_some();
     let size = vm_size.unwrap_or_else(|| config_defaults.default_vm_size.clone());
