@@ -16,7 +16,7 @@ pub(crate) async fn dispatch(
             resource_group,
             ..
         } => {
-            crate::cmd_sync_ops::handle_sync(vm_name, dry_run, resource_group)?;
+            crate::cmd_sync_ops::handle_sync(vm_name, dry_run, resource_group).await?;
         }
 
         azlin_cli::Commands::SyncKeys {
@@ -34,7 +34,7 @@ pub(crate) async fn dispatch(
             resource_group,
             ..
         } => {
-            crate::cmd_sync_ops::handle_cp(&args, dry_run, resource_group)?;
+            crate::cmd_sync_ops::handle_cp(&args, dry_run, resource_group).await?;
         }
 
         azlin_cli::Commands::Logs {

@@ -94,6 +94,9 @@ pub struct AzlinConfig {
     pub resource_group_cache_ttl: u64,
     pub resource_group_query_timeout: u64,
     pub bastion_detection_timeout: u64,
+    /// Timeout in seconds for SSH/SCP connect operations.
+    /// Default: 30 seconds.
+    pub ssh_connect_timeout: u64,
     /// Timeout in seconds for `az` CLI subprocess calls.
     /// Default: 120 seconds. Increase on Windows/WSL where Azure CLI is slower.
     pub az_cli_timeout: u64,
@@ -120,6 +123,7 @@ impl Default for AzlinConfig {
             resource_group_cache_ttl: 900,
             resource_group_query_timeout: 30,
             bastion_detection_timeout: 60,
+            ssh_connect_timeout: 30,
             az_cli_timeout: 120,
         }
     }
@@ -244,6 +248,7 @@ impl AzlinConfig {
         "resource_group_cache_ttl",
         "resource_group_query_timeout",
         "bastion_detection_timeout",
+        "ssh_connect_timeout",
         "az_cli_timeout",
     ];
 

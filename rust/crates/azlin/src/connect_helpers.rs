@@ -21,12 +21,17 @@ pub fn build_vscode_remote_uri(user: &str, ip: &str) -> String {
 }
 
 /// Build SSH args for streaming logs via `tail -f`.
-pub fn build_log_follow_args(username: &str, ip: &str, log_path: &str) -> Vec<String> {
+pub fn build_log_follow_args(
+    username: &str,
+    ip: &str,
+    log_path: &str,
+    connect_timeout: u64,
+) -> Vec<String> {
     vec![
         "-o".to_string(),
         "StrictHostKeyChecking=accept-new".to_string(),
         "-o".to_string(),
-        "ConnectTimeout=10".to_string(),
+        format!("ConnectTimeout={}", connect_timeout),
         format!("{}@{}", username, ip),
         format!("sudo tail -f {}", log_path),
     ]
@@ -34,12 +39,18 @@ pub fn build_log_follow_args(username: &str, ip: &str, log_path: &str) -> Vec<St
 
 /// Build SSH args for fetching a specific number of log lines.
 #[allow(dead_code)]
-pub fn build_log_tail_args(username: &str, ip: &str, lines: u32, log_path: &str) -> Vec<String> {
+pub fn build_log_tail_args(
+    username: &str,
+    ip: &str,
+    lines: u32,
+    log_path: &str,
+    connect_timeout: u64,
+) -> Vec<String> {
     vec![
         "-o".to_string(),
         "StrictHostKeyChecking=accept-new".to_string(),
         "-o".to_string(),
-        "ConnectTimeout=10".to_string(),
+        format!("ConnectTimeout={}", connect_timeout),
         format!("{}@{}", username, ip),
         format!("sudo tail -n {} {}", lines, log_path),
     ]

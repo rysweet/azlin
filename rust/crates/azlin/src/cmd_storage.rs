@@ -47,10 +47,11 @@ pub(crate) async fn dispatch(
                     &vm,
                     mount_point,
                     resource_group,
-                )?;
+                )
+                .await?;
             }
             azlin_cli::StorageAction::Unmount { vm, resource_group } => {
-                crate::cmd_storage_ops::handle_storage_unmount(&vm, resource_group)?;
+                crate::cmd_storage_ops::handle_storage_unmount(&vm, resource_group).await?;
             }
             azlin_cli::StorageAction::Delete {
                 name,

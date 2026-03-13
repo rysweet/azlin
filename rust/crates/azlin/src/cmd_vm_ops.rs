@@ -132,51 +132,68 @@ pub(crate) async fn handle_vm_new(
         }
         println!("{table}");
 
+        // Resolve SSH target with bastion support
+        let target = resolve_vm_ssh_target(&vm.name, None, Some(rg.clone())).await?;
+
+        // Set up bastion tunnel if needed (kept alive for auth + clone + connect)
+        let _tunnel = if let Some(ref bastion) = target.bastion {
+            Some(crate::bastion_tunnel::ScopedBastionTunnel::new(
+                &bastion.bastion_name,
+                &bastion.resource_group,
+                &bastion.vm_resource_id,
+            )?)
+        } else {
+            None
+        };
+        let bastion_port = _tunnel.as_ref().map(|t| t.local_port);
+        let effective_ip = if bastion_port.is_some() { "127.0.0.1" } else { &target.ip };
+
         // Forward auth credentials to the new VM (best-effort)
-        if let Some(ip) = vm.public_ip.as_ref().or(vm.private_ip.as_ref()) {
-            if let Err(e) = crate::auth_forward::forward_auth_credentials(ip, &admin_user, yes) {
-                eprintln!("Warning: auth forwarding failed: {}", e);
-            }
+        if let Err(e) = crate::auth_forward::forward_auth_credentials(
+            effective_ip, &admin_user, yes, bastion_port,
+        ) {
+            eprintln!("Warning: auth forwarding failed: {}", e);
         }
 
         if let Some(ref repo_url) = repo {
-            if let Some(ip) = vm.public_ip.as_ref().or(vm.private_ip.as_ref()) {
-                let clone_cmd = match crate::create_helpers::build_clone_cmd(repo_url) {
-                    Ok(cmd) => cmd,
-                    Err(e) => {
-                        eprintln!("Invalid repository URL: {}", e);
-                        return Ok(());
-                    }
-                };
-                println!("Cloning repository '{}'...", repo_url);
-                let (exit_code, stdout, stderr) = ssh_exec(ip, &admin_user, &clone_cmd)?;
-                if exit_code == 0 {
-                    println!("Repository cloned successfully.");
-                    if !stdout.is_empty() {
-                        print!("{}", stdout);
-                    }
-                } else {
-                    eprintln!(
-                        "Failed to clone repository: {}",
-                        azlin_core::sanitizer::sanitize(stderr.trim())
-                    );
+            let clone_cmd = match crate::create_helpers::build_clone_cmd(repo_url) {
+                Ok(cmd) => cmd,
+                Err(e) => {
+                    eprintln!("Invalid repository URL: {}", e);
+                    return Ok(());
                 }
+            };
+            println!("Cloning repository '{}'...", repo_url);
+            let (exit_code, stdout, stderr) = target.exec(&clone_cmd)?;
+            if exit_code == 0 {
+                println!("Repository cloned successfully.");
+                if !stdout.is_empty() {
+                    print!("{}", stdout);
+                }
+            } else {
+                eprintln!(
+                    "Failed to clone repository: {}",
+                    azlin_core::sanitizer::sanitize(stderr.trim())
+                );
             }
         }
 
         if !no_auto_connect && vm_count == 1 {
-            if let Some(ref ip) = vm.public_ip.as_ref().or(vm.private_ip.as_ref()) {
-                println!("Connecting to '{}'...", vm_name);
-                let status = std::process::Command::new("ssh")
-                    .args([
-                        "-o",
-                        "StrictHostKeyChecking=accept-new",
-                        &format!("{}@{}", admin_user, ip),
-                    ])
-                    .status()?;
-                if !status.success() {
-                    eprintln!("SSH connection ended with exit code: {:?}", status.code());
-                }
+            println!("Connecting to '{}'...", vm_name);
+            let mut ssh_args = vec![
+                "-o".to_string(),
+                "StrictHostKeyChecking=accept-new".to_string(),
+            ];
+            if let Some(port) = bastion_port {
+                ssh_args.push("-p".to_string());
+                ssh_args.push(port.to_string());
+            }
+            ssh_args.push(format!("{}@{}", admin_user, effective_ip));
+            let status = std::process::Command::new("ssh")
+                .args(&ssh_args)
+                .status()?;
+            if !status.success() {
+                eprintln!("SSH connection ended with exit code: {:?}", status.code());
             }
         }
     }

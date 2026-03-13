@@ -57,7 +57,7 @@ fn test_format_percentage_negative_clamps_to_zero() {
 #[test]
 fn test_build_log_follow_args_format() {
     let args =
-        crate::connect_helpers::build_log_follow_args("admin", "10.0.0.5", "/var/log/syslog");
+        crate::connect_helpers::build_log_follow_args("admin", "10.0.0.5", "/var/log/syslog", 10);
     assert_eq!(args.len(), 6);
     assert_eq!(args[0], "-o");
     assert_eq!(args[1], "StrictHostKeyChecking=accept-new");
@@ -73,6 +73,7 @@ fn test_build_log_tail_args_line_count() {
         "192.168.1.1",
         200,
         "/var/log/auth.log",
+        10,
     );
     assert_eq!(args.len(), 6);
     assert!(args[5].contains("tail -n 200"));

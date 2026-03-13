@@ -1,11 +1,12 @@
 /// Build the argument list for a direct SSH command.
 /// Returns the args that would be passed to `ssh`.
-pub fn build_ssh_args<'a>(ip: &'a str, user: &'a str, cmd: &'a str) -> Vec<String> {
+/// `connect_timeout` is the SSH ConnectTimeout in seconds.
+pub fn build_ssh_args(ip: &str, user: &str, cmd: &str, connect_timeout: u64) -> Vec<String> {
     vec![
         "-o".to_string(),
         "StrictHostKeyChecking=accept-new".to_string(),
         "-o".to_string(),
-        "ConnectTimeout=10".to_string(),
+        format!("ConnectTimeout={}", connect_timeout),
         "-o".to_string(),
         "BatchMode=yes".to_string(),
         format!("{}@{}", user, ip),
@@ -86,22 +87,28 @@ mod tests {
 
     #[test]
     fn ssh_args_contain_user_at_ip() {
-        let args = build_ssh_args("10.0.0.1", "azureuser", "uptime");
+        let args = build_ssh_args("10.0.0.1", "azureuser", "uptime", 10);
         assert!(args.contains(&"azureuser@10.0.0.1".to_string()));
         assert_eq!(args.last().unwrap(), "uptime");
     }
 
     #[test]
     fn ssh_args_have_security_options() {
-        let args = build_ssh_args("1.2.3.4", "admin", "ls");
+        let args = build_ssh_args("1.2.3.4", "admin", "ls", 10);
         assert!(args.contains(&"StrictHostKeyChecking=accept-new".to_string()));
         assert!(args.contains(&"ConnectTimeout=10".to_string()));
         assert!(args.contains(&"BatchMode=yes".to_string()));
     }
 
     #[test]
+    fn ssh_args_use_custom_timeout() {
+        let args = build_ssh_args("1.2.3.4", "admin", "ls", 30);
+        assert!(args.contains(&"ConnectTimeout=30".to_string()));
+    }
+
+    #[test]
     fn ssh_args_count() {
-        let args = build_ssh_args("1.2.3.4", "user", "cmd");
+        let args = build_ssh_args("1.2.3.4", "user", "cmd", 10);
         // 3 -o pairs (6 args) + user@ip + cmd = 8
         assert_eq!(args.len(), 8);
     }

@@ -47,7 +47,8 @@ struct HealthMetrics {
 
 /// Run an SSH command on a remote host and return (exit_code, stdout, stderr).
 fn ssh_exec(ip: &str, user: &str, cmd: &str) -> Result<(i32, String, String)> {
-    let args = ssh_arg_helpers::build_ssh_args(ip, user, cmd);
+    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+    let args = ssh_arg_helpers::build_ssh_args(ip, user, cmd, config.ssh_connect_timeout);
     let output = std::process::Command::new("ssh").args(&args).output()?;
     Ok((
         output.status.code().unwrap_or(-1),
@@ -816,6 +817,10 @@ mod cp_helpers;
 /// Helpers for Bastion host JSON extraction.
 #[allow(dead_code)]
 mod bastion_helpers;
+
+/// Scoped bastion tunnel for SSH/SCP through Azure Bastion.
+#[allow(dead_code)]
+mod bastion_tunnel;
 
 /// Helpers for log tail computation.
 #[allow(dead_code)]
