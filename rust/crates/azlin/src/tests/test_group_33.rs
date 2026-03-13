@@ -140,7 +140,7 @@ fn test_build_vscode_remote_uri() {
 #[test]
 fn test_build_log_follow_args() {
     let args =
-        crate::connect_helpers::build_log_follow_args("azureuser", "10.0.0.5", "/var/log/syslog");
+        crate::connect_helpers::build_log_follow_args("azureuser", "10.0.0.5", "/var/log/syslog", 10);
     assert_eq!(args.len(), 6);
     assert_eq!(args[4], "azureuser@10.0.0.5");
     assert_eq!(args[5], "sudo tail -f /var/log/syslog");
@@ -149,7 +149,7 @@ fn test_build_log_follow_args() {
 #[test]
 fn test_build_log_tail_args() {
     let args =
-        crate::connect_helpers::build_log_tail_args("admin", "10.0.0.1", 100, "/var/log/auth.log");
+        crate::connect_helpers::build_log_tail_args("admin", "10.0.0.1", 100, "/var/log/auth.log", 10);
     assert_eq!(args.len(), 6);
     assert!(args[5].contains("tail -n 100"));
     assert!(args[5].contains("/var/log/auth.log"));

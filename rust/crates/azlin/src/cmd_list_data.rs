@@ -12,6 +12,7 @@ pub(crate) fn collect_tmux_sessions(
     is_table_output: bool,
     verbose: bool,
     subscription_id: &str,
+    connect_timeout: u64,
 ) -> HashMap<String, Vec<String>> {
     let mut tmux_sessions: HashMap<String, Vec<String>> = HashMap::new();
 
@@ -55,13 +56,14 @@ pub(crate) fn collect_tmux_sessions(
             "tmux list-sessions -F '#{session_name}:#{session_attached}' 2>/dev/null || true";
 
         // Determine whether to use direct SSH or bastion tunnel
+        let timeout_str = format!("ConnectTimeout={}", connect_timeout);
         let output = if let Some(ip) = vm.public_ip.as_deref() {
             // Direct SSH to public IP
             let mut ssh_args = vec![
                 "-o",
                 "StrictHostKeyChecking=accept-new",
                 "-o",
-                "ConnectTimeout=5",
+                &timeout_str,
                 "-o",
                 "BatchMode=yes",
             ];
@@ -90,7 +92,7 @@ pub(crate) fn collect_tmux_sessions(
                         "-o".to_string(),
                         "StrictHostKeyChecking=accept-new".to_string(),
                         "-o".to_string(),
-                        "ConnectTimeout=5".to_string(),
+                        timeout_str.clone(),
                         "-o".to_string(),
                         "BatchMode=yes".to_string(),
                         "-p".to_string(),
@@ -167,7 +169,7 @@ pub(crate) fn collect_latencies(vms: &[VmInfo]) -> HashMap<String, u64> {
 }
 
 /// Collect health data for running VMs via SSH uptime check.
-pub(crate) fn collect_health(vms: &[VmInfo], _verbose: bool) -> HashMap<String, String> {
+pub(crate) fn collect_health(vms: &[VmInfo], _verbose: bool, connect_timeout: u64) -> HashMap<String, String> {
     let mut health_data = HashMap::new();
     for vm in vms {
         if vm.power_state != azlin_core::models::PowerState::Running {
@@ -179,12 +181,13 @@ pub(crate) fn collect_health(vms: &[VmInfo], _verbose: bool) -> HashMap<String, 
                 .admin_username
                 .as_deref()
                 .unwrap_or(DEFAULT_ADMIN_USERNAME);
+            let timeout_val = format!("ConnectTimeout={}", connect_timeout);
             let output = std::process::Command::new("ssh")
                 .args([
                     "-o",
                     "StrictHostKeyChecking=accept-new",
                     "-o",
-                    "ConnectTimeout=5",
+                    &timeout_val,
                     "-o",
                     "BatchMode=yes",
                     &format!("{}@{}", user, ip),
@@ -205,7 +208,7 @@ pub(crate) fn collect_health(vms: &[VmInfo], _verbose: bool) -> HashMap<String, 
 }
 
 /// Collect top process data for running VMs.
-pub(crate) fn collect_procs(vms: &[VmInfo]) -> HashMap<String, String> {
+pub(crate) fn collect_procs(vms: &[VmInfo], connect_timeout: u64) -> HashMap<String, String> {
     let mut proc_data = HashMap::new();
     for vm in vms {
         if vm.power_state != azlin_core::models::PowerState::Running {
@@ -217,12 +220,13 @@ pub(crate) fn collect_procs(vms: &[VmInfo]) -> HashMap<String, String> {
                 .admin_username
                 .as_deref()
                 .unwrap_or(DEFAULT_ADMIN_USERNAME);
+            let timeout_val = format!("ConnectTimeout={}", connect_timeout);
             let output = std::process::Command::new("ssh")
                 .args([
                     "-o",
                     "StrictHostKeyChecking=accept-new",
                     "-o",
-                    "ConnectTimeout=10",
+                    &timeout_val,
                     "-o",
                     "BatchMode=yes",
                     &format!("{}@{}", user, ip),

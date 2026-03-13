@@ -122,7 +122,7 @@ fn test_vscode_uri_ssh_remote_prefix() {
 #[test]
 fn test_build_log_follow_args_structure() {
     let args =
-        crate::connect_helpers::build_log_follow_args("admin", "10.0.0.1", "/var/log/syslog");
+        crate::connect_helpers::build_log_follow_args("admin", "10.0.0.1", "/var/log/syslog", 10);
     assert!(args.contains(&"admin@10.0.0.1".to_string()));
     assert!(args.iter().any(|a| a.contains("tail -f")));
     assert!(args.iter().any(|a| a.contains("/var/log/syslog")));
@@ -131,7 +131,7 @@ fn test_build_log_follow_args_structure() {
 #[test]
 fn test_log_tail_args_includes_line_count() {
     let args =
-        crate::connect_helpers::build_log_tail_args("admin", "10.0.0.1", 50, "/var/log/syslog");
+        crate::connect_helpers::build_log_tail_args("admin", "10.0.0.1", 50, "/var/log/syslog", 10);
     assert!(args.iter().any(|a| a.contains("tail -n 50")));
 }
 

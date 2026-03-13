@@ -301,12 +301,16 @@ pub(crate) fn handle_restore(
         println!("Found {} running VM(s), collecting tmux sessions...", running.len());
     }
 
+    let ssh_timeout = azlin_core::AzlinConfig::load()
+        .unwrap_or_default()
+        .ssh_connect_timeout;
     let tmux_sessions = crate::cmd_list_data::collect_tmux_sessions(
         &running,
         &rg,
         true,
         verbose,
         vm_manager.subscription_id(),
+        ssh_timeout,
     );
 
     if tmux_sessions.is_empty() {

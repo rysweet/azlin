@@ -202,6 +202,9 @@ pub(crate) async fn dispatch(
             if verbose {
                 eprintln!("[VERBOSE] Collecting tmux sessions via bastion SSH...");
             }
+            let ssh_timeout = azlin_core::AzlinConfig::load()
+                .unwrap_or_default()
+                .ssh_connect_timeout;
             let tmux_sessions = if !no_tmux {
                 let pb = penguin_spinner("Collecting tmux sessions...");
                 let sessions = crate::cmd_list_data::collect_tmux_sessions(
@@ -210,6 +213,7 @@ pub(crate) async fn dispatch(
                     matches!(output, azlin_cli::OutputFormat::Table),
                     verbose,
                     vm_manager.subscription_id(),
+                    ssh_timeout,
                 );
                 pb.finish_and_clear();
                 sessions
@@ -228,7 +232,7 @@ pub(crate) async fn dispatch(
 
             let health_data = if with_health {
                 let pb = penguin_spinner("Checking VM health...");
-                let result = crate::cmd_list_data::collect_health(&all_vms, verbose);
+                let result = crate::cmd_list_data::collect_health(&all_vms, verbose, ssh_timeout);
                 pb.finish_and_clear();
                 result
             } else {
@@ -237,7 +241,7 @@ pub(crate) async fn dispatch(
 
             let proc_data = if show_procs {
                 let pb = penguin_spinner("Collecting process data...");
-                let result = crate::cmd_list_data::collect_procs(&all_vms);
+                let result = crate::cmd_list_data::collect_procs(&all_vms, ssh_timeout);
                 pb.finish_and_clear();
                 result
             } else {

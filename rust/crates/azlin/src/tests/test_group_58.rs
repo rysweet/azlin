@@ -81,7 +81,7 @@ fn test_autopilot_build_cost_scope() {
 #[test]
 fn test_connect_build_log_follow_args() {
     let args =
-        crate::connect_helpers::build_log_follow_args("admin", "10.0.0.1", "/var/log/syslog");
+        crate::connect_helpers::build_log_follow_args("admin", "10.0.0.1", "/var/log/syslog", 10);
     assert!(args.contains(&format!("admin@10.0.0.1")));
     assert!(args.contains(&"sudo tail -f /var/log/syslog".to_string()));
     assert!(args.contains(&"ConnectTimeout=10".to_string()));

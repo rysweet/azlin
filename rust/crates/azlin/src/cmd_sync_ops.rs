@@ -142,6 +142,7 @@ pub(crate) fn handle_cp(
             direction, source, dest, rg
         );
     } else {
+        let config = azlin_core::AzlinConfig::load().unwrap_or_default();
         println!("Copying ({}) {} -> {}...", direction, source, dest);
         if crate::cp_helpers::is_remote_path(source) || crate::cp_helpers::is_remote_path(dest) {
             let (vm_part, _path_part) = if crate::cp_helpers::is_remote_path(source) {
@@ -174,10 +175,15 @@ pub(crate) fn handle_cp(
                 dest.clone()
             };
 
+            let timeout_val = format!("ConnectTimeout={}", config.ssh_connect_timeout);
             let status = std::process::Command::new("scp")
                 .args([
                     "-o",
                     "StrictHostKeyChecking=accept-new",
+                    "-o",
+                    &timeout_val,
+                    "-o",
+                    "BatchMode=yes",
                     &scp_source,
                     &scp_dest,
                 ])
@@ -208,6 +214,7 @@ pub(crate) async fn handle_logs(
         azlin_cli::LogType::Auth => "/var/log/auth.log",
     };
 
+    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
     let target = resolve_vm_ssh_target(vm_identifier, None, resource_group).await?;
 
     if follow {
@@ -240,7 +247,7 @@ pub(crate) async fn handle_logs(
             }
         } else {
             let follow_args =
-                crate::connect_helpers::build_log_follow_args(&target.user, &target.ip, log_path);
+                crate::connect_helpers::build_log_follow_args(&target.user, &target.ip, log_path, config.ssh_connect_timeout);
             let status = std::process::Command::new("ssh")
                 .args(&follow_args)
                 .status()?;

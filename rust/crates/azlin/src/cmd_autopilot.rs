@@ -106,6 +106,7 @@ pub(crate) async fn dispatch(
             }
             azlin_cli::AutopilotAction::Run { dry_run } => {
                 // Check VM utilization and recommend actions
+                let config = azlin_core::AzlinConfig::load().unwrap_or_default();
                 let rg = resolve_resource_group(None)?;
                 let auth = create_auth()?;
                 let vm_manager = azlin_azure::VmManager::new(&auth);
@@ -137,10 +138,11 @@ pub(crate) async fn dispatch(
                             .as_deref()
                             .unwrap_or(DEFAULT_ADMIN_USERNAME);
                         // Check CPU and uptime via SSH
+                        let timeout_val = format!("ConnectTimeout={}", config.ssh_connect_timeout);
                         let output = std::process::Command::new("ssh")
                             .args([
                                 "-o", "StrictHostKeyChecking=accept-new",
-                                "-o", "ConnectTimeout=10",
+                                "-o", &timeout_val,
                                 "-o", "BatchMode=yes",
                                 &format!("{}@{}", user, ip),
                                 "awk '{u=$2+$4; t=$2+$4+$5; if (t>0) printf \"%.1f\", u*100/t; else print \"0\"}' /proc/stat | head -1 && cat /proc/uptime | awk '{print $1}'",
