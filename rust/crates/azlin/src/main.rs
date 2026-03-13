@@ -445,7 +445,8 @@ fn render_health_table(metrics: &[HealthMetrics]) {
     println!("Thresholds: <70% 70-90% >90%");
 }
 
-/// Run an interactive TUI dashboard showing health metrics.
+/// Run a simple static TUI showing health metrics (legacy fallback).
+#[allow(dead_code)]
 fn run_health_tui(metrics: &[HealthMetrics]) -> Result<()> {
     enable_raw_mode()?;
     std::io::stdout().execute(EnterAlternateScreen)?;
@@ -834,6 +835,9 @@ mod auth_test_helpers;
 /// These extract the logic that was previously inline in `collect_health_metrics`,
 /// making it testable without SSH.
 mod health_parse_helpers;
+
+/// Interactive TUI dashboard with sparklines, VM actions, and live refresh.
+pub(crate) mod tui_dashboard;
 
 /// Pure helpers for the `run_on_fleet` result classification and formatting.
 mod fleet_helpers;

@@ -59,6 +59,7 @@ pub(crate) async fn dispatch(
             vm,
             resource_group,
             tui,
+            interval,
             ..
         } => {
             let auth = match azlin_azure::AzureAuth::new() {
@@ -174,7 +175,177 @@ pub(crate) async fn dispatch(
             if metrics.is_empty() {
                 println!("No VMs found in resource group '{}'", rg);
             } else if tui {
-                run_health_tui(&metrics)?;
+                // Build initial dashboard entries from the metrics we already collected.
+                let mut app = crate::tui_dashboard::DashboardApp::new(interval);
+                for m in &metrics {
+                    let mut entry =
+                        crate::tui_dashboard::VmDashboardEntry::new(m.vm_name.clone());
+                    entry.power_state = m.power_state.clone();
+                    entry.agent_status = m.agent_status.clone();
+                    entry.error_count = m.error_count;
+                    entry.cpu_percent = m.cpu_percent;
+                    entry.mem_percent = m.mem_percent;
+                    entry.disk_percent = m.disk_percent;
+                    entry.push_sample(m.cpu_percent, m.mem_percent);
+                    app.entries.push(entry);
+                }
+
+                // The refresh callback re-collects metrics from all VMs and
+                // merges the results into the existing dashboard entries.
+                let rg_clone = rg.clone();
+                let bastion_map_clone = bastion_map.clone();
+                let ssh_key_clone = ssh_key_path.clone();
+                let sub_clone = sub_id.clone();
+
+                let refresh = move |entries: &mut Vec<crate::tui_dashboard::VmDashboardEntry>| {
+                    let auth = match azlin_azure::AzureAuth::new() {
+                        Ok(a) => a,
+                        Err(_) => return,
+                    };
+                    let vm_mgr = azlin_azure::VmManager::new(&auth);
+                    let vms = match vm_mgr.list_vms(&rg_clone) {
+                        Ok(v) => v,
+                        Err(_) => return,
+                    };
+
+                    for vm_info in &vms {
+                        let ip = match vm_info
+                            .public_ip
+                            .as_ref()
+                            .or(vm_info.private_ip.as_ref())
+                        {
+                            Some(ip) => ip.clone(),
+                            None => continue,
+                        };
+                        let user = vm_info
+                            .admin_username
+                            .clone()
+                            .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
+                        let state = vm_info.power_state.to_string();
+
+                        let bastion_info_owned: Option<(
+                            String,
+                            String,
+                            String,
+                            Option<std::path::PathBuf>,
+                        )> = if vm_info.public_ip.is_none() {
+                            bastion_map_clone.get(&vm_info.location).map(|bn| {
+                                let vm_rid = format!(
+                                    "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
+                                    sub_clone, vm_info.resource_group, vm_info.name
+                                );
+                                (
+                                    bn.clone(),
+                                    vm_info.resource_group.clone(),
+                                    vm_rid,
+                                    ssh_key_clone.clone(),
+                                )
+                            })
+                        } else {
+                            None
+                        };
+                        let bastion_ref =
+                            bastion_info_owned.as_ref().map(|(bn, rg_b, rid, key)| {
+                                (
+                                    bn.as_str(),
+                                    rg_b.as_str(),
+                                    rid.as_str(),
+                                    key.as_deref(),
+                                )
+                            });
+
+                        let m = collect_health_metrics(
+                            &vm_info.name,
+                            &ip,
+                            &user,
+                            &state,
+                            bastion_ref,
+                        );
+
+                        // Find or create the entry for this VM
+                        let entry = if let Some(pos) =
+                            entries.iter().position(|e| e.vm_name == vm_info.name)
+                        {
+                            &mut entries[pos]
+                        } else {
+                            entries.push(
+                                crate::tui_dashboard::VmDashboardEntry::new(
+                                    vm_info.name.clone(),
+                                ),
+                            );
+                            entries.last_mut().unwrap()
+                        };
+
+                        entry.power_state = m.power_state;
+                        entry.agent_status = m.agent_status;
+                        entry.error_count = m.error_count;
+                        entry.cpu_percent = m.cpu_percent;
+                        entry.mem_percent = m.mem_percent;
+                        entry.disk_percent = m.disk_percent;
+                        entry.region = vm_info.location.clone();
+                        entry.ip = ip;
+                        entry.push_sample(m.cpu_percent, m.mem_percent);
+                    }
+                };
+
+                // Run the interactive dashboard; loop to handle VM actions.
+                loop {
+                    crate::tui_dashboard::run_dashboard(&mut app, Some(&refresh))?;
+
+                    if app.should_quit {
+                        break;
+                    }
+
+                    // Execute any pending VM action, then re-enter the TUI.
+                    if let Some(action) = app.pending_action.take() {
+                        match action {
+                            crate::tui_dashboard::VmAction::Connect(name) => {
+                                crossterm::terminal::disable_raw_mode()?;
+                                std::io::Write::flush(&mut std::io::stdout())?;
+                                let targets =
+                                    resolve_vm_targets(Some(&name), None, Some(rg.clone()))
+                                        .await?;
+                                if let Some(t) = targets.first() {
+                                    let _ = std::process::Command::new("ssh")
+                                        .args(crate::create_helpers::build_ssh_connect_args(
+                                            &t.user, &t.ip,
+                                        ))
+                                        .status();
+                                }
+                                app.status_message =
+                                    format!("Returned from SSH to {}", name);
+                            }
+                            crate::tui_dashboard::VmAction::Start(name) => {
+                                let auth = azlin_azure::AzureAuth::new()?;
+                                let vm_mgr = azlin_azure::VmManager::new(&auth);
+                                match vm_mgr.start_vm(&rg, &name) {
+                                    Ok(_) => {
+                                        app.status_message =
+                                            format!("Started {}", name);
+                                    }
+                                    Err(e) => {
+                                        app.status_message =
+                                            format!("Failed to start {}: {}", name, e);
+                                    }
+                                }
+                            }
+                            crate::tui_dashboard::VmAction::Stop(name) => {
+                                let auth = azlin_azure::AzureAuth::new()?;
+                                let vm_mgr = azlin_azure::VmManager::new(&auth);
+                                match vm_mgr.stop_vm(&rg, &name, true) {
+                                    Ok(_) => {
+                                        app.status_message =
+                                            format!("Stopped {}", name);
+                                    }
+                                    Err(e) => {
+                                        app.status_message =
+                                            format!("Failed to stop {}: {}", name, e);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
                 println!("Health Dashboard — Four Golden Signals ({})", rg);
                 render_health_table(&metrics);
