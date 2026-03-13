@@ -506,6 +506,10 @@ pub enum Commands {
         /// Launch interactive TUI dashboard
         #[arg(long)]
         tui: bool,
+
+        /// Refresh interval in seconds (TUI mode only)
+        #[arg(long, default_value = "5")]
+        interval: u32,
     },
 
     /// Run 'w' command on all VMs (who's logged in)
