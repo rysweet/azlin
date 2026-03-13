@@ -1,6 +1,6 @@
 # Using azlin with uv
 
-> **Note**: This document covers the Python packaging of azlin via uv/uvx. As of v2.3.0-rust, the primary azlin binary is written in Rust and can be downloaded directly from [GitHub Releases](https://github.com/rysweet/azlin/releases/tag/v2.3.0-rust). When installed via uvx, the Python package auto-routes to the Rust binary. Use `azlin-py` to run the Python CLI directly.
+> **Note**: This document covers the Python packaging of azlin via uv/uvx. As of v2.6.17, the primary azlin binary is written in Rust and can be downloaded directly from [GitHub Releases](https://github.com/rysweet/azlin/releases/latest). When installed via uvx, the Python package auto-routes to the Rust binary. Use `azlin-py` to run the Python CLI directly.
 
 azlin is now configured as a `uv` project for ultra-fast dependency management and execution.
 
@@ -12,13 +12,13 @@ The fastest way to use azlin - no installation required:
 
 ```bash
 # Run azlin directly with uvx
-uvx --from /Users/ryan/src/azlin-feat-1 azlin --help
+uvx --from /path/to/azlin azlin --help
 
 # Provision a VM
-uvx --from /Users/ryan/src/azlin-feat-1 azlin
+uvx --from /path/to/azlin azlin
 
 # List VMs
-uvx --from /Users/ryan/src/azlin-feat-1 azlin list
+uvx --from /path/to/azlin azlin list
 ```
 
 ### Method 2: Install from Local Directory
@@ -26,7 +26,7 @@ uvx --from /Users/ryan/src/azlin-feat-1 azlin list
 Install azlin in your environment:
 
 ```bash
-uv pip install /Users/ryan/src/azlin-feat-1
+uv pip install /path/to/azlin
 azlin --help
 ```
 
@@ -35,7 +35,7 @@ azlin --help
 For development with hot-reload:
 
 ```bash
-cd /Users/ryan/src/azlin-feat-1
+cd /path/to/azlin
 uv sync               # Install dependencies
 uv run azlin --help   # Run azlin
 ```
@@ -43,7 +43,7 @@ uv run azlin --help   # Run azlin
 ### Method 4: Traditional pip (Still Works)
 
 ```bash
-cd /Users/ryan/src/azlin-feat-1
+cd /path/to/azlin
 pip install -e .
 azlin --help
 ```

@@ -93,7 +93,7 @@ Secure, browser-based SSH access without public IP addresses.
 Run commands across entire VM fleets in parallel.
 
 ### :material-robot: AI-Powered Features
-Natural language VM management with `azlin do` command and autonomous optimization with `azlin autopilot`.
+Natural language VM management with `azlin doit` command and autonomous optimization with `azlin autopilot`.
 
 ### :material-shield-lock: Secure by Default
 SSH key rotation, NFS RootSquash, Azure AD auth for storage, service principal support.
@@ -153,7 +153,7 @@ Create GPU-enabled VMs for training workloads.
 ### Cost Optimization
 Auto-stop idle VMs and manage quotas.
 
-[:octicons-arrow-right-24: Cost Tracking](monitoring/cost.md)
+[:octicons-arrow-right-24: Cost Tracking](commands/util/cost.md)
 
 ## Getting Help
 
@@ -168,8 +168,8 @@ Auto-stop idle VMs and manage quotas.
 
 -   [:material-download: Installation](getting-started/installation.md)
 -   [:material-rocket-launch: Quick Start](getting-started/quickstart.md)
--   [:material-book-open-variant: API Reference](api/index.md)
--   [:material-bug: Troubleshooting](troubleshooting/index.md)
+-   [:material-book-open-variant: Command Reference](commands/index.md)
+-   [:material-bug: FAQ](faq.md)
 
 </div>
 
@@ -179,7 +179,7 @@ Auto-stop idle VMs and manage quotas.
 - **Written in**: Rust (with Python bridge for backward compatibility)
 - **Repository**: [rysweet/azlin](https://github.com/rysweet/azlin)
 - **Releases**: [GitHub Releases](https://github.com/rysweet/azlin/releases)
-- **Version**: 2.6.16
+- **Version**: 2.6.17
 
 ---
 

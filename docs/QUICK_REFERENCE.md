@@ -1,7 +1,7 @@
 # azlin - Quick Reference Guide
 
-**Version:** 2.3.0-rust
-**Last Updated:** 2026-03-08
+**Version:** 2.6.17
+**Last Updated:** 2026-03-12
 
 ---
 
@@ -9,7 +9,7 @@
 
 ```bash
 # Option 1: Download pre-built Rust binary (fastest)
-curl -sSL https://github.com/rysweet/azlin/releases/download/v2.3.0-rust/azlin-linux-x86_64 -o ~/.local/bin/azlin && chmod +x ~/.local/bin/azlin
+curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-linux-x86_64.tar.gz | tar xz -C ~/.local/bin
 
 # Option 2: Run via uvx (auto-migrates to Rust)
 uvx --from git+https://github.com/rysweet/azlin azlin --help
@@ -619,8 +619,8 @@ azlin <command> --help
 
 ## Version Information
 
-**Current Version:** 2.3.0-rust
-**Last Updated:** 2026-03-08
+**Current Version:** 2.6.17
+**Last Updated:** 2026-03-12
 **Status:** Production Ready (Rust rewrite)
 
 **Key Features:**
@@ -652,10 +652,10 @@ azlin <command> --help
 | `azlin clone` | 10-15 minutes |
 | `azlin update` | 2-5 minutes |
 | `azlin sync` | 30s - 5 minutes |
-| `azlin do` | +2s parsing overhead |
+| `azlin doit` | +2s parsing overhead |
 
 **Optimization Tips:**
 - Use native commands for frequent operations
-- `azlin do` adds 2-3 seconds parsing time
+- `azlin doit` adds 2-3 seconds parsing time
 - Batch operations run in parallel
 - Pool provisioning parallelized (4-7 min regardless of size)

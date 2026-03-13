@@ -1991,13 +1991,13 @@ azlin snapshot sync --vm my-vm
 
 **New in v2.1**: Use natural language to control azlin with Claude AI
 
-The `azlin do` command understands what you want and executes the appropriate commands automatically. Just describe what you need in plain English, and azlin figures out the right commands to run.
+The `azlin doit` command understands what you want and executes the appropriate commands automatically. Just describe what you need in plain English, and azlin figures out the right commands to run.
 
 ### Installation & Setup
 
 ```bash
 # Install via uvx (no installation needed)
-uvx --from git+https://github.com/rysweet/azlin azlin do "list all my vms"
+uvx --from git+https://github.com/rysweet/azlin azlin doit "list all my vms"
 
 # Or install locally
 pip install git+https://github.com/rysweet/azlin
@@ -2017,38 +2017,38 @@ All of these were tested and work reliably:
 
 ```bash
 # VM Provisioning
-azlin do "create a new vm called Sam"
-azlin do "provision a Standard_D4s_v3 vm called ml-trainer"
-uvx --from git+https://github.com/rysweet/azlin azlin do "create a vm"
+azlin doit "create a new vm called Sam"
+azlin doit "provision a Standard_D4s_v3 vm called ml-trainer"
+uvx --from git+https://github.com/rysweet/azlin azlin doit "create a vm"
 
 # Listing VMs
-azlin do "show me all my vms"
-azlin do "list all my vms"
-azlin do "what vms do I have"
+azlin doit "show me all my vms"
+azlin doit "list all my vms"
+azlin doit "what vms do I have"
 
 # Checking Status
-azlin do "what is the status of my vms"
-azlin do "show me vm details"
+azlin doit "what is the status of my vms"
+azlin doit "show me vm details"
 
 # Cost Queries
-azlin do "what are my azure costs"
-azlin do "show me costs by vm"
-azlin do "what's my current azure spending"
+azlin doit "what are my azure costs"
+azlin doit "show me costs by vm"
+azlin doit "what's my current azure spending"
 
 # File Operations
-azlin do "sync all my vms"
-azlin do "sync my home directory to vm Sam"
-azlin do "copy myproject to the vm"
+azlin doit "sync all my vms"
+azlin doit "sync my home directory to vm Sam"
+azlin doit "copy myproject to the vm"
 
 # Starting/Stopping VMs
-azlin do "start my development vm"
-azlin do "stop all test vms"
-azlin do "stop all idle vms to save costs"
+azlin doit "start my development vm"
+azlin doit "stop all test vms"
+azlin doit "stop all idle vms to save costs"
 
 # Complex Multi-Step Operations
-azlin do "create 5 test vms and sync them all"
-azlin do "set up a new development environment"
-azlin do "show me my costs and stop any vms I'm not using"
+azlin doit "create 5 test vms and sync them all"
+azlin doit "set up a new development environment"
+azlin doit "show me my costs and stop any vms I'm not using"
 ```
 
 ### Resource Cleanup with Natural Language
@@ -2057,22 +2057,22 @@ Safe, step-by-step cleanup workflow:
 
 ```bash
 # Step 1: List what you have
-azlin do "show me all my vms"
+azlin doit "show me all my vms"
 
 # Step 2: Preview deletion (dry-run)
-azlin do "delete all test vms" --dry-run
+azlin doit "delete all test vms" --dry-run
 
 # Step 3: Execute deletion (with confirmation)
-azlin do "delete all test vms"
+azlin doit "delete all test vms"
 # Shows what will be deleted and asks "Execute these commands? [y/N]"
 
 # Step 4: Verify cleanup
-azlin do "list all vms"
+azlin doit "list all vms"
 
 # Other cleanup examples
-azlin do "delete vm called experiment-123"
-azlin do "delete vms older than 7 days"
-azlin do "stop all stopped vms to deallocate them"
+azlin doit "delete vm called experiment-123"
+azlin doit "delete vms older than 7 days"
+azlin doit "stop all stopped vms to deallocate them"
 ```
 
 ### Error Handling & Safety
@@ -2081,15 +2081,15 @@ The system gracefully handles invalid requests:
 
 ```bash
 # Invalid requests (no action taken)
-azlin do "make me coffee"
+azlin doit "make me coffee"
 # Response: Warning: Low confidence. No commands executed.
 
 # Ambiguous requests (asks for clarification)
-azlin do "update something"
+azlin doit "update something"
 # Response: Warning: Low confidence. Continue anyway? [y/N]
 
 # Dry-run for safety
-azlin do "delete everything" --dry-run
+azlin doit "delete everything" --dry-run
 # Shows plan without executing anything
 ```
 
@@ -2097,16 +2097,16 @@ azlin do "delete everything" --dry-run
 
 ```bash
 # Preview without executing
-azlin do "delete all old vms" --dry-run
+azlin doit "delete all old vms" --dry-run
 
 # Skip confirmation prompts (for automation)
-azlin do "create vm test-001" --yes
+azlin doit "create vm test-001" --yes
 
 # See detailed parsing and execution
-azlin do "create a vm" --verbose
+azlin doit "create a vm" --verbose
 
 # Combine options
-azlin do "delete test vms" --dry-run --verbose
+azlin doit "delete test vms" --dry-run --verbose
 ```
 
 ### Features
@@ -2187,9 +2187,8 @@ azlin doit cleanup --force      # Delete all doit resources
 ```
 
 **📖 Learn More:**
-- [Quick Start Guide](QUICKSTART_DOIT.md)
-- [Tagging & Management](DOIT_TAGGING_AND_MANAGEMENT.md)
-- [Architecture Docs](src/azlin/doit/README.md)
+- [Doit Documentation](docs/AZDOIT.md)
+- [Doit README](docs/AZDOIT_README.md)
 
 ---
 

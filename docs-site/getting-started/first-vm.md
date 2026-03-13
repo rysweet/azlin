@@ -225,19 +225,17 @@ Now that you have your first VM:
 
 - [Create NFS storage](../storage/creating.md)
 - [Mount storage on VMs](../storage/mounting.md)
-- [Share data across VMs](../storage/shared-home.md)
+- [Share data across VMs](../storage/mounting.md)
 
 ### Transfer Files
 
-- [Copy files with azlin cp](../file-transfer/copy.md)
-- [Sync home directory](../file-transfer/sync.md)
-- [Manage dotfiles](../file-transfer/dotfiles.md)
+- Copy files with `azlin cp` (see `azlin cp --help`)
+- Sync home directory with `azlin sync` (see `azlin sync --help`)
 
 ### Monitor VMs
 
-- [Check VM status](../monitoring/status.md)
 - [View distributed metrics](../monitoring/top.md)
-- [Track costs](../monitoring/cost.md)
+- Track costs with `azlin cost`
 
 ## Troubleshooting
 
@@ -248,7 +246,7 @@ Now that you have your first VM:
 azlin quota
 ```
 
-See [Quota Management](../advanced/quotas.md) if you hit limits.
+Try a different region or request a quota increase in the Azure portal.
 
 ### Can't connect via SSH
 
@@ -262,7 +260,7 @@ azlin status my-first-vm
 cat ~/.ssh/config | grep my-first-vm
 ```
 
-See [Connection Issues](../troubleshooting/connection.md) for more help.
+If the VM is running, verify SSH connectivity with `ssh -v <vm-ip>`.
 
 ### Tools not installed
 
@@ -272,7 +270,7 @@ azlin connect my-first-vm
 which docker az gh git node python3
 ```
 
-If still missing, see [Common Issues](../troubleshooting/common-issues.md).
+If still missing, cloud-init may not have finished. Wait a few minutes and reconnect.
 
 ## Cleaning Up
 
