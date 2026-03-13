@@ -402,9 +402,9 @@ azlin new --name temp-vm --no-auto-connect
 
 ## Source Code
 
-- [vm_provisioning.py](https://github.com/rysweet/azlin/blob/main/src/azlin/vm_provisioning.py) - Core provisioning logic
-- [cli.py](https://github.com/rysweet/azlin/blob/main/src/azlin/cli.py) - CLI command definition
-- [cloud-init template](https://github.com/rysweet/azlin/blob/main/src/azlin/cloud_init_config.py) - Cloud-init script
+- [vm.rs](https://github.com/rysweet/azlin/blob/main/rust/crates/azlin-azure/src/vm.rs) - Core provisioning logic (`create_vm`)
+- [cmd_vm_ops.rs](https://github.com/rysweet/azlin/blob/main/rust/crates/azlin/src/cmd_vm_ops.rs) - `new` command handler
+- [lib.rs](https://github.com/rysweet/azlin/blob/main/rust/crates/azlin-cli/src/lib.rs) - CLI command definitions
 
 ## See Also
 

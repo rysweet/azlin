@@ -346,8 +346,9 @@ jobs:
 
 ## Source Code
 
-- [vm_lifecycle_control.py](https://github.com/rysweet/azlin/blob/main/src/azlin/vm_lifecycle_control.py) - Start/stop logic
-- [cli.py](https://github.com/rysweet/azlin/blob/main/src/azlin/cli.py) - CLI command definition
+- [cmd_lifecycle.rs](https://github.com/rysweet/azlin/blob/main/rust/crates/azlin/src/cmd_lifecycle.rs) - Start/stop dispatch
+- [vm.rs](https://github.com/rysweet/azlin/blob/main/rust/crates/azlin-azure/src/vm.rs) - VM stop/deallocate operations
+- [lib.rs](https://github.com/rysweet/azlin/blob/main/rust/crates/azlin-cli/src/lib.rs) - CLI command definitions
 
 ## See Also
 

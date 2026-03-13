@@ -165,6 +165,17 @@ pub struct CreateVmParams {
     pub ssh_key_path: PathBuf,
     pub image: VmImage,
     pub tags: HashMap<String, String>,
+    /// Whether to create a public IP. Set to false for bastion-only VMs.
+    #[serde(default = "default_true")]
+    pub public_ip_enabled: bool,
+    /// Optional list of managed-disk resource IDs to attach during creation.
+    /// Order matters: first disk = lun0, second = lun1, etc.
+    #[serde(default)]
+    pub disk_ids: Vec<String>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl CreateVmParams {
@@ -446,6 +457,8 @@ mod tests {
             ssh_key_path: PathBuf::from("/tmp/nonexistent.pub"),
             image: VmImage::default(),
             tags: HashMap::new(),
+            public_ip_enabled: true,
+            disk_ids: vec![],
         };
         assert!(params.validate().is_err());
         assert!(params.validate().unwrap_err().contains("name"));
@@ -462,6 +475,8 @@ mod tests {
             ssh_key_path: PathBuf::from("/tmp/nonexistent.pub"),
             image: VmImage::default(),
             tags: HashMap::new(),
+            public_ip_enabled: true,
+            disk_ids: vec![],
         };
         assert!(params.validate().is_err());
         assert!(params.validate().unwrap_err().contains("64 characters"));
@@ -478,6 +493,8 @@ mod tests {
             ssh_key_path: PathBuf::from("/home/user/.ssh/id_rsa.pub"),
             image: VmImage::default(),
             tags: HashMap::from([("env".into(), "dev".into())]),
+            public_ip_enabled: true,
+            disk_ids: vec![],
         };
         let json = serde_json::to_string(&params).unwrap();
         let deserialized: CreateVmParams = serde_json::from_str(&json).unwrap();
@@ -498,6 +515,8 @@ mod tests {
             ssh_key_path: PathBuf::from("/tmp/nonexistent_key_abc123.pub"),
             image: VmImage::default(),
             tags: HashMap::new(),
+            public_ip_enabled: true,
+            disk_ids: vec![],
         };
         let err = params.validate().unwrap_err();
         assert!(err.contains("SSH public key not found"));
@@ -618,6 +637,8 @@ mod tests {
             ssh_key_path: PathBuf::from("/tmp/nonexistent.pub"),
             image: VmImage::default(),
             tags: HashMap::new(),
+            public_ip_enabled: true,
+            disk_ids: vec![],
         };
         let err = params.validate().unwrap_err();
         assert!(err.contains("Resource group"));
@@ -634,6 +655,8 @@ mod tests {
             ssh_key_path: PathBuf::from("/tmp/nonexistent.pub"),
             image: VmImage::default(),
             tags: HashMap::new(),
+            public_ip_enabled: true,
+            disk_ids: vec![],
         };
         let err = params.validate().unwrap_err();
         assert!(err.contains("Region"));
@@ -650,6 +673,8 @@ mod tests {
             ssh_key_path: PathBuf::from("/tmp/nonexistent.pub"),
             image: VmImage::default(),
             tags: HashMap::new(),
+            public_ip_enabled: true,
+            disk_ids: vec![],
         };
         let err = params.validate().unwrap_err();
         assert!(err.contains("VM size"));
@@ -666,6 +691,8 @@ mod tests {
             ssh_key_path: PathBuf::from("/tmp/nonexistent.pub"),
             image: VmImage::default(),
             tags: HashMap::new(),
+            public_ip_enabled: true,
+            disk_ids: vec![],
         };
         let err = params.validate().unwrap_err();
         assert!(err.contains("username"));
@@ -684,6 +711,8 @@ mod tests {
             ssh_key_path: keyfile.path().to_path_buf(),
             image: VmImage::default(),
             tags: HashMap::new(),
+            public_ip_enabled: true,
+            disk_ids: vec![],
         };
         assert!(params.validate().is_ok());
     }
@@ -701,6 +730,8 @@ mod tests {
             ssh_key_path: keyfile.path().to_path_buf(),
             image: VmImage::default(),
             tags: HashMap::new(),
+            public_ip_enabled: true,
+            disk_ids: vec![],
         };
         assert!(params.validate().is_ok());
     }
