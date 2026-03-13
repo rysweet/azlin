@@ -35,6 +35,7 @@ const ORPHANED_PUBLIC_IP_MONTHLY_COST: f64 = 3.65;
 const DEFAULT_ADMIN_USERNAME: &str = "azureuser";
 
 /// Health metrics collected from a VM via SSH.
+#[derive(Debug)]
 struct HealthMetrics {
     vm_name: String,
     power_state: String,
