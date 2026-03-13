@@ -130,7 +130,9 @@ fn download_and_replace(url: &str, version: &str) -> Result<()> {
     pb.set_message("Replacing binary...");
     let backup = current_exe.with_extension("old");
     if backup.exists() {
-        fs::remove_file(&backup).ok();
+        if let Err(e) = fs::remove_file(&backup) {
+            eprintln!("Warning: failed to remove old backup: {e}");
+        }
     }
     fs::rename(&current_exe, &backup)
         .context("Failed to backup current binary (try running with sudo)")?;
@@ -143,8 +145,12 @@ fn download_and_replace(url: &str, version: &str) -> Result<()> {
     }
 
     // Clean up backup and temp dir
-    fs::remove_file(&backup).ok();
-    fs::remove_dir_all(&tmp_dir).ok();
+    if let Err(e) = fs::remove_file(&backup) {
+        eprintln!("Warning: failed to clean up backup file: {e}");
+    }
+    if let Err(e) = fs::remove_dir_all(&tmp_dir) {
+        eprintln!("Warning: failed to clean up temp directory: {e}");
+    }
 
     pb.finish_and_clear();
     println!("Updated azlin: {} → {}", CURRENT_VERSION, version);
