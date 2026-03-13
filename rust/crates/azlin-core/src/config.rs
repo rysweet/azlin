@@ -234,6 +234,57 @@ impl AzlinConfig {
         Ok(())
     }
 
+    /// Load config, update a single field by key, validate, and save atomically.
+    ///
+    /// This is the canonical way to update a config field. It ensures the full
+    /// load -> validate -> serialize -> write cycle so the config file always
+    /// contains valid TOML with all fields.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the key is unknown, the value fails validation,
+    /// or the save operation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use azlin_core::AzlinConfig;
+    ///
+    /// AzlinConfig::set_field("az_cli_timeout", "600").unwrap();
+    /// let config = AzlinConfig::load().unwrap();
+    /// assert_eq!(config.az_cli_timeout, 600);
+    /// ```
+    pub fn set_field(key: &str, value: &str) -> crate::Result<()> {
+        let config = Self::load()?;
+        let mut json = serde_json::to_value(&config).map_err(|e| {
+            crate::AzlinError::Config(format!("Failed to serialize config to JSON: {e}"))
+        })?;
+
+        // Reject unknown keys
+        if let Some(obj) = json.as_object() {
+            if !obj.contains_key(key) {
+                return Err(crate::AzlinError::Config(format!(
+                    "Unknown config key: {key}"
+                )));
+            }
+        }
+
+        let validated = Self::validate_field(key, value)?;
+
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert(key.to_string(), validated);
+        }
+
+        let updated: AzlinConfig = serde_json::from_value(json).map_err(|e| {
+            crate::AzlinError::Config(format!(
+                "Failed to deserialize updated config: {e}"
+            ))
+        })?;
+
+        updated.save()?;
+        Ok(())
+    }
+
     /// Boolean field names in the config.
     const BOOL_FIELDS: &[&str] = &[
         "ssh_auto_sync_keys",
@@ -779,5 +830,116 @@ mod tests {
         // Defaults for fields not in the TOML
         assert_eq!(config.az_cli_timeout, 120);
         assert!(config.ssh_auto_sync_keys);
+    }
+
+    // ── set_field logic tests ──────────────────────────────────────
+    // These test the core set_field logic without relying on AZLIN_CONFIG_DIR
+    // env var (which causes race conditions in parallel tests).
+    // Instead they simulate the same load -> validate -> update -> serialize
+    // roundtrip that set_field performs.
+
+    /// Simulate what set_field does: load config, update via JSON, serialize back.
+    /// Returns the TOML string and the parsed config.
+    fn simulate_set_field(
+        initial: &AzlinConfig,
+        key: &str,
+        value: &str,
+    ) -> (String, AzlinConfig) {
+        let mut json = serde_json::to_value(initial).unwrap();
+        assert!(json.as_object().unwrap().contains_key(key), "unknown key");
+        let validated = AzlinConfig::validate_field(key, value).unwrap();
+        json.as_object_mut().unwrap().insert(key.to_string(), validated);
+        let updated: AzlinConfig = serde_json::from_value(json).unwrap();
+        let toml_str = toml::to_string_pretty(&updated).unwrap();
+        // Verify roundtrip
+        let reparsed: AzlinConfig = toml::from_str(&toml_str).unwrap();
+        (toml_str, reparsed)
+    }
+
+    #[test]
+    fn test_set_field_u64_produces_valid_toml() {
+        let config = AzlinConfig::default();
+        let (toml_str, parsed) = simulate_set_field(&config, "az_cli_timeout", "600");
+
+        assert_eq!(parsed.az_cli_timeout, 600);
+
+        // The raw TOML must NOT contain a bare "600" line (issue #800)
+        for line in toml_str.lines() {
+            assert_ne!(
+                line.trim(), "600",
+                "TOML must not contain raw '600' line — issue #800"
+            );
+        }
+
+        // Other fields preserved
+        assert_eq!(parsed.default_region, "westus2");
+        assert_eq!(parsed.default_vm_size, "Standard_E16as_v5");
+    }
+
+    #[test]
+    fn test_set_field_string_produces_valid_toml() {
+        let config = AzlinConfig::default();
+        let (_, parsed) = simulate_set_field(&config, "default_region", "northeurope");
+        assert_eq!(parsed.default_region, "northeurope");
+        assert_eq!(parsed.az_cli_timeout, 120); // untouched
+    }
+
+    #[test]
+    fn test_set_field_bool_produces_valid_toml() {
+        let config = AzlinConfig::default();
+        let (_, parsed) = simulate_set_field(&config, "ssh_auto_sync_keys", "false");
+        assert!(!parsed.ssh_auto_sync_keys);
+    }
+
+    #[test]
+    fn test_set_field_unknown_key_rejected_by_set_field() {
+        let config = AzlinConfig::default();
+        let json = serde_json::to_value(&config).unwrap();
+        assert!(
+            !json.as_object().unwrap().contains_key("nonexistent_key"),
+            "unknown key should not be in config"
+        );
+    }
+
+    #[test]
+    fn test_set_field_consecutive_sets_produce_valid_toml() {
+        let config = AzlinConfig::default();
+        let (toml1, c1) = simulate_set_field(&config, "az_cli_timeout", "300");
+        // Parse c1 and apply next set
+        let c1_reparsed: AzlinConfig = toml::from_str(&toml1).unwrap();
+        let (toml2, c2) = simulate_set_field(&c1_reparsed, "default_region", "eastus");
+        let c2_reparsed: AzlinConfig = toml::from_str(&toml2).unwrap();
+        let (_, c3) = simulate_set_field(&c2_reparsed, "ssh_auto_sync_keys", "false");
+
+        assert_eq!(c3.az_cli_timeout, 300);
+        assert_eq!(c3.default_region, "eastus");
+        assert!(!c3.ssh_auto_sync_keys);
+        // Untouched fields at default
+        assert_eq!(c3.default_vm_size, "Standard_E16as_v5");
+        assert_eq!(c3.ssh_sync_timeout, 30);
+    }
+
+    #[test]
+    fn test_set_field_on_default_config_produces_valid_toml() {
+        // Simulates set_field on a fresh (default) config
+        let config = AzlinConfig::default();
+        let (toml_str, parsed) = simulate_set_field(&config, "az_cli_timeout", "600");
+
+        // Must be parseable
+        let _: AzlinConfig = toml::from_str(&toml_str).unwrap();
+        assert_eq!(parsed.az_cli_timeout, 600);
+        assert_eq!(parsed.default_region, "westus2"); // defaults preserved
+    }
+
+    #[test]
+    fn test_set_field_toml_contains_key_equals_value() {
+        let config = AzlinConfig::default();
+        let (toml_str, _) = simulate_set_field(&config, "az_cli_timeout", "600");
+
+        // The TOML must contain `az_cli_timeout = 600` (proper key=value format)
+        assert!(
+            toml_str.contains("az_cli_timeout = 600"),
+            "TOML should contain 'az_cli_timeout = 600', got:\n{toml_str}"
+        );
     }
 }

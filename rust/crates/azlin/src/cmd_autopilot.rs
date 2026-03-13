@@ -106,7 +106,7 @@ pub(crate) async fn dispatch(
             }
             azlin_cli::AutopilotAction::Run { dry_run } => {
                 // Check VM utilization and recommend actions
-                let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+                let _config = azlin_core::AzlinConfig::load().unwrap_or_default();
                 let rg = resolve_resource_group(None)?;
                 let auth = create_auth()?;
                 let vm_manager = azlin_azure::VmManager::new(&auth);

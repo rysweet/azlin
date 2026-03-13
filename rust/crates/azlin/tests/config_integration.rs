@@ -262,3 +262,101 @@ fn test_config_help() {
     assert!(stdout.contains("set"), "config help should mention set");
     assert!(stdout.contains("get"), "config help should mention get");
 }
+
+// ---------------------------------------------------------------------------
+// Regression test for issue #800: config set must write valid TOML, not
+// append the raw value. After `config set az_cli_timeout 600`, the file
+// must contain `az_cli_timeout = 600` (valid TOML), NOT a bare `600` line.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_config_set_writes_valid_toml_not_raw_value() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let dir = tmp.path().to_str().unwrap();
+    let env = [("AZLIN_CONFIG_DIR", dir)];
+
+    // Set a u64 field
+    let (_, _, code) =
+        run_azlin_with_env(&["config", "set", "az_cli_timeout", "600"], &env);
+    assert_eq!(code, 0, "config set az_cli_timeout should exit 0");
+
+    // Read the raw file and verify it is valid TOML
+    let config_path = std::path::Path::new(dir).join("config.toml");
+    let raw = std::fs::read_to_string(&config_path).expect("config.toml should exist");
+
+    // The raw file must NOT contain a bare "600" line (the bug from issue #800)
+    for line in raw.lines() {
+        assert_ne!(
+            line.trim(),
+            "600",
+            "config.toml must not contain raw '600' line — issue #800 regression"
+        );
+    }
+
+    // The file must be parseable as valid TOML
+    let parsed: toml::Value =
+        toml::from_str(&raw).expect("config.toml must contain valid TOML after config set");
+
+    // The value should be set correctly
+    assert_eq!(
+        parsed.get("az_cli_timeout").and_then(|v| v.as_integer()),
+        Some(600),
+        "az_cli_timeout should be 600 in the TOML file"
+    );
+
+    // Subsequent config show should work (not crash on parse)
+    let (_, _, code) = run_azlin_with_env(&["config", "show"], &env);
+    assert_eq!(
+        code, 0,
+        "config show after config set must succeed — config file must be valid"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Regression test: consecutive config set operations must produce valid TOML.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_config_set_consecutive_sets_valid_toml() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let dir = tmp.path().to_str().unwrap();
+    let env = [("AZLIN_CONFIG_DIR", dir)];
+
+    // Multiple consecutive sets
+    let (_, _, c1) =
+        run_azlin_with_env(&["config", "set", "az_cli_timeout", "300"], &env);
+    assert_eq!(c1, 0);
+
+    let (_, _, c2) =
+        run_azlin_with_env(&["config", "set", "default_region", "eastus"], &env);
+    assert_eq!(c2, 0);
+
+    let (_, _, c3) =
+        run_azlin_with_env(&["config", "set", "ssh_auto_sync_keys", "false"], &env);
+    assert_eq!(c3, 0);
+
+    // File must be valid TOML
+    let config_path = std::path::Path::new(dir).join("config.toml");
+    let raw = std::fs::read_to_string(&config_path).expect("config.toml should exist");
+    let parsed: toml::Value =
+        toml::from_str(&raw).expect("config.toml must be valid TOML after multiple sets");
+
+    assert_eq!(
+        parsed.get("az_cli_timeout").and_then(|v| v.as_integer()),
+        Some(300)
+    );
+    assert_eq!(
+        parsed.get("default_region").and_then(|v| v.as_str()),
+        Some("eastus")
+    );
+    assert_eq!(
+        parsed
+            .get("ssh_auto_sync_keys")
+            .and_then(|v| v.as_bool()),
+        Some(false)
+    );
+
+    // Config show must still work
+    let (_, _, code) = run_azlin_with_env(&["config", "show"], &env);
+    assert_eq!(code, 0, "config show must succeed after multiple sets");
+}
