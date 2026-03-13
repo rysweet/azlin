@@ -247,7 +247,7 @@ Tests should progressively pass as each module is implemented following TDD:
 ## Architecture Validation
 
 These tests validate the architecture defined in:
-- `/Users/ryan/src/azlin20260114/worktrees/feat-issue-550-azlin-pwa/docs/pwa/architecture.md`
+- `docs/pwa/architecture.md`
 
 Key architectural elements tested:
 ✅ Device Code Flow authentication

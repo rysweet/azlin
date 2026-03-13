@@ -47,4 +47,4 @@ Guides for power users and advanced azlin features.
 ## See Also
 
 - [Command Reference](../commands/index.md)
-- [Troubleshooting](../troubleshooting/index.md)
+- [FAQ](../faq.md)

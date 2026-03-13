@@ -16,7 +16,7 @@ In this section, you'll learn how to:
 Before you start, make sure you have:
 
 - **Azure Account** - [Create a free account](https://azure.microsoft.com/free/)
-- **Python 3.12+** - [Download Python](https://www.python.org/downloads/)
+- **Python 3.11+** - [Download Python](https://www.python.org/downloads/) (only needed for `uvx` or Python bridge)
 - **Azure CLI** - [Install Azure CLI](https://docs.microsoft.com/cli/azure/install-azure-cli)
 - **SSH Client** - Pre-installed on macOS/Linux, [Download for Windows](https://www.openssh.com/)
 
@@ -49,21 +49,19 @@ Jump to [Quick Start](quickstart.md) to create your first VM immediately.
 Read [Basic Concepts](concepts.md) to understand how azlin works.
 
 ### 4. Ready to Explore?
-Check out [Authentication](../authentication/index.md) for advanced auth setups.
+Check out [Authentication](../authentication/service-principal.md) for advanced auth setups.
 
 ## What's Next?
 
 After creating your first VM:
 
 - **[Connect to VMs](../vm-lifecycle/connecting.md)** - SSH into your VMs
-- **[Manage Storage](../storage/index.md)** - Set up shared NFS storage
-- **[Transfer Files](../file-transfer/index.md)** - Copy files to/from VMs
-- **[Monitor VMs](../monitoring/index.md)** - Track resource usage
+- **[Manage Storage](../storage/creating.md)** - Set up shared NFS storage
 
 ## Need Help?
 
 - **In-app help**: Run `azlin --help` or `azlin <command> --help`
-- **Troubleshooting**: Check [Common Issues](../troubleshooting/common-issues.md)
+- **FAQ**: Check [Frequently Asked Questions](../faq.md)
 - **GitHub Issues**: [Report bugs](https://github.com/rysweet/azlin/issues)
 - **Discussions**: [Ask questions](https://github.com/rysweet/azlin/discussions)
 

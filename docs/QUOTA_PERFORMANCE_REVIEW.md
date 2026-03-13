@@ -66,7 +66,7 @@ This returns **ALL quota types** for the region (typically 50-100 quota entries)
 
 ### Current Implementation: GOOD
 
-**File:** `/Users/ryan/src/TuesdayTmp/azlin2/src/azlin/quota_manager.py:264`
+**File:** `src/azlin/quota_manager.py:264`
 
 ```python
 with ThreadPoolExecutor(max_workers=min(10, len(locations))) as executor:
@@ -91,7 +91,7 @@ with ThreadPoolExecutor(max_workers=min(10, len(locations))) as executor:
 
 ### Cache Configuration
 
-**File:** `/Users/ryan/src/TuesdayTmp/azlin2/src/azlin/quota_manager.py:78-80`
+**File:** `src/azlin/quota_manager.py:78-80`
 
 ```python
 _quota_cache: dict[str, tuple[QuotaInfo | None, float]] = {}
@@ -200,7 +200,7 @@ All users experience:
 
 ### Issue 1: Default Flag Inconsistency
 
-**Location:** `/Users/ryan/src/TuesdayTmp/azlin2/src/azlin/cli.py:1870`
+**Location:** `src/azlin/cli.py:1870`
 
 ```python
 @click.option("--show-quota/--no-quota", default=True, help="Show Azure vCPU quota information")
@@ -281,7 +281,7 @@ cache_key = f"{region}:{quota_name}"
 
 **Action:**
 ```python
-# File: /Users/ryan/src/TuesdayTmp/azlin2/src/azlin/cli.py:1870
+# File: src/azlin/cli.py:1870
 # Change from:
 @click.option("--show-quota/--no-quota", default=True, help="Show Azure vCPU quota information")
 
@@ -418,12 +418,12 @@ The quota fetching implementation is **technically sound** but has a **critical 
 **Key files reviewed:**
 
 1. **Implementation:**
-   - `/Users/ryan/src/TuesdayTmp/azlin2/src/azlin/quota_manager.py` (287 lines)
-   - `/Users/ryan/src/TuesdayTmp/azlin2/src/azlin/cli.py:1865-2027` (list command)
+   - `src/azlin/quota_manager.py` (287 lines)
+   - `src/azlin/cli.py:1865-2027` (list command)
 
 2. **Tests:**
-   - `/Users/ryan/src/TuesdayTmp/azlin2/tests/unit/test_quota_manager.py` (497 lines, 32 test cases)
-   - `/Users/ryan/src/TuesdayTmp/azlin2/tests/integration/test_cli_list.py` (688 lines)
+   - `tests/unit/test_quota_manager.py` (497 lines, 32 test cases)
+   - `tests/integration/test_cli_list.py` (688 lines)
 
 3. **Related:**
    - Commit ffaba73: Initial quota feature (PR #207)

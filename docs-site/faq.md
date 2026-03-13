@@ -8,7 +8,7 @@ azlin is a CLI tool for provisioning and managing Azure Ubuntu VMs for developme
 
 ### What language is azlin written in?
 
-azlin is written in Rust. It was rewritten from Python at version 2.3.0-rust, providing 75-85x faster startup. A Python bridge (`azlin-py`) is still available for backward compatibility.
+azlin is written in Rust (current version 2.6.17), providing 75-85x faster startup than the original Python implementation. A Python bridge (`azlin-py`) is still available for backward compatibility.
 
 ### How much does it cost?
 
@@ -102,11 +102,11 @@ You've hit your Azure vCPU quota for the region. Options:
 - Request a quota increase in the Azure portal
 - Use a smaller VM size: `azlin new --name myvm --vm-size Standard_B2s`
 
-See [Quota Management](advanced/quotas.md) for details.
+Check your quota with `az vm list-usage --location <region>`.
 
 ### I can't connect to my VM
 
-Check the [Connection Troubleshooting](troubleshooting/connection.md) guide. Common causes:
+Common causes:
 
 - VM is stopped (`azlin start myvm`)
 - NSG rules blocking SSH (port 22)

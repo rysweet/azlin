@@ -176,4 +176,4 @@ All operations are:
 - **Validated**: Input validation before any Azure operations
 - **Logged**: Full logging for debugging
 
-For architecture details, see [DESIGN_NFS_STORAGE.md](docs/DESIGN_NFS_STORAGE.md).
+For architecture details, see the [ARCHITECTURE.md](ARCHITECTURE.md) documentation.

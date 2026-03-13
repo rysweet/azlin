@@ -11,7 +11,7 @@ Install azlin on your system to start provisioning Azure VMs.
 
 ### Optional
 
-- **Python 3.12+** - Only needed if using the Python bridge (`azlin-py`) or `uvx`
+- **Python 3.11+** - Only needed if using the Python bridge (`azlin-py`) or `uvx`
 - **Cargo** - Only needed if building from source
 - **Git** - For cloning repositories
 
@@ -185,7 +185,7 @@ mkdir -p ~/.local/bin
 Now that azlin is installed:
 
 1. **[Quick Start →](quickstart.md)** - Create your first VM
-2. **[Authentication Setup →](../authentication/index.md)** - Configure Azure authentication
+2. **[Authentication Setup →](../authentication/service-principal.md)** - Configure Azure authentication
 3. **[Basic Concepts →](concepts.md)** - Learn how azlin works
 
 ---

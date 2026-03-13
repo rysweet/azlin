@@ -186,14 +186,10 @@ nav:
     - Compound VM:Session Naming: getting-started/compound-naming.md
 
   - Authentication:
-    - authentication/index.md
-    - Azure CLI Auth: authentication/azure-cli.md
     - Service Principal: authentication/service-principal.md
-    - Authentication Profiles: authentication/profiles.md
     - Multi-Tenant Context: authentication/multi-tenant.md
 
   - VM Lifecycle:
-    - vm-lifecycle/index.md
     - Creating VMs: vm-lifecycle/creating.md
     - Listing VMs: vm-lifecycle/listing.md
     - Connecting: vm-lifecycle/connecting.md
@@ -206,46 +202,14 @@ nav:
     - storage/index.md
     - Creating Storage: storage/creating.md
     - Mounting Storage: storage/mounting.md
-    - Mount Local (macOS): storage/mount-local.md
-    - Storage Status: storage/status.md
-    - Shared Home Directories: storage/shared-home.md
-
-  - File Transfer:
-    - file-transfer/index.md
-    - Copy Command: file-transfer/copy.md
-    - Home Directory Sync: file-transfer/sync.md
-    - Dotfiles Management: file-transfer/dotfiles.md
-
-  - Environment Management:
-    - environment/index.md
-    - Setting Variables: environment/set.md
-    - Listing Variables: environment/list.md
-    - Import/Export: environment/import-export.md
-    - Best Practices: environment/best-practices.md
-
-  - Snapshots & Backups:
-    - snapshots/index.md
-    - Creating Snapshots: snapshots/create.md
-    - Restoring Snapshots: snapshots/restore.md
-    - Scheduled Backups: snapshots/scheduled.md
-    - Snapshot Management: snapshots/management.md
 
   - Azure Bastion:
-    - bastion/index.md
-    - What is Bastion: bastion/overview.md
     - Bastion Setup: bastion/setup.md
-    - Connecting via Bastion: bastion/connecting.md
     - Security: bastion/security.md
-    - Cost Analysis: bastion/cost.md
 
   - Monitoring:
-    - monitoring/index.md
-    - Status Command: monitoring/status.md
     - Distributed Top: monitoring/top.md
-    - W Command: monitoring/w.md
-    - PS Command: monitoring/ps.md
     - Logs Viewer: monitoring/logs.md
-    - Cost Tracking: monitoring/cost.md
 
   - Batch Operations:
     - batch/index.md
@@ -256,21 +220,12 @@ nav:
 
   - AI Features:
     - ai/index.md
-    - Do Command: ai/do.md
-    - Natural Language: ai/natural-language.md
     - Azdoit: ai/azdoit.md
     - Autopilot: ai/autopilot.md
 
   - Advanced Topics:
     - advanced/index.md
-    - Templates: advanced/templates.md
-    - SSH Key Management: advanced/ssh-keys.md
-    - Tags: advanced/tags.md
-    - Multi-Context: advanced/multi-context.md
     - GitHub Runners: advanced/github-runners.md
-    - Docker Compose: advanced/compose.md
-    - Quota Management: advanced/quotas.md
-    - Pruning VMs: advanced/pruning.md
     - GUI Forwarding: advanced/gui-forwarding.md
     - Session Management: advanced/session-management.md
     - Template System V2: advanced/templates-v2.md
@@ -415,31 +370,15 @@ nav:
       - Startup Version Check: commands/util/version-check.md
 
   - Development:
-    - development/index.md
     - Architecture: development/architecture.md
-    - Contributing: development/contributing.md
     - Testing: development/testing.md
     - Release Process: development/release.md
 
-  - API Reference:
-    - api/index.md
-    - Core Modules: api/core.md
-    - VM Management: api/vm-management.md
-    - Storage: api/storage.md
-    - Authentication: api/authentication.md
-
   - Troubleshooting:
-    - troubleshooting/index.md
-    - Common Issues: troubleshooting/common-issues.md
-    - Authentication Errors: troubleshooting/auth-errors.md
-    - Connection Issues: troubleshooting/connection.md
-    - Quota Errors: troubleshooting/quota.md
-    - Debug Mode: troubleshooting/debug.md
     - Compound Naming: troubleshooting/compound-naming.md
 
   - FAQ: faq.md
   - Changelog: changelog.md
-  - License: license.md
 
 # Documentation directory
 docs_dir: docs-site

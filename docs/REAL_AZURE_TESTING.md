@@ -84,7 +84,7 @@ azlin config set default_resource_group=azlin-test-rg
 
 ### 4. Install from Branch
 ```bash
-cd /Users/ryan/src/azlin-azdoit
+cd /path/to/azlin
 uv pip install -e .
 
 # Verify installation
@@ -324,7 +324,7 @@ We've created an automated test script that runs all the above tests systematica
 ### Usage
 
 ```bash
-cd /Users/ryan/src/azlin-azdoit
+cd /path/to/azlin
 
 # Set API key
 export ANTHROPIC_API_KEY=your-key-here

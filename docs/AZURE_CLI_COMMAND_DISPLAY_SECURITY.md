@@ -840,9 +840,9 @@ If vulnerability affects users:
 ## 10. References
 
 ### Internal Documentation
-- `/Users/ryan/src/TuesdayTmp/azlin/worktrees/feat/issue-236-azure-ops-visibility/src/azlin/log_sanitizer.py`
-- `/Users/ryan/src/TuesdayTmp/azlin/worktrees/feat/issue-236-azure-ops-visibility/src/azlin/agentic/audit_logger.py`
-- `/Users/ryan/src/TuesdayTmp/azlin/worktrees/feat/issue-236-azure-ops-visibility/tests/unit/test_auth_security.py`
+- `src/azlin/log_sanitizer.py`
+- `src/azlin/agentic/audit_logger.py`
+- `tests/unit/test_auth_security.py`
 
 ### External Resources
 - [Azure CLI Security Best Practices](https://learn.microsoft.com/en-us/cli/azure/azure-cli-security)

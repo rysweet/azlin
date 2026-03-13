@@ -881,9 +881,9 @@ This document defines the security requirements for Azure Bastion integration in
 - [OWASP Top 10](https://owasp.org/www-project-top-ten/)
 
 **Azlin Documentation:**
-- [Existing Security Posture](/Users/ryan/src/TuesdayTmp/azlin/src/azlin/service_principal_auth.py)
-- [Log Sanitization](/Users/ryan/src/TuesdayTmp/azlin/src/azlin/log_sanitizer.py)
-- [SSH Key Management](/Users/ryan/src/TuesdayTmp/azlin/src/azlin/modules/ssh_keys.py)
+- [Existing Security Posture](../src/azlin/service_principal_auth.py)
+- [Log Sanitization](../src/azlin/log_sanitizer.py)
+- [SSH Key Management](../src/azlin/modules/ssh_keys.py)
 
 ---
 

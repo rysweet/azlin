@@ -82,8 +82,6 @@ azlin self-update
 ## What's Next?
 
 - **[Create Shared Storage](../storage/creating.md)** - Set up NFS storage
-- **[Transfer Files](../file-transfer/copy.md)** - Copy files to/from VMs
-- **[Manage Multiple VMs](../vm-lifecycle/index.md)** - Scale your fleet
 - **[GUI Forwarding](../advanced/gui-forwarding.md)** - Run remote GUI apps locally
 - **[Set Up Authentication](../authentication/service-principal.md)** - Use service principals
 
@@ -91,15 +89,15 @@ azlin self-update
 
 **Issue: Quota exceeded**
 
-See [Quota Management](../advanced/quotas.md) for solutions.
+Check Azure quota limits with `az vm list-usage --location <region>`.
 
 **Issue: Connection timeout**
 
-Check [Connection Issues](../troubleshooting/connection.md).
+Verify SSH connectivity and that the VM's public IP is accessible.
 
 **Issue: Authentication failed**
 
-See [Authentication Errors](../troubleshooting/auth-errors.md).
+Run `az login` to refresh your Azure credentials. See [Service Principal Auth](../authentication/service-principal.md) for automated setups.
 
 ## Quick Reference
 
