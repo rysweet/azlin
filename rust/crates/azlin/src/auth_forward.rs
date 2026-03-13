@@ -12,11 +12,12 @@ use std::path::PathBuf;
 struct CredentialSource {
     name: &'static str,
     description: &'static str,
-    forward_fn: fn(&str, &str) -> Result<()>,
+    forward_fn: fn(&str, &str, Option<u16>) -> Result<()>,
 }
 
 /// Entry point: detect credentials and offer to forward each one.
-pub fn forward_auth_credentials(ip: &str, user: &str, force: bool) -> Result<()> {
+/// `bastion_port` is `Some(port)` when the VM is behind a bastion tunnel on 127.0.0.1.
+pub fn forward_auth_credentials(ip: &str, user: &str, force: bool, bastion_port: Option<u16>) -> Result<()> {
     let sources = detect_credentials();
     if sources.is_empty() {
         return Ok(());
@@ -32,7 +33,7 @@ pub fn forward_auth_credentials(ip: &str, user: &str, force: bool) -> Result<()>
         if !confirm(&format!("Forward {} credentials to VM?", src.name), force) {
             continue;
         }
-        if let Err(e) = (src.forward_fn)(ip, user) {
+        if let Err(e) = (src.forward_fn)(ip, user, bastion_port) {
             eprintln!("  Warning: failed to forward {}: {}", src.name, e);
         }
     }
@@ -118,7 +119,7 @@ fn claude_config_path() -> Option<PathBuf> {
 // ---------------------------------------------------------------------------
 
 /// Forward gh CLI auth by piping token via stdin (never as a command arg).
-fn forward_gh(ip: &str, user: &str) -> Result<()> {
+fn forward_gh(ip: &str, user: &str, bastion_port: Option<u16>) -> Result<()> {
     let token_output = std::process::Command::new("gh")
         .args(["auth", "token"])
         .output()?;
@@ -132,13 +133,16 @@ fn forward_gh(ip: &str, user: &str) -> Result<()> {
     }
 
     // Pipe token into remote gh auth login via stdin
+    let (ssh_host, port_args) = ssh_target(ip, user, bastion_port);
+    let mut args = vec!["-o", "StrictHostKeyChecking=accept-new"];
+    for a in &port_args {
+        args.push(a);
+    }
+    args.push(&ssh_host);
+    args.push("gh auth login --with-token");
+
     let mut child = std::process::Command::new("ssh")
-        .args([
-            "-o",
-            "StrictHostKeyChecking=accept-new",
-            &format!("{}@{}", user, ip),
-            "gh auth login --with-token",
-        ])
+        .args(&args)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
@@ -161,31 +165,27 @@ fn forward_gh(ip: &str, user: &str) -> Result<()> {
 }
 
 /// Forward GitHub Copilot config via scp.
-fn forward_copilot(ip: &str, user: &str) -> Result<()> {
+fn forward_copilot(ip: &str, user: &str, bastion_port: Option<u16>) -> Result<()> {
     let src = copilot_config_dir().ok_or_else(|| anyhow::anyhow!("copilot config not found"))?;
-    let dest = format!(
-        "{}@{}:~/.config/github-copilot/",
-        user, ip
-    );
 
     // Ensure remote directory exists
-    let _ = std::process::Command::new("ssh")
-        .args([
-            "-o",
-            "StrictHostKeyChecking=accept-new",
-            &format!("{}@{}", user, ip),
-            "mkdir -p ~/.config/github-copilot",
-        ])
-        .output();
+    let (ssh_host, port_args) = ssh_target(ip, user, bastion_port);
+    let mut mkdir_args = vec!["-o", "StrictHostKeyChecking=accept-new"];
+    for a in &port_args {
+        mkdir_args.push(a);
+    }
+    mkdir_args.push(&ssh_host);
+    mkdir_args.push("mkdir -p ~/.config/github-copilot");
+    let _ = std::process::Command::new("ssh").args(&mkdir_args).output();
+
+    let (scp_dest, scp_port_args) = scp_target(ip, user, "~/.config/github-copilot/", bastion_port);
+    let mut scp_args = vec!["-r".to_string(), "-o".to_string(), "StrictHostKeyChecking=accept-new".to_string()];
+    scp_args.extend(scp_port_args);
+    scp_args.push(src.to_string_lossy().to_string());
+    scp_args.push(scp_dest);
 
     let status = std::process::Command::new("scp")
-        .args([
-            "-r",
-            "-o",
-            "StrictHostKeyChecking=accept-new",
-            &src.to_string_lossy(),
-            &dest,
-        ])
+        .args(&scp_args)
         .status()?;
     if !status.success() {
         anyhow::bail!("scp failed for copilot config");
@@ -195,17 +195,17 @@ fn forward_copilot(ip: &str, user: &str) -> Result<()> {
 }
 
 /// Forward Claude Code config via scp.
-fn forward_claude(ip: &str, user: &str) -> Result<()> {
+fn forward_claude(ip: &str, user: &str, bastion_port: Option<u16>) -> Result<()> {
     let src = claude_config_path().ok_or_else(|| anyhow::anyhow!("claude config not found"))?;
-    let dest = format!("{}@{}:~/.claude.json", user, ip);
+
+    let (scp_dest, scp_port_args) = scp_target(ip, user, "~/.claude.json", bastion_port);
+    let mut scp_args = vec!["-o".to_string(), "StrictHostKeyChecking=accept-new".to_string()];
+    scp_args.extend(scp_port_args);
+    scp_args.push(src.to_string_lossy().to_string());
+    scp_args.push(scp_dest);
 
     let status = std::process::Command::new("scp")
-        .args([
-            "-o",
-            "StrictHostKeyChecking=accept-new",
-            &src.to_string_lossy(),
-            &dest,
-        ])
+        .args(&scp_args)
         .status()?;
     if !status.success() {
         anyhow::bail!("scp failed for claude config");
@@ -215,9 +215,39 @@ fn forward_claude(ip: &str, user: &str) -> Result<()> {
 }
 
 /// Azure CLI: print guidance only — no token copying.
-fn forward_az(_ip: &str, _user: &str) -> Result<()> {
+fn forward_az(_ip: &str, _user: &str, _bastion_port: Option<u16>) -> Result<()> {
     println!("  Run 'az login' on the VM to authenticate with Azure CLI.");
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Bastion routing helpers
+// ---------------------------------------------------------------------------
+
+/// Returns (user@host, port_args) for SSH commands. Routes through 127.0.0.1
+/// when a bastion tunnel port is provided.
+fn ssh_target(ip: &str, user: &str, bastion_port: Option<u16>) -> (String, Vec<String>) {
+    match bastion_port {
+        Some(port) => (
+            format!("{}@127.0.0.1", user),
+            vec!["-p".to_string(), port.to_string()],
+        ),
+        None => (format!("{}@{}", user, ip), vec![]),
+    }
+}
+
+/// Returns (user@host:path, port_args) for SCP commands.
+fn scp_target(ip: &str, user: &str, remote_path: &str, bastion_port: Option<u16>) -> (String, Vec<String>) {
+    match bastion_port {
+        Some(port) => (
+            format!("{}@127.0.0.1:{}", user, remote_path),
+            vec!["-P".to_string(), port.to_string()],
+        ),
+        None => (
+            format!("{}@{}:{}", user, ip, remote_path),
+            vec![],
+        ),
+    }
 }
 
 // ---------------------------------------------------------------------------

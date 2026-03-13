@@ -131,56 +131,44 @@ pub(crate) async fn dispatch(
                     if vm.power_state != azlin_core::models::PowerState::Running {
                         continue;
                     }
-                    let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref());
-                    if let Some(ip) = ip {
-                        let user = vm
-                            .admin_username
-                            .as_deref()
-                            .unwrap_or(DEFAULT_ADMIN_USERNAME);
-                        // Check CPU and uptime via SSH
-                        let timeout_val = format!("ConnectTimeout={}", config.ssh_connect_timeout);
-                        let output = std::process::Command::new("ssh")
-                            .args([
-                                "-o", "StrictHostKeyChecking=accept-new",
-                                "-o", &timeout_val,
-                                "-o", "BatchMode=yes",
-                                &format!("{}@{}", user, ip),
-                                "awk '{u=$2+$4; t=$2+$4+$5; if (t>0) printf \"%.1f\", u*100/t; else print \"0\"}' /proc/stat | head -1 && cat /proc/uptime | awk '{print $1}'",
-                            ])
-                            .output();
-                        if let Ok(out) = output {
-                            if out.status.success() {
-                                let text = String::from_utf8_lossy(&out.stdout);
-                                let lines: Vec<&str> = text.trim().lines().collect();
-                                let cpu_pct: f64 =
-                                    lines.first().and_then(|s| s.parse().ok()).unwrap_or(100.0);
-                                let uptime_secs: f64 =
-                                    lines.get(1).and_then(|s| s.parse().ok()).unwrap_or(0.0);
-                                if let Some(action_name) = crate::handlers::classify_autopilot_vm(
-                                    cpu_pct,
-                                    uptime_secs,
-                                    idle_threshold,
-                                ) {
-                                    println!(
-                                        "  ⚠ {} — CPU {} for {:.0}min — IDLE (recommend {})",
-                                        vm.name,
-                                        crate::health_helpers::format_percentage(cpu_pct as f32),
-                                        uptime_secs / 60.0,
-                                        action_name
-                                    );
-                                    actions.push((vm.name.clone(), action_name));
-                                } else {
-                                    println!(
-                                        "  ✓ {} — CPU {} — active",
-                                        vm.name,
-                                        crate::health_helpers::format_percentage(cpu_pct as f32)
-                                    );
-                                }
+                    let target = match resolve_vm_ssh_target(&vm.name, None, Some(rg.clone())).await {
+                        Ok(t) => t,
+                        Err(_) => continue,
+                    };
+                    // Check CPU and uptime via SSH (bastion-aware via target.exec)
+                    let ssh_result = target.exec(
+                        "awk '{u=$2+$4; t=$2+$4+$5; if (t>0) printf \"%.1f\", u*100/t; else print \"0\"}' /proc/stat | head -1 && cat /proc/uptime | awk '{print $1}'"
+                    );
+                    match ssh_result {
+                        Ok((0, stdout, _)) => {
+                            let lines: Vec<&str> = stdout.trim().lines().collect();
+                            let cpu_pct: f64 =
+                                lines.first().and_then(|s| s.parse().ok()).unwrap_or(100.0);
+                            let uptime_secs: f64 =
+                                lines.get(1).and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                            if let Some(action_name) = crate::handlers::classify_autopilot_vm(
+                                cpu_pct,
+                                uptime_secs,
+                                idle_threshold,
+                            ) {
+                                println!(
+                                    "  ⚠ {} — CPU {} for {:.0}min — IDLE (recommend {})",
+                                    vm.name,
+                                    crate::health_helpers::format_percentage(cpu_pct as f32),
+                                    uptime_secs / 60.0,
+                                    action_name
+                                );
+                                actions.push((vm.name.clone(), action_name));
                             } else {
-                                println!("  ? {} — could not check (SSH failed)", vm.name);
+                                println!(
+                                    "  ✓ {} — CPU {} — active",
+                                    vm.name,
+                                    crate::health_helpers::format_percentage(cpu_pct as f32)
+                                );
                             }
-                        } else {
-                            println!("  ? {} — could not check (SSH unavailable)", vm.name);
+                        }
+                        _ => {
+                            println!("  ? {} — could not check (SSH failed)", vm.name);
                         }
                     }
                 }

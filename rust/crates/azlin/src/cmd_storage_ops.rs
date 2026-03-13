@@ -130,86 +130,53 @@ pub(crate) fn handle_storage_status(name: &str, resource_group: Option<String>) 
     Ok(())
 }
 
-pub(crate) fn handle_storage_mount(
+pub(crate) async fn handle_storage_mount(
     storage_name: &str,
     vm: &str,
     mount_point: Option<String>,
     resource_group: Option<String>,
 ) -> Result<()> {
-    let rg = resolve_resource_group(resource_group)?;
-    let auth = create_auth()?;
-    let vm_manager = azlin_azure::VmManager::new(&auth);
-
-    let pb = penguin_spinner(&format!("Looking up VM {}...", vm));
-    let vm_info = vm_manager.get_vm(&rg, vm)?;
-    pb.finish_and_clear();
-
-    let ip = vm_info
-        .public_ip
-        .or(vm_info.private_ip)
-        .ok_or_else(|| anyhow::anyhow!("No IP address found for VM '{}'", vm))?;
-    let user = vm_info
-        .admin_username
-        .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
-
     crate::handlers::validate_storage_name(storage_name)?;
 
     let mp = mount_point.unwrap_or_else(|| crate::handlers::default_nfs_mount_point(storage_name));
-
     crate::mount_helpers::validate_mount_path(&mp)
         .map_err(|e| anyhow::anyhow!("Invalid mount path: {}", e))?;
 
-    let mount_cmd = crate::handlers::build_nfs_mount_command(storage_name, &mp);
-    let status = std::process::Command::new("ssh")
-        .args([
-            "-o",
-            "StrictHostKeyChecking=accept-new",
-            &format!("{}@{}", user, ip),
-            &mount_cmd,
-        ])
-        .status()?;
+    let pb = penguin_spinner(&format!("Looking up VM {}...", vm));
+    let target = resolve_vm_ssh_target(vm, None, resource_group).await?;
+    pb.finish_and_clear();
 
-    if status.success() {
+    let mount_cmd = crate::handlers::build_nfs_mount_command(storage_name, &mp);
+    let (exit_code, _stdout, stderr) = target.exec(&mount_cmd)?;
+
+    if exit_code == 0 {
         println!(
             "{}",
             crate::handlers::format_storage_mounted(storage_name, vm, &mp)
         );
     } else {
-        anyhow::bail!("Failed to mount storage on VM.");
+        anyhow::bail!(
+            "Failed to mount storage on VM: {}",
+            azlin_core::sanitizer::sanitize(stderr.trim())
+        );
     }
     Ok(())
 }
 
-pub(crate) fn handle_storage_unmount(vm: &str, resource_group: Option<String>) -> Result<()> {
-    let rg = resolve_resource_group(resource_group)?;
-    let auth = create_auth()?;
-    let vm_manager = azlin_azure::VmManager::new(&auth);
-
+pub(crate) async fn handle_storage_unmount(vm: &str, resource_group: Option<String>) -> Result<()> {
     let pb = penguin_spinner(&format!("Looking up VM {}...", vm));
-    let vm_info = vm_manager.get_vm(&rg, vm)?;
+    let target = resolve_vm_ssh_target(vm, None, resource_group).await?;
     pb.finish_and_clear();
 
-    let ip = vm_info
-        .public_ip
-        .or(vm_info.private_ip)
-        .ok_or_else(|| anyhow::anyhow!("No IP address found for VM '{}'", vm))?;
-    let user = vm_info
-        .admin_username
-        .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
+    let (exit_code, _stdout, stderr) = target.exec("sudo umount /mnt/* 2>/dev/null; echo done")?;
 
-    let status = std::process::Command::new("ssh")
-        .args([
-            "-o",
-            "StrictHostKeyChecking=accept-new",
-            &format!("{}@{}", user, ip),
-            "sudo umount /mnt/* 2>/dev/null; echo done",
-        ])
-        .status()?;
-
-    if status.success() {
+    if exit_code == 0 {
         println!("{}", crate::handlers::format_storage_unmounted(vm));
     } else {
-        anyhow::bail!("Failed to unmount storage from VM.");
+        anyhow::bail!(
+            "Failed to unmount storage from VM: {}",
+            azlin_core::sanitizer::sanitize(stderr.trim())
+        );
     }
     Ok(())
 }

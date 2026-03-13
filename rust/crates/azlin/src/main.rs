@@ -818,6 +818,10 @@ mod cp_helpers;
 #[allow(dead_code)]
 mod bastion_helpers;
 
+/// Scoped bastion tunnel for SSH/SCP through Azure Bastion.
+#[allow(dead_code)]
+mod bastion_tunnel;
+
 /// Helpers for log tail computation.
 #[allow(dead_code)]
 mod log_helpers;

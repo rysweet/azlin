@@ -2,12 +2,12 @@
 use super::*;
 use anyhow::Result;
 
-pub(crate) fn handle_sync(
+pub(crate) async fn handle_sync(
     vm_name: Option<String>,
     dry_run: bool,
     resource_group: Option<String>,
 ) -> Result<()> {
-    let rg = resolve_resource_group(resource_group)?;
+    let rg = resolve_resource_group(resource_group.clone())?;
     let home_sync_dir = home_dir()?.join(".azlin").join("home");
 
     if !home_sync_dir.exists() {
@@ -51,23 +51,39 @@ pub(crate) fn handle_sync(
         }
 
         for vm in &running_vms {
-            if let Some(ip) = vm.public_ip.as_ref().or(vm.private_ip.as_ref()) {
-                let user = vm
-                    .admin_username
-                    .as_deref()
-                    .unwrap_or(DEFAULT_ADMIN_USERNAME);
-                println!("Syncing dotfiles to {}...", vm.name);
-                let (mut args, dest) =
-                    crate::sync_helpers::build_sync_rsync_args(&dotfiles, user, ip);
-                args.push(&dest);
-                let status = std::process::Command::new("rsync").args(&args).status()?;
-                if status.success() {
-                    println!("  {} synced", vm.name);
-                } else {
-                    eprintln!("  {} sync failed", vm.name);
+            let target =
+                resolve_vm_ssh_target(&vm.name, None, resource_group.clone()).await?;
+            println!("Syncing dotfiles to {}...", vm.name);
+
+            let status = if let Some(ref bastion) = target.bastion {
+                // Route rsync through bastion tunnel
+                let tunnel = crate::bastion_tunnel::ScopedBastionTunnel::new(
+                    &bastion.bastion_name,
+                    &bastion.resource_group,
+                    &bastion.vm_resource_id,
+                )?;
+                let ssh_cmd = format!(
+                    "ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -p {}",
+                    tunnel.local_port
+                );
+                let dest = format!("{}@127.0.0.1:~/", target.user);
+                let mut args: Vec<&str> = vec!["-avz", "--progress", "-e", &ssh_cmd];
+                for f in &dotfiles {
+                    args.push(f.as_str());
                 }
+                args.push(&dest);
+                std::process::Command::new("rsync").args(&args).status()?
             } else {
-                eprintln!("  {} has no IP address", vm.name);
+                let (mut args, dest) =
+                    crate::sync_helpers::build_sync_rsync_args(&dotfiles, &target.user, &target.ip);
+                args.push(&dest);
+                std::process::Command::new("rsync").args(&args).status()?
+            };
+
+            if status.success() {
+                println!("  {} synced", vm.name);
+            } else {
+                eprintln!("  {} sync failed", vm.name);
             }
         }
         println!("Sync complete.");
@@ -120,7 +136,7 @@ pub(crate) fn handle_sync_keys(
     Ok(())
 }
 
-pub(crate) fn handle_cp(
+pub(crate) async fn handle_cp(
     args: &[String],
     dry_run: bool,
     resource_group: Option<String>,
@@ -132,7 +148,7 @@ pub(crate) fn handle_cp(
 
     let source = &args[0];
     let dest = &args[args.len() - 1];
-    let rg = resolve_resource_group(resource_group)?;
+    let rg = resolve_resource_group(resource_group.clone())?;
 
     let direction = crate::cp_helpers::classify_transfer_direction(source, dest);
 
@@ -153,41 +169,70 @@ pub(crate) fn handle_cp(
                 dest.split_once(':')
                     .ok_or_else(|| anyhow::anyhow!("Invalid remote path: {}", dest))?
             };
-            let auth = create_auth()?;
-            let vm_manager = azlin_azure::VmManager::new(&auth);
-            let vm = vm_manager.get_vm(&rg, vm_part)?;
-            let ip = vm
-                .public_ip
-                .or(vm.private_ip)
-                .ok_or_else(|| anyhow::anyhow!("No IP for VM '{}'", vm_part))?;
-            let user = vm
-                .admin_username
-                .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
 
-            let scp_source = if crate::cp_helpers::is_remote_path(source) {
-                crate::cp_helpers::resolve_scp_path(source, vm_part, &user, &ip)
-            } else {
-                source.clone()
-            };
-            let scp_dest = if crate::cp_helpers::is_remote_path(dest) {
-                crate::cp_helpers::resolve_scp_path(dest, vm_part, &user, &ip)
-            } else {
-                dest.clone()
-            };
-
+            let target = resolve_vm_ssh_target(vm_part, None, resource_group).await?;
             let timeout_val = format!("ConnectTimeout={}", config.ssh_connect_timeout);
-            let status = std::process::Command::new("scp")
-                .args([
-                    "-o",
-                    "StrictHostKeyChecking=accept-new",
-                    "-o",
-                    &timeout_val,
-                    "-o",
-                    "BatchMode=yes",
-                    &scp_source,
-                    &scp_dest,
-                ])
-                .status()?;
+
+            // Route through bastion tunnel if VM has no public IP
+            let status = if let Some(ref bastion) = target.bastion {
+                let tunnel = crate::bastion_tunnel::ScopedBastionTunnel::new(
+                    &bastion.bastion_name,
+                    &bastion.resource_group,
+                    &bastion.vm_resource_id,
+                )?;
+                let port_str = tunnel.local_port.to_string();
+
+                let scp_source = if crate::cp_helpers::is_remote_path(source) {
+                    let remote_path = source.split_once(':').unwrap().1;
+                    format!("{}@127.0.0.1:{}", target.user, remote_path)
+                } else {
+                    source.clone()
+                };
+                let scp_dest = if crate::cp_helpers::is_remote_path(dest) {
+                    let remote_path = dest.split_once(':').unwrap().1;
+                    format!("{}@127.0.0.1:{}", target.user, remote_path)
+                } else {
+                    dest.clone()
+                };
+
+                let mut scp_args = vec![
+                    "-o".to_string(), "StrictHostKeyChecking=accept-new".to_string(),
+                    "-o".to_string(), timeout_val.clone(),
+                    "-o".to_string(), "BatchMode=yes".to_string(),
+                    "-P".to_string(), port_str,
+                ];
+                if let Some(ref key) = bastion.ssh_key_path {
+                    scp_args.push("-i".to_string());
+                    scp_args.push(key.to_string_lossy().to_string());
+                }
+                scp_args.push(scp_source);
+                scp_args.push(scp_dest);
+                std::process::Command::new("scp")
+                    .args(&scp_args)
+                    .status()?
+            } else {
+                let scp_source = if crate::cp_helpers::is_remote_path(source) {
+                    crate::cp_helpers::resolve_scp_path(source, vm_part, &target.user, &target.ip)
+                } else {
+                    source.clone()
+                };
+                let scp_dest = if crate::cp_helpers::is_remote_path(dest) {
+                    crate::cp_helpers::resolve_scp_path(dest, vm_part, &target.user, &target.ip)
+                } else {
+                    dest.clone()
+                };
+
+                std::process::Command::new("scp")
+                    .args([
+                        "-o", "StrictHostKeyChecking=accept-new",
+                        "-o", &timeout_val,
+                        "-o", "BatchMode=yes",
+                        &scp_source,
+                        &scp_dest,
+                    ])
+                    .status()?
+            };
+
             if status.success() {
                 println!("Copy complete.");
             } else {
