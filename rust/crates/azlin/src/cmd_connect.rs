@@ -21,6 +21,7 @@ pub(crate) async fn dispatch(
             max_retries,
             yes,
             x11,
+            no_status,
             remote_command,
             ..
         } => {
@@ -83,6 +84,22 @@ pub(crate) async fn dispatch(
 
             let username = vm.admin_username.unwrap_or_else(|| user.clone());
             let use_bastion = vm.public_ip.is_none();
+
+            // Display SSH status bar unless disabled
+            if !no_status {
+                let ip_display = vm
+                    .public_ip
+                    .as_deref()
+                    .or(vm.private_ip.as_deref())
+                    .unwrap_or("-")
+                    .to_string();
+                crate::ssh_status::display_ssh_status(&crate::ssh_status::SshConnectionInfo {
+                    vm_name: name.clone(),
+                    ip: ip_display,
+                    user: username.clone(),
+                    via_bastion: use_bastion,
+                });
+            }
 
             // Build the remote command (with optional tmux wrapping)
             // Priority: --tmux-session flag > colon notation (vm:session) > default "azlin"
@@ -203,6 +220,9 @@ pub(crate) async fn dispatch(
                 };
                 attempt += 1;
                 if status.success() || attempt >= max {
+                    if !no_status {
+                        crate::ssh_status::clear_ssh_status();
+                    }
                     std::process::exit(status.code().unwrap_or(1));
                 }
                 if !yes {
@@ -214,6 +234,9 @@ pub(crate) async fn dispatch(
                     let mut input = String::new();
                     std::io::stdin().read_line(&mut input)?;
                     if input.trim().eq_ignore_ascii_case("n") {
+                        if !no_status {
+                            crate::ssh_status::clear_ssh_status();
+                        }
                         std::process::exit(status.code().unwrap_or(1));
                     }
                 } else {

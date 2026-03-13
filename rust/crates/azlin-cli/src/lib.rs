@@ -421,6 +421,10 @@ pub enum Commands {
         #[arg(long, short = 'X')]
         x11: bool,
 
+        /// Disable the SSH status bar overlay
+        #[arg(long)]
+        no_status: bool,
+
         /// Remote command to execute (use -- separator)
         #[arg(last = true)]
         remote_command: Vec<String>,
@@ -1043,6 +1047,20 @@ pub enum Commands {
         /// Shell to generate completions for
         #[arg(value_enum)]
         shell: clap_complete::Shell,
+
+        /// Auto-install completions to the appropriate shell config directory
+        #[arg(long)]
+        install: bool,
+    },
+
+    /// View and replay command history
+    History {
+        #[command(subcommand)]
+        action: Option<HistoryAction>,
+
+        /// Number of recent commands to show
+        #[arg(short, long, default_value = "20")]
+        count: u32,
     },
 }
 
@@ -1171,6 +1189,36 @@ pub enum ConfigAction {
         /// Key to get
         key: String,
     },
+    /// Show differences between current config and defaults
+    Diff {
+        /// Show all config values, not just changed ones
+        #[arg(long)]
+        all: bool,
+        /// Output format (table or json)
+        #[arg(long, default_value = "table")]
+        format: String,
+        /// Compare against a specific config file instead of defaults
+        file: Option<String>,
+    },
+    /// Interactive first-run configuration wizard
+    Init {
+        /// Force re-run even if config already exists
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+// ── History subcommands
+
+#[derive(Subcommand, Debug)]
+pub enum HistoryAction {
+    /// Replay a command from history by index
+    Replay {
+        /// Command index to replay
+        index: u32,
+    },
+    /// Clear all command history
+    Clear,
 }
 
 // ── Env subcommands ───────────────────────────────────────────────────────
