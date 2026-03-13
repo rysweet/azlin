@@ -19,6 +19,7 @@ azlin-core = { path = "../azlin-core" }
 azlin-azure = { path = "../azlin-azure" }
 azlin-ai = { path = "../azlin-ai" }
 azlin-cli = { path = "../azlin-cli" }
+azlin-ssh = { path = "../azlin-ssh" }
 tokio = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }

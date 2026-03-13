@@ -5,6 +5,7 @@ members = [
     "crates/azlin-azure",
     "crates/azlin-ai",
     "crates/azlin-cli",
+    "crates/azlin-ssh",
     "crates/azlin",
 ]
 
@@ -73,6 +74,8 @@ tempfile = "3"
 shell-escape = "0.1"
 shlex = "1"
 async-trait = "0.1"
+russh = "0.49"
+russh-keys = "0.49"
 wait-timeout = "0.2"
 openssl = { version = "0.10", features = ["vendored"] }
 

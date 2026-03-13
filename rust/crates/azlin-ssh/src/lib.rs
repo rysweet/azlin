@@ -14,6 +14,7 @@ use azlin_core::models::CommandResult;
 use azlin_core::{AzlinError, Result};
 use russh::client::{self, Handle};
 use russh::ChannelMsg;
+use russh_keys::key::PrivateKeyWithHashAlg;
 use russh_keys::load_secret_key;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
@@ -91,8 +92,11 @@ impl SshClient {
         .map_err(|_| AzlinError::Ssh(format!("connection to {} timed out", config.host)))?
         .map_err(|e| AzlinError::Ssh(format!("connection failed: {e}")))?;
 
+        let key_with_alg = PrivateKeyWithHashAlg::new(Arc::new(key), None)
+            .map_err(|e| AzlinError::SshKey(format!("key hash alg: {e}")))?;
+
         let authenticated = handle
-            .authenticate_publickey(&config.username, Arc::new(key))
+            .authenticate_publickey(&config.username, key_with_alg)
             .await
             .map_err(|e| AzlinError::Ssh(format!("auth failed: {e}")))?;
 
