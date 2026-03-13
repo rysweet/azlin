@@ -181,8 +181,10 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
     });
 
     if cfg.show_tmux_col {
-        // Size the tmux column to fit the widest entry (capped at 60).
-        let tmux_w = compute_tmux_content_width(data.tmux_sessions, usize::MAX, 60).max(if cfg.compact {
+        // Size the tmux column to fit the widest entry — no hard cap so
+        // session names are never truncated.  The shrink pass below will
+        // compress other columns first if the table exceeds terminal width.
+        let tmux_w = compute_tmux_content_width(data.tmux_sessions, usize::MAX, usize::MAX).max(if cfg.compact {
             18
         } else {
             22
@@ -290,7 +292,33 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
                 excess -= give;
             }
         }
-        // Priority 2: if still over, shrink remaining columns proportionally
+        // Priority 2: shrink other columns (OS, IP, VM Name, SKU, etc.)
+        // but NOT Session or Tmux — those must stay fully visible.
+        let protected = ["Session", "Tmux"];
+        if excess > 0 {
+            let shrinkable: usize = cols
+                .iter()
+                .filter(|c| !protected.contains(&c.header))
+                .map(|c| c.width.saturating_sub(3))
+                .sum();
+            if shrinkable > 0 {
+                let ratio = excess.min(shrinkable) as f64 / shrinkable as f64;
+                for col in &mut cols {
+                    if protected.contains(&col.header) {
+                        continue;
+                    }
+                    let can_give = col.width.saturating_sub(3);
+                    let give = (can_give as f64 * ratio).ceil() as usize;
+                    let give = give.min(can_give).min(excess);
+                    col.width -= give;
+                    excess -= give;
+                    if excess == 0 {
+                        break;
+                    }
+                }
+            }
+        }
+        // Priority 3 (last resort): shrink Session and Tmux proportionally
         if excess > 0 {
             let remaining_total: usize = cols.iter().map(|c| c.width.saturating_sub(3)).sum();
             if remaining_total > 0 {
@@ -335,20 +363,22 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
         cells.push(cyan(&trunc(session, cols[col_i].width)));
         col_i += 1;
 
-        // Tmux
+        // Tmux — show all session names; pad or truncate to exact column width
+        // so borders stay aligned.  The column is sized to the widest entry
+        // and protected from shrinking, so truncation should be rare (only
+        // when terminal is extremely narrow).
         if cfg.show_tmux_col {
-            // Tmux column never truncates — show all session names.
-            // Pad to column width for alignment, but allow overflow (terminal wraps).
             let tmux_text = data
                 .tmux_sessions
                 .get(&vm.name)
                 .map(|s| format_tmux_plain(s, usize::MAX))
                 .unwrap_or_else(|| "-".to_string());
             let w = cols[col_i].width;
-            let padded = if tmux_text.len() < w {
+            let padded = if tmux_text.len() <= w {
                 format!("{:<width$}", tmux_text, width = w)
             } else {
-                tmux_text
+                // Last resort: terminal too narrow, must truncate for alignment
+                trunc(&tmux_text, w)
             };
             cells.push(padded);
             col_i += 1;
@@ -580,5 +610,157 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
             ));
         }
         println!("{}", row);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── format_tmux_plain ─────────────────────────────────────────────
+
+    #[test]
+    fn tmux_plain_empty_returns_dash() {
+        assert_eq!(format_tmux_plain(&[], 10), "-");
+    }
+
+    #[test]
+    fn tmux_plain_strips_colon_suffix() {
+        let sessions = vec!["main:1".to_string(), "build:0".to_string()];
+        assert_eq!(format_tmux_plain(&sessions, 10), "main, build");
+    }
+
+    #[test]
+    fn tmux_plain_no_suffix() {
+        let sessions = vec!["dev".to_string()];
+        assert_eq!(format_tmux_plain(&sessions, 10), "dev");
+    }
+
+    #[test]
+    fn tmux_plain_unlimited_shows_all() {
+        let sessions: Vec<String> = (1..=10).map(|i| format!("sess-{}", i)).collect();
+        let result = format_tmux_plain(&sessions, usize::MAX);
+        // All 10 sessions should appear, no "+N" overflow
+        for i in 1..=10 {
+            assert!(result.contains(&format!("sess-{}", i)), "missing sess-{}", i);
+        }
+        assert!(!result.contains('+'), "should not contain overflow indicator");
+    }
+
+    // ── compute_tmux_content_width ────────────────────────────────────
+
+    #[test]
+    fn tmux_width_empty_map_returns_header_width() {
+        let map = HashMap::new();
+        assert_eq!(compute_tmux_content_width(&map, usize::MAX, usize::MAX), 4);
+    }
+
+    #[test]
+    fn tmux_width_matches_widest_entry() {
+        let mut map = HashMap::new();
+        map.insert("vm1".into(), vec!["short:0".to_string()]);
+        map.insert(
+            "vm2".into(),
+            vec![
+                "long-session-name-alpha:1".to_string(),
+                "long-session-name-beta:0".to_string(),
+            ],
+        );
+        let width = compute_tmux_content_width(&map, usize::MAX, usize::MAX);
+        // vm2 formatted: "long-session-name-alpha, long-session-name-beta"
+        let expected = "long-session-name-alpha, long-session-name-beta".len();
+        assert_eq!(width, expected);
+    }
+
+    #[test]
+    fn tmux_width_no_cap_allows_long_entries() {
+        let mut map = HashMap::new();
+        // Create a session list that exceeds 60 chars when formatted
+        let sessions: Vec<String> = (1..=8)
+            .map(|i| format!("my-long-session-name-{}:0", i))
+            .collect();
+        map.insert("vm1".into(), sessions);
+        let width = compute_tmux_content_width(&map, usize::MAX, usize::MAX);
+        // Should be well over 60 chars
+        assert!(width > 60, "width {} should exceed 60 with no cap", width);
+    }
+
+    #[test]
+    fn tmux_width_respects_cap_when_given() {
+        let mut map = HashMap::new();
+        let sessions: Vec<String> = (1..=8)
+            .map(|i| format!("my-long-session-name-{}:0", i))
+            .collect();
+        map.insert("vm1".into(), sessions);
+        let width = compute_tmux_content_width(&map, usize::MAX, 60);
+        assert_eq!(width, 60);
+    }
+
+    // ── Column shrink priority ────────────────────────────────────────
+
+    /// Verify that the shrink logic protects Tmux column from being reduced
+    /// before less-important columns are fully compressed.
+    #[test]
+    fn shrink_protects_tmux_column() {
+        // Simulate the shrink logic from render_table by building ColDefs
+        // manually and applying the same algorithm.
+        let mut cols = vec![
+            ColDef { header: "Session", width: 11, right_align: false },
+            ColDef { header: "Tmux",    width: 50, right_align: false },
+            ColDef { header: "OS",      width: 14, right_align: false },
+            ColDef { header: "Status",  width: 7,  right_align: false },
+            ColDef { header: "IP",      width: 17, right_align: false },
+            ColDef { header: "Region",  width: 14, right_align: false },
+            ColDef { header: "CPU",     width: 3,  right_align: true },
+            ColDef { header: "Mem",     width: 6,  right_align: true },
+        ];
+        let term_width: usize = 100;
+        let border_overhead = cols.len() * 3 + 1;
+        let content_budget = term_width.saturating_sub(border_overhead);
+        let total_content: usize = cols.iter().map(|c| c.width).sum();
+
+        assert!(total_content > content_budget, "test setup: must exceed budget");
+
+        let mut excess = total_content - content_budget;
+
+        // Priority 1: shrink Region, Status, CPU, Mem
+        let shrinkable_first = ["Region", "Status", "CPU", "Mem"];
+        for header in &shrinkable_first {
+            if excess == 0 { break; }
+            if let Some(col) = cols.iter_mut().find(|c| c.header == *header) {
+                let can_give = col.width.saturating_sub(3);
+                let give = can_give.min(excess);
+                col.width -= give;
+                excess -= give;
+            }
+        }
+
+        // Priority 2: shrink non-protected columns
+        let protected = ["Session", "Tmux"];
+        if excess > 0 {
+            let shrinkable: usize = cols.iter()
+                .filter(|c| !protected.contains(&c.header))
+                .map(|c| c.width.saturating_sub(3))
+                .sum();
+            if shrinkable > 0 {
+                let ratio = excess.min(shrinkable) as f64 / shrinkable as f64;
+                for col in &mut cols {
+                    if protected.contains(&col.header) { continue; }
+                    let can_give = col.width.saturating_sub(3);
+                    let give = (can_give as f64 * ratio).ceil() as usize;
+                    let give = give.min(can_give).min(excess);
+                    col.width -= give;
+                    excess -= give;
+                    if excess == 0 { break; }
+                }
+            }
+        }
+
+        // After priorities 1 and 2, Tmux should still be 50
+        let tmux_col = cols.iter().find(|c| c.header == "Tmux").unwrap();
+        assert_eq!(
+            tmux_col.width, 50,
+            "Tmux column should not be shrunk when other columns can absorb the excess"
+        );
     }
 }
