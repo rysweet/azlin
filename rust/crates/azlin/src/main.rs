@@ -982,9 +982,11 @@ mod command_helpers;
 mod autopilot_parse_helpers;
 
 /// Pure helpers for batch handler result parsing and aggregation.
+#[allow(dead_code)]
 mod batch_helpers;
 
 /// Multi-progress bar support for batch VM operations.
+#[allow(dead_code)]
 mod batch_progress;
 
 /// Cost dashboard TUI with budget tracking charts.
@@ -1010,12 +1012,14 @@ mod cmd_cleanup;
 mod cmd_cleanup_costs;
 mod cmd_cleanup_costs2;
 mod cmd_cleanup_ops;
+#[allow(dead_code)]
 mod cmd_completions;
 mod cmd_config_diff;
 mod cmd_config_init;
 mod cmd_connect;
 mod cmd_context;
 mod cmd_env;
+#[allow(dead_code)]
 mod cmd_history;
 mod cmd_infra;
 mod cmd_infra_ops;
@@ -1044,6 +1048,7 @@ mod cmd_tunnel;
 mod cmd_gui;
 mod cmd_vm;
 mod cmd_vm_ops;
+#[allow(dead_code)]
 mod ssh_status;
 mod cmd_vm_ops2;
 mod lifecycle_helpers;
