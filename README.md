@@ -1989,7 +1989,7 @@ azlin snapshot sync --vm my-vm
 
 ## Natural Language Commands (AI-Powered)
 
-**New in v2.1**: Use natural language to control azlin with Claude AI
+Use natural language to control azlin with Claude AI
 
 The `azlin doit` command understands what you want and executes the appropriate commands automatically. Just describe what you need in plain English, and azlin figures out the right commands to run.
 
@@ -2345,7 +2345,7 @@ azlin start my-vm  # Start if stopped
 ```
 
 **Connection drops frequently?**
-- Auto-reconnect feature will prompt you (new in v2.1!)
+- Auto-reconnect feature will prompt you
 - Check network stability
 - Consider using screen/tmux for persistence
 
