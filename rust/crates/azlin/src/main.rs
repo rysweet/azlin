@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use std::io::IsTerminal;
 
-#[allow(unused_imports)]
 use dialoguer::Confirm;
 
 /// Create a styled table with box-drawing borders and truncation.
@@ -694,6 +694,12 @@ fn run_on_fleet(targets: &[VmSshTarget], command: &str, show_output: bool) {
 }
 
 fn main() {
+    // Suppress Python deprecation warnings from Azure CLI extensions (e.g.
+    // pkg_resources in azext_bastion).  Set before any threads are spawned.
+    if std::env::var("PYTHONWARNINGS").is_err() {
+        unsafe { std::env::set_var("PYTHONWARNINGS", "ignore::UserWarning:pkg_resources") };
+    }
+
     let start = std::time::Instant::now();
     if let Err(e) = color_eyre::install() {
         eprintln!("Warning: failed to install color_eyre error handler: {e}");
@@ -752,7 +758,37 @@ Startup time ({:.1}ms) exceeds the <15ms target.", total.as_secs_f64() * 1000.0)
             .init();
     }
 
-    update_check::check_for_updates();
+    // Interactive update check: prompt user if a newer version is available.
+    // Skip the prompt for the `update` command itself (avoids double-update)
+    // and for non-interactive sessions (piped stdin).
+    let is_update_cmd = matches!(cli.command, azlin_cli::Commands::Update);
+    if !is_update_cmd && std::io::stdin().is_terminal() {
+        if let Some(latest) = update_check::check_for_updates_interactive() {
+            let safe_version: String = latest.chars()
+                .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-'))
+                .collect();
+            eprintln!(
+                "\x1b[33mA newer version of azlin is available: v{} → v{}\x1b[0m",
+                env!("CARGO_PKG_VERSION"),
+                safe_version,
+            );
+            let should_update = Confirm::new()
+                .with_prompt("Update now?")
+                .default(true)
+                .interact()
+                .unwrap_or(false);
+            if should_update {
+                if let Err(e) = cmd_self_update::handle_self_update() {
+                    eprintln!("\x1b[31mUpdate failed: {e:#}\x1b[0m");
+                    eprintln!("Continuing with current version...");
+                }
+            }
+        }
+    } else if !is_update_cmd {
+        // Non-interactive: fall back to passive background check
+        update_check::check_for_updates();
+    }
+
     dispatch::dispatch_command(cli).await
 }
 
