@@ -202,7 +202,7 @@ For better performance, consider Premium SSD:
 | 256GB (E15) | $38.40     | 1100 | 125 MB/s   | Database    |
 | 512GB (E20) | $73.22     | 2300 | 150 MB/s   | High perf   |
 
-**Note**: azlin currently defaults to Standard HDD. Premium SSD support coming soon.
+**Note**: azlin defaults to Premium SSD (Premium_LRS). You can specify storage tier using the --tier flag (premium or standard).
 
 ### Cost-Benefit Comparison
 
