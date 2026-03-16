@@ -5,6 +5,20 @@ use super::*;
 use azlin_core::models::VmInfo;
 use std::collections::HashMap;
 
+/// Resolve SSH key path, preferring azlin_key over id_rsa.
+fn resolve_ssh_key() -> Option<std::path::PathBuf> {
+    home_dir()
+        .ok()
+        .map(|h| h.join(".ssh").join("azlin_key"))
+        .filter(|p| p.exists())
+        .or_else(|| {
+            home_dir()
+                .ok()
+                .map(|h| h.join(".ssh").join("id_rsa"))
+                .filter(|p| p.exists())
+        })
+}
+
 /// Collect tmux sessions for all running VMs via SSH (direct or bastion).
 pub(crate) fn collect_tmux_sessions(
     vms: &[VmInfo],
@@ -30,18 +44,7 @@ pub(crate) fn collect_tmux_sessions(
         HashMap::new()
     };
 
-    // Resolve SSH key path
-    let ssh_key = home_dir()
-        .ok()
-        .map(|h| h.join(".ssh").join("azlin_key"))
-        .filter(|p| p.exists())
-        .or_else(|| {
-            home_dir()
-                .ok()
-                .map(|h| h.join(".ssh").join("id_rsa"))
-                .filter(|p| p.exists())
-        });
-
+    let ssh_key = resolve_ssh_key();
     let mut tunnel_pool = BastionTunnelPool::new();
 
     for vm in vms {
@@ -173,8 +176,6 @@ pub(crate) fn collect_health_data(
     vms: &[VmInfo],
     effective_rg: &str,
     subscription_id: &str,
-    _verbose: bool,
-    _connect_timeout: u64,
 ) -> HashMap<String, crate::HealthMetrics> {
     let mut health_data = HashMap::new();
 
@@ -186,17 +187,7 @@ pub(crate) fn collect_health_data(
             .map(|(name, location, _)| (location, name))
             .collect();
 
-    // Resolve SSH key path
-    let ssh_key_path = home_dir()
-        .ok()
-        .map(|h| h.join(".ssh").join("azlin_key"))
-        .filter(|p| p.exists())
-        .or_else(|| {
-            home_dir()
-                .ok()
-                .map(|h| h.join(".ssh").join("id_rsa"))
-                .filter(|p| p.exists())
-        });
+    let ssh_key_path = resolve_ssh_key();
 
     for vm in vms {
         if vm.power_state != azlin_core::models::PowerState::Running {

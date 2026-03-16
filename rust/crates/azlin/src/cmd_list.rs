@@ -236,8 +236,6 @@ pub(crate) async fn dispatch(
                     &all_vms,
                     effective_rg,
                     vm_manager.subscription_id(),
-                    verbose,
-                    ssh_timeout,
                 );
                 pb.finish_and_clear();
                 result
