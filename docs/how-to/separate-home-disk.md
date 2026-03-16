@@ -202,7 +202,7 @@ For better performance, consider Premium SSD:
 | 256GB (E15) | $38.40     | 1100 | 125 MB/s   | Database    |
 | 512GB (E20) | $73.22     | 2300 | 150 MB/s   | High perf   |
 
-**Note**: azlin currently defaults to Standard HDD. Premium SSD support coming soon.
+**Note**: azlin currently defaults to Standard HDD. Premium SSD home disks are supported via `--home-disk-sku Premium_LRS`.
 
 ### Cost-Benefit Comparison
 
@@ -445,7 +445,7 @@ The OS disk already has `/home/azureuser` with default dotfiles. When the home d
 
 ### Q: Can I use Premium SSD instead of Standard HDD?
 
-Currently, azlin defaults to Standard HDD (Standard_LRS) for cost-effectiveness. Premium SSD support (`--home-disk-sku Premium_LRS`) is planned for a future release.
+Currently, azlin defaults to Standard HDD (Standard_LRS) for cost-effectiveness, but Premium SSD is already supported when you set `--home-disk-sku Premium_LRS`.
 
 **Workaround** (manual upgrade):
 ```bash
