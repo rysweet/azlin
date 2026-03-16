@@ -643,7 +643,7 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
         row.push_str(&format!(",{},{}", cpu, mem));
         if cfg.with_latency {
             row.push_str(&format!(
-                ",{}",
+                ", {}",
                 data.latencies
                     .get(&vm.name)
                     .map(|l| format!("{}ms", l))
@@ -652,13 +652,14 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
         }
         if cfg.with_health {
             if let Some(m) = data.health_data.get(&vm.name) {
-                row.push_str(&format!(",{},{:.0},{:.0},{:.0}", m.agent_status, m.cpu_percent, m.mem_percent, m.disk_percent));
+                row.push_str(&format!(",{}, {:.0}, {:.0}, {:.0}", m.agent_status, m.cpu_percent, m.mem_percent, m.disk_percent));
             } else {
                 row.push_str(",,,,");
             }
         }
         println!("{}", row);
     }
+}
 }
 
 #[cfg(test)]
