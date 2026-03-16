@@ -99,7 +99,7 @@ fn print_table_diff(
         if is_changed {
             changed += 1;
             let default_display = baseline_val
-                .map(|v| format_value(v))
+                .map(format_value)
                 .unwrap_or_else(|| "(new)".to_string());
             println!(
                 "  {:<width$}  {}  {}",

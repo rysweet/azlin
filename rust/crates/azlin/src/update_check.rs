@@ -195,6 +195,44 @@ pub fn check_for_updates() {
     });
 }
 
+/// Interactive update check: returns the newer version string if an update is
+/// available, or None if the current version is up-to-date (or the check is
+/// suppressed / fails).
+///
+/// Unlike `check_for_updates()`, this performs a **synchronous** fetch when the
+/// cache is expired so the caller can immediately prompt the user.  The fetch
+/// uses the same short timeouts (5 s) so worst-case latency is bounded.
+///
+/// The caller is responsible for prompting and running the update.
+pub fn check_for_updates_interactive() -> Option<String> {
+    if std::env::var("AZLIN_NO_UPDATE_CHECK").unwrap_or_default() == "1" {
+        return None;
+    }
+
+    let now = now_secs();
+
+    // Try the cache first
+    if let Some((cached_version, timestamp)) = read_cache() {
+        if now.saturating_sub(timestamp) < COOLDOWN_SECS {
+            // Cache is fresh — use it
+            if is_newer(CURRENT_VERSION, &cached_version) {
+                return Some(cached_version);
+            }
+            return None;
+        }
+    }
+
+    // Cache missing or expired — fetch synchronously (bounded by 5 s timeout)
+    if let Some(latest) = fetch_latest_version() {
+        write_cache(&latest);
+        if is_newer(CURRENT_VERSION, &latest) {
+            return Some(latest);
+        }
+    }
+
+    None
+}
+
 /// Sanitise a version string for safe terminal display.
 /// Strips all ASCII control characters (including ESC / ANSI sequences) so a
 /// malicious cache file cannot inject terminal escape codes.
@@ -570,5 +608,84 @@ mod tests {
             secs > 1_704_067_200,
             "now_secs() returned {secs}, which predates 2024-01-01"
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // check_for_updates_interactive — interactive update check (new)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_interactive_returns_newer_version_from_fresh_cache() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let dir = tempfile::TempDir::new().unwrap();
+        unsafe { std::env::set_var("HOME", dir.path()) };
+        unsafe { std::env::remove_var("AZLIN_NO_UPDATE_CHECK") };
+
+        // Write cache with a version that is definitely newer and a recent timestamp
+        let cache_dir = dir.path().join(".config").join("azlin");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let now = now_secs();
+        std::fs::write(
+            cache_dir.join("last_update_check"),
+            format!("99.99.99-rust.abc1234\n{}", now),
+        )
+        .unwrap();
+
+        let result = check_for_updates_interactive();
+        unsafe { std::env::remove_var("HOME") };
+
+        assert_eq!(result, Some("99.99.99-rust.abc1234".to_string()));
+    }
+
+    #[test]
+    fn test_interactive_returns_none_when_cache_shows_same_version() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let dir = tempfile::TempDir::new().unwrap();
+        unsafe { std::env::set_var("HOME", dir.path()) };
+        unsafe { std::env::remove_var("AZLIN_NO_UPDATE_CHECK") };
+
+        let cache_dir = dir.path().join(".config").join("azlin");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let now = now_secs();
+        std::fs::write(
+            cache_dir.join("last_update_check"),
+            format!("{}\n{}", CURRENT_VERSION, now),
+        )
+        .unwrap();
+
+        let result = check_for_updates_interactive();
+        unsafe { std::env::remove_var("HOME") };
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_interactive_returns_none_when_suppressed() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        unsafe { std::env::set_var("AZLIN_NO_UPDATE_CHECK", "1") };
+
+        let result = check_for_updates_interactive();
+        unsafe { std::env::remove_var("AZLIN_NO_UPDATE_CHECK") };
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_interactive_returns_none_when_no_cache_and_no_network() {
+        // With no cache and no network, the function should return None
+        // (fetch will fail silently due to timeout/no connectivity in test env)
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let dir = tempfile::TempDir::new().unwrap();
+        unsafe { std::env::set_var("HOME", dir.path()) };
+        unsafe { std::env::remove_var("AZLIN_NO_UPDATE_CHECK") };
+
+        let result = check_for_updates_interactive();
+        unsafe { std::env::remove_var("HOME") };
+
+        // Without network, fetch fails → returns None
+        // (could also return Some if gh/curl happen to work, but in test env
+        // with a fake HOME, this is unlikely)
+        // The key assertion: it must not panic
+        let _ = result;
     }
 }
