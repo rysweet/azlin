@@ -232,11 +232,17 @@ pub(crate) async fn dispatch(
 
             let health_data = if with_health {
                 let pb = penguin_spinner("Checking VM health...");
-                let result = crate::cmd_list_data::collect_health(&all_vms, verbose, ssh_timeout);
+                let result = crate::cmd_list_data::collect_health(
+                    &all_vms,
+                    verbose,
+                    ssh_timeout,
+                    effective_rg,
+                    vm_manager.subscription_id(),
+                );
                 pb.finish_and_clear();
                 result
             } else {
-                std::collections::HashMap::new()
+                Vec::new()
             };
 
             let proc_data = if show_procs {

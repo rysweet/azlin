@@ -168,43 +168,81 @@ pub(crate) fn collect_latencies(vms: &[VmInfo]) -> HashMap<String, u64> {
     latencies
 }
 
-/// Collect health data for running VMs via SSH uptime check.
-pub(crate) fn collect_health(vms: &[VmInfo], _verbose: bool, connect_timeout: u64) -> HashMap<String, String> {
-    let mut health_data = HashMap::new();
+/// Collect health data for running VMs using proper health metrics.
+/// Uses collect_health_metrics() to get CPU, Memory, Disk, and Agent status.
+pub(crate) fn collect_health(
+    vms: &[VmInfo],
+    _verbose: bool,
+    _connect_timeout: u64,
+    effective_rg: &str,
+    subscription_id: &str,
+) -> Vec<crate::HealthMetrics> {
+    use crate::list_helpers::detect_bastion_hosts;
+    use crate::{bastion_ssh_exec, collect_health_metrics, ssh_exec, DEFAULT_ADMIN_USERNAME};
+    use std::path::PathBuf;
+
+    // Build bastion name map (region -> bastion_name) for private VMs
+    let bastion_map: HashMap<String, String> = match detect_bastion_hosts(effective_rg) {
+        Ok(bastions) => bastions
+            .into_iter()
+            .map(|(name, location, _)| (location, name))
+            .collect(),
+        Err(_) => HashMap::new(),
+    };
+
+    // Resolve SSH key path
+    let ssh_key_path: Option<PathBuf> = home_dir()
+        .ok()
+        .map(|h| h.join(".ssh").join("azlin_key"))
+        .filter(|p| p.exists())
+        .or_else(|| {
+            home_dir()
+                .ok()
+                .map(|h| h.join(".ssh").join("id_rsa"))
+                .filter(|p| p.exists())
+        });
+
+    let mut health_metrics = Vec::new();
+
     for vm in vms {
-        if vm.power_state != azlin_core::models::PowerState::Running {
-            continue;
-        }
-        let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref());
-        if let Some(ip) = ip {
-            let user = vm
-                .admin_username
-                .as_deref()
-                .unwrap_or(DEFAULT_ADMIN_USERNAME);
-            let timeout_val = format!("ConnectTimeout={}", connect_timeout);
-            let output = std::process::Command::new("ssh")
-                .args([
-                    "-o",
-                    "StrictHostKeyChecking=accept-new",
-                    "-o",
-                    &timeout_val,
-                    "-o",
-                    "BatchMode=yes",
-                    &format!("{}@{}", user, ip),
-                    "uptime -p 2>/dev/null || uptime",
-                ])
-                .output();
-            if let Ok(out) = output {
-                if out.status.success() {
-                    let summary = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                    if !summary.is_empty() {
-                        health_data.insert(vm.name.clone(), summary);
-                    }
-                }
-            }
-        }
+        let ip = match vm.public_ip.as_deref().or(vm.private_ip.as_deref()) {
+            Some(ip) => ip,
+            None => continue,
+        };
+        let user = vm
+            .admin_username
+            .as_deref()
+            .unwrap_or(DEFAULT_ADMIN_USERNAME);
+        let state = vm.power_state.to_string();
+
+        // Build bastion info for private VMs
+        let bastion_info: Option<(String, String, String, Option<PathBuf>)> =
+            if vm.public_ip.is_none() {
+                bastion_map.get(&vm.location).map(|bn| {
+                    let vm_rid = format!(
+                        "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
+                        subscription_id, vm.resource_group, vm.name
+                    );
+                    (
+                        bn.clone(),
+                        vm.resource_group.clone(),
+                        vm_rid,
+                        ssh_key_path.clone(),
+                    )
+                })
+            } else {
+                None
+            };
+
+        let bastion_ref = bastion_info
+            .as_ref()
+            .map(|(bn, rg_b, rid, key)| (bn.as_str(), rg_b.as_str(), rid.as_str(), key.as_deref()));
+
+        let metrics = collect_health_metrics(&vm.name, ip, user, &state, bastion_ref);
+        health_metrics.push(metrics);
     }
-    health_data
+
+    health_metrics
 }
 
 /// Collect top process data for running VMs.

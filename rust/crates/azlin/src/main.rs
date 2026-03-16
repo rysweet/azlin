@@ -36,14 +36,14 @@ const DEFAULT_ADMIN_USERNAME: &str = "azureuser";
 
 /// Health metrics collected from a VM via SSH.
 #[derive(Debug)]
-struct HealthMetrics {
-    vm_name: String,
-    power_state: String,
-    agent_status: String,
-    error_count: u32,
-    cpu_percent: f32,
-    mem_percent: f32,
-    disk_percent: f32,
+pub(crate) struct HealthMetrics {
+    pub vm_name: String,
+    pub power_state: String,
+    pub agent_status: String,
+    pub error_count: u32,
+    pub cpu_percent: f32,
+    pub mem_percent: f32,
+    pub disk_percent: f32,
 }
 
 /// Run an SSH command on a remote host and return (exit_code, stdout, stderr).
@@ -330,7 +330,7 @@ fn resolve_ssh_key() -> Option<std::path::PathBuf> {
 }
 
 /// Collect health metrics from a single VM via SSH (direct or through Bastion).
-fn collect_health_metrics(
+pub(crate) fn collect_health_metrics(
     vm_name: &str,
     ip: &str,
     user: &str,
