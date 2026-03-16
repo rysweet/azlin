@@ -22,7 +22,7 @@ pub(crate) struct ListRenderData<'a> {
     pub vms: &'a [VmInfo],
     pub tmux_sessions: &'a HashMap<String, Vec<String>>,
     pub latencies: &'a HashMap<String, u64>,
-    pub health_data: &'a HashMap<String, String>,
+    pub health_data: &'a HashMap<String, crate::HealthMetrics>,
     pub proc_data: &'a HashMap<String, String>,
 }
 
@@ -144,6 +144,15 @@ fn bold(s: &str) -> String {
     format!("\x1b[1m{}\x1b[0m", s)
 }
 
+/// Apply ANSI color based on threshold level.
+fn threshold_ansi(level: crate::error_helpers::ThresholdLevel, s: &str) -> String {
+    match level {
+        crate::error_helpers::ThresholdLevel::Normal => format!("\x1b[32m{}\x1b[0m", s),
+        crate::error_helpers::ThresholdLevel::Warning => format!("\x1b[33m{}\x1b[0m", s),
+        crate::error_helpers::ThresholdLevel::Critical => format!("\x1b[31m{}\x1b[0m", s),
+    }
+}
+
 /// Color a status string based on VM power state.
 fn color_status(state: &azlin_core::models::PowerState) -> String {
     let s = state.to_string();
@@ -257,11 +266,10 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
         });
     }
     if cfg.with_health {
-        cols.push(ColDef {
-            header: "Health",
-            width: 8,
-            right_align: false,
-        });
+        cols.push(ColDef { header: "Agent", width: 5, right_align: false });
+        cols.push(ColDef { header: "CPU%",  width: 5, right_align: true });
+        cols.push(ColDef { header: "Mem%",  width: 5, right_align: true });
+        cols.push(ColDef { header: "Disk%", width: 5, right_align: true });
     }
     if cfg.show_procs {
         cols.push(ColDef {
@@ -440,15 +448,35 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
             col_i += 1;
         }
 
-        // Health
+        // Health (4 columns: Agent, CPU%, Mem%, Disk%)
         if cfg.with_health {
-            let h = data
-                .health_data
-                .get(&vm.name)
-                .cloned()
-                .unwrap_or_else(|| "-".to_string());
-            cells.push(trunc(&h, cols[col_i].width));
-            col_i += 1;
+            if let Some(m) = data.health_data.get(&vm.name) {
+                // Agent
+                let agent_padded = trunc(&m.agent_status, cols[col_i].width);
+                cells.push(threshold_ansi(crate::error_helpers::classify_agent_level(&m.agent_status), &agent_padded));
+                col_i += 1;
+                // CPU%
+                let cpu_s = format!("{:.0}", m.cpu_percent);
+                let cpu_padded = trunc_right(&cpu_s, cols[col_i].width);
+                cells.push(threshold_ansi(crate::error_helpers::classify_metric_70_90(m.cpu_percent), &cpu_padded));
+                col_i += 1;
+                // Mem%
+                let mem_s = format!("{:.0}", m.mem_percent);
+                let mem_padded = trunc_right(&mem_s, cols[col_i].width);
+                cells.push(threshold_ansi(crate::error_helpers::classify_metric_70_90(m.mem_percent), &mem_padded));
+                col_i += 1;
+                // Disk%
+                let disk_s = format!("{:.0}", m.disk_percent);
+                let disk_padded = trunc_right(&disk_s, cols[col_i].width);
+                cells.push(threshold_ansi(crate::error_helpers::classify_metric_70_90(m.disk_percent), &disk_padded));
+                col_i += 1;
+            } else {
+                // No health data — show "-" in all 4 columns
+                for _ in 0..4 {
+                    cells.push(trunc("-", cols[col_i].width));
+                    col_i += 1;
+                }
+            }
         }
 
         // Procs
@@ -537,7 +565,17 @@ fn render_json(cfg: &ListRenderConfig, data: &ListRenderData) -> Result<()> {
                 obj["latency_ms"] = serde_json::json!(data.latencies.get(&vm.name));
             }
             if cfg.with_health {
-                obj["health"] = serde_json::json!(data.health_data.get(&vm.name));
+                if let Some(m) = data.health_data.get(&vm.name) {
+                    obj["health_agent"] = serde_json::json!(m.agent_status);
+                    obj["health_cpu_percent"] = serde_json::json!(m.cpu_percent);
+                    obj["health_mem_percent"] = serde_json::json!(m.mem_percent);
+                    obj["health_disk_percent"] = serde_json::json!(m.disk_percent);
+                } else {
+                    obj["health_agent"] = serde_json::json!(null);
+                    obj["health_cpu_percent"] = serde_json::json!(null);
+                    obj["health_mem_percent"] = serde_json::json!(null);
+                    obj["health_disk_percent"] = serde_json::json!(null);
+                }
             }
             obj
         })
@@ -564,6 +602,9 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
     headers.extend_from_slice(&["CPU", "Mem"]);
     if cfg.with_latency {
         headers.push("Latency");
+    }
+    if cfg.with_health {
+        headers.extend_from_slice(&["Agent", "CPU%", "Mem%", "Disk%"]);
     }
     println!("{}", headers.join(","));
 
@@ -608,6 +649,13 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
                     .map(|l| format!("{}ms", l))
                     .unwrap_or_default()
             ));
+        }
+        if cfg.with_health {
+            if let Some(m) = data.health_data.get(&vm.name) {
+                row.push_str(&format!(",{},{:.0},{:.0},{:.0}", m.agent_status, m.cpu_percent, m.mem_percent, m.disk_percent));
+            } else {
+                row.push_str(",,,,");
+            }
         }
         println!("{}", row);
     }
