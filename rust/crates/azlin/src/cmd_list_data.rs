@@ -168,43 +168,189 @@ pub(crate) fn collect_latencies(vms: &[VmInfo]) -> HashMap<String, u64> {
     latencies
 }
 
-/// Collect health data for running VMs via SSH uptime check.
-pub(crate) fn collect_health(vms: &[VmInfo], _verbose: bool, connect_timeout: u64) -> HashMap<String, String> {
+/// Health metrics for a VM (mirrors main.rs HealthMetrics for list command).
+#[derive(Debug, Clone)]
+pub(crate) struct HealthMetricsData {
+    pub vm_name: String,
+    pub power_state: String,
+    pub agent_status: String,
+    pub error_count: u32,
+    pub cpu_percent: f32,
+    pub mem_percent: f32,
+    pub disk_percent: f32,
+}
+
+/// Collect health data for running VMs via SSH using actual health metrics.
+pub(crate) fn collect_health(vms: &[VmInfo], _verbose: bool, connect_timeout: u64) -> HashMap<String, HealthMetricsData> {
     let mut health_data = HashMap::new();
+
+    // Resolve SSH key path
+    let ssh_key = home_dir()
+        .ok()
+        .map(|h| h.join(".ssh").join("azlin_key"))
+        .filter(|p| p.exists())
+        .or_else(|| {
+            home_dir()
+                .ok()
+                .map(|h| h.join(".ssh").join("id_rsa"))
+                .filter(|p| p.exists())
+        });
+
     for vm in vms {
         if vm.power_state != azlin_core::models::PowerState::Running {
+            // Insert default metrics for non-running VMs
+            health_data.insert(vm.name.clone(), HealthMetricsData {
+                vm_name: vm.name.clone(),
+                power_state: vm.power_state.to_string(),
+                agent_status: "-".to_string(),
+                error_count: 0,
+                cpu_percent: 0.0,
+                mem_percent: 0.0,
+                disk_percent: 0.0,
+            });
             continue;
         }
+
         let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref());
         if let Some(ip) = ip {
             let user = vm
                 .admin_username
                 .as_deref()
                 .unwrap_or(DEFAULT_ADMIN_USERNAME);
-            let timeout_val = format!("ConnectTimeout={}", connect_timeout);
-            let output = std::process::Command::new("ssh")
-                .args([
-                    "-o",
-                    "StrictHostKeyChecking=accept-new",
-                    "-o",
-                    &timeout_val,
-                    "-o",
-                    "BatchMode=yes",
-                    &format!("{}@{}", user, ip),
-                    "uptime -p 2>/dev/null || uptime",
-                ])
-                .output();
-            if let Ok(out) = output {
-                if out.status.success() {
-                    let summary = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                    if !summary.is_empty() {
-                        health_data.insert(vm.name.clone(), summary);
-                    }
-                }
-            }
+
+            // Collect metrics via SSH
+            let metrics = collect_vm_health_metrics(&vm.name, ip, user, connect_timeout, ssh_key.as_deref());
+            health_data.insert(vm.name.clone(), metrics);
+        } else {
+            // No IP available
+            health_data.insert(vm.name.clone(), HealthMetricsData {
+                vm_name: vm.name.clone(),
+                power_state: vm.power_state.to_string(),
+                agent_status: "-".to_string(),
+                error_count: 0,
+                cpu_percent: 0.0,
+                mem_percent: 0.0,
+                disk_percent: 0.0,
+            });
         }
     }
     health_data
+}
+
+/// Collect health metrics from a single VM via SSH.
+fn collect_vm_health_metrics(
+    vm_name: &str,
+    ip: &str,
+    user: &str,
+    connect_timeout: u64,
+    ssh_key: Option<&std::path::Path>,
+) -> HealthMetricsData {
+    let timeout_val = format!("ConnectTimeout={}", connect_timeout);
+    let mut ssh_args = vec![
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        &timeout_val,
+        "-o",
+        "BatchMode=yes",
+    ];
+    if let Some(key) = ssh_key {
+        ssh_args.push("-i");
+        ssh_args.push(key.to_str().unwrap_or(""));
+    }
+
+    // CPU usage from top
+    let user_host = format!("{}@{}", user, ip);
+    let cpu_cmd = "top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{print 100 - $1}'";
+    let cpu = std::process::Command::new("ssh")
+        .args(&ssh_args)
+        .args([&user_host, cpu_cmd])
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                String::from_utf8_lossy(&out.stdout).trim().parse::<f32>().ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0.0);
+
+    // Memory usage from free
+    let mem_cmd = "free | awk '/Mem:/{printf \"%.1f\", $3/$2 * 100}'";
+    let mem = std::process::Command::new("ssh")
+        .args(&ssh_args)
+        .args([&user_host, mem_cmd])
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                String::from_utf8_lossy(&out.stdout).trim().parse::<f32>().ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0.0);
+
+    // Disk usage from df
+    let disk_cmd = "df / --output=pcent | tail -1 | tr -d ' %'";
+    let disk = std::process::Command::new("ssh")
+        .args(&ssh_args)
+        .args([&user_host, disk_cmd])
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                String::from_utf8_lossy(&out.stdout).trim().parse::<f32>().ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0.0);
+
+    // Agent status from walinuxagent service
+    let agent_cmd = "systemctl is-active walinuxagent 2>/dev/null || echo 'N/A'";
+    let agent = std::process::Command::new("ssh")
+        .args(&ssh_args)
+        .args([&user_host, agent_cmd])
+        .output()
+        .ok()
+        .map(|out| {
+            let status = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            match status.as_str() {
+                "active" => "Active".to_string(),
+                "inactive" => "Inactive".to_string(),
+                "failed" => "Failed".to_string(),
+                _ => "N/A".to_string(),
+            }
+        })
+        .unwrap_or_else(|| "N/A".to_string());
+
+    // Error count from journalctl (last hour)
+    let error_cmd = "journalctl -p err --since '1 hour ago' --no-pager -q 2>/dev/null | wc -l";
+    let errors = std::process::Command::new("ssh")
+        .args(&ssh_args)
+        .args([&user_host, error_cmd])
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                String::from_utf8_lossy(&out.stdout).trim().parse::<u32>().ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0);
+
+    HealthMetricsData {
+        vm_name: vm_name.to_string(),
+        power_state: "Running".to_string(),
+        agent_status: agent,
+        error_count: errors,
+        cpu_percent: cpu,
+        mem_percent: mem,
+        disk_percent: disk,
+    }
 }
 
 /// Collect top process data for running VMs.

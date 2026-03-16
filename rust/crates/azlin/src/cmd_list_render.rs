@@ -1,6 +1,7 @@
 //! Rendering logic for the list command (table, JSON, CSV output).
 #![allow(dead_code)]
 
+use crate::cmd_list_data::HealthMetricsData;
 use anyhow::Result;
 use azlin_core::models::VmInfo;
 use std::collections::HashMap;
@@ -22,7 +23,7 @@ pub(crate) struct ListRenderData<'a> {
     pub vms: &'a [VmInfo],
     pub tmux_sessions: &'a HashMap<String, Vec<String>>,
     pub latencies: &'a HashMap<String, u64>,
-    pub health_data: &'a HashMap<String, String>,
+    pub health_data: &'a HashMap<String, HealthMetricsData>,
     pub proc_data: &'a HashMap<String, String>,
 }
 
@@ -258,9 +259,24 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
     }
     if cfg.with_health {
         cols.push(ColDef {
-            header: "Health",
+            header: "Agent",
             width: 8,
             right_align: false,
+        });
+        cols.push(ColDef {
+            header: "CPU%",
+            width: 5,
+            right_align: true,
+        });
+        cols.push(ColDef {
+            header: "Mem%",
+            width: 5,
+            right_align: true,
+        });
+        cols.push(ColDef {
+            header: "Disk%",
+            width: 5,
+            right_align: true,
         });
     }
     if cfg.show_procs {
@@ -440,14 +456,35 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
             col_i += 1;
         }
 
-        // Health
+        // Health - 4 columns: Agent, CPU%, Mem%, Disk%
         if cfg.with_health {
-            let h = data
-                .health_data
-                .get(&vm.name)
-                .cloned()
-                .unwrap_or_else(|| "-".to_string());
-            cells.push(trunc(&h, cols[col_i].width));
+            let health = data.health_data.get(&vm.name);
+
+            // Agent status
+            let agent = health.map(|h| h.agent_status.as_str()).unwrap_or("-");
+            let agent_colored = match agent {
+                "Active" => green(agent),
+                "Inactive" | "N/A" => dim(agent),
+                "Failed" => red(agent),
+                _ => dim(agent),
+            };
+            let agent_padded = trunc(&agent_colored, cols[col_i].width);
+            cells.push(agent_padded);
+            col_i += 1;
+
+            // CPU%
+            let cpu = health.map(|h| format!("{:.1}", h.cpu_percent)).unwrap_or_else(|| "-".to_string());
+            cells.push(dim(&trunc_right(&cpu, cols[col_i].width)));
+            col_i += 1;
+
+            // Mem%
+            let mem = health.map(|h| format!("{:.1}", h.mem_percent)).unwrap_or_else(|| "-".to_string());
+            cells.push(dim(&trunc_right(&mem, cols[col_i].width)));
+            col_i += 1;
+
+            // Disk%
+            let disk = health.map(|h| format!("{:.1}", h.disk_percent)).unwrap_or_else(|| "-".to_string());
+            cells.push(dim(&trunc_right(&disk, cols[col_i].width)));
             col_i += 1;
         }
 
@@ -537,7 +574,17 @@ fn render_json(cfg: &ListRenderConfig, data: &ListRenderData) -> Result<()> {
                 obj["latency_ms"] = serde_json::json!(data.latencies.get(&vm.name));
             }
             if cfg.with_health {
-                obj["health"] = serde_json::json!(data.health_data.get(&vm.name));
+                if let Some(health) = data.health_data.get(&vm.name) {
+                    obj["health"] = serde_json::json!({
+                        "agent_status": health.agent_status,
+                        "cpu_percent": health.cpu_percent,
+                        "mem_percent": health.mem_percent,
+                        "disk_percent": health.disk_percent,
+                        "error_count": health.error_count,
+                    });
+                } else {
+                    obj["health"] = serde_json::Value::Null;
+                }
             }
             obj
         })
@@ -564,6 +611,9 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
     headers.extend_from_slice(&["CPU", "Mem"]);
     if cfg.with_latency {
         headers.push("Latency");
+    }
+    if cfg.with_health {
+        headers.extend_from_slice(&["Agent", "CPU%", "Mem%", "Disk%"]);
     }
     println!("{}", headers.join(","));
 
@@ -609,6 +659,19 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
                     .unwrap_or_default()
             ));
         }
+        if cfg.with_health {
+            if let Some(health) = data.health_data.get(&vm.name) {
+                row.push_str(&format!(
+                    ",{},{:.1},{:.1},{:.1}",
+                    health.agent_status,
+                    health.cpu_percent,
+                    health.mem_percent,
+                    health.disk_percent
+                ));
+            } else {
+                row.push_str(",-,-,-,-");
+            }
+        }
         println!("{}", row);
     }
 }
@@ -616,6 +679,7 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cmd_list_data::HealthMetricsData;
 
     // ── format_tmux_plain ─────────────────────────────────────────────
 
