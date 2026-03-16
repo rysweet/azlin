@@ -695,8 +695,13 @@ fn run_on_fleet(targets: &[VmSshTarget], command: &str, show_output: bool) {
 
 fn main() {
     // Suppress Python deprecation warnings from Azure CLI extensions (e.g.
-    // pkg_resources in azext_bastion).  Set before any threads are spawned.
+    // pkg_resources in azext_bastion).
     if std::env::var("PYTHONWARNINGS").is_err() {
+        // SAFETY: No threads have been spawned yet — this is the first
+        // statement in main().  `set_var` is unsafe because it mutates global
+        // process state which is UB when other threads read the environment
+        // concurrently.  This must remain before any thread-spawning code
+        // (including the tokio runtime created below).
         unsafe { std::env::set_var("PYTHONWARNINGS", "ignore::UserWarning:pkg_resources") };
     }
 
