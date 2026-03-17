@@ -102,33 +102,64 @@ struct BastionTunnel {
     child: std::process::Child,
 }
 
-/// Pool of bastion tunnels keyed by VM name.  Re-uses an existing tunnel when
+fn pick_unused_local_port() -> Result<u16> {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .context("Failed to allocate a local port for bastion tunnel")?;
+    let port = listener
+        .local_addr()
+        .context("Failed to inspect allocated bastion tunnel port")?
+        .port();
+    Ok(port)
+}
+
+fn wait_for_local_port_listener(port: u16, pid: u32, timeout: std::time::Duration) -> Result<()> {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            return Ok(());
+        }
+        if let Some(exit) = std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .ok()
+            .filter(|status| !status.success())
+        {
+            anyhow::bail!(
+                "Bastion tunnel process {} exited before listening on 127.0.0.1:{} ({exit})",
+                pid,
+                port
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    anyhow::bail!(
+        "Timed out waiting for bastion tunnel process {} to listen on 127.0.0.1:{}",
+        pid,
+        port
+    );
+}
+
+/// Pool of bastion tunnels keyed by VM resource ID. Re-uses an existing tunnel when
 /// the same VM is queried twice, and tears down all tunnels on drop.
 struct BastionTunnelPool {
     tunnels: std::collections::HashMap<String, BastionTunnel>,
-    next_port: u16,
 }
 
 impl BastionTunnelPool {
     fn new() -> Self {
         Self {
             tunnels: std::collections::HashMap::new(),
-            next_port: 50100,
         }
     }
 
-    fn get_or_create(
-        &mut self,
-        vm_name: &str,
-        bastion_name: &str,
-        rg: &str,
-        vm_rid: &str,
-    ) -> Result<u16> {
-        if let Some(tunnel) = self.tunnels.get(vm_name) {
+    fn get_or_create(&mut self, vm_resource_id: &str, bastion_name: &str, rg: &str) -> Result<u16> {
+        if let Some(tunnel) = self.tunnels.get(vm_resource_id) {
             return Ok(tunnel.local_port);
         }
-        let port = self.next_port;
-        self.next_port += 1;
+        let port = pick_unused_local_port()?;
         let child = std::process::Command::new("az")
             .args([
                 "network",
@@ -139,7 +170,7 @@ impl BastionTunnelPool {
                 "--resource-group",
                 rg,
                 "--target-resource-id",
-                vm_rid,
+                vm_resource_id,
                 "--resource-port",
                 "22",
                 "--port",
@@ -148,10 +179,9 @@ impl BastionTunnelPool {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()?;
-        // Wait briefly for tunnel to establish
-        std::thread::sleep(std::time::Duration::from_secs(2));
+        wait_for_local_port_listener(port, child.id(), std::time::Duration::from_secs(10))?;
         self.tunnels.insert(
-            vm_name.to_string(),
+            vm_resource_id.to_string(),
             BastionTunnel {
                 local_port: port,
                 child,

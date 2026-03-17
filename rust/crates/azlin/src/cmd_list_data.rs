@@ -89,7 +89,7 @@ pub(crate) fn collect_tmux_sessions(
                 "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
                 subscription_id, vm.resource_group, vm.name
             );
-            match tunnel_pool.get_or_create(&vm.name, bastion_name, &vm.resource_group, &vm_id) {
+            match tunnel_pool.get_or_create(&vm_id, bastion_name, &vm.resource_group) {
                 Ok(port) => {
                     let mut ssh_args = vec![
                         "-o".to_string(),
