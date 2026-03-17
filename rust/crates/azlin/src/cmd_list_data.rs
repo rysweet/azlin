@@ -89,7 +89,7 @@ pub(crate) fn collect_tmux_sessions(
                 "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
                 subscription_id, vm.resource_group, vm.name
             );
-            match tunnel_pool.get_or_create(&vm.name, bastion_name, &vm.resource_group, &vm_id) {
+            match tunnel_pool.get_or_create(&vm_id, bastion_name, &vm.resource_group) {
                 Ok(port) => {
                     let mut ssh_args = vec![
                         "-o".to_string(),
@@ -204,9 +204,11 @@ pub(crate) fn collect_health_data(
         let state = vm.power_state.to_string();
 
         // Build bastion info when there is no public IP
-        let bastion_info_owned: Option<(String, String, String, Option<std::path::PathBuf>)> =
-            if vm.public_ip.is_none() {
-                bastion_map.get(&vm.location).map(|bn| {
+        let bastion_info_owned: Option<(String, String, String, Option<std::path::PathBuf>)> = if vm
+            .public_ip
+            .is_none()
+        {
+            bastion_map.get(&vm.location).map(|bn| {
                     let vm_rid = format!(
                         "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
                         subscription_id, vm.resource_group, vm.name
@@ -218,9 +220,9 @@ pub(crate) fn collect_health_data(
                         ssh_key_path.clone(),
                     )
                 })
-            } else {
-                None
-            };
+        } else {
+            None
+        };
         let bastion_ref = bastion_info_owned
             .as_ref()
             .map(|(bn, rg_b, rid, key)| (bn.as_str(), rg_b.as_str(), rid.as_str(), key.as_deref()));
@@ -313,7 +315,10 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
             }
             if let Some(raw_session) = sessions.first() {
                 if let Some(session) = parse_session_name(raw_session) {
-                    println!("  [dry-run] Would connect to {} (session: {})", vm_name, session);
+                    println!(
+                        "  [dry-run] Would connect to {} (session: {})",
+                        vm_name, session
+                    );
                 } else {
                     eprintln!("  Warning: skipping invalid session name for {}", vm_name);
                 }
@@ -332,7 +337,6 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
         .and_then(|p| p.to_str().map(|s| s.to_string()))
         .unwrap_or_else(|| "azlin".to_string());
 
-
     for (vm_name, sessions) in tmux_sessions {
         if !is_valid_restore_vm_name(vm_name) {
             eprintln!("  Warning: skipping VM with invalid name");
@@ -343,10 +347,7 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
             let first_session = match parse_session_name(raw_session) {
                 Some(s) => s,
                 None => {
-                    eprintln!(
-                        "  Warning: skipping invalid session name for {}",
-                        vm_name
-                    );
+                    eprintln!("  Warning: skipping invalid session name for {}", vm_name);
                     continue;
                 }
             };
@@ -359,16 +360,16 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
                 // where the azlin binary lives.
                 let wsl_distro =
                     std::env::var("WSL_DISTRO_NAME").unwrap_or_else(|_| "".to_string());
-                let mut wt_args: Vec<&str> =
-                    vec!["-w", "0", "new-tab"];
+                let mut wt_args: Vec<&str> = vec!["-w", "0", "new-tab"];
                 if !wsl_distro.is_empty() {
-                    wt_args.extend_from_slice(&[
-                        "wsl.exe", "-d", &wsl_distro, "--",
-                    ]);
+                    wt_args.extend_from_slice(&["wsl.exe", "-d", &wsl_distro, "--"]);
                 }
                 wt_args.extend_from_slice(&[
-                    &self_exe, "connect", vm_name,
-                    "--tmux-session", &first_session,
+                    &self_exe,
+                    "connect",
+                    vm_name,
+                    "--tmux-session",
+                    &first_session,
                 ]);
                 if let Err(e) = std::process::Command::new("wt.exe")
                     .args(&wt_args)

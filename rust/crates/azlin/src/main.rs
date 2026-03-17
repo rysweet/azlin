@@ -102,33 +102,64 @@ struct BastionTunnel {
     child: std::process::Child,
 }
 
-/// Pool of bastion tunnels keyed by VM name.  Re-uses an existing tunnel when
+fn pick_unused_local_port() -> Result<u16> {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .context("Failed to allocate a local port for bastion tunnel")?;
+    let port = listener
+        .local_addr()
+        .context("Failed to inspect allocated bastion tunnel port")?
+        .port();
+    Ok(port)
+}
+
+fn wait_for_local_port_listener(port: u16, pid: u32, timeout: std::time::Duration) -> Result<()> {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            return Ok(());
+        }
+        if let Some(exit) = std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .ok()
+            .filter(|status| !status.success())
+        {
+            anyhow::bail!(
+                "Bastion tunnel process {} exited before listening on 127.0.0.1:{} ({exit})",
+                pid,
+                port
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    anyhow::bail!(
+        "Timed out waiting for bastion tunnel process {} to listen on 127.0.0.1:{}",
+        pid,
+        port
+    );
+}
+
+/// Pool of bastion tunnels keyed by VM resource ID. Re-uses an existing tunnel when
 /// the same VM is queried twice, and tears down all tunnels on drop.
 struct BastionTunnelPool {
     tunnels: std::collections::HashMap<String, BastionTunnel>,
-    next_port: u16,
 }
 
 impl BastionTunnelPool {
     fn new() -> Self {
         Self {
             tunnels: std::collections::HashMap::new(),
-            next_port: 50100,
         }
     }
 
-    fn get_or_create(
-        &mut self,
-        vm_name: &str,
-        bastion_name: &str,
-        rg: &str,
-        vm_rid: &str,
-    ) -> Result<u16> {
-        if let Some(tunnel) = self.tunnels.get(vm_name) {
+    fn get_or_create(&mut self, vm_resource_id: &str, bastion_name: &str, rg: &str) -> Result<u16> {
+        if let Some(tunnel) = self.tunnels.get(vm_resource_id) {
             return Ok(tunnel.local_port);
         }
-        let port = self.next_port;
-        self.next_port += 1;
+        let port = pick_unused_local_port()?;
         let child = std::process::Command::new("az")
             .args([
                 "network",
@@ -139,7 +170,7 @@ impl BastionTunnelPool {
                 "--resource-group",
                 rg,
                 "--target-resource-id",
-                vm_rid,
+                vm_resource_id,
                 "--resource-port",
                 "22",
                 "--port",
@@ -148,10 +179,9 @@ impl BastionTunnelPool {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()?;
-        // Wait briefly for tunnel to establish
-        std::thread::sleep(std::time::Duration::from_secs(2));
+        wait_for_local_port_listener(port, child.id(), std::time::Duration::from_secs(10))?;
         self.tunnels.insert(
-            vm_name.to_string(),
+            vm_resource_id.to_string(),
             BastionTunnel {
                 local_port: port,
                 child,
@@ -739,19 +769,30 @@ async fn async_main(start: std::time::Instant) -> Result<()> {
     if cli.startup_time {
         let parse_elapsed = start.elapsed();
         println!("Startup diagnostics:");
-        println!("  CLI parse:  {:.2}ms", parse_elapsed.as_secs_f64() * 1000.0);
+        println!(
+            "  CLI parse:  {:.2}ms",
+            parse_elapsed.as_secs_f64() * 1000.0
+        );
         let config_start = std::time::Instant::now();
         let _config = azlin_core::AzlinConfig::load();
         let config_elapsed = config_start.elapsed();
-        println!("  Config load: {:.2}ms", config_elapsed.as_secs_f64() * 1000.0);
+        println!(
+            "  Config load: {:.2}ms",
+            config_elapsed.as_secs_f64() * 1000.0
+        );
         let total = start.elapsed();
         println!("  Total:       {:.2}ms", total.as_secs_f64() * 1000.0);
         if total.as_millis() < 15 {
-            println!("
-Startup time is within the <15ms target.");
+            println!(
+                "
+Startup time is within the <15ms target."
+            );
         } else {
-            println!("
-Startup time ({:.1}ms) exceeds the <15ms target.", total.as_secs_f64() * 1000.0);
+            println!(
+                "
+Startup time ({:.1}ms) exceeds the <15ms target.",
+                total.as_secs_f64() * 1000.0
+            );
         }
         return Ok(());
     }
@@ -769,7 +810,8 @@ Startup time ({:.1}ms) exceeds the <15ms target.", total.as_secs_f64() * 1000.0)
     let is_update_cmd = matches!(cli.command, azlin_cli::Commands::Update);
     if !is_update_cmd && std::io::stdin().is_terminal() {
         if let Some(latest) = update_check::check_for_updates_interactive() {
-            let safe_version: String = latest.chars()
+            let safe_version: String = latest
+                .chars()
                 .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-'))
                 .collect();
             eprintln!(
@@ -1019,6 +1061,7 @@ mod cmd_config_init;
 mod cmd_connect;
 mod cmd_context;
 mod cmd_env;
+mod cmd_gui;
 #[allow(dead_code)]
 mod cmd_history;
 mod cmd_infra;
@@ -1045,13 +1088,12 @@ mod cmd_sync;
 mod cmd_sync_ops;
 mod cmd_tag;
 mod cmd_tunnel;
-mod cmd_gui;
 mod cmd_vm;
 mod cmd_vm_ops;
-#[allow(dead_code)]
-mod ssh_status;
 mod cmd_vm_ops2;
 mod lifecycle_helpers;
+#[allow(dead_code)]
+mod ssh_status;
 mod table_render;
 
 #[cfg(test)]
