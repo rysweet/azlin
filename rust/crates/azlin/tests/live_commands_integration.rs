@@ -131,9 +131,7 @@ fn test_live_bastion_status() {
     let (stdout, _, code) = run_azlin(&["bastion", "status", "--resource-group", RG]);
     assert_eq!(code, 0, "bastion status should succeed");
     assert!(
-        stdout.contains("Bastion")
-            || stdout.contains("bastion")
-            || stdout.contains("Provisioning"),
+        stdout.contains("Bastion") || stdout.contains("bastion") || stdout.contains("Provisioning"),
         "should show bastion status info"
     );
 }
@@ -197,10 +195,7 @@ fn test_live_sync_keys() {
     }
     let (stdout, stderr, _code) = run_azlin(&["sync-keys", VM, "--resource-group", RG]);
     let combined = format!("{}{}", stdout, stderr);
-    assert!(
-        !combined.contains("panicked"),
-        "sync-keys should not panic"
-    );
+    assert!(!combined.contains("panicked"), "sync-keys should not panic");
 }
 
 // ---------------------------------------------------------------------------
@@ -280,10 +275,7 @@ fn test_live_restore() {
     }
     let (stdout, stderr, _code) = run_azlin(&["restore", "--resource-group", RG]);
     let combined = format!("{}{}", stdout, stderr);
-    assert!(
-        !combined.contains("panicked"),
-        "restore should not panic"
-    );
+    assert!(!combined.contains("panicked"), "restore should not panic");
 }
 
 // ---------------------------------------------------------------------------
@@ -298,10 +290,7 @@ fn test_live_code() {
     }
     let (_, stderr, _code) = run_azlin(&["code", VM, "--resource-group", RG]);
     // May fail if VS Code not installed — just verify no panic
-    assert!(
-        !stderr.contains("panicked"),
-        "code should not panic"
-    );
+    assert!(!stderr.contains("panicked"), "code should not panic");
 }
 
 // ---------------------------------------------------------------------------
@@ -314,13 +303,9 @@ fn test_live_logs_tail() {
     if !has_azure_login() {
         return;
     }
-    let (stdout, stderr, code) =
-        run_azlin(&["logs", VM, "--lines", "10", "--resource-group", RG]);
+    let (stdout, stderr, code) = run_azlin(&["logs", VM, "--lines", "10", "--resource-group", RG]);
     let combined = format!("{}{}", stdout, stderr);
-    assert!(
-        !combined.contains("panicked"),
-        "logs should not panic"
-    );
+    assert!(!combined.contains("panicked"), "logs should not panic");
     // If it succeeds, there should be some output
     if code == 0 {
         assert!(!stdout.is_empty(), "log output should not be empty");
@@ -393,8 +378,7 @@ fn test_live_sync_dry_run() {
     if !has_azure_login() {
         return;
     }
-    let (stdout, stderr, _code) =
-        run_azlin(&["sync", VM, "--dry-run", "--resource-group", RG]);
+    let (stdout, stderr, _code) = run_azlin(&["sync", VM, "--dry-run", "--resource-group", RG]);
     let combined = format!("{}{}", stdout, stderr);
     assert!(
         !combined.contains("panicked"),

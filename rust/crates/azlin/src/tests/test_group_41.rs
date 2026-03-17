@@ -198,15 +198,21 @@ fn test_build_vscode_remote_uri_format() {
 
 #[test]
 fn test_build_log_follow_args_has_tail_f() {
-    let args = crate::connect_helpers::build_log_follow_args("user", "10.0.0.1", "/var/log/syslog", 10);
+    let args =
+        crate::connect_helpers::build_log_follow_args("user", "10.0.0.1", "/var/log/syslog", 10);
     assert!(args.iter().any(|a| a.contains("tail -f")));
     assert!(args.iter().any(|a| a.contains("/var/log/syslog")));
 }
 
 #[test]
 fn test_build_log_tail_args_custom_lines() {
-    let args =
-        crate::connect_helpers::build_log_tail_args("user", "10.0.0.1", 100, "/var/log/auth.log", 10);
+    let args = crate::connect_helpers::build_log_tail_args(
+        "user",
+        "10.0.0.1",
+        100,
+        "/var/log/auth.log",
+        10,
+    );
     assert!(args.iter().any(|a| a.contains("tail -n 100")));
 }
 

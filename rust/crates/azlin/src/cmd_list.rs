@@ -294,7 +294,9 @@ pub(crate) async fn dispatch(
                 let config_for_quota = match azlin_core::AzlinConfig::load() {
                     Ok(c) => c,
                     Err(e) => {
-                        eprintln!("Warning: failed to load config for quota check, using defaults: {e}");
+                        eprintln!(
+                            "Warning: failed to load config for quota check, using defaults: {e}"
+                        );
                         azlin_core::AzlinConfig::default()
                     }
                 };

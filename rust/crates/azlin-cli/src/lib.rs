@@ -4731,7 +4731,13 @@ mod tests {
     fn test_tunnel_open_single_port() {
         let cli = Cli::parse_from(["azlin", "tunnel", "open", "myvm", "8080"]);
         if let Commands::Tunnel {
-            action: TunnelAction::Open { vm_identifier, ports, local_port, .. },
+            action:
+                TunnelAction::Open {
+                    vm_identifier,
+                    ports,
+                    local_port,
+                    ..
+                },
         } = cli.command
         {
             assert_eq!(vm_identifier, "myvm");
@@ -4745,10 +4751,22 @@ mod tests {
     #[test]
     fn test_tunnel_open_with_local_port() {
         let cli = Cli::parse_from([
-            "azlin", "tunnel", "open", "myvm", "5432", "--local-port", "15432",
+            "azlin",
+            "tunnel",
+            "open",
+            "myvm",
+            "5432",
+            "--local-port",
+            "15432",
         ]);
         if let Commands::Tunnel {
-            action: TunnelAction::Open { vm_identifier, ports, local_port, .. },
+            action:
+                TunnelAction::Open {
+                    vm_identifier,
+                    ports,
+                    local_port,
+                    ..
+                },
         } = cli.command
         {
             assert_eq!(vm_identifier, "myvm");
@@ -4763,7 +4781,12 @@ mod tests {
     fn test_tunnel_open_multiple_ports() {
         let cli = Cli::parse_from(["azlin", "tunnel", "open", "myvm", "8080", "3000", "5432"]);
         if let Commands::Tunnel {
-            action: TunnelAction::Open { vm_identifier, ports, .. },
+            action:
+                TunnelAction::Open {
+                    vm_identifier,
+                    ports,
+                    ..
+                },
         } = cli.command
         {
             assert_eq!(vm_identifier, "myvm");
@@ -4778,7 +4801,9 @@ mod tests {
         let cli = Cli::parse_from(["azlin", "tunnel", "list"]);
         assert!(matches!(
             cli.command,
-            Commands::Tunnel { action: TunnelAction::List }
+            Commands::Tunnel {
+                action: TunnelAction::List
+            }
         ));
     }
 
@@ -4813,10 +4838,21 @@ mod tests {
     #[test]
     fn test_tunnel_open_with_resource_group() {
         let cli = Cli::parse_from([
-            "azlin", "tunnel", "open", "myvm", "8080", "--resource-group", "my-rg",
+            "azlin",
+            "tunnel",
+            "open",
+            "myvm",
+            "8080",
+            "--resource-group",
+            "my-rg",
         ]);
         if let Commands::Tunnel {
-            action: TunnelAction::Open { vm_identifier, resource_group, .. },
+            action:
+                TunnelAction::Open {
+                    vm_identifier,
+                    resource_group,
+                    ..
+                },
         } = cli.command
         {
             assert_eq!(vm_identifier, "myvm");

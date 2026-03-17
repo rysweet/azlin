@@ -98,10 +98,7 @@ pub(crate) async fn handle_vm_new(
                 n.clone()
             }
         } else {
-            format!(
-                "azlin-vm-{}",
-                chrono::Utc::now().format("%Y%m%d-%H%M%S%6f")
-            )
+            format!("azlin-vm-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S%6f"))
         };
 
         azlin_core::models::validate_vm_name(&vm_name).map_err(|e| anyhow::anyhow!(e))?;
@@ -157,11 +154,18 @@ pub(crate) async fn handle_vm_new(
             None
         };
         let bastion_port = _tunnel.as_ref().map(|t| t.local_port);
-        let effective_ip = if bastion_port.is_some() { "127.0.0.1" } else { &target.ip };
+        let effective_ip = if bastion_port.is_some() {
+            "127.0.0.1"
+        } else {
+            &target.ip
+        };
 
         // Forward auth credentials to the new VM (best-effort)
         if let Err(e) = crate::auth_forward::forward_auth_credentials(
-            effective_ip, &admin_user, yes, bastion_port,
+            effective_ip,
+            &admin_user,
+            yes,
+            bastion_port,
         ) {
             eprintln!("Warning: auth forwarding failed: {}", e);
         }
@@ -200,9 +204,7 @@ pub(crate) async fn handle_vm_new(
                 ssh_args.push(port.to_string());
             }
             ssh_args.push(format!("{}@{}", admin_user, effective_ip));
-            let status = std::process::Command::new("ssh")
-                .args(&ssh_args)
-                .status()?;
+            let status = std::process::Command::new("ssh").args(&ssh_args).status()?;
             if !status.success() {
                 eprintln!("SSH connection ended with exit code: {:?}", status.code());
             }

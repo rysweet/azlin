@@ -193,11 +193,8 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
         // Size the tmux column to fit the widest entry — no hard cap so
         // session names are never truncated.  The shrink pass below will
         // compress other columns first if the table exceeds terminal width.
-        let tmux_w = compute_tmux_content_width(data.tmux_sessions, usize::MAX, usize::MAX).max(if cfg.compact {
-            18
-        } else {
-            22
-        });
+        let tmux_w = compute_tmux_content_width(data.tmux_sessions, usize::MAX, usize::MAX)
+            .max(if cfg.compact { 18 } else { 22 });
         cols.push(ColDef {
             header: "Tmux",
             width: tmux_w,
@@ -266,10 +263,26 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
         });
     }
     if cfg.with_health {
-        cols.push(ColDef { header: "Agent", width: 5, right_align: false });
-        cols.push(ColDef { header: "CPU%",  width: 5, right_align: true });
-        cols.push(ColDef { header: "Mem%",  width: 5, right_align: true });
-        cols.push(ColDef { header: "Disk%", width: 5, right_align: true });
+        cols.push(ColDef {
+            header: "Agent",
+            width: 5,
+            right_align: false,
+        });
+        cols.push(ColDef {
+            header: "CPU%",
+            width: 5,
+            right_align: true,
+        });
+        cols.push(ColDef {
+            header: "Mem%",
+            width: 5,
+            right_align: true,
+        });
+        cols.push(ColDef {
+            header: "Disk%",
+            width: 5,
+            right_align: true,
+        });
     }
     if cfg.show_procs {
         cols.push(ColDef {
@@ -453,22 +466,34 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
             if let Some(m) = data.health_data.get(&vm.name) {
                 // Agent
                 let agent_padded = trunc(&m.agent_status, cols[col_i].width);
-                cells.push(threshold_ansi(crate::error_helpers::classify_agent_level(&m.agent_status), &agent_padded));
+                cells.push(threshold_ansi(
+                    crate::error_helpers::classify_agent_level(&m.agent_status),
+                    &agent_padded,
+                ));
                 col_i += 1;
                 // CPU%
                 let cpu_s = format!("{:.0}", m.cpu_percent);
                 let cpu_padded = trunc_right(&cpu_s, cols[col_i].width);
-                cells.push(threshold_ansi(crate::error_helpers::classify_metric_70_90(m.cpu_percent), &cpu_padded));
+                cells.push(threshold_ansi(
+                    crate::error_helpers::classify_metric_70_90(m.cpu_percent),
+                    &cpu_padded,
+                ));
                 col_i += 1;
                 // Mem%
                 let mem_s = format!("{:.0}", m.mem_percent);
                 let mem_padded = trunc_right(&mem_s, cols[col_i].width);
-                cells.push(threshold_ansi(crate::error_helpers::classify_metric_70_90(m.mem_percent), &mem_padded));
+                cells.push(threshold_ansi(
+                    crate::error_helpers::classify_metric_70_90(m.mem_percent),
+                    &mem_padded,
+                ));
                 col_i += 1;
                 // Disk%
                 let disk_s = format!("{:.0}", m.disk_percent);
                 let disk_padded = trunc_right(&disk_s, cols[col_i].width);
-                cells.push(threshold_ansi(crate::error_helpers::classify_metric_70_90(m.disk_percent), &disk_padded));
+                cells.push(threshold_ansi(
+                    crate::error_helpers::classify_metric_70_90(m.disk_percent),
+                    &disk_padded,
+                ));
                 col_i += 1;
             } else {
                 // No health data — show "-" in all 4 columns
@@ -652,7 +677,10 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
         }
         if cfg.with_health {
             if let Some(m) = data.health_data.get(&vm.name) {
-                row.push_str(&format!(",{},{:.0},{:.0},{:.0}", m.agent_status, m.cpu_percent, m.mem_percent, m.disk_percent));
+                row.push_str(&format!(
+                    ",{},{:.0},{:.0},{:.0}",
+                    m.agent_status, m.cpu_percent, m.mem_percent, m.disk_percent
+                ));
             } else {
                 row.push_str(",,,,");
             }
@@ -690,9 +718,16 @@ mod tests {
         let result = format_tmux_plain(&sessions, usize::MAX);
         // All 10 sessions should appear, no "+N" overflow
         for i in 1..=10 {
-            assert!(result.contains(&format!("sess-{}", i)), "missing sess-{}", i);
+            assert!(
+                result.contains(&format!("sess-{}", i)),
+                "missing sess-{}",
+                i
+            );
         }
-        assert!(!result.contains('+'), "should not contain overflow indicator");
+        assert!(
+            !result.contains('+'),
+            "should not contain overflow indicator"
+        );
     }
 
     // ── compute_tmux_content_width ────────────────────────────────────
@@ -753,28 +788,65 @@ mod tests {
         // Simulate the shrink logic from render_table by building ColDefs
         // manually and applying the same algorithm.
         let mut cols = vec![
-            ColDef { header: "Session", width: 11, right_align: false },
-            ColDef { header: "Tmux",    width: 50, right_align: false },
-            ColDef { header: "OS",      width: 14, right_align: false },
-            ColDef { header: "Status",  width: 7,  right_align: false },
-            ColDef { header: "IP",      width: 17, right_align: false },
-            ColDef { header: "Region",  width: 14, right_align: false },
-            ColDef { header: "CPU",     width: 3,  right_align: true },
-            ColDef { header: "Mem",     width: 6,  right_align: true },
+            ColDef {
+                header: "Session",
+                width: 11,
+                right_align: false,
+            },
+            ColDef {
+                header: "Tmux",
+                width: 50,
+                right_align: false,
+            },
+            ColDef {
+                header: "OS",
+                width: 14,
+                right_align: false,
+            },
+            ColDef {
+                header: "Status",
+                width: 7,
+                right_align: false,
+            },
+            ColDef {
+                header: "IP",
+                width: 17,
+                right_align: false,
+            },
+            ColDef {
+                header: "Region",
+                width: 14,
+                right_align: false,
+            },
+            ColDef {
+                header: "CPU",
+                width: 3,
+                right_align: true,
+            },
+            ColDef {
+                header: "Mem",
+                width: 6,
+                right_align: true,
+            },
         ];
         let term_width: usize = 100;
         let border_overhead = cols.len() * 3 + 1;
         let content_budget = term_width.saturating_sub(border_overhead);
         let total_content: usize = cols.iter().map(|c| c.width).sum();
 
-        assert!(total_content > content_budget, "test setup: must exceed budget");
+        assert!(
+            total_content > content_budget,
+            "test setup: must exceed budget"
+        );
 
         let mut excess = total_content - content_budget;
 
         // Priority 1: shrink Region, Status, CPU, Mem
         let shrinkable_first = ["Region", "Status", "CPU", "Mem"];
         for header in &shrinkable_first {
-            if excess == 0 { break; }
+            if excess == 0 {
+                break;
+            }
             if let Some(col) = cols.iter_mut().find(|c| c.header == *header) {
                 let can_give = col.width.saturating_sub(3);
                 let give = can_give.min(excess);
@@ -786,20 +858,25 @@ mod tests {
         // Priority 2: shrink non-protected columns
         let protected = ["Session", "Tmux"];
         if excess > 0 {
-            let shrinkable: usize = cols.iter()
+            let shrinkable: usize = cols
+                .iter()
                 .filter(|c| !protected.contains(&c.header))
                 .map(|c| c.width.saturating_sub(3))
                 .sum();
             if shrinkable > 0 {
                 let ratio = excess.min(shrinkable) as f64 / shrinkable as f64;
                 for col in &mut cols {
-                    if protected.contains(&col.header) { continue; }
+                    if protected.contains(&col.header) {
+                        continue;
+                    }
                     let can_give = col.width.saturating_sub(3);
                     let give = (can_give as f64 * ratio).ceil() as usize;
                     let give = give.min(can_give).min(excess);
                     col.width -= give;
                     excess -= give;
-                    if excess == 0 { break; }
+                    if excess == 0 {
+                        break;
+                    }
                 }
             }
         }

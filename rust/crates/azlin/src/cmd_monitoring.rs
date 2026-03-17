@@ -19,8 +19,7 @@ pub(crate) async fn dispatch(
             ip,
             ..
         } => {
-            let targets =
-                resolve_vm_targets(vm.as_deref(), ip.as_deref(), resource_group).await?;
+            let targets = resolve_vm_targets(vm.as_deref(), ip.as_deref(), resource_group).await?;
             for target in &targets {
                 println!("── {} ──", target.vm_name);
                 match target.exec_checked("w") {
@@ -35,8 +34,7 @@ pub(crate) async fn dispatch(
             ip,
             ..
         } => {
-            let targets =
-                resolve_vm_targets(vm.as_deref(), ip.as_deref(), resource_group).await?;
+            let targets = resolve_vm_targets(vm.as_deref(), ip.as_deref(), resource_group).await?;
             for target in &targets {
                 println!("── {} ──", target.vm_name);
                 match target.exec_checked("ps aux --sort=-%mem | head -20") {
@@ -51,8 +49,7 @@ pub(crate) async fn dispatch(
             ip,
             ..
         } => {
-            let targets =
-                resolve_vm_targets(vm.as_deref(), ip.as_deref(), resource_group).await?;
+            let targets = resolve_vm_targets(vm.as_deref(), ip.as_deref(), resource_group).await?;
             for target in &targets {
                 println!("── {} ──", target.vm_name);
                 match target.exec_checked("top -b -n 1 | head -30") {
@@ -139,14 +136,16 @@ pub(crate) async fn dispatch(
                 } else {
                     None
                 };
-                let bastion_ref = bastion_info_owned
-                    .as_ref()
-                    .map(|(bn, rg_b, rid, key)| {
-                        (bn.as_str(), rg_b.as_str(), rid.as_str(), key.as_deref())
-                    });
+                let bastion_ref = bastion_info_owned.as_ref().map(|(bn, rg_b, rid, key)| {
+                    (bn.as_str(), rg_b.as_str(), rid.as_str(), key.as_deref())
+                });
 
                 vec![collect_health_metrics(
-                    &vm_name, &ip, &user, &state, bastion_ref,
+                    &vm_name,
+                    &ip,
+                    &user,
+                    &state,
+                    bastion_ref,
                 )]
             } else {
                 // Multiple VMs — collect health in parallel with per-VM timeout.
@@ -206,16 +205,9 @@ pub(crate) async fn dispatch(
                             tokio::task::spawn_blocking(move || {
                                 let bastion_ref =
                                     bastion_owned.as_ref().map(|(bn, rg_b, rid, key)| {
-                                        (
-                                            bn.as_str(),
-                                            rg_b.as_str(),
-                                            rid.as_str(),
-                                            key.as_deref(),
-                                        )
+                                        (bn.as_str(), rg_b.as_str(), rid.as_str(), key.as_deref())
                                     });
-                                collect_health_metrics(
-                                    &name, &ip, &user, &state, bastion_ref,
-                                )
+                                collect_health_metrics(&name, &ip, &user, &state, bastion_ref)
                             }),
                         )
                         .await
@@ -230,10 +222,7 @@ pub(crate) async fn dispatch(
                         Ok(Ok(Ok(m))) => results.push(m),
                         Ok(Ok(Err(join_err))) => {
                             // spawn_blocking panicked
-                            eprintln!(
-                                "Health collection task panicked: {}",
-                                join_err
-                            );
+                            eprintln!("Health collection task panicked: {}", join_err);
                         }
                         Ok(Err(_elapsed)) => {
                             // Per-VM timeout exceeded
@@ -244,10 +233,7 @@ pub(crate) async fn dispatch(
                         }
                         Err(join_err) => {
                             // tokio::spawn join error
-                            eprintln!(
-                                "Health collection task failed: {}",
-                                join_err
-                            );
+                            eprintln!("Health collection task failed: {}", join_err);
                         }
                     }
                 }
@@ -266,8 +252,7 @@ pub(crate) async fn dispatch(
                 // Build initial dashboard entries from the metrics we already collected.
                 let mut app = crate::tui_dashboard::DashboardApp::new(interval);
                 for m in &metrics {
-                    let mut entry =
-                        crate::tui_dashboard::VmDashboardEntry::new(m.vm_name.clone());
+                    let mut entry = crate::tui_dashboard::VmDashboardEntry::new(m.vm_name.clone());
                     entry.power_state = m.power_state.clone();
                     entry.agent_status = m.agent_status.clone();
                     entry.error_count = m.error_count;
@@ -297,11 +282,7 @@ pub(crate) async fn dispatch(
                     };
 
                     for vm_info in &vms {
-                        let ip = match vm_info
-                            .public_ip
-                            .as_ref()
-                            .or(vm_info.private_ip.as_ref())
-                        {
+                        let ip = match vm_info.public_ip.as_ref().or(vm_info.private_ip.as_ref()) {
                             Some(ip) => ip.clone(),
                             None => continue,
                         };
@@ -334,21 +315,11 @@ pub(crate) async fn dispatch(
                         };
                         let bastion_ref =
                             bastion_info_owned.as_ref().map(|(bn, rg_b, rid, key)| {
-                                (
-                                    bn.as_str(),
-                                    rg_b.as_str(),
-                                    rid.as_str(),
-                                    key.as_deref(),
-                                )
+                                (bn.as_str(), rg_b.as_str(), rid.as_str(), key.as_deref())
                             });
 
-                        let m = collect_health_metrics(
-                            &vm_info.name,
-                            &ip,
-                            &user,
-                            &state,
-                            bastion_ref,
-                        );
+                        let m =
+                            collect_health_metrics(&vm_info.name, &ip, &user, &state, bastion_ref);
 
                         // Find or create the entry for this VM
                         let entry = if let Some(pos) =
@@ -356,11 +327,9 @@ pub(crate) async fn dispatch(
                         {
                             &mut entries[pos]
                         } else {
-                            entries.push(
-                                crate::tui_dashboard::VmDashboardEntry::new(
-                                    vm_info.name.clone(),
-                                ),
-                            );
+                            entries.push(crate::tui_dashboard::VmDashboardEntry::new(
+                                vm_info.name.clone(),
+                            ));
                             entries.last_mut().unwrap()
                         };
 
@@ -391,8 +360,7 @@ pub(crate) async fn dispatch(
                                 crossterm::terminal::disable_raw_mode()?;
                                 std::io::Write::flush(&mut std::io::stdout())?;
                                 let targets =
-                                    resolve_vm_targets(Some(&name), None, Some(rg.clone()))
-                                        .await?;
+                                    resolve_vm_targets(Some(&name), None, Some(rg.clone())).await?;
                                 if let Some(t) = targets.first() {
                                     let _ = std::process::Command::new("ssh")
                                         .args(crate::create_helpers::build_ssh_connect_args(
@@ -400,16 +368,14 @@ pub(crate) async fn dispatch(
                                         ))
                                         .status();
                                 }
-                                app.status_message =
-                                    format!("Returned from SSH to {}", name);
+                                app.status_message = format!("Returned from SSH to {}", name);
                             }
                             crate::tui_dashboard::VmAction::Start(name) => {
                                 let auth = azlin_azure::AzureAuth::new()?;
                                 let vm_mgr = azlin_azure::VmManager::new(&auth);
                                 match vm_mgr.start_vm(&rg, &name) {
                                     Ok(_) => {
-                                        app.status_message =
-                                            format!("Started {}", name);
+                                        app.status_message = format!("Started {}", name);
                                     }
                                     Err(e) => {
                                         app.status_message =
@@ -422,8 +388,7 @@ pub(crate) async fn dispatch(
                                 let vm_mgr = azlin_azure::VmManager::new(&auth);
                                 match vm_mgr.stop_vm(&rg, &name, true) {
                                     Ok(_) => {
-                                        app.status_message =
-                                            format!("Stopped {}", name);
+                                        app.status_message = format!("Stopped {}", name);
                                     }
                                     Err(e) => {
                                         app.status_message =
@@ -515,9 +480,7 @@ mod tests {
             tokio::time::timeout(
                 std::time::Duration::from_millis(500),
                 tokio::task::spawn_blocking(|| {
-                    collect_health_metrics(
-                        "fast-vm", "10.0.0.1", "user", "Deallocated", None,
-                    )
+                    collect_health_metrics("fast-vm", "10.0.0.1", "user", "Deallocated", None)
                 }),
             )
             .await
@@ -529,9 +492,7 @@ mod tests {
                 std::time::Duration::from_millis(50),
                 tokio::task::spawn_blocking(|| {
                     std::thread::sleep(std::time::Duration::from_secs(5));
-                    collect_health_metrics(
-                        "slow-vm", "10.0.0.1", "user", "Running", None,
-                    )
+                    collect_health_metrics("slow-vm", "10.0.0.1", "user", "Running", None)
                 }),
             )
             .await
@@ -564,9 +525,7 @@ mod tests {
                 tokio::time::timeout(
                     std::time::Duration::from_secs(5),
                     tokio::task::spawn_blocking(move || {
-                        collect_health_metrics(
-                            &name, "10.0.0.1", "user", "Deallocated", None,
-                        )
+                        collect_health_metrics(&name, "10.0.0.1", "user", "Deallocated", None)
                     }),
                 )
                 .await
@@ -582,8 +541,7 @@ mod tests {
 
         results.sort_by(|a, b| a.vm_name.cmp(&b.vm_name));
 
-        let sorted_names: Vec<&str> =
-            results.iter().map(|m| m.vm_name.as_str()).collect();
+        let sorted_names: Vec<&str> = results.iter().map(|m| m.vm_name.as_str()).collect();
         assert_eq!(sorted_names, vec!["alpha-vm", "middle-vm", "zeta-vm"]);
     }
 }

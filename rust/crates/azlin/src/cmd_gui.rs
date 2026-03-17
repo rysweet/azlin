@@ -84,10 +84,7 @@ pub(crate) async fn dispatch(
     let vm = vm_manager.get_vm(&rg, &name)?;
     pb.finish_and_clear();
 
-    let username = vm
-        .admin_username
-        .clone()
-        .unwrap_or_else(|| user.clone());
+    let username = vm.admin_username.clone().unwrap_or_else(|| user.clone());
     let use_bastion = vm.public_ip.is_none();
 
     // Resolve SSH key: use --key flag if provided, otherwise fall back to default
@@ -96,13 +93,23 @@ pub(crate) async fn dispatch(
     // Build SSH command prefix for running commands on the remote VM.
     // This prefix is reused for all remote operations.
     let (ssh_cmd_prefix, cleanup_pids) = if use_bastion {
-        build_bastion_ssh_prefix(&vm, &vm_manager, &rg, &username, effective_key.as_deref(), verbose)?
+        build_bastion_ssh_prefix(
+            &vm,
+            &vm_manager,
+            &rg,
+            &username,
+            effective_key.as_deref(),
+            verbose,
+        )?
     } else {
         let ip = vm
             .public_ip
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("VM has no public IP"))?;
-        (build_direct_ssh_prefix(ip, &username, effective_key.as_deref()), vec![])
+        (
+            build_direct_ssh_prefix(ip, &username, effective_key.as_deref()),
+            vec![],
+        )
     };
 
     // Determine VNC mode
@@ -161,7 +168,9 @@ fn check_local_deps() -> Result<()> {
 
     if !display_set && !x_socket_exists {
         eprintln!("Warning: No X server detected.");
-        eprintln!("  WSLg should be available in WSL2 by default. Restart WSL if DISPLAY is not set.");
+        eprintln!(
+            "  WSLg should be available in WSL2 by default. Restart WSL if DISPLAY is not set."
+        );
         eprintln!("  Alternatively, install an X server like VcXsrv or Xming.");
         // Not fatal — vncviewer may still work if DISPLAY gets set before launch
     }
@@ -383,7 +392,10 @@ fn start_vnc_server(
             format!("{}\nexec openbox-session", preamble)
         }
         VncMode::App(cmd) => {
-            format!("{}\n{}\nvncserver -kill :{} 2>/dev/null", preamble, cmd, VNC_DISPLAY)
+            format!(
+                "{}\n{}\nvncserver -kill :{} 2>/dev/null",
+                preamble, cmd, VNC_DISPLAY
+            )
         }
     };
 

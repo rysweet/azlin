@@ -123,7 +123,9 @@ pub(crate) async fn dispatch(
 
             // X11 forwarding: verify local X server is available
             if x11 {
-                let display_set = std::env::var("DISPLAY").map(|d| !d.is_empty()).unwrap_or(false);
+                let display_set = std::env::var("DISPLAY")
+                    .map(|d| !d.is_empty())
+                    .unwrap_or(false);
                 let x_socket_exists = std::path::Path::new("/tmp/.X11-unix/X0").exists();
                 if !display_set && !x_socket_exists {
                     eprintln!("Warning: X11 forwarding requires a local X server.");

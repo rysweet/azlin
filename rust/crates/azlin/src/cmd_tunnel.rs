@@ -86,14 +86,11 @@ pub(crate) async fn dispatch(
             user,
             key,
             resource_group,
-        } => {
-            cmd_tunnel_open(vm_identifier, ports, local_port, user, key, resource_group).await
-        }
+        } => cmd_tunnel_open(vm_identifier, ports, local_port, user, key, resource_group).await,
         azlin_cli::TunnelAction::List => cmd_tunnel_list(),
-        azlin_cli::TunnelAction::Close {
-            vm_identifier,
-            all,
-        } => cmd_tunnel_close(vm_identifier, all),
+        azlin_cli::TunnelAction::Close { vm_identifier, all } => {
+            cmd_tunnel_close(vm_identifier, all)
+        }
     }
 }
 
@@ -139,7 +136,15 @@ async fn cmd_tunnel_open(
         )?;
     } else {
         let ip = vm.public_ip.as_deref().unwrap();
-        open_direct_tunnels(ip, username, &ports, local_port, key.as_deref(), &mut entries, &vm_identifier)?;
+        open_direct_tunnels(
+            ip,
+            username,
+            &ports,
+            local_port,
+            key.as_deref(),
+            &mut entries,
+            &vm_identifier,
+        )?;
     }
 
     save_tunnels(&entries)?;
@@ -216,7 +221,10 @@ fn open_direct_tunnels(
         // Forget the child handle — we track by PID
         std::mem::forget(child);
 
-        println!("Forwarding localhost:{} → {}:{}", lport, vm_name, remote_port);
+        println!(
+            "Forwarding localhost:{} → {}:{}",
+            lport, vm_name, remote_port
+        );
 
         entries.push(TunnelEntry {
             vm_name: vm_name.to_string(),
@@ -245,18 +253,15 @@ fn open_bastion_tunnels(
     entries: &mut Vec<TunnelEntry>,
 ) -> Result<()> {
     // Locate the bastion for this VM's region
-    let bastions = crate::list_helpers::detect_bastion_hosts(rg)
-        .unwrap_or_default();
-    let bastion_map: HashMap<String, String> = bastions
-        .into_iter()
-        .map(|(n, l, _)| (l, n))
-        .collect();
-    let bastion_name = bastion_map
-        .get(&vm.location)
-        .ok_or_else(|| anyhow::anyhow!(
+    let bastions = crate::list_helpers::detect_bastion_hosts(rg).unwrap_or_default();
+    let bastion_map: HashMap<String, String> =
+        bastions.into_iter().map(|(n, l, _)| (l, n)).collect();
+    let bastion_name = bastion_map.get(&vm.location).ok_or_else(|| {
+        anyhow::anyhow!(
             "No bastion host found for region '{}'. Cannot tunnel to private VM.",
             vm.location
-        ))?;
+        )
+    })?;
 
     let vm_rid = format!(
         "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
@@ -282,12 +287,19 @@ fn open_bastion_tunnels(
         // Step 1: open az bastion tunnel → bastion_local_port
         let bastion_child = std::process::Command::new("az")
             .args([
-                "network", "bastion", "tunnel",
-                "--name", bastion_name,
-                "--resource-group", rg,
-                "--target-resource-id", &vm_rid,
-                "--resource-port", "22",
-                "--port", &bastion_local_port.to_string(),
+                "network",
+                "bastion",
+                "tunnel",
+                "--name",
+                bastion_name,
+                "--resource-group",
+                rg,
+                "--target-resource-id",
+                &vm_rid,
+                "--resource-port",
+                "22",
+                "--port",
+                &bastion_local_port.to_string(),
             ])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -326,7 +338,10 @@ fn open_bastion_tunnels(
         let ssh_pid = ssh_child.id();
         std::mem::forget(ssh_child);
 
-        println!("Forwarding localhost:{} → {}:{} (via bastion)", lport, vm.name, remote_port);
+        println!(
+            "Forwarding localhost:{} → {}:{} (via bastion)",
+            lport, vm.name, remote_port
+        );
 
         // Record both pids — we store the SSH -L pid as the primary; also record bastion pid
         entries.push(TunnelEntry {
@@ -364,10 +379,16 @@ fn cmd_tunnel_list() -> Result<()> {
         return Ok(());
     }
 
-    println!("{:<20} {:>12}  {:>12}  {:>8}", "VM", "LOCAL PORT", "REMOTE PORT", "PID");
+    println!(
+        "{:<20} {:>12}  {:>12}  {:>8}",
+        "VM", "LOCAL PORT", "REMOTE PORT", "PID"
+    );
     println!("{}", "-".repeat(58));
     for e in &visible {
-        println!("{:<20} {:>12}  {:>12}  {:>8}", e.vm_name, e.local_port, e.remote_port, e.pid);
+        println!(
+            "{:<20} {:>12}  {:>12}  {:>8}",
+            e.vm_name, e.local_port, e.remote_port, e.pid
+        );
     }
     Ok(())
 }
@@ -397,7 +418,10 @@ fn cmd_tunnel_close(vm_identifier: Option<String>, all: bool) -> Result<()> {
                 .arg(e.pid.to_string())
                 .status();
             if e.remote_port != 0 {
-                println!("Closed tunnel: localhost:{} → {}:{}", e.local_port, e.vm_name, e.remote_port);
+                println!(
+                    "Closed tunnel: localhost:{} → {}:{}",
+                    e.local_port, e.vm_name, e.remote_port
+                );
                 closed += 1;
             }
         } else {

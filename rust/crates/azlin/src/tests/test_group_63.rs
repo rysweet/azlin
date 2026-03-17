@@ -73,10 +73,7 @@ fn test_update_notice_appears_before_command_output() {
 
     // Run: azlin version 2>&1  (stderr merged into stdout so we can check order)
     let output = std::process::Command::new("sh")
-        .args([
-            "-c",
-            &format!("{} version 2>&1", azlin_bin().display()),
-        ])
+        .args(["-c", &format!("{} version 2>&1", azlin_bin().display())])
         .env("HOME", home.path())
         .env_remove("AZLIN_NO_UPDATE_CHECK")
         // Suppress any auth/network errors that aren't relevant to this test
@@ -87,7 +84,9 @@ fn test_update_notice_appears_before_command_output() {
     let combined = String::from_utf8_lossy(&output.stdout);
 
     // --- Assert: update notice is present ---
-    let notice_pos = combined.find("newer version").or_else(|| combined.find("99.99.99"));
+    let notice_pos = combined
+        .find("newer version")
+        .or_else(|| combined.find("99.99.99"));
     assert!(
         notice_pos.is_some(),
         "Expected update notice containing 'newer version' or '99.99.99' in combined output.\n\
@@ -155,10 +154,7 @@ fn test_env_var_true_does_not_suppress_and_no_panic() {
     let home = setup_home_with_cached_version("99.99.99-rust.abc1234");
 
     let output = std::process::Command::new("sh")
-        .args([
-            "-c",
-            &format!("{} version 2>&1", azlin_bin().display()),
-        ])
+        .args(["-c", &format!("{} version 2>&1", azlin_bin().display())])
         .env("HOME", home.path())
         .env("AZLIN_NO_UPDATE_CHECK", "true")
         .env_remove("AZURE_SUBSCRIPTION_ID")
