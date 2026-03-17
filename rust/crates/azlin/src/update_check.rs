@@ -135,9 +135,7 @@ fn is_newer(current: &str, latest: &str) -> bool {
     let current_base = current.split('-').next().unwrap_or(current);
     let latest_base = latest.split("-rust").next().unwrap_or(latest);
 
-    let parse = |v: &str| -> Vec<u32> {
-        v.split('.').filter_map(|s| s.parse().ok()).collect()
-    };
+    let parse = |v: &str| -> Vec<u32> { v.split('.').filter_map(|s| s.parse().ok()).collect() };
 
     let cv = parse(current_base);
     let lv = parse(latest_base);
@@ -237,9 +235,7 @@ pub fn check_for_updates_interactive() -> Option<String> {
 /// Strips all ASCII control characters (including ESC / ANSI sequences) so a
 /// malicious cache file cannot inject terminal escape codes.
 fn sanitise_for_display(s: &str) -> String {
-    s.chars()
-        .filter(|c| !c.is_ascii_control())
-        .collect()
+    s.chars().filter(|c| !c.is_ascii_control()).collect()
 }
 
 /// Print the update notice.
@@ -357,9 +353,9 @@ mod tests {
         // Empty strings must not panic.  The function treats an empty version as
         // "0.0.0" (the parse() helper returns an empty vec, and missing components
         // default to 0).  Document the actual behaviour:
-        assert!(!is_newer("", ""));          // 0.0.0 == 0.0.0 → not newer
-        assert!(!is_newer("2.6.0", ""));     // "" parses as 0.0.0 < 2.6.0 → not newer
-        assert!(is_newer("", "1.0.0"));      // "" is 0.0.0; 1.0.0 > 0.0.0 → newer
+        assert!(!is_newer("", "")); // 0.0.0 == 0.0.0 → not newer
+        assert!(!is_newer("2.6.0", "")); // "" parses as 0.0.0 < 2.6.0 → not newer
+        assert!(is_newer("", "1.0.0")); // "" is 0.0.0; 1.0.0 > 0.0.0 → newer
     }
 
     #[test]
@@ -381,7 +377,10 @@ mod tests {
         unsafe { std::env::set_var("HOME", dir.path()) };
         let result = read_cache();
         unsafe { std::env::remove_var("HOME") };
-        assert!(result.is_none(), "Expected None when cache file does not exist");
+        assert!(
+            result.is_none(),
+            "Expected None when cache file does not exist"
+        );
     }
 
     #[test]
@@ -414,7 +413,11 @@ mod tests {
         // Write a cache file with a non-integer timestamp
         let cache_dir = dir.path().join(".config").join("azlin");
         std::fs::create_dir_all(&cache_dir).unwrap();
-        std::fs::write(cache_dir.join("last_update_check"), "2.6.0-rust.abc\nnot_a_number\n").unwrap();
+        std::fs::write(
+            cache_dir.join("last_update_check"),
+            "2.6.0-rust.abc\nnot_a_number\n",
+        )
+        .unwrap();
 
         let result = read_cache();
         unsafe { std::env::remove_var("HOME") };
@@ -464,7 +467,11 @@ mod tests {
 
         write_cache("1.0.0-rust.abc");
 
-        let cache_file = dir.path().join(".config").join("azlin").join("last_update_check");
+        let cache_file = dir
+            .path()
+            .join(".config")
+            .join("azlin")
+            .join("last_update_check");
         assert!(
             cache_file.exists(),
             "write_cache should create parent directories and write the file"

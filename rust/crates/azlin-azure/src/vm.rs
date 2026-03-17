@@ -1013,10 +1013,7 @@ mod tests {
             script.contains("dotnet-install.sh"),
             "Missing .NET installer"
         );
-        assert!(
-            script.contains("--channel 10.0"),
-            "Missing .NET 10 channel"
-        );
+        assert!(script.contains("--channel 10.0"), "Missing .NET 10 channel");
     }
 
     #[test]

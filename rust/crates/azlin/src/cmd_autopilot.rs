@@ -130,7 +130,8 @@ pub(crate) async fn dispatch(
                     if vm.power_state != azlin_core::models::PowerState::Running {
                         continue;
                     }
-                    let target = match resolve_vm_ssh_target(&vm.name, None, Some(rg.clone())).await {
+                    let target = match resolve_vm_ssh_target(&vm.name, None, Some(rg.clone())).await
+                    {
                         Ok(t) => t,
                         Err(_) => continue,
                     };

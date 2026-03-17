@@ -17,27 +17,42 @@ fn test_parse_strips_attached_suffix() {
 
 #[test]
 fn test_parse_strips_zero_attached() {
-    assert_eq!(parse_session_name("dev-work:0"), Some("dev-work".to_string()));
+    assert_eq!(
+        parse_session_name("dev-work:0"),
+        Some("dev-work".to_string())
+    );
 }
 
 #[test]
 fn test_parse_strips_high_count() {
-    assert_eq!(parse_session_name("session99:42"), Some("session99".to_string()));
+    assert_eq!(
+        parse_session_name("session99:42"),
+        Some("session99".to_string())
+    );
 }
 
 #[test]
 fn test_parse_trims_leading_whitespace() {
-    assert_eq!(parse_session_name("  dev-work:0"), Some("dev-work".to_string()));
+    assert_eq!(
+        parse_session_name("  dev-work:0"),
+        Some("dev-work".to_string())
+    );
 }
 
 #[test]
 fn test_parse_trims_trailing_whitespace() {
-    assert_eq!(parse_session_name("dev-work:0  "), Some("dev-work".to_string()));
+    assert_eq!(
+        parse_session_name("dev-work:0  "),
+        Some("dev-work".to_string())
+    );
 }
 
 #[test]
 fn test_parse_trims_both_sides_whitespace() {
-    assert_eq!(parse_session_name("  dev-work :0"), Some("dev-work".to_string()));
+    assert_eq!(
+        parse_session_name("  dev-work :0"),
+        Some("dev-work".to_string())
+    );
 }
 
 #[test]
@@ -47,12 +62,18 @@ fn test_parse_single_char_name() {
 
 #[test]
 fn test_parse_underscore_name() {
-    assert_eq!(parse_session_name("my_session:1"), Some("my_session".to_string()));
+    assert_eq!(
+        parse_session_name("my_session:1"),
+        Some("my_session".to_string())
+    );
 }
 
 #[test]
 fn test_parse_hyphen_name() {
-    assert_eq!(parse_session_name("my-session:1"), Some("my-session".to_string()));
+    assert_eq!(
+        parse_session_name("my-session:1"),
+        Some("my-session".to_string())
+    );
 }
 
 #[test]
@@ -63,7 +84,10 @@ fn test_parse_alphanumeric_only() {
 #[test]
 fn test_parse_name_no_colon_still_valid() {
     // tmux format without attached count — treat the whole string as the name
-    assert_eq!(parse_session_name("plainname"), Some("plainname".to_string()));
+    assert_eq!(
+        parse_session_name("plainname"),
+        Some("plainname".to_string())
+    );
 }
 
 #[test]

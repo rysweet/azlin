@@ -124,12 +124,11 @@ pub(crate) fn handle_vm_clone(
 
             // For bastion VMs (no public IP on source), route through bastion VNet
             // and disable public IP on the clone too.
-            let is_bastion =
-                match crate::dispatch_helpers::lookup_vm_public_ip(&rg, source_vm) {
-                    Ok(None) => true,
-                    Ok(Some(ref ip)) if ip.is_empty() => true,
-                    _ => false,
-                };
+            let is_bastion = match crate::dispatch_helpers::lookup_vm_public_ip(&rg, source_vm) {
+                Ok(None) => true,
+                Ok(Some(ref ip)) if ip.is_empty() => true,
+                _ => false,
+            };
             if is_bastion {
                 clone_args.push("--public-ip-address".to_string());
                 clone_args.push(String::new());

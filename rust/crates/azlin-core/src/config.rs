@@ -276,9 +276,7 @@ impl AzlinConfig {
         }
 
         let updated: AzlinConfig = serde_json::from_value(json).map_err(|e| {
-            crate::AzlinError::Config(format!(
-                "Failed to deserialize updated config: {e}"
-            ))
+            crate::AzlinError::Config(format!("Failed to deserialize updated config: {e}"))
         })?;
 
         updated.save()?;
@@ -840,15 +838,13 @@ mod tests {
 
     /// Simulate what set_field does: load config, update via JSON, serialize back.
     /// Returns the TOML string and the parsed config.
-    fn simulate_set_field(
-        initial: &AzlinConfig,
-        key: &str,
-        value: &str,
-    ) -> (String, AzlinConfig) {
+    fn simulate_set_field(initial: &AzlinConfig, key: &str, value: &str) -> (String, AzlinConfig) {
         let mut json = serde_json::to_value(initial).unwrap();
         assert!(json.as_object().unwrap().contains_key(key), "unknown key");
         let validated = AzlinConfig::validate_field(key, value).unwrap();
-        json.as_object_mut().unwrap().insert(key.to_string(), validated);
+        json.as_object_mut()
+            .unwrap()
+            .insert(key.to_string(), validated);
         let updated: AzlinConfig = serde_json::from_value(json).unwrap();
         let toml_str = toml::to_string_pretty(&updated).unwrap();
         // Verify roundtrip
@@ -866,7 +862,8 @@ mod tests {
         // The raw TOML must NOT contain a bare "600" line (issue #800)
         for line in toml_str.lines() {
             assert_ne!(
-                line.trim(), "600",
+                line.trim(),
+                "600",
                 "TOML must not contain raw '600' line — issue #800"
             );
         }

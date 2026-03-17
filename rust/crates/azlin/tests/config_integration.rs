@@ -276,8 +276,7 @@ fn test_config_set_writes_valid_toml_not_raw_value() {
     let env = [("AZLIN_CONFIG_DIR", dir)];
 
     // Set a u64 field
-    let (_, _, code) =
-        run_azlin_with_env(&["config", "set", "az_cli_timeout", "600"], &env);
+    let (_, _, code) = run_azlin_with_env(&["config", "set", "az_cli_timeout", "600"], &env);
     assert_eq!(code, 0, "config set az_cli_timeout should exit 0");
 
     // Read the raw file and verify it is valid TOML
@@ -323,16 +322,13 @@ fn test_config_set_consecutive_sets_valid_toml() {
     let env = [("AZLIN_CONFIG_DIR", dir)];
 
     // Multiple consecutive sets
-    let (_, _, c1) =
-        run_azlin_with_env(&["config", "set", "az_cli_timeout", "300"], &env);
+    let (_, _, c1) = run_azlin_with_env(&["config", "set", "az_cli_timeout", "300"], &env);
     assert_eq!(c1, 0);
 
-    let (_, _, c2) =
-        run_azlin_with_env(&["config", "set", "default_region", "eastus"], &env);
+    let (_, _, c2) = run_azlin_with_env(&["config", "set", "default_region", "eastus"], &env);
     assert_eq!(c2, 0);
 
-    let (_, _, c3) =
-        run_azlin_with_env(&["config", "set", "ssh_auto_sync_keys", "false"], &env);
+    let (_, _, c3) = run_azlin_with_env(&["config", "set", "ssh_auto_sync_keys", "false"], &env);
     assert_eq!(c3, 0);
 
     // File must be valid TOML
@@ -350,9 +346,7 @@ fn test_config_set_consecutive_sets_valid_toml() {
         Some("eastus")
     );
     assert_eq!(
-        parsed
-            .get("ssh_auto_sync_keys")
-            .and_then(|v| v.as_bool()),
+        parsed.get("ssh_auto_sync_keys").and_then(|v| v.as_bool()),
         Some(false)
     );
 

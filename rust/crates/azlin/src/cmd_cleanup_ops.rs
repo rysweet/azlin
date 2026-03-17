@@ -278,7 +278,11 @@ pub(crate) fn handle_restore(
     if let Some(ref pattern) = exclude {
         running.retain(|v| !v.name.contains(pattern.as_str()));
         if verbose {
-            println!("After excluding '{}': {} VM(s) remaining", pattern, running.len());
+            println!(
+                "After excluding '{}': {} VM(s) remaining",
+                pattern,
+                running.len()
+            );
         }
     }
 
@@ -298,7 +302,10 @@ pub(crate) fn handle_restore(
         }
         println!("Collecting tmux sessions...");
     } else {
-        println!("Found {} running VM(s), collecting tmux sessions...", running.len());
+        println!(
+            "Found {} running VM(s), collecting tmux sessions...",
+            running.len()
+        );
     }
 
     let ssh_timeout = azlin_core::AzlinConfig::load()

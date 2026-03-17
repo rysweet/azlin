@@ -35,30 +35,24 @@ fn resolve_key_path() -> Option<PathBuf> {
 ///
 /// Returns `Ok((exit_code, stdout, stderr))` on success, or `Err` if the
 /// connection itself fails (caller should fall back to subprocess SSH).
-pub async fn native_exec(
-    ip: &str,
-    user: &str,
-    cmd: &str,
-) -> Result<(i32, String, String)> {
+pub async fn native_exec(ip: &str, user: &str, cmd: &str) -> Result<(i32, String, String)> {
     let key_path = resolve_key_path()
         .ok_or_else(|| anyhow::anyhow!("no SSH private key found for native SSH"))?;
 
     let config = SshConfig::new(ip, user, key_path);
     let pool = global_pool();
 
-    let mut client = pool.get_or_connect(&config).await.map_err(|e| {
-        anyhow::anyhow!("native SSH connect to {}: {}", ip, e)
-    })?;
+    let mut client = pool
+        .get_or_connect(&config)
+        .await
+        .map_err(|e| anyhow::anyhow!("native SSH connect to {}: {}", ip, e))?;
 
     let result = client.execute(cmd).await;
 
     match result {
         Ok(r) => {
             pool.release(client).await;
-            debug!(
-                "native SSH exec on {} completed (exit={})",
-                ip, r.exit_code
-            );
+            debug!("native SSH exec on {} completed (exit={})", ip, r.exit_code);
             Ok((r.exit_code, r.stdout, r.stderr))
         }
         Err(e) => {

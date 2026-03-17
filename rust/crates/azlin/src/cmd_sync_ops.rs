@@ -51,8 +51,7 @@ pub(crate) async fn handle_sync(
         }
 
         for vm in &running_vms {
-            let target =
-                resolve_vm_ssh_target(&vm.name, None, resource_group.clone()).await?;
+            let target = resolve_vm_ssh_target(&vm.name, None, resource_group.clone()).await?;
             println!("Syncing dotfiles to {}...", vm.name);
 
             let status = if let Some(ref bastion) = target.bastion {
@@ -196,10 +195,14 @@ pub(crate) async fn handle_cp(
                 };
 
                 let mut scp_args = vec![
-                    "-o".to_string(), "StrictHostKeyChecking=accept-new".to_string(),
-                    "-o".to_string(), timeout_val.clone(),
-                    "-o".to_string(), "BatchMode=yes".to_string(),
-                    "-P".to_string(), port_str,
+                    "-o".to_string(),
+                    "StrictHostKeyChecking=accept-new".to_string(),
+                    "-o".to_string(),
+                    timeout_val.clone(),
+                    "-o".to_string(),
+                    "BatchMode=yes".to_string(),
+                    "-P".to_string(),
+                    port_str,
                 ];
                 if let Some(ref key) = bastion.ssh_key_path {
                     scp_args.push("-i".to_string());
@@ -207,9 +210,7 @@ pub(crate) async fn handle_cp(
                 }
                 scp_args.push(scp_source);
                 scp_args.push(scp_dest);
-                std::process::Command::new("scp")
-                    .args(&scp_args)
-                    .status()?
+                std::process::Command::new("scp").args(&scp_args).status()?
             } else {
                 let scp_source = if crate::cp_helpers::is_remote_path(source) {
                     crate::cp_helpers::resolve_scp_path(source, vm_part, &target.user, &target.ip)
@@ -224,9 +225,12 @@ pub(crate) async fn handle_cp(
 
                 std::process::Command::new("scp")
                     .args([
-                        "-o", "StrictHostKeyChecking=accept-new",
-                        "-o", &timeout_val,
-                        "-o", "BatchMode=yes",
+                        "-o",
+                        "StrictHostKeyChecking=accept-new",
+                        "-o",
+                        &timeout_val,
+                        "-o",
+                        "BatchMode=yes",
                         &scp_source,
                         &scp_dest,
                     ])
@@ -291,8 +295,12 @@ pub(crate) async fn handle_logs(
                 std::process::exit(status.code().unwrap_or(1));
             }
         } else {
-            let follow_args =
-                crate::connect_helpers::build_log_follow_args(&target.user, &target.ip, log_path, config.ssh_connect_timeout);
+            let follow_args = crate::connect_helpers::build_log_follow_args(
+                &target.user,
+                &target.ip,
+                log_path,
+                config.ssh_connect_timeout,
+            );
             let status = std::process::Command::new("ssh")
                 .args(&follow_args)
                 .status()?;

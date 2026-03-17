@@ -281,7 +281,7 @@ pub fn render_dashboard(f: &mut Frame, app: &mut DashboardApp) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Header
+            Constraint::Length(3), // Header
             Constraint::Min(8),    // VM table
             Constraint::Length(8), // Sparklines panel
             Constraint::Length(3), // Footer / status
@@ -298,7 +298,9 @@ fn render_header(f: &mut Frame, area: Rect, app: &DashboardApp) {
     let now = chrono::Local::now().format("%H:%M:%S");
     let title = format!(
         " azlin fleet dashboard | {} | refresh #{} every {}s ",
-        now, app.refresh_count, app.refresh_interval.as_secs()
+        now,
+        app.refresh_count,
+        app.refresh_interval.as_secs()
     );
     let header = Block::default()
         .title(title)
@@ -582,8 +584,7 @@ mod tests {
     fn test_dashboard_app_navigation() {
         let mut app = DashboardApp::new(5);
         for i in 0..3 {
-            app.entries
-                .push(VmDashboardEntry::new(format!("vm-{}", i)));
+            app.entries.push(VmDashboardEntry::new(format!("vm-{}", i)));
         }
         app.table_state.select(Some(0));
 
@@ -607,8 +608,7 @@ mod tests {
     fn test_dashboard_app_first_last() {
         let mut app = DashboardApp::new(5);
         for i in 0..5 {
-            app.entries
-                .push(VmDashboardEntry::new(format!("vm-{}", i)));
+            app.entries.push(VmDashboardEntry::new(format!("vm-{}", i)));
         }
         app.table_state.select(Some(2));
 
@@ -646,8 +646,7 @@ mod tests {
     fn test_handle_key_navigation() {
         let mut app = DashboardApp::new(5);
         for i in 0..3 {
-            app.entries
-                .push(VmDashboardEntry::new(format!("vm-{}", i)));
+            app.entries.push(VmDashboardEntry::new(format!("vm-{}", i)));
         }
         app.table_state.select(Some(0));
 
@@ -667,26 +666,19 @@ mod tests {
     #[test]
     fn test_handle_key_actions() {
         let mut app = DashboardApp::new(5);
-        app.entries
-            .push(VmDashboardEntry::new("my-vm".to_string()));
+        app.entries.push(VmDashboardEntry::new("my-vm".to_string()));
         app.table_state.select(Some(0));
 
         app.handle_key(KeyCode::Enter, KeyModifiers::empty());
-        assert!(
-            matches!(app.pending_action, Some(VmAction::Connect(ref n)) if n == "my-vm")
-        );
+        assert!(matches!(app.pending_action, Some(VmAction::Connect(ref n)) if n == "my-vm"));
         app.pending_action = None;
 
         app.handle_key(KeyCode::Char('s'), KeyModifiers::empty());
-        assert!(
-            matches!(app.pending_action, Some(VmAction::Start(ref n)) if n == "my-vm")
-        );
+        assert!(matches!(app.pending_action, Some(VmAction::Start(ref n)) if n == "my-vm"));
         app.pending_action = None;
 
         app.handle_key(KeyCode::Char('x'), KeyModifiers::empty());
-        assert!(
-            matches!(app.pending_action, Some(VmAction::Stop(ref n)) if n == "my-vm")
-        );
+        assert!(matches!(app.pending_action, Some(VmAction::Stop(ref n)) if n == "my-vm"));
     }
 
     #[test]
@@ -716,10 +708,8 @@ mod tests {
         let mut app = DashboardApp::new(5);
         assert_eq!(app.selected_vm_name(), None);
 
-        app.entries
-            .push(VmDashboardEntry::new("alpha".to_string()));
-        app.entries
-            .push(VmDashboardEntry::new("beta".to_string()));
+        app.entries.push(VmDashboardEntry::new("alpha".to_string()));
+        app.entries.push(VmDashboardEntry::new("beta".to_string()));
         app.table_state.select(Some(1));
         assert_eq!(app.selected_vm_name(), Some("beta"));
     }

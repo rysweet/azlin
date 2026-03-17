@@ -739,19 +739,30 @@ async fn async_main(start: std::time::Instant) -> Result<()> {
     if cli.startup_time {
         let parse_elapsed = start.elapsed();
         println!("Startup diagnostics:");
-        println!("  CLI parse:  {:.2}ms", parse_elapsed.as_secs_f64() * 1000.0);
+        println!(
+            "  CLI parse:  {:.2}ms",
+            parse_elapsed.as_secs_f64() * 1000.0
+        );
         let config_start = std::time::Instant::now();
         let _config = azlin_core::AzlinConfig::load();
         let config_elapsed = config_start.elapsed();
-        println!("  Config load: {:.2}ms", config_elapsed.as_secs_f64() * 1000.0);
+        println!(
+            "  Config load: {:.2}ms",
+            config_elapsed.as_secs_f64() * 1000.0
+        );
         let total = start.elapsed();
         println!("  Total:       {:.2}ms", total.as_secs_f64() * 1000.0);
         if total.as_millis() < 15 {
-            println!("
-Startup time is within the <15ms target.");
+            println!(
+                "
+Startup time is within the <15ms target."
+            );
         } else {
-            println!("
-Startup time ({:.1}ms) exceeds the <15ms target.", total.as_secs_f64() * 1000.0);
+            println!(
+                "
+Startup time ({:.1}ms) exceeds the <15ms target.",
+                total.as_secs_f64() * 1000.0
+            );
         }
         return Ok(());
     }
@@ -769,7 +780,8 @@ Startup time ({:.1}ms) exceeds the <15ms target.", total.as_secs_f64() * 1000.0)
     let is_update_cmd = matches!(cli.command, azlin_cli::Commands::Update);
     if !is_update_cmd && std::io::stdin().is_terminal() {
         if let Some(latest) = update_check::check_for_updates_interactive() {
-            let safe_version: String = latest.chars()
+            let safe_version: String = latest
+                .chars()
                 .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-'))
                 .collect();
             eprintln!(
@@ -1019,6 +1031,7 @@ mod cmd_config_init;
 mod cmd_connect;
 mod cmd_context;
 mod cmd_env;
+mod cmd_gui;
 #[allow(dead_code)]
 mod cmd_history;
 mod cmd_infra;
@@ -1045,13 +1058,12 @@ mod cmd_sync;
 mod cmd_sync_ops;
 mod cmd_tag;
 mod cmd_tunnel;
-mod cmd_gui;
 mod cmd_vm;
 mod cmd_vm_ops;
-#[allow(dead_code)]
-mod ssh_status;
 mod cmd_vm_ops2;
 mod lifecycle_helpers;
+#[allow(dead_code)]
+mod ssh_status;
 mod table_render;
 
 #[cfg(test)]

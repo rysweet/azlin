@@ -26,10 +26,7 @@ pub struct HistoryEntry {
 }
 
 /// Handle `azlin history` commands.
-pub(crate) fn handle_history(
-    action: Option<azlin_cli::HistoryAction>,
-    count: u32,
-) -> Result<()> {
+pub(crate) fn handle_history(action: Option<azlin_cli::HistoryAction>, count: u32) -> Result<()> {
     match action {
         Some(azlin_cli::HistoryAction::Clear) => {
             clear_history()?;
@@ -127,7 +124,11 @@ fn replay_command(index: u32) -> Result<()> {
     }
 
     // Skip "azlin" prefix if present
-    let args = if parts[0] == "azlin" { &parts[1..] } else { &parts };
+    let args = if parts[0] == "azlin" {
+        &parts[1..]
+    } else {
+        &parts
+    };
 
     let status = std::process::Command::new("azlin")
         .args(args)

@@ -169,10 +169,7 @@ fn test_sessions_list_help_exits_zero() {
         .timeout(std::time::Duration::from_secs(10))
         .output()
         .unwrap();
-    assert!(
-        out.status.success(),
-        "sessions list --help should exit 0"
-    );
+    assert!(out.status.success(), "sessions list --help should exit 0");
 }
 
 #[test]
@@ -183,10 +180,7 @@ fn test_sessions_save_help_exits_zero() {
         .timeout(std::time::Duration::from_secs(10))
         .output()
         .unwrap();
-    assert!(
-        out.status.success(),
-        "sessions save --help should exit 0"
-    );
+    assert!(out.status.success(), "sessions save --help should exit 0");
 }
 
 #[test]
@@ -197,10 +191,7 @@ fn test_sessions_delete_help_exits_zero() {
         .timeout(std::time::Duration::from_secs(10))
         .output()
         .unwrap();
-    assert!(
-        out.status.success(),
-        "sessions delete --help should exit 0"
-    );
+    assert!(out.status.success(), "sessions delete --help should exit 0");
 }
 
 // ── Non-auth dispatch tests for commands that can run locally ──────

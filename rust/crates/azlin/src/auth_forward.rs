@@ -17,7 +17,12 @@ struct CredentialSource {
 
 /// Entry point: detect credentials and offer to forward each one.
 /// `bastion_port` is `Some(port)` when the VM is behind a bastion tunnel on 127.0.0.1.
-pub fn forward_auth_credentials(ip: &str, user: &str, force: bool, bastion_port: Option<u16>) -> Result<()> {
+pub fn forward_auth_credentials(
+    ip: &str,
+    user: &str,
+    force: bool,
+    bastion_port: Option<u16>,
+) -> Result<()> {
     let sources = detect_credentials();
     if sources.is_empty() {
         return Ok(());
@@ -179,14 +184,16 @@ fn forward_copilot(ip: &str, user: &str, bastion_port: Option<u16>) -> Result<()
     let _ = std::process::Command::new("ssh").args(&mkdir_args).output();
 
     let (scp_dest, scp_port_args) = scp_target(ip, user, "~/.config/github-copilot/", bastion_port);
-    let mut scp_args = vec!["-r".to_string(), "-o".to_string(), "StrictHostKeyChecking=accept-new".to_string()];
+    let mut scp_args = vec![
+        "-r".to_string(),
+        "-o".to_string(),
+        "StrictHostKeyChecking=accept-new".to_string(),
+    ];
     scp_args.extend(scp_port_args);
     scp_args.push(src.to_string_lossy().to_string());
     scp_args.push(scp_dest);
 
-    let status = std::process::Command::new("scp")
-        .args(&scp_args)
-        .status()?;
+    let status = std::process::Command::new("scp").args(&scp_args).status()?;
     if !status.success() {
         anyhow::bail!("scp failed for copilot config");
     }
@@ -199,14 +206,15 @@ fn forward_claude(ip: &str, user: &str, bastion_port: Option<u16>) -> Result<()>
     let src = claude_config_path().ok_or_else(|| anyhow::anyhow!("claude config not found"))?;
 
     let (scp_dest, scp_port_args) = scp_target(ip, user, "~/.claude.json", bastion_port);
-    let mut scp_args = vec!["-o".to_string(), "StrictHostKeyChecking=accept-new".to_string()];
+    let mut scp_args = vec![
+        "-o".to_string(),
+        "StrictHostKeyChecking=accept-new".to_string(),
+    ];
     scp_args.extend(scp_port_args);
     scp_args.push(src.to_string_lossy().to_string());
     scp_args.push(scp_dest);
 
-    let status = std::process::Command::new("scp")
-        .args(&scp_args)
-        .status()?;
+    let status = std::process::Command::new("scp").args(&scp_args).status()?;
     if !status.success() {
         anyhow::bail!("scp failed for claude config");
     }
@@ -237,16 +245,18 @@ fn ssh_target(ip: &str, user: &str, bastion_port: Option<u16>) -> (String, Vec<S
 }
 
 /// Returns (user@host:path, port_args) for SCP commands.
-fn scp_target(ip: &str, user: &str, remote_path: &str, bastion_port: Option<u16>) -> (String, Vec<String>) {
+fn scp_target(
+    ip: &str,
+    user: &str,
+    remote_path: &str,
+    bastion_port: Option<u16>,
+) -> (String, Vec<String>) {
     match bastion_port {
         Some(port) => (
             format!("{}@127.0.0.1:{}", user, remote_path),
             vec!["-P".to_string(), port.to_string()],
         ),
-        None => (
-            format!("{}@{}:{}", user, ip, remote_path),
-            vec![],
-        ),
+        None => (format!("{}@{}:{}", user, ip, remote_path), vec![]),
     }
 }
 
