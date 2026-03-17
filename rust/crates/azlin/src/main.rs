@@ -102,6 +102,11 @@ struct BastionTunnel {
     child: std::process::Child,
 }
 
+/// Ask the OS for a free local TCP port by binding to `127.0.0.1:0`.
+///
+/// The listener is dropped immediately after reading the assigned port number.
+/// There is a brief TOCTOU window between the drop and when the caller's
+/// process binds the port, but on loopback this is negligible in practice.
 fn pick_unused_local_port() -> Result<u16> {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
         .context("Failed to allocate a local port for bastion tunnel")?;
@@ -112,22 +117,28 @@ fn pick_unused_local_port() -> Result<u16> {
     Ok(port)
 }
 
+/// Poll until a TCP listener appears on `127.0.0.1:<port>` or `timeout` elapses.
+///
+/// Also watches `pid` with `kill -0`: if the process exits before the port
+/// becomes ready the function bails immediately rather than waiting for the
+/// full timeout.  Returns `Ok(())` once a connection succeeds, or `Err` on
+/// timeout or early process death.
 fn wait_for_local_port_listener(port: u16, pid: u32, timeout: std::time::Duration) -> Result<()> {
     let deadline = std::time::Instant::now() + timeout;
     while std::time::Instant::now() < deadline {
         if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
             return Ok(());
         }
-        if let Some(exit) = std::process::Command::new("kill")
+        let process_gone = std::process::Command::new("kill")
             .args(["-0", &pid.to_string()])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
-            .ok()
-            .filter(|status| !status.success())
-        {
+            .map(|s| !s.success())
+            .unwrap_or(true);
+        if process_gone {
             anyhow::bail!(
-                "Bastion tunnel process {} exited before listening on 127.0.0.1:{} ({exit})",
+                "Bastion tunnel process {} exited before listening on 127.0.0.1:{}",
                 pid,
                 port
             );
@@ -160,7 +171,7 @@ impl BastionTunnelPool {
             return Ok(tunnel.local_port);
         }
         let port = pick_unused_local_port()?;
-        let child = std::process::Command::new("az")
+        let mut child = std::process::Command::new("az")
             .args([
                 "network",
                 "bastion",
@@ -179,7 +190,14 @@ impl BastionTunnelPool {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()?;
-        wait_for_local_port_listener(port, child.id(), std::time::Duration::from_secs(10))?;
+        if let Err(e) =
+            wait_for_local_port_listener(port, child.id(), std::time::Duration::from_secs(10))
+        {
+            // The az process was spawned but never became ready — kill it to avoid a leak.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(e);
+        }
         self.tunnels.insert(
             vm_resource_id.to_string(),
             BastionTunnel {
