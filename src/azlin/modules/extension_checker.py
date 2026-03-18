@@ -168,7 +168,9 @@ class ExtensionChecker:
                     status=ExtensionStatus.INSTALL_SUCCESS,
                 )
 
-            error_msg = result.stderr.strip() or result.stdout.strip()
+            error_msg = (
+                result.stderr.strip() or result.stdout.strip() or "Unknown error"
+            )
             logger.warning(
                 "Failed to install extension '%s': %s", extension_name, error_msg
             )
