@@ -18,6 +18,7 @@ Each module is a self-contained component with clear contracts:
 
 from . import (
     cross_region_sync,
+    extension_checker,
     github_setup,
     interaction_handler,
     key_audit_logger,
@@ -34,6 +35,7 @@ from . import (
 
 __all__ = [
     "cross_region_sync",
+    "extension_checker",
     "github_setup",
     "interaction_handler",
     "key_audit_logger",

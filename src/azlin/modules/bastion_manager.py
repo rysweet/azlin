@@ -103,6 +103,12 @@ class BastionManager:
             return "Network connectivity issue"
         if "PortInUse" in stderr or "Address already in use" in stderr:
             return "Local port already in use"
+        if "extension" in stderr.lower() and "not installed" in stderr.lower():
+            return (
+                "Required Azure CLI extension not installed. "
+                "Run: az extension add --name ssh --yes && "
+                "az extension add --name bastion --yes"
+            )
         # Generic message for unknown errors - log full details for debugging
         logger.debug(f"Tunnel error details: {stderr}")
         return "Tunnel creation failed"

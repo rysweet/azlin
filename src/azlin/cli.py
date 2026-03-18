@@ -138,6 +138,7 @@ from azlin.modules.bastion_provisioner import BastionProvisioner
 from azlin.modules.cli_detector import CLIDetector
 from azlin.modules.cli_installer import CLIInstaller, InstallStatus
 from azlin.modules.cost_estimator import CostEstimator
+from azlin.modules.extension_checker import ExtensionChecker, ExtensionStatus
 from azlin.modules.file_transfer import FileTransfer  # noqa: F401
 from azlin.modules.file_transfer.path_parser import PathParser  # noqa: F401
 from azlin.modules.github_setup import GitHubSetupError, GitHubSetupHandler
@@ -2303,6 +2304,7 @@ def _perform_startup_checks() -> None:
     """Perform Azure CLI environment checks at startup.
 
     Detects WSL2 + Windows Azure CLI and offers Linux CLI installation.
+    Checks for required Azure CLI extensions (ssh, bastion).
     Non-fatal - failures are logged but don't prevent CLI operation.
     """
     try:
@@ -2328,6 +2330,29 @@ def _perform_startup_checks() -> None:
     except Exception as e:
         # Non-fatal - log and continue
         logger.debug("Azure CLI environment check failed: %s", e)
+
+    # Check required Azure CLI extensions (ssh, bastion)
+    try:
+        cli_path = None
+        try:
+            cli_path = CLIDetector().get_linux_cli_path()
+        except Exception:
+            pass
+
+        checker = ExtensionChecker(cli_path=cli_path)
+        results = checker.check_and_install_missing()
+
+        for ext_name, ext_result in results.items():
+            if ext_result.status == ExtensionStatus.INSTALL_SUCCESS:
+                logger.info("Extension '%s' installed successfully", ext_name)
+            elif ext_result.status == ExtensionStatus.INSTALL_FAILED:
+                logger.warning(
+                    "Extension '%s' install failed: %s",
+                    ext_name,
+                    ext_result.error_message,
+                )
+    except Exception as e:
+        logger.debug("Azure CLI extension check failed: %s", e)
 
 
 @click.group(
