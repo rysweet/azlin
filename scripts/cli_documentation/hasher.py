@@ -197,8 +197,14 @@ class CLIHasher:
                 self._hashes = json.load(f)
         except FileNotFoundError:
             self._hashes = {}
-        except Exception as e:
-            raise DocumentationError("Failed to load hashes from hash file") from e
+        except json.JSONDecodeError as e:
+            raise DocumentationError(
+                f"Hash file {self.hash_file} is corrupt: {e}"
+            ) from e
+        except OSError as e:
+            raise DocumentationError(
+                f"Cannot read hash file {self.hash_file}: {e}"
+            ) from e
 
     def clear_hashes(self) -> None:
         """Clear all stored hashes (force full regeneration)."""
