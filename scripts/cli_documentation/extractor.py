@@ -115,9 +115,7 @@ class CLIExtractor:
 
                 # Check if it's a Click command or group
                 if isinstance(attr, (click.Command, click.Group)):
-                    metadata = self._extract_from_click_command(attr)
-                    if metadata:
-                        commands.append(metadata)
+                    commands.append(self._extract_from_click_command(attr))
 
             return commands
 
@@ -128,7 +126,7 @@ class CLIExtractor:
 
     def _extract_from_click_command(
         self, command: click.Command, parent_path: str = ""
-    ) -> CLIMetadata | None:
+    ) -> CLIMetadata:
         """Extract metadata from a Click command object.
 
         Args:
@@ -159,11 +157,9 @@ class CLIExtractor:
                 for subcmd_name in command.list_commands(None):
                     subcmd = command.get_command(None, subcmd_name)
                     if subcmd:
-                        sub_metadata = self._extract_from_click_command(
-                            subcmd, full_path
+                        subcommands.append(
+                            self._extract_from_click_command(subcmd, full_path)
                         )
-                        if sub_metadata:
-                            subcommands.append(sub_metadata)
 
             return CLIMetadata(
                 name=name,
