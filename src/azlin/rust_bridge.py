@@ -164,9 +164,10 @@ def _download_from_release() -> str | None:
             continue
         for asset in release.get("assets", []):
             name = asset.get("name", "")
-            if suffix in name and name.endswith(".tar.gz") and download_url is None:
+            if suffix in name and name.endswith(".tar.gz"):
                 download_url = asset["browser_download_url"]
                 version = tag.replace("v", "").replace("-rust", "")
+                break
         if download_url:
             break
 
