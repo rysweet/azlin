@@ -66,7 +66,7 @@ class SyncValidator:
 
         # Read content
         try:
-            content = path.read_text()
+            content = path.read_text(encoding="utf-8")
         except Exception as e:
             errors.append(f"Failed to read file: {e}")
             return ValidationResult(
