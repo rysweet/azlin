@@ -229,7 +229,7 @@ class ExampleManager:
 
         except Exception as e:
             raise DocumentationError(
-                f"Failed to save examples for '{safe_command_name}': {e}"
+                f"Failed to save examples for '{safe_command_name}'"
             ) from e
 
 
