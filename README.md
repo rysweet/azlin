@@ -1989,7 +1989,7 @@ azlin snapshot sync --vm my-vm
 
 ## Natural Language Commands (AI-Powered)
 
-**New in v2.1**: Use natural language to control azlin with Claude AI
+Use natural language to control azlin with Claude AI
 
 The `azlin doit` command understands what you want and executes the appropriate commands automatically. Just describe what you need in plain English, and azlin figures out the right commands to run.
 
@@ -1998,9 +1998,6 @@ The `azlin doit` command understands what you want and executes the appropriate 
 ```bash
 # Install via uvx (no installation needed)
 uvx --from git+https://github.com/rysweet/azlin azlin doit "list all my vms"
-
-# Or install locally
-pip install git+https://github.com/rysweet/azlin
 
 # Configure your API key (required)
 export ANTHROPIC_API_KEY=sk-ant-xxxxx...
@@ -2345,7 +2342,7 @@ azlin start my-vm  # Start if stopped
 ```
 
 **Connection drops frequently?**
-- Auto-reconnect feature will prompt you (new in v2.1!)
+- Auto-reconnect feature will prompt you
 - Check network stability
 - Consider using screen/tmux for persistence
 
