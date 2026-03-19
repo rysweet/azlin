@@ -1,0 +1,27 @@
+graph LR
+    S0(["subprocess.run"])
+    S1(["python3"])
+    S2(["&lt;dynamic&gt;"])
+    S3(["os.system"])
+    S4(["os.execvp"])
+    FN0["benchmark_parallel_vm_list"]
+    FN0 --> S0
+    FN1["benchmark_vm_list"]
+    FN1 --> S0
+    FN2["test_audit_key_operations"]
+    FN2 --> S1
+    FN2 --> S1
+    FN2 --> S1
+    FN2 --> S1
+    FN2 --> S1
+    FN2 --> S1
+    FN2 --> S1
+    FN2 --> S1
+    FN2 --> S1
+    FN3["rust_bridge"]
+    FN3 --> S2
+    FN3 --> S2
+    FN3 --> S3
+    FN3 --> S2
+    FN3 --> S4
+    FN3 --> S3

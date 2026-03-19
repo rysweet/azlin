@@ -1,0 +1,21 @@
+sequenceDiagram
+    participant User
+    participant CLI as cli.py
+    participant cli
+    User->>CLI: cli:cli.py
+    CLI->>cli: main()
+    cli->>cli: return_value: main
+    cli-->>CLI: result
+    CLI-->>User: exit code
+
+    User->>CLI: cli:cli.py
+    CLI->>cli: main()
+    cli->>cli: return_value: main
+    cli-->>CLI: result
+    CLI-->>User: exit code
+
+    User->>CLI: cli:cli.py
+    CLI->>cli: main()
+    cli->>cli: return_value: main
+    cli-->>CLI: result
+    CLI-->>User: exit code
