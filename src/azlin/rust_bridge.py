@@ -15,18 +15,72 @@ If none found, attempts (in order):
   3. Exit with error
 """
 
+import copy
+import json
 import os
 import platform
 import shutil
 import stat
 import subprocess
 import sys
+import tarfile
+import tempfile
 import urllib.request
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from typing import Literal
+
+
+class SecurityError(Exception):
+    """Raised when a security integrity check fails (e.g. checksum mismatch)."""
+
 
 GITHUB_REPO = "rysweet/azlin"
 MANAGED_BIN_DIR = Path.home() / ".azlin" / "bin"
 MANAGED_BIN = MANAGED_BIN_DIR / "azlin"
+_PY312_PLUS = sys.version_info >= (3, 12)
+_DATA_FILTER: Literal["data"] = "data"
+
+
+def _is_release_binary_member(name: str) -> bool:
+    """Return whether an archive member is the azlin binary payload."""
+    return name == "azlin" or name.endswith("/azlin")
+
+
+def _validate_release_member(member: tarfile.TarInfo) -> None:
+    """Validate a release archive member before extraction."""
+    member_path = PurePosixPath(member.name)
+    if member_path.is_absolute() or "\\" in member.name:
+        raise SecurityError(f"Unsafe archive member rejected: {member.name!r}")
+    if any(part == ".." for part in member_path.parts):
+        raise SecurityError(f"Path traversal member rejected: {member.name!r}")
+    if not _PY312_PLUS and not member.isfile():
+        raise SecurityError(
+            f"Non-regular archive member rejected on Python <3.12: {member.name!r}"
+        )
+
+
+def _extract_release_binary(archive_path: Path, destination: Path) -> None:
+    """Extract the azlin binary from a downloaded release archive."""
+    with tarfile.open(archive_path, "r:gz") as tar:
+        for member in tar.getmembers():
+            if not _is_release_binary_member(member.name):
+                continue
+
+            _validate_release_member(member)
+            extracted_member = copy.copy(member)
+            extracted_member.name = "azlin"
+
+            if _PY312_PLUS:
+                tar.extract(
+                    extracted_member,
+                    path=str(destination),
+                    filter=_DATA_FILTER,
+                )
+            else:
+                tar.extract(extracted_member, path=str(destination))
+            return
+
+    raise SecurityError("Downloaded archive did not contain an azlin binary")
 
 
 def _platform_suffix() -> str | None:
@@ -81,10 +135,13 @@ def _find_rust_binary() -> str | None:
 
 
 def _download_from_release() -> str | None:
-    """Download pre-built binary from GitHub Releases."""
-    import tarfile
-    import tempfile
+    """Download pre-built binary from GitHub Releases.
 
+    Security measures:
+    - Member allowlist: only the tar member whose bare name is exactly "azlin" is extracted.
+    - Path traversal and non-file members are rejected before extraction.
+    - filter='data' (Python >=3.12) blocks symlinks, device nodes, and unsafe metadata.
+    """
     suffix = _platform_suffix()
     if not suffix:
         return None
@@ -93,15 +150,12 @@ def _download_from_release() -> str | None:
     try:
         req = urllib.request.Request(
             api_url, headers={"Accept": "application/vnd.github+json"}
-        )  # noqa: S310
-        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310  # nosec B310
-            import json
-
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
             releases = json.loads(resp.read())
     except Exception:
         return None
 
-    # Find the latest Rust release asset for this platform
     download_url = None
     version = None
     for release in releases:
@@ -110,34 +164,29 @@ def _download_from_release() -> str | None:
             continue
         for asset in release.get("assets", []):
             name = asset.get("name", "")
-            if suffix in name and name.endswith(".tar.gz"):
+            if suffix in name and name.endswith(".tar.gz") and download_url is None:
                 download_url = asset["browser_download_url"]
                 version = tag.replace("v", "").replace("-rust", "")
-                break
         if download_url:
             break
 
     if not download_url:
         return None
 
-    # Download and extract
-    MANAGED_BIN_DIR.mkdir(parents=True, exist_ok=True)
+    MANAGED_BIN_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     sys.stderr.write(
         f"azlin: installing Rust binary v{version} from GitHub Releases...\n"
     )
+
+    tmp_path: Path | None = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
-            urllib.request.urlretrieve(download_url, tmp.name)  # noqa: S310  # nosec B310
-            tmp_path = tmp.name
+        with tempfile.NamedTemporaryFile(
+            suffix=".tar.gz", dir=MANAGED_BIN_DIR, delete=False
+        ) as tmp:
+            tmp_path = Path(tmp.name)
 
-        with tarfile.open(tmp_path, "r:gz") as tar:
-            for member in tar.getmembers():
-                if member.name.endswith("/azlin") or member.name == "azlin":
-                    member.name = "azlin"
-                    tar.extract(member, path=str(MANAGED_BIN_DIR))
-                    break
-
-        os.unlink(tmp_path)
+        urllib.request.urlretrieve(download_url, str(tmp_path))  # nosec B310
+        _extract_release_binary(tmp_path, MANAGED_BIN_DIR)
 
         if MANAGED_BIN.exists():
             MANAGED_BIN.chmod(
@@ -145,8 +194,13 @@ def _download_from_release() -> str | None:
             )
             sys.stderr.write(f"azlin: installed to {MANAGED_BIN}\n")
             return str(MANAGED_BIN)
+    except SecurityError:
+        sys.stderr.write("azlin: download aborted — archive integrity check failed.\n")
     except Exception as e:
         sys.stderr.write(f"azlin: download failed: {e}\n")
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
     return None
 
 
@@ -181,7 +235,13 @@ def _build_from_source() -> str | None:
 
 
 def _exec_rust(binary: str, args: list[str]) -> None:
-    """Replace this process with the Rust binary."""
+    """Replace this process with the Rust binary.
+
+    On POSIX, uses os.execvp so the Rust process inherits the PID.
+    On Windows, subprocess.run is used as execvp is unavailable.
+    argv passthrough is intentional: azlin is a CLI passthrough tool
+    and there is no untrusted input to sanitise.
+    """
     if platform.system() == "Windows":
         result = subprocess.run([binary, *args])
         sys.exit(result.returncode)
@@ -193,18 +253,14 @@ def entry() -> None:
     """Find or install the Rust binary and exec it. No fallback."""
     args = sys.argv[1:]
 
-    # 1. Try to find existing Rust binary
     rust_bin = _find_rust_binary()
 
-    # 2. Try to download from GitHub Releases
     if not rust_bin:
         rust_bin = _download_from_release()
 
-    # 3. Try to build from source
     if not rust_bin:
         rust_bin = _build_from_source()
 
-    # 4. No options left — fail with clear instructions
     if not rust_bin:
         sys.stderr.write(
             "\n"
