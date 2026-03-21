@@ -328,6 +328,7 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
     }
 
     let use_wt = std::env::var("WT_SESSION").is_ok();
+    let use_macos = cfg!(target_os = "macos") && !use_wt;
 
     // Resolve the current executable path so we can re-invoke ourselves
     // in new terminal tabs. Using bare "azlin" fails when installed via
@@ -336,6 +337,13 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
         .ok()
         .and_then(|p| p.to_str().map(|s| s.to_string()))
         .unwrap_or_else(|| "azlin".to_string());
+
+    // Detect which macOS terminal emulator is running (if on macOS).
+    let macos_terminal = if use_macos {
+        detect_macos_terminal()
+    } else {
+        MacTerminal::Unknown
+    };
 
     for (vm_name, sessions) in tmux_sessions {
         if !is_valid_restore_vm_name(vm_name) {
@@ -380,10 +388,20 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
                 {
                     eprintln!("  Warning: failed to open tab for {}: {}", vm_name, e);
                 }
+            } else if use_macos {
+                println!("  Opening tab: {} (session: {})", vm_name, first_session);
+                let connect_cmd = format!(
+                    "{} connect {} --tmux-session {}",
+                    &self_exe, vm_name, &first_session
+                );
+                if let Err(e) = open_macos_tab(&macos_terminal, &connect_cmd) {
+                    eprintln!("  Warning: failed to open tab for {}: {}", vm_name, e);
+                }
             } else {
                 println!("  Connecting to {} (session: {})", vm_name, first_session);
-                // Isolate stdio so the spawned SSH process does not inherit the parent
-                // terminal handles — prevents display corruption and credential capture.
+                // On Linux without Windows Terminal, spawn in background.
+                // SSH needs a TTY for interactive use, but without a known
+                // terminal emulator we can only fire-and-forget.
                 if let Err(e) = std::process::Command::new(&self_exe)
                     .args(["connect", vm_name, "--tmux-session", &first_session])
                     .stdin(std::process::Stdio::null())
@@ -397,4 +415,101 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
         }
     }
     println!("Session restore initiated.");
+}
+
+/// Supported macOS terminal emulators for tab opening.
+#[derive(Debug, PartialEq)]
+enum MacTerminal {
+    TerminalApp,
+    ITerm2,
+    Ghostty,
+    Unknown,
+}
+
+/// Detect which macOS terminal emulator is running.
+fn detect_macos_terminal() -> MacTerminal {
+    // TERM_PROGRAM is set by most macOS terminal emulators.
+    match std::env::var("TERM_PROGRAM").as_deref() {
+        Ok("Apple_Terminal") => MacTerminal::TerminalApp,
+        Ok("iTerm.app") => MacTerminal::ITerm2,
+        Ok("ghostty") => MacTerminal::Ghostty,
+        _ => {
+            // Fallback: check if common apps are running
+            if std::process::Command::new("pgrep")
+                .args(["-x", "Terminal"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+            {
+                MacTerminal::TerminalApp
+            } else {
+                MacTerminal::Unknown
+            }
+        }
+    }
+}
+
+/// Open a new terminal tab on macOS running the given command string.
+fn open_macos_tab(terminal: &MacTerminal, command: &str) -> Result<(), String> {
+    match terminal {
+        MacTerminal::ITerm2 => {
+            // iTerm2: use AppleScript to create a new tab
+            let script = format!(
+                r#"tell application "iTerm2"
+    tell current window
+        create tab with default profile
+        tell current session
+            write text "{}"
+        end tell
+    end tell
+end tell"#,
+                command
+            );
+            run_osascript(&script)
+        }
+        MacTerminal::TerminalApp | MacTerminal::Unknown => {
+            // Terminal.app: use AppleScript to open a new tab.
+            // For Unknown, fall back to Terminal.app since it's always available on macOS.
+            let script = format!(
+                r#"tell application "Terminal"
+    activate
+    do script "{}"
+end tell"#,
+                command
+            );
+            run_osascript(&script)
+        }
+        MacTerminal::Ghostty => {
+            // Ghostty doesn't support AppleScript tab creation yet.
+            // Fall back to opening a new Terminal.app window.
+            let script = format!(
+                r#"tell application "Terminal"
+    activate
+    do script "{}"
+end tell"#,
+                command
+            );
+            run_osascript(&script)
+        }
+    }
+}
+
+/// Execute an AppleScript via osascript.
+fn run_osascript(script: &str) -> Result<(), String> {
+    let result = std::process::Command::new("osascript")
+        .args(["-e", script])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .output();
+    match result {
+        Ok(output) if output.status.success() => Ok(()),
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(format!("osascript failed: {}", stderr.trim()))
+        }
+        Err(e) => Err(format!("failed to run osascript: {}", e)),
+    }
 }
