@@ -389,13 +389,13 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
                     eprintln!("  Warning: failed to open tab for {}: {}", vm_name, e);
                 }
             } else if use_macos {
-                println!("  Opening tab: {} (session: {})", vm_name, first_session);
-                let connect_cmd = format!(
+                println!("  Opening window: {} (session: {})", vm_name, first_session);
+                let connect_cmd = escape_for_applescript(&format!(
                     "{} connect {} --tmux-session {}",
                     &self_exe, vm_name, &first_session
-                );
-                if let Err(e) = open_macos_tab(&macos_terminal, &connect_cmd) {
-                    eprintln!("  Warning: failed to open tab for {}: {}", vm_name, e);
+                ));
+                if let Err(e) = open_macos_terminal(&macos_terminal, &connect_cmd) {
+                    eprintln!("  Warning: failed to open window for {}: {}", vm_name, e);
                 }
             } else {
                 println!("  Connecting to {} (session: {})", vm_name, first_session);
@@ -417,12 +417,11 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
     println!("Session restore initiated.");
 }
 
-/// Supported macOS terminal emulators for tab opening.
+/// Supported macOS terminal emulators.
 #[derive(Debug, PartialEq)]
 enum MacTerminal {
     TerminalApp,
     ITerm2,
-    Ghostty,
     Unknown,
 }
 
@@ -432,58 +431,46 @@ fn detect_macos_terminal() -> MacTerminal {
     match std::env::var("TERM_PROGRAM").as_deref() {
         Ok("Apple_Terminal") => MacTerminal::TerminalApp,
         Ok("iTerm.app") => MacTerminal::ITerm2,
-        Ok("ghostty") => MacTerminal::Ghostty,
-        _ => {
-            // Fallback: check if common apps are running
-            if std::process::Command::new("pgrep")
-                .args(["-x", "Terminal"])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false)
-            {
-                MacTerminal::TerminalApp
-            } else {
-                MacTerminal::Unknown
-            }
-        }
+        _ => MacTerminal::Unknown,
     }
 }
 
-/// Open a new terminal tab on macOS running the given command string.
-fn open_macos_tab(terminal: &MacTerminal, command: &str) -> Result<(), String> {
+/// Escape a string for safe embedding in AppleScript double-quoted strings.
+/// Handles `\` and `"` which are the two special characters in AppleScript strings.
+fn escape_for_applescript(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// Open a new macOS terminal window running the given command string.
+/// The command string must already be escaped via `escape_for_applescript`.
+fn open_macos_terminal(terminal: &MacTerminal, command: &str) -> Result<(), String> {
     match terminal {
         MacTerminal::ITerm2 => {
-            // iTerm2: use AppleScript to create a new tab
+            // iTerm2: create a new window (or tab in existing window).
+            // Check for existing windows first to avoid errors.
             let script = format!(
                 r#"tell application "iTerm2"
-    tell current window
-        create tab with default profile
-        tell current session
-            write text "{}"
+    if (count of windows) = 0 then
+        create window with default profile
+        tell current session of current window
+            write text "{cmd}"
         end tell
-    end tell
+    else
+        tell current window
+            create tab with default profile
+            tell current session
+                write text "{cmd}"
+            end tell
+        end tell
+    end if
 end tell"#,
-                command
+                cmd = command
             );
             run_osascript(&script)
         }
         MacTerminal::TerminalApp | MacTerminal::Unknown => {
-            // Terminal.app: use AppleScript to open a new tab.
+            // Terminal.app: `do script` opens a new window.
             // For Unknown, fall back to Terminal.app since it's always available on macOS.
-            let script = format!(
-                r#"tell application "Terminal"
-    activate
-    do script "{}"
-end tell"#,
-                command
-            );
-            run_osascript(&script)
-        }
-        MacTerminal::Ghostty => {
-            // Ghostty doesn't support AppleScript tab creation yet.
-            // Fall back to opening a new Terminal.app window.
             let script = format!(
                 r#"tell application "Terminal"
     activate
