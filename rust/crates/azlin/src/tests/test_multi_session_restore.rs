@@ -3,26 +3,8 @@
 //! These tests verify that ALL tmux sessions are restored, not just the first.
 //! This fixes the bug where `sessions.first()` was used instead of iteration.
 
-use crate::cmd_list_data::{restore_tmux_sessions, parse_session_name, is_valid_restore_vm_name};
+use crate::cmd_list_data::restore_tmux_sessions;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::io::{self, Write};
-
-// Test helper to capture stdout during tests
-struct CaptureOutput {
-    buffer: Arc<Mutex<Vec<u8>>>,
-}
-
-impl Write for CaptureOutput {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.buffer.lock().unwrap().extend_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
 
 #[test]
 fn test_all_sessions_processed_not_just_first() {
@@ -138,8 +120,8 @@ fn test_session_name_special_cases() {
 }
 
 #[test]
-fn test_concurrent_session_restoration() {
-    // Test that multiple sessions can be restored concurrently
+fn test_many_sessions_single_vm() {
+    // Test that many sessions on a single VM are all processed
     let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
 
     // Simulate a development environment with many active sessions
@@ -226,7 +208,7 @@ fn test_performance_with_many_vms() {
     for i in 0..50 {
         sessions.insert(
             format!("vm-{}", i),
-            vec![format!("main:1"), format!("work:0")],
+            vec!["main:1".to_string(), "work:0".to_string()],
         );
     }
 

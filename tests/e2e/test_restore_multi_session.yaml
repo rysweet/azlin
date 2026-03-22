@@ -1,0 +1,65 @@
+name: restore-multi-session
+description: >
+  Verify azlin restore correctly handles multi-session behavior including
+  multiple sessions per VM, session limits, and output validation.
+
+scenarios:
+  - name: help-text
+    description: Restore help output documents multi-session tab support
+    steps:
+      - action: run
+        command: azlin restore --help
+        expect:
+          stdout_contains:
+            - "Restore sessions across terminal tabs"
+          exit_code: 0
+
+  - name: dry-run-multi-session
+    description: Dry run shows multiple sessions per VM with session labels
+    steps:
+      - action: run
+        command: azlin restore --dry-run
+        env:
+          AZLIN_TEST_MODE: "1"
+        expect:
+          stdout_contains:
+            - "[dry-run] Would connect to vm-name (session: main)"
+            - "[dry-run] Would connect to vm-name (session: dev)"
+          exit_code: 0
+
+  - name: session-limit-warning
+    description: VMs with more than 20 sessions trigger a limiting warning
+    steps:
+      - action: run
+        command: azlin restore --dry-run
+        env:
+          AZLIN_TEST_MODE: "1"
+          AZLIN_TEST_EXCESSIVE_SESSIONS: "1"
+        expect:
+          stdout_contains:
+            - "Warning: limiting"
+          exit_code: 0
+
+  - name: restore-initiated
+    description: Verbose restore ends with a confirmation message
+    steps:
+      - action: run
+        command: azlin restore -v
+        env:
+          AZLIN_TEST_MODE: "1"
+        expect:
+          stdout_contains:
+            - "Session restore initiated"
+          exit_code: 0
+
+  - name: no-invalid-sessions
+    description: Output must not contain warnings about invalid session names
+    steps:
+      - action: run
+        command: azlin restore --dry-run
+        env:
+          AZLIN_TEST_MODE: "1"
+        expect:
+          stdout_not_contains:
+            - "Warning: skipping invalid session name"
+          exit_code: 0

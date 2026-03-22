@@ -297,7 +297,7 @@ pub(crate) fn parse_session_name(raw: &str) -> Option<String> {
 /// Allowlist permits alphanumeric characters, underscores, hyphens, and dots (dots are
 /// required for Azure FQDNs) and rejects everything else, preventing argument injection.
 pub(crate) fn is_valid_restore_vm_name(name: &str) -> bool {
-    if name.is_empty() {
+    if name.is_empty() || name.len() > 256 {
         return false;
     }
     name.chars()

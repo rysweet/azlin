@@ -229,6 +229,18 @@ fn test_vm_name_pipe_invalid() {
     assert!(!is_valid_restore_vm_name("vm|cat"));
 }
 
+#[test]
+fn test_vm_name_over_256_chars_invalid() {
+    let long_name = "a".repeat(257);
+    assert!(!is_valid_restore_vm_name(&long_name));
+}
+
+#[test]
+fn test_vm_name_exactly_256_chars_valid() {
+    let name = "a".repeat(256);
+    assert!(is_valid_restore_vm_name(&name));
+}
+
 // ---------------------------------------------------------------------------
 // restore_tmux_sessions — behavioural smoke tests
 // ---------------------------------------------------------------------------
