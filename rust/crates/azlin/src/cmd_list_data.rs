@@ -5,6 +5,9 @@ use super::*;
 use azlin_core::models::VmInfo;
 use std::collections::HashMap;
 
+/// Maximum number of tmux sessions to restore per VM to prevent resource exhaustion.
+const MAX_SESSIONS_PER_VM: usize = 20;
+
 /// Resolve SSH key path, preferring azlin_key over id_rsa.
 fn resolve_ssh_key() -> Option<std::path::PathBuf> {
     home_dir()
@@ -313,7 +316,14 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
                 eprintln!("  Warning: skipping VM with invalid name");
                 continue;
             }
-            if let Some(raw_session) = sessions.first() {
+            // Iterate over all sessions, not just the first
+            if sessions.len() > MAX_SESSIONS_PER_VM {
+                eprintln!(
+                    "  Warning: limiting {} to {} sessions (found {})",
+                    vm_name, MAX_SESSIONS_PER_VM, sessions.len()
+                );
+            }
+            for raw_session in sessions.iter().take(MAX_SESSIONS_PER_VM) {
                 if let Some(session) = parse_session_name(raw_session) {
                     println!(
                         "  [dry-run] Would connect to {} (session: {})",
@@ -351,8 +361,17 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
             continue;
         }
 
-        if let Some(raw_session) = sessions.first() {
-            let first_session = match parse_session_name(raw_session) {
+        // Check if we need to limit the number of sessions
+        if sessions.len() > MAX_SESSIONS_PER_VM {
+            eprintln!(
+                "  Warning: limiting {} to {} sessions (found {})",
+                vm_name, MAX_SESSIONS_PER_VM, sessions.len()
+            );
+        }
+
+        // Iterate over all sessions up to MAX_SESSIONS_PER_VM
+        for raw_session in sessions.iter().take(MAX_SESSIONS_PER_VM) {
+            let session = match parse_session_name(raw_session) {
                 Some(s) => s,
                 None => {
                     eprintln!("  Warning: skipping invalid session name for {}", vm_name);
@@ -361,7 +380,7 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
             };
 
             if use_wt {
-                println!("  Opening tab: {} (session: {})", vm_name, first_session);
+                println!("  Opening tab: {} (session: {})", vm_name, session);
                 // WT_SESSION is set inside WSL when running under Windows Terminal.
                 // wt.exe new-tab runs its command in the default WT profile (often
                 // PowerShell), so we must explicitly use wsl.exe to re-enter WSL
@@ -377,7 +396,7 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
                     "connect",
                     vm_name,
                     "--tmux-session",
-                    &first_session,
+                    &session,
                 ]);
                 if let Err(e) = std::process::Command::new("wt.exe")
                     .args(&wt_args)
@@ -389,21 +408,21 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
                     eprintln!("  Warning: failed to open tab for {}: {}", vm_name, e);
                 }
             } else if use_macos {
-                println!("  Opening window: {} (session: {})", vm_name, first_session);
+                println!("  Opening window: {} (session: {})", vm_name, session);
                 let connect_cmd = escape_for_applescript(&format!(
                     "{} connect {} --tmux-session {}",
-                    &self_exe, vm_name, &first_session
+                    &self_exe, vm_name, &session
                 ));
                 if let Err(e) = open_macos_terminal(&macos_terminal, &connect_cmd) {
                     eprintln!("  Warning: failed to open window for {}: {}", vm_name, e);
                 }
             } else {
-                println!("  Connecting to {} (session: {})", vm_name, first_session);
+                println!("  Connecting to {} (session: {})", vm_name, session);
                 // On Linux without Windows Terminal, spawn in background.
                 // SSH needs a TTY for interactive use, but without a known
                 // terminal emulator we can only fire-and-forget.
                 if let Err(e) = std::process::Command::new(&self_exe)
-                    .args(["connect", vm_name, "--tmux-session", &first_session])
+                    .args(["connect", vm_name, "--tmux-session", &session])
                     .stdin(std::process::Stdio::null())
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::null())
