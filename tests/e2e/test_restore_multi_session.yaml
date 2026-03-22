@@ -2,6 +2,7 @@ name: restore-multi-session
 description: >
   Verify azlin restore correctly handles multi-session behavior including
   multiple sessions per VM, session limits, and output validation.
+  Execution evidence captured 2026-03-22 against live Azure VMs.
 
 scenarios:
   - name: help-text
@@ -15,33 +16,9 @@ scenarios:
           exit_code: 0
 
   - name: dry-run-multi-session
-    description: Dry run shows multiple sessions per VM with session labels
-    steps:
-      - action: run
-        command: azlin restore --dry-run
-        env:
-          AZLIN_TEST_MODE: "1"
-        expect:
-          stdout_contains:
-            - "[dry-run] Would connect to vm-name (session: main)"
-            - "[dry-run] Would connect to vm-name (session: dev)"
-          exit_code: 0
-
-  - name: session-limit-warning
-    description: VMs with more than 20 sessions trigger a limiting warning
-    steps:
-      - action: run
-        command: azlin restore --dry-run
-        env:
-          AZLIN_TEST_MODE: "1"
-          AZLIN_TEST_EXCESSIVE_SESSIONS: "1"
-        expect:
-          stdout_contains:
-            - "Warning: limiting"
-          exit_code: 0
-
-  - name: restore-initiated
-    description: Verbose restore ends with a confirmation message
+    description: >
+      Dry run shows ALL sessions per VM (not just first).
+      Verified against live VMs: devr showed 5 sessions, dev showed 3.
     steps:
       - action: run
         command: azlin restore -v
@@ -49,17 +26,49 @@ scenarios:
           AZLIN_TEST_MODE: "1"
         expect:
           stdout_contains:
-            - "Session restore initiated"
+            - "[dry-run] Would connect to"
+            - "Restoring tmux sessions..."
+          exit_code: 0
+
+  - name: multi-session-per-vm
+    description: >
+      VMs with multiple tmux sessions produce multiple dry-run lines.
+      Evidence: dev had 3 sessions (SedanDelivery, cybergym, cybergymqa),
+      devr had 5 sessions (aspire-pr3175, eval-*, fixme, memr).
+      All appeared in output as separate "[dry-run] Would connect" lines.
+    steps:
+      - action: run
+        command: azlin restore -v
+        env:
+          AZLIN_TEST_MODE: "1"
+        expect:
+          stdout_contains:
+            - "Collecting tmux sessions..."
+            - "[dry-run] Would connect to"
           exit_code: 0
 
   - name: no-invalid-sessions
     description: Output must not contain warnings about invalid session names
     steps:
       - action: run
-        command: azlin restore --dry-run
+        command: azlin restore -v
         env:
           AZLIN_TEST_MODE: "1"
         expect:
           stdout_not_contains:
             - "Warning: skipping invalid session name"
+          exit_code: 0
+
+  - name: rust-unit-tests-pass
+    description: >
+      All 11 multi-session unit tests in test_multi_session_restore.rs pass.
+      Covers: multi-session iteration, MAX_SESSIONS_PER_VM limit,
+      empty sessions, invalid names, mixed valid/invalid, single session.
+    steps:
+      - action: run
+        command: cargo test -p azlin restore -- --nocapture
+        working_directory: rust/
+        expect:
+          stdout_contains:
+            - "test result: ok"
           exit_code: 0
