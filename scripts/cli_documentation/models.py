@@ -169,12 +169,22 @@ class ChangeSet:
         return bool(self.changed or self.added or self.removed)
 
 
+class DocumentationError(Exception):
+    """Raised when a documentation file cannot be read or written unexpectedly.
+
+    This exception is raised when an I/O or parse error occurs that is not
+    simply a missing file. FileNotFoundError is handled gracefully (return
+    empty/default); all other failures propagate as DocumentationError.
+    """
+
+
 __all__ = [
     "CLIArgument",
     "CLIMetadata",
     "CLIOption",
     "ChangeSet",
     "CommandExample",
+    "DocumentationError",
     "SyncResult",
     "ValidationResult",
 ]

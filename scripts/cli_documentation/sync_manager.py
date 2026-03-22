@@ -20,8 +20,11 @@ from .example_manager import ExampleManager
 from .extractor import CLIExtractor
 from .generator import DocGenerator
 from .hasher import CLIHasher
-from .models import CLIMetadata, SyncResult
+from .models import CLIMetadata, DocumentationError, SyncResult
 from .validator import SyncValidator
+
+# Pre-compiled pattern for path component validation (compiled once at import time)
+_VALID_PATH_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 class DocSyncManager:
@@ -86,13 +89,10 @@ class DocSyncManager:
             # Regenerate all
             commands_to_sync = commands
         else:
-            # Only sync changed commands
+            # Only sync changed commands; use a set for O(1) membership tests
             changeset = self.hasher.compare_hashes(command_dict)
-            commands_to_sync = [
-                cmd
-                for cmd in commands
-                if cmd.name in changeset.changed or cmd.name in changeset.added
-            ]
+            needs_sync = set(changeset.changed) | set(changeset.added)
+            commands_to_sync = [cmd for cmd in commands if cmd.name in needs_sync]
 
         # Sync each command
         for command in commands_to_sync:
@@ -139,7 +139,7 @@ class DocSyncManager:
 
             # Write to file
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(markdown)
+            output_path.write_text(markdown, encoding="utf-8")
 
             # Validate if requested
             validation_result = None
@@ -162,7 +162,7 @@ class DocSyncManager:
                 validation_result=validation_result,
             )
 
-        except Exception as e:
+        except DocumentationError as e:
             return SyncResult(
                 command_name=command.name,
                 error=str(e),
@@ -207,7 +207,7 @@ class DocSyncManager:
             ValueError: If component contains invalid characters
         """
         # Only allow alphanumeric, dash, and underscore
-        if not re.match(r"^[a-zA-Z0-9_-]+$", component):
+        if not _VALID_PATH_RE.match(component):
             raise ValueError(f"Invalid path component: {component}")
         return component
 

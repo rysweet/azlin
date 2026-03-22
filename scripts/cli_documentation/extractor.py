@@ -15,7 +15,7 @@ import sys
 
 import click
 
-from .models import CLIArgument, CLIMetadata, CLIOption
+from .models import CLIArgument, CLIMetadata, CLIOption, DocumentationError
 
 
 class CLIExtractor:
@@ -42,7 +42,10 @@ class CLIExtractor:
             command_name: Name of the Click command to extract
 
         Returns:
-            CLIMetadata object or None if command not found
+            CLIMetadata object or None if command not found in the module.
+
+        Raises:
+            DocumentationError: If the module import or metadata extraction fails.
 
         Example:
             >>> extractor = CLIExtractor()
@@ -71,12 +74,9 @@ class CLIExtractor:
             return self._extract_from_click_command(command)
 
         except Exception as e:
-            # Log error but fail gracefully
-            print(
-                f"Warning: Failed to extract command '{command_name}': {e}",
-                file=sys.stderr,
-            )
-            return None
+            raise DocumentationError(
+                f"Failed to extract command '{command_name}'"
+            ) from e
 
     def extract_all_commands(self, module_path: str) -> list[CLIMetadata]:
         """Extract metadata from all commands in a module.
@@ -85,7 +85,10 @@ class CLIExtractor:
             module_path: Python module path (e.g., "azlin.cli")
 
         Returns:
-            List of CLIMetadata objects for all found commands
+            List of CLIMetadata objects for all found commands.
+
+        Raises:
+            DocumentationError: If the module import or metadata extraction fails.
 
         Example:
             >>> extractor = CLIExtractor()
@@ -112,23 +115,18 @@ class CLIExtractor:
 
                 # Check if it's a Click command or group
                 if isinstance(attr, (click.Command, click.Group)):
-                    metadata = self._extract_from_click_command(attr)
-                    if metadata:
-                        commands.append(metadata)
+                    commands.append(self._extract_from_click_command(attr))
 
             return commands
 
         except Exception as e:
-            # Log error but fail gracefully
-            print(
-                f"Warning: Failed to extract commands from module '{module_path}': {e}",
-                file=sys.stderr,
-            )
-            return []
+            raise DocumentationError(
+                f"Failed to extract commands from module '{module_path}'"
+            ) from e
 
     def _extract_from_click_command(
         self, command: click.Command, parent_path: str = ""
-    ) -> CLIMetadata | None:
+    ) -> CLIMetadata:
         """Extract metadata from a Click command object.
 
         Args:
@@ -159,11 +157,9 @@ class CLIExtractor:
                 for subcmd_name in command.list_commands(None):
                     subcmd = command.get_command(None, subcmd_name)
                     if subcmd:
-                        sub_metadata = self._extract_from_click_command(
-                            subcmd, full_path
+                        subcommands.append(
+                            self._extract_from_click_command(subcmd, full_path)
                         )
-                        if sub_metadata:
-                            subcommands.append(sub_metadata)
 
             return CLIMetadata(
                 name=name,
@@ -176,13 +172,8 @@ class CLIExtractor:
             )
 
         except Exception as e:
-            # Log error but fail gracefully
-            command_name = getattr(command, "name", "unknown")
-            print(
-                f"Warning: Failed to extract metadata from command '{command_name}': {e}",
-                file=sys.stderr,
-            )
-            return None
+            name = getattr(command, "name", "unknown")
+            raise DocumentationError(f"Failed to extract subcommand '{name}'") from e
 
     def _get_docstring(self, command: click.Command) -> str:
         """Extract docstring from command callback function."""

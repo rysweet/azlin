@@ -11,12 +11,14 @@ Philosophy:
 """
 
 import re
-import sys
 from pathlib import Path
 
 import yaml
 
-from .models import CommandExample
+from .models import CommandExample, DocumentationError
+
+# Pre-compiled pattern for command name validation (compiled once at import time)
+_VALID_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 class ExampleManager:
@@ -55,7 +57,7 @@ class ExampleManager:
             ValueError: Invalid command name: ../etc/passwd
         """
         # Only allow alphanumeric, dash, and underscore
-        if not re.match(r"^[a-zA-Z0-9_-]+$", command_name):
+        if not _VALID_NAME_RE.match(command_name):
             raise ValueError(f"Invalid command name: {command_name}")
         return command_name
 
@@ -74,12 +76,9 @@ class ExampleManager:
             >>> for ex in examples:
             ...     print(ex.title)
         """
-        # Sanitize command name to prevent path traversal
-        try:
-            safe_command_name = self._sanitize_command_name(command_name)
-        except ValueError as e:
-            print(f"Warning: {e}", file=sys.stderr)
-            return []
+        # Sanitize command name to prevent path traversal.
+        # ValueError propagates to the caller — silent swallowing is #878.
+        safe_command_name = self._sanitize_command_name(command_name)
 
         # Try to find YAML file for this command
         yaml_file = self.examples_dir / f"{safe_command_name}.yaml"
@@ -140,7 +139,7 @@ class ExampleManager:
                   Expected output here
         """
         try:
-            with open(yaml_file) as f:
+            with open(yaml_file, encoding="utf-8") as f:
                 data = yaml.safe_load(f)
 
             if not data or "examples" not in data:
@@ -148,23 +147,29 @@ class ExampleManager:
 
             examples = []
             for ex_data in data["examples"]:
+                command = ex_data.get("command")
+                if not command:
+                    raise DocumentationError(
+                        f"Example entry in '{yaml_file}' is missing required field 'command'"
+                    )
                 example = CommandExample(
                     title=ex_data.get("title", ""),
                     description=ex_data.get("description", ""),
-                    command=ex_data.get("command", ""),
+                    command=command,
                     output=ex_data.get("output"),
                 )
                 examples.append(example)
 
             return examples
 
-        except Exception as e:
-            # Log error but fail gracefully
-            print(
-                f"Warning: Failed to load examples from '{yaml_file}': {e}",
-                file=sys.stderr,
-            )
+        except FileNotFoundError:
             return []
+        except DocumentationError:
+            raise
+        except Exception as e:
+            raise DocumentationError(
+                f"Failed to load examples for command '{yaml_file.stem}'"
+            ) from e
 
     def save_examples(self, command_name: str, examples: list[CommandExample]) -> bool:
         """Save examples to a YAML file.
@@ -174,7 +179,11 @@ class ExampleManager:
             examples: List of examples to save
 
         Returns:
-            True if save succeeded, False otherwise
+            True if save succeeded.
+
+        Raises:
+            DocumentationError: If the file cannot be written due to I/O or
+                other unexpected errors.
 
         Example:
             >>> manager = ExampleManager("scripts/examples/")
@@ -186,10 +195,11 @@ class ExampleManager:
             >>> manager.save_examples("mount", examples)
             True
         """
-        try:
-            # Sanitize command name to prevent path traversal
-            safe_command_name = self._sanitize_command_name(command_name)
+        # Sanitize command name to prevent path traversal.
+        # ValueError propagates to the caller — consistent with load_examples (#878).
+        safe_command_name = self._sanitize_command_name(command_name)
 
+        try:
             yaml_file = self.examples_dir / f"{safe_command_name}.yaml"
             yaml_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -206,18 +216,21 @@ class ExampleManager:
                 ],
             }
 
-            with open(yaml_file, "w") as f:
-                yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+            with open(yaml_file, "w", encoding="utf-8") as f:
+                yaml.dump(
+                    data,
+                    f,
+                    default_flow_style=False,
+                    sort_keys=False,
+                    allow_unicode=True,
+                )
 
             return True
 
         except Exception as e:
-            # Log error but fail gracefully
-            print(
-                f"Warning: Failed to save examples for command '{command_name}': {e}",
-                file=sys.stderr,
-            )
-            return False
+            raise DocumentationError(
+                f"Failed to save examples for '{safe_command_name}'"
+            ) from e
 
 
 __all__ = ["ExampleManager"]
