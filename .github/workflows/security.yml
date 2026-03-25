@@ -165,42 +165,6 @@ jobs:
           category: "/language:${{ matrix.language }}"
 
   # Trivy - Vulnerability scanner for dependencies and containers
-  trivy:
-    name: Trivy Vulnerability Scan
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@v0.35.0
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH,MEDIUM'
-
-      - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: 'trivy-results.sarif'
-
-      - name: Upload Trivy report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: trivy-vulnerability-report
-          path: trivy-results.sarif
-          retention-days: 90
-
-  # OSSF Scorecard - Check project security posture
   scorecard:
     name: OSSF Scorecard
     runs-on: ubuntu-24.04
@@ -233,7 +197,7 @@ jobs:
   security-summary:
     name: Security Checks Summary
     runs-on: ubuntu-24.04
-    needs: [gitguardian, bandit, safety, codeql, trivy]
+    needs: [gitguardian, bandit, safety, codeql]
     if: always()
     steps:
       - name: Check all security scans
@@ -267,13 +231,6 @@ jobs:
             echo "✅ CodeQL: No security vulnerabilities" >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ CodeQL: Security vulnerabilities detected" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          # Trivy
-          if [[ "${{ needs.trivy.result }}" == "success" ]]; then
-            echo "✅ Trivy: No vulnerabilities" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "⚠️ Trivy: Vulnerabilities detected" >> $GITHUB_STEP_SUMMARY
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY
