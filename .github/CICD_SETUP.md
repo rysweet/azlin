@@ -17,7 +17,6 @@ Comprehensive GitHub Actions CI/CD workflows have been created for the azlin pro
    - Bandit Python security linter
    - Safety dependency vulnerability checks
    - CodeQL advanced security analysis
-   - Trivy vulnerability scanning
    - OSSF Scorecard security posture
    - Daily scheduled scans
 
@@ -68,7 +67,6 @@ Comprehensive GitHub Actions CI/CD workflows have been created for the azlin pro
 - **Bandit** - Python security issues
 - **Safety** - Vulnerable dependencies
 - **CodeQL** - Advanced semantic analysis
-- **Trivy** - Container/dependency vulnerabilities
 - **OSSF Scorecard** - Project security best practices
 
 **Automated:**
