@@ -163,8 +163,6 @@ jobs:
         uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{ matrix.language }}"
-
-  # Trivy - Vulnerability scanner for dependencies and containers
   scorecard:
     name: OSSF Scorecard
     runs-on: ubuntu-24.04
