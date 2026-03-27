@@ -89,10 +89,8 @@ pub fn generate_cloud_init(
 /// the full Python azlin provisioning (gh, az, node, claude, rust, go, .NET).
 pub fn default_dev_setup_commands(username: &str) -> Vec<String> {
     vec![
-        // Full system upgrade
-        "apt update && apt full-upgrade -y && apt autoremove -y && apt autoclean -y".to_string(),
-        // Re-install ripgrep after full-upgrade (autoremove may drop it)
-        "apt install -y ripgrep".to_string(),
+        // Full system upgrade (apt-get upgrade is safer than full-upgrade: never removes packages)
+        "apt-get update && apt-get upgrade -y && apt-get autoremove -y && apt-get autoclean -y".to_string(),
         // Python 3.13+ — use deadsnakes PPA only on LTS that needs it
         "if python3 --version 2>&1 | grep -qE '3\\.1[3-9]|3\\.[2-9][0-9]'; then echo 'Python 3.13+ available'; else add-apt-repository -y ppa:deadsnakes/ppa && apt update && apt install -y python3.13 python3.13-venv python3.13-dev && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1 && update-alternatives --set python3 /usr/bin/python3.13; fi".to_string(),
         "curl -sS https://bootstrap.pypa.io/get-pip.py | python3".to_string(),
@@ -122,8 +120,8 @@ pub fn default_dev_setup_commands(username: &str) -> Vec<String> {
         format!("usermod -aG docker {u} && systemctl enable docker && systemctl start docker", u = username),
         // bashrc additions (npm path, go path, cargo env, azlin alias)
         format!("cat >> /home/{u}/.bashrc << 'BASHEOF'\n\n# npm user-local configuration\nNPM_PACKAGES=\"${{HOME}}/.npm-packages\"\nPATH=\"$NPM_PACKAGES/bin:$PATH\"\nMANPATH=\"$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)\"\n\n# Go\nexport PATH=$PATH:/usr/local/go/bin\n\n# Cargo\nsource $HOME/.cargo/env 2>/dev/null\nBASHEOF", u = username),
-        // Version verification
-        "echo '[AZLIN] Provisioning complete' && which gh && gh --version && which az && az --version | head -2 && which node && node --version && which rustc && rustc --version && which dotnet && dotnet --version || true".to_string(),
+        // Version verification (rustc is in user homedir, must check as user)
+        format!("echo '[AZLIN] Provisioning complete' && which gh && gh --version && which az && az --version | head -2 && which node && node --version && su - {u} -c 'which rustc && rustc --version' && which dotnet && dotnet --version || true", u = username),
     ]
 }
 
