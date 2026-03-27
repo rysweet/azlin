@@ -18,7 +18,7 @@ fn list_vms_with_names(
         .output()?;
     let tsv = std::str::from_utf8(&list_output.stdout).unwrap_or("");
     let names = crate::batch_progress::parse_vm_id_name_pairs(tsv);
-    let ids: Vec<String> = names.keys().cloned().collect();
+    let ids: Vec<String> = names.keys().map(String::clone).collect();
     Ok((ids, names))
 }
 

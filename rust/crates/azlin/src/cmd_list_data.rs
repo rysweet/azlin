@@ -94,25 +94,28 @@ pub(crate) fn collect_tmux_sessions(
             );
             match tunnel_pool.get_or_create(&vm_id, bastion_name, &vm.resource_group) {
                 Ok(port) => {
-                    let mut ssh_args = vec![
-                        "-o".to_string(),
-                        "StrictHostKeyChecking=accept-new".to_string(),
-                        "-o".to_string(),
-                        timeout_str.clone(),
-                        "-o".to_string(),
-                        "BatchMode=yes".to_string(),
-                        "-p".to_string(),
-                        port.to_string(),
+                    let port_str = port.to_string();
+                    let user_host = format!("{}@127.0.0.1", user);
+                    let mut ssh_args: Vec<&str> = vec![
+                        "-o",
+                        "StrictHostKeyChecking=accept-new",
+                        "-o",
+                        &timeout_str,
+                        "-o",
+                        "BatchMode=yes",
+                        "-p",
+                        &port_str,
                     ];
+                    let key_str;
                     if let Some(ref key) = ssh_key {
-                        ssh_args.push("-i".to_string());
-                        ssh_args.push(key.to_string_lossy().to_string());
+                        key_str = key.to_string_lossy();
+                        ssh_args.push("-i");
+                        ssh_args.push(&key_str);
                     }
-                    ssh_args.push(format!("{}@127.0.0.1", user));
-                    ssh_args.push(tmux_cmd.to_string());
-                    let str_args: Vec<&str> = ssh_args.iter().map(|s| s.as_str()).collect();
+                    ssh_args.push(&user_host);
+                    ssh_args.push(tmux_cmd);
                     std::process::Command::new("ssh")
-                        .args(&str_args)
+                        .args(&ssh_args)
                         .stdout(std::process::Stdio::piped())
                         .stderr(std::process::Stdio::piped())
                         .output()

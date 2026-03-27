@@ -92,6 +92,7 @@ debug = "line-tables-only"
 strip = true
 lto = "thin"
 debug = false
+codegen-units = 1
 
 # Profile: test — same as dev, minimal debug info
 [profile.test]
