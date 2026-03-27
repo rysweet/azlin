@@ -159,6 +159,4 @@ mod tests {
         assert!(cmd.contains("500"));
         assert!(cmd.contains("/var/log/auth.log"));
     }
-
-
 }

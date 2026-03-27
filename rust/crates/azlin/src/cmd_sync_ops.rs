@@ -182,13 +182,13 @@ pub(crate) async fn handle_cp(
                 let port_str = tunnel.local_port.to_string();
 
                 let scp_source = if crate::cp_helpers::is_remote_path(source) {
-                    let remote_path = source.split_once(':').unwrap().1;
+                    let remote_path = source.split_once(':').expect("remote path must contain ':'").1;
                     format!("{}@127.0.0.1:{}", target.user, remote_path)
                 } else {
                     source.clone()
                 };
                 let scp_dest = if crate::cp_helpers::is_remote_path(dest) {
-                    let remote_path = dest.split_once(':').unwrap().1;
+                    let remote_path = dest.split_once(':').expect("remote path must contain ':'").1;
                     format!("{}@127.0.0.1:{}", target.user, remote_path)
                 } else {
                     dest.clone()
