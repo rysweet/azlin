@@ -40,7 +40,7 @@ azlin code <VM_IDENTIFIER> [OPTIONS]
 | `--user` | `TEXT` | `azureuser` | SSH username for the connection |
 | `--key` | `PATH` | — | SSH private key path |
 | `--no-extensions` | flag | `false` | Skip VS Code extension installation (faster launch) |
-| `--workspace` | `TEXT` | `/home/<user>` | Remote workspace directory to open (resolves `<user>` from `--user`) |
+| `--workspace` | `TEXT` | `/home/user` | Remote workspace directory to open |
 
 ### Examples
 
@@ -123,14 +123,25 @@ azlin list [OPTIONS]
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--resource-group`, `--rg` | `TEXT` | config default | Azure resource group |
-| `--config` | `PATH` | `~/.azlin/config.toml` | Config file path |
+| `--all` | flag | `false` | Show all VMs including stopped |
+| `--tag` | `TEXT` | — | Filter VMs by tag (format: key or key=value) |
+| `--show-tmux` | flag | `true` | Show active tmux sessions (use `--no-tmux` to disable) |
+| `--no-tmux` | flag | `false` | Disable tmux session checking |
+| `--with-latency` | flag | `false` | Show SSH latency for each VM |
+| `--show-procs` | flag | `false` | Show top processes on each VM |
+| `--with-health` | flag | `false` | Show VM health metrics (CPU, memory, disk) |
+| `-w`, `--wide` | flag | `false` | Wide output (don't truncate VM names) |
+| `-c`, `--compact` | flag | `false` | Compact output |
+| `--no-cache` | flag | `false` | Skip cache, fetch fresh data |
+| `-q`, `--quota` | flag | `false` | Show vCPU quota summary |
+| `-a`, `--show-all-vms` | flag | `false` | Scan all resource groups |
 | `--vm-pattern` | `TEXT` | — | Filter VMs by name pattern (glob) |
-| `--include-stopped` | flag | `false` | Include stopped/deallocated VMs |
-| `--verbose` | flag | `false` | Enable verbose output with extra detail |
-
-The `--verbose` flag shows additional columns and detail in the VM listing, including full resource IDs, disk information, and network details.
-
-> **Note:** Use `--verbose` (long form only). The `-v` short flag is reserved for the global verbose option.
+| `--include-stopped` | flag | `false` | Include stopped/deallocated VMs (alias for `--all`) |
+| `--all-contexts` | flag | `false` | List VMs across all contexts |
+| `--contexts` | `TEXT` | — | Filter contexts by glob pattern (e.g., "prod*") |
+| `-r`, `--restore` | flag | `false` | Restore tmux sessions after listing |
+| `--config` | `PATH` | `~/.azlin/config.toml` | Config file path |
+| `--verbose` | flag | `false` | Enable verbose output |
 
 ### Examples
 
@@ -207,7 +218,7 @@ azlin disk add <VM_NAME> --size <GB> [OPTIONS]
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--size` | `INT` | — (**required**) | Disk size in GB |
-| `--mount` | `TEXT` | `/mnt/data` | Mount point on the VM |
+| `--mount` | `TEXT` | `/tmp` | Mount point on the VM |
 | `--resource-group`, `--rg` | `TEXT` | config default | Azure resource group |
 | `--config` | `PATH` | `~/.azlin/config.toml` | Config file path |
 | `--sku` | `CHOICE` | `Standard_LRS` | Storage SKU |
@@ -264,6 +275,9 @@ azlin fleet run <COMMAND> [OPTIONS]
 | `--smart-route` | flag | `false` | Route to least-loaded VMs first |
 | `--count` | `INT` | — | Maximum number of VMs to target |
 | `--retry-failed` | flag | `false` | Retry failed executions |
+| `--show-diff` | flag | `false` | Show diff of command outputs |
+| `--timeout` | `INT` | `300` | Command timeout in seconds |
+| `--dry-run` | flag | `false` | Show what would be executed |
 
 The `--if-mem-below` flag accepts a float value representing a memory usage percentage. VMs with memory usage at or above this threshold are skipped.
 
@@ -299,13 +313,13 @@ azlin restore [OPTIONS]
 |------|------|---------|-------------|
 | `--resource-group`, `--rg` | `TEXT` | config default | Filter to specific resource group |
 | `--config` | `PATH` | `~/.azlin/config.toml` | Config file path |
+| `--skip-health-check` | flag | `false` | Skip VM health checks |
+| `--force` | flag | `false` | Force restore even if VMs are stopped |
 | `--terminal` | `TEXT` | auto-detected | Override terminal launcher |
+| `--exclude` | `TEXT` | — | Exclude VMs by name pattern |
 | `--dry-run` | flag | `false` | Show what would happen without launching terminals |
 | `--no-multi-tab` | flag | `false` | Disable multi-tab mode (Windows Terminal only) |
-| `--timeout` | `INT` | `30` | Timeout per session in seconds |
 | `--verbose` | flag | `false` | Enable verbose output |
-
-> **Note:** Use `--verbose` (long form only). The `-v` short flag is reserved for the global verbose option.
 
 ### Terminal Launchers
 
@@ -472,14 +486,14 @@ All default values match the original Python CLI:
 | Command | Flag | Default |
 |---------|------|---------|
 | `code` | `--user` | `azureuser` |
-| `code` | `--workspace` | `/home/<user>` (dynamic) |
+| `code` | `--workspace` | `/home/user` |
 | `disk add` | `--sku` | `Standard_LRS` |
-| `disk add` | `--mount` | `/mnt/data` |
+| `disk add` | `--mount` | `/tmp` |
 | `autopilot enable` | `--idle-threshold` | `120` (minutes) |
 | `autopilot enable` | `--cpu-threshold` | `20` (percent) |
 | `batch stop` | deallocate behavior | `true` (use `--no-deallocate` to override) |
 | `fleet run` | `--parallel` | `10` |
-| `restore` | `--timeout` | `30` (seconds) |
+| `restore` | `--force` | `false` (force restore) |
 | `logs` | `--lines` | `100` |
 | `logs` | `--type` | `syslog` |
 | `connect` | `--yes` | `false` (prompt for confirmation) |
