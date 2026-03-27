@@ -85,38 +85,64 @@ pub fn generate_cloud_init(
 /// Default packages for development VMs
 /// Default setup commands for development VMs (run after packages install).
 ///
-/// These install toolchains that aren't available as apt packages:
-/// - Rust/Cargo via rustup
-/// - .NET 10 SDK via Microsoft install script
-/// - amplihack from github.com/rysweet/amplihack
-pub fn default_dev_setup_commands() -> Vec<String> {
+/// These install toolchains that aren't available as apt packages, matching
+/// the full Python azlin provisioning (gh, az, node, claude, rust, go, .NET).
+pub fn default_dev_setup_commands(username: &str) -> Vec<String> {
     vec![
-        // Install Rust/Cargo for the default user
-        "su - azureuser -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'".to_string(),
-        // Install .NET 10 SDK (preview until GA, then remove --quality flag)
+        // Full system upgrade (apt-get upgrade is safer than full-upgrade: never removes packages)
+        "apt-get update && apt-get upgrade -y && apt-get autoremove -y && apt-get autoclean -y".to_string(),
+        // Python 3.13+ — use deadsnakes PPA only on LTS that needs it
+        "if python3 --version 2>&1 | grep -qE '3\\.1[3-9]|3\\.[2-9][0-9]'; then echo 'Python 3.13+ available'; else add-apt-repository -y ppa:deadsnakes/ppa && apt update && apt install -y python3.13 python3.13-venv python3.13-dev && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1 && update-alternatives --set python3 /usr/bin/python3.13; fi".to_string(),
+        "curl -sS https://bootstrap.pypa.io/get-pip.py | python3".to_string(),
+        // GitHub CLI
+        "mkdir -p -m 755 /etc/apt/keyrings && wget -nv -O /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && mkdir -p -m 755 /etc/apt/sources.list.d && echo \"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && apt update && apt install -y gh".to_string(),
+        // Azure CLI
+        "curl -sL https://aka.ms/InstallAzureCLIDeb | bash".to_string(),
+        // astral-uv (uv package manager)
+        "snap install astral-uv --classic || true".to_string(),
+        // Node.js 22 LTS (via NodeSource)
+        "curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt install -y nodejs".to_string(),
+        // npm user-local configuration
+        format!("mkdir -p /home/{u}/.npm-packages && echo 'prefix=${{HOME}}/.npm-packages' > /home/{u}/.npmrc && chown {u}:{u} /home/{u}/.npmrc /home/{u}/.npm-packages", u = username),
+        // Tmux configuration
+        format!("printf '[%%s] %%s\\n' \"$(hostname)\" \"tmux.conf\" && cat > /home/{u}/.tmux.conf << 'TMUXEOF'\nset -g status-left-length 50\nset -g status-left \"#[fg=cyan][#h]#[fg=green] #S #[fg=yellow]| \"\nset -g status-right \"#[fg=cyan]%%Y-%%m-%%d %%H:%%M\"\nset -g status-interval 60\nset -g status-bg black\nset -g status-fg white\nTMUXEOF\nchown {u}:{u} /home/{u}/.tmux.conf", u = username),
+        // Fix tmux socket dir permissions (Ubuntu 25.10+)
+        format!("chmod 1777 /tmp && TMUX_UID=$(id -u {u}) && mkdir -p /tmp/tmux-$TMUX_UID && chmod 700 /tmp/tmux-$TMUX_UID && chown {u}:{u} /tmp/tmux-$TMUX_UID", u = username),
+        // Claude Code AI Assistant
+        format!("su - {u} -c 'curl -fsSL https://claude.ai/install.sh | bash' || echo 'WARNING: Claude Code installation failed'", u = username),
+        // Rust
+        format!("su - {u} -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'", u = username),
+        // Go
+        "wget -q https://go.dev/dl/go1.21.5.linux-amd64.tar.gz -O /tmp/go.tar.gz && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz".to_string(),
+        // .NET 10 SDK
         "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && chmod +x /tmp/dotnet-install.sh && (/tmp/dotnet-install.sh --channel 10.0 --quality preview --install-dir /usr/share/dotnet || /tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet || echo 'WARNING: .NET 10 SDK install failed') && ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet; rm -f /tmp/dotnet-install.sh".to_string(),
-        // Install amplihack
-        "su - azureuser -c 'git clone https://github.com/rysweet/amplihack.git ~/amplihack && cd ~/amplihack && make install || true'".to_string(),
+        // Docker post-install
+        format!("usermod -aG docker {u} && systemctl enable docker && systemctl start docker", u = username),
+        // bashrc additions (npm path, go path, cargo env, azlin alias)
+        format!("cat >> /home/{u}/.bashrc << 'BASHEOF'\n\n# npm user-local configuration\nNPM_PACKAGES=\"${{HOME}}/.npm-packages\"\nPATH=\"$NPM_PACKAGES/bin:$PATH\"\nMANPATH=\"$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)\"\n\n# Go\nexport PATH=$PATH:/usr/local/go/bin\n\n# Cargo\nsource $HOME/.cargo/env 2>/dev/null\nBASHEOF", u = username),
+        // Version verification (rustc is in user homedir, must check as user)
+        format!("echo '[AZLIN] Provisioning complete' && which gh && gh --version && which az && az --version | head -2 && which node && node --version && su - {u} -c 'which rustc && rustc --version' && which dotnet && dotnet --version || true", u = username),
     ]
 }
 
+/// Default packages for development VMs (installed via apt)
 pub fn default_dev_packages() -> Vec<&'static str> {
     vec![
+        "docker.io",
         "git",
+        "tmux",
         "curl",
         "wget",
-        "jq",
-        "tmux",
-        "vim",
         "build-essential",
-        "make",
+        "software-properties-common",
+        "ripgrep",
         "python3-pip",
-        "python3-venv",
-        "docker.io",
-        "docker-compose",
+        "pipx",
+        "jq",
         "unzip",
         "htop",
         "tree",
+        "vim",
     ]
 }
 
@@ -185,13 +211,15 @@ mod tests {
         assert!(pkgs.contains(&"git"));
         assert!(pkgs.contains(&"docker.io"));
         assert!(pkgs.contains(&"python3-pip"));
-        assert!(pkgs.contains(&"make"));
+        assert!(pkgs.contains(&"ripgrep"));
+        assert!(pkgs.contains(&"pipx"));
+        assert!(pkgs.contains(&"software-properties-common"));
         assert!(pkgs.len() >= 10);
     }
 
     #[test]
     fn test_default_dev_setup_commands() {
-        let cmds = default_dev_setup_commands();
+        let cmds = default_dev_setup_commands("azureuser");
         assert!(
             cmds.iter().any(|c| c.contains("rustup.rs")),
             "Missing Rust install command"
@@ -201,8 +229,28 @@ mod tests {
             "Missing .NET install command"
         );
         assert!(
-            cmds.iter().any(|c| c.contains("rysweet/amplihack")),
-            "Missing amplihack install command"
+            cmds.iter().any(|c| c.contains("apt install -y gh")),
+            "Missing GitHub CLI install command"
+        );
+        assert!(
+            cmds.iter().any(|c| c.contains("InstallAzureCLIDeb")),
+            "Missing Azure CLI install command"
+        );
+        assert!(
+            cmds.iter().any(|c| c.contains("nodesource.com")),
+            "Missing Node.js install command"
+        );
+        assert!(
+            cmds.iter().any(|c| c.contains("claude.ai/install.sh")),
+            "Missing Claude Code install command"
+        );
+        assert!(
+            cmds.iter().any(|c| c.contains("go.dev")),
+            "Missing Go install command"
+        );
+        assert!(
+            cmds.iter().any(|c| c.contains("usermod -aG docker")),
+            "Missing Docker post-install command"
         );
     }
 
