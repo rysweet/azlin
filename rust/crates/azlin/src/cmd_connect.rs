@@ -155,7 +155,7 @@ pub(crate) async fn dispatch(
                         "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
                         vm_manager.subscription_id(), rg, name
                     );
-                    let ssh_key = resolve_ssh_key();
+                    let ssh_key = key.clone().or_else(resolve_ssh_key);
                     let mut args = vec![
                         "network".to_string(),
                         "bastion".to_string(),
