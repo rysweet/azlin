@@ -5,30 +5,75 @@ use anyhow::Result;
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_vm_new(
     repo: Option<String>,
+    size: Option<azlin_cli::VmSizeTier>,
     vm_size: Option<String>,
     region: Option<String>,
     resource_group: Option<String>,
     name: Option<String>,
     pool: Option<u32>,
     no_auto_connect: bool,
+    config: Option<std::path::PathBuf>,
     template: Option<String>,
+    nfs_storage: Option<String>,
+    _no_nfs: bool,
+    no_bastion: bool,
+    _no_tmux: bool,
+    _tmux_session: Option<String>,
+    bastion_name: Option<String>,
+    private: bool,
     yes: bool,
+    _home_disk_size: Option<u32>,
+    _no_home_disk: bool,
+    _tmp_disk_size: Option<u32>,
+    _os: Option<String>,
 ) -> Result<()> {
+    // Validate flag combinations early, before creating any resources
+    if private && no_bastion {
+        anyhow::bail!(
+            "--private and --no-bastion cannot be used together: \
+             a private VM has no public IP and requires bastion for SSH access"
+        );
+    }
+
     let auth = create_auth()?;
     let vm_manager = azlin_azure::VmManager::new(&auth);
     let rg = resolve_resource_group(resource_group)?;
 
+    // Resolve VM size: --vm-size overrides --size tier, which overrides config default
     let vm_count = pool.unwrap_or(1);
-    let config_defaults = match azlin_core::AzlinConfig::load() {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Warning: failed to load config, using defaults: {e}");
-            azlin_core::AzlinConfig::default()
+    let config_defaults = if let Some(ref config_path) = config {
+        match azlin_core::AzlinConfig::load_from(config_path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Warning: failed to load config from {}: {e}", config_path.display());
+                azlin_core::AzlinConfig::default()
+            }
+        }
+    } else {
+        match azlin_core::AzlinConfig::load() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Warning: failed to load config, using defaults: {e}");
+                azlin_core::AzlinConfig::default()
+            }
         }
     };
-    let user_specified_size = vm_size.is_some();
+    let user_specified_size = vm_size.is_some() || size.is_some();
     let user_specified_region = region.is_some();
-    let size = vm_size.unwrap_or_else(|| config_defaults.default_vm_size.clone());
+
+    // --vm-size takes priority, then --size tier mapping, then config default
+    let size = if let Some(explicit) = vm_size {
+        explicit
+    } else if let Some(tier) = size {
+        match tier {
+            azlin_cli::VmSizeTier::S => "Standard_D2s_v3".to_string(),
+            azlin_cli::VmSizeTier::M => "Standard_D16s_v3".to_string(),
+            azlin_cli::VmSizeTier::L => "Standard_D32s_v3".to_string(),
+            azlin_cli::VmSizeTier::Xl => "Standard_D64s_v3".to_string(),
+        }
+    } else {
+        config_defaults.default_vm_size.clone()
+    };
     let loc = region.unwrap_or_else(|| config_defaults.default_region.clone());
     let admin_user = DEFAULT_ADMIN_USERNAME.to_string();
     let ssh_key_path = {
@@ -112,7 +157,7 @@ pub(crate) async fn handle_vm_new(
             ssh_key_path: ssh_key_path.clone(),
             image: azlin_core::models::VmImage::default(),
             tags: std::collections::HashMap::new(),
-            public_ip_enabled: true,
+            public_ip_enabled: !private,
             disk_ids: vec![],
         };
 
@@ -125,6 +170,10 @@ pub(crate) async fn handle_vm_new(
         pb.finish_and_clear();
 
         println!("VM '{}' created successfully!", vm.name);
+
+        if let Some(ref nfs) = nfs_storage {
+            eprintln!("Warning: --nfs-storage '{}' accepted but NFS mounting is not yet implemented in the Rust CLI.", nfs);
+        }
 
         let mut table = crate::table_render::SimpleTable::new(&["Property", "Value"], &[14, 40]);
         table.add_row(vec!["Name".to_string(), vm.name.clone()]);
@@ -141,12 +190,32 @@ pub(crate) async fn handle_vm_new(
         println!("{table}");
 
         // Resolve SSH target with bastion support
-        let target = resolve_vm_ssh_target(&vm.name, None, Some(rg.clone())).await?;
+        let target = if no_bastion {
+            // --no-bastion: skip bastion auto-detection, use public IP only
+            let vm_ip = vm.public_ip.as_deref()
+                .filter(|ip| !ip.is_empty())
+                .ok_or_else(|| anyhow::anyhow!(
+                    "VM '{}' has no public IP and --no-bastion was specified; \
+                     remove --no-bastion to allow bastion auto-detection", vm_name
+                ))?
+                .to_string();
+            crate::VmSshTarget {
+                vm_name: vm_name.clone(),
+                ip: vm_ip,
+                user: admin_user.clone(),
+                bastion: None,
+            }
+        } else {
+            resolve_vm_ssh_target(&vm.name, None, Some(rg.clone())).await?
+        };
 
         // Set up bastion tunnel if needed (kept alive for auth + clone + connect)
+        // --bastion-name overrides auto-detected bastion
         let _tunnel = if let Some(ref bastion) = target.bastion {
+            let effective_bastion_name = bastion_name.as_deref()
+                .unwrap_or(&bastion.bastion_name);
             Some(crate::bastion_tunnel::ScopedBastionTunnel::new(
-                &bastion.bastion_name,
+                effective_bastion_name,
                 &bastion.resource_group,
                 &bastion.vm_resource_id,
             )?)

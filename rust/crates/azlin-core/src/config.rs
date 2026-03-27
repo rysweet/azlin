@@ -161,10 +161,20 @@ impl AzlinConfig {
     /// ```
     pub fn load() -> crate::Result<Self> {
         let path = Self::config_path()?;
+        Self::load_from_path(&path)
+    }
+
+    /// Load configuration from a specific file path.
+    /// Returns defaults if the file does not exist.
+    pub fn load_from(path: &std::path::Path) -> crate::Result<Self> {
+        Self::load_from_path(path)
+    }
+
+    fn load_from_path(path: &std::path::Path) -> crate::Result<Self> {
         if !path.exists() {
             return Ok(Self::default());
         }
-        let contents = std::fs::read_to_string(&path).map_err(|e| {
+        let contents = std::fs::read_to_string(path).map_err(|e| {
             crate::AzlinError::Config(format!(
                 "Failed to read config at {}: {}",
                 path.display(),

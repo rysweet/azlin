@@ -1,0 +1,90 @@
+name: "azlin new CLI flag parity"
+description: |
+  Verifies that the Rust azlin new command accepts all flags
+  that the Python version supported, ensuring full CLI parity.
+version: "1.0.0"
+
+config:
+  timeout: 30000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 10000
+
+steps:
+  - name: "Run azlin new --help"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "rust/target/debug/azlin new --help"
+    expect:
+      exit_code: 0
+      stdout_contains: "--size"
+    timeout: 5000
+
+  - name: "Verify --vm-size flag"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "rust/target/debug/azlin new --help | grep -c '\\-\\-vm-size'"
+    expect:
+      exit_code: 0
+    timeout: 5000
+
+  - name: "Verify all Python-parity flags present"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        HELP=$(rust/target/debug/azlin new --help)
+        MISSING=""
+        for flag in --repo --size --vm-size --region --resource-group --name --pool \
+                    --no-auto-connect --config --template --nfs-storage --no-nfs \
+                    --no-bastion --bastion-name --yes --home-disk-size --no-home-disk \
+                    --tmp-disk-size --os --private --no-tmux --tmux-session; do
+          echo "$HELP" | grep -q -- "$flag" || MISSING="$MISSING $flag"
+        done
+        if [ -n "$MISSING" ]; then
+          echo "MISSING FLAGS:$MISSING"
+          exit 1
+        fi
+        echo "ALL 22 FLAGS PRESENT"
+    expect:
+      exit_code: 0
+      stdout_contains: "ALL 22 FLAGS PRESENT"
+    timeout: 5000
+
+  - name: "Verify VmSizeTier enum values"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        HELP=$(rust/target/debug/azlin new --help)
+        echo "$HELP" | grep -q "Small" && \
+        echo "$HELP" | grep -q "Medium" && \
+        echo "$HELP" | grep -q "Large" && \
+        echo "$HELP" | grep -q "Extra-large" && \
+        echo "ALL SIZE TIERS PRESENT" || \
+        (echo "MISSING SIZE TIERS"; exit 1)
+    expect:
+      exit_code: 0
+      stdout_contains: "ALL SIZE TIERS PRESENT"
+    timeout: 5000
+
+assertions:
+  - name: "All parity flags verified"
+    type: "command_success"
+    agent: "cli-agent"
+    params:
+      step: "Verify all Python-parity flags present"
+
+metadata:
+  tags:
+    - "parity"
+    - "cli"
+    - "smoke"
+  priority: "critical"
