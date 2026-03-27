@@ -148,6 +148,13 @@ pub(crate) async fn handle_vm_new(
 
         azlin_core::models::validate_vm_name(&vm_name).map_err(|e| anyhow::anyhow!(e))?;
 
+        let mut tags = std::collections::HashMap::new();
+        if let Some(ref n) = name {
+            tags.insert("azlin-session".to_string(), n.clone());
+        } else {
+            tags.insert("azlin-session".to_string(), vm_name.clone());
+        }
+
         let params = azlin_core::models::CreateVmParams {
             name: vm_name.clone(),
             resource_group: rg.clone(),
@@ -156,7 +163,7 @@ pub(crate) async fn handle_vm_new(
             admin_username: admin_user.clone(),
             ssh_key_path: ssh_key_path.clone(),
             image: azlin_core::models::VmImage::default(),
-            tags: std::collections::HashMap::new(),
+            tags,
             public_ip_enabled: !private,
             disk_ids: vec![],
         };
