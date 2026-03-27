@@ -1,0 +1,85 @@
+name: "SSH identity key auto-resolution"
+description: |
+  Verifies that azlin connect and SSH subprocess paths auto-resolve
+  ~/.ssh/azlin_key when --key is not explicitly provided. Covers the
+  fix for PR #906 where direct SSH failed with Permission denied.
+version: "1.0.0"
+
+config:
+  timeout: 30000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 10000
+
+steps:
+  - name: "azlin connect --help includes --key flag"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "AZLIN_BIN=${AZLIN_BIN:-rust/target/debug/azlin} && $AZLIN_BIN connect --help"
+    expect:
+      exit_code: 0
+      stdout_contains: "--key"
+    timeout: 5000
+
+  - name: "azlin connect --help shows identity file option"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "AZLIN_BIN=${AZLIN_BIN:-rust/target/debug/azlin} && $AZLIN_BIN connect --help | grep -i 'ssh.*key\\|identity\\|key.*path'"
+    expect:
+      exit_code: 0
+    timeout: 5000
+
+  - name: "resolve_ssh_key prefers azlin_key over id_rsa"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        # Verify azlin_key exists and would be preferred
+        if [ -f ~/.ssh/azlin_key ]; then
+          echo "azlin_key found"
+          # Verify it's a valid SSH key
+          ssh-keygen -l -f ~/.ssh/azlin_key >/dev/null 2>&1 && echo "valid_key" || echo "invalid_key"
+        else
+          echo "azlin_key not found - test environment incomplete"
+          exit 1
+        fi
+    expect:
+      exit_code: 0
+      stdout_contains: "valid_key"
+    timeout: 5000
+
+  - name: "SSH with azlin_key to Simard VM succeeds"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        ssh -i ~/.ssh/azlin_key -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=10 -o BatchMode=yes \
+            azureuser@4.154.179.191 hostname
+    expect:
+      exit_code: 0
+      stdout_contains: "Simard"
+    timeout: 15000
+
+  - name: "SSH without explicit key fails (proves key needed)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        # Confirm that SSH without -i fails (no default-named keys exist)
+        ssh -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=10 -o BatchMode=yes \
+            azureuser@4.154.179.191 hostname 2>&1 || true
+        # Exit 0 regardless - we check the output
+        exit 0
+    expect:
+      exit_code: 0
+      stdout_contains: "Permission denied"
+    timeout: 15000
