@@ -28,6 +28,7 @@ pub(crate) async fn dispatch(
             restore,
             contexts,
             no_cache,
+            verbose: list_verbose,
             ..
         } => {
             let auth = create_auth()?;
@@ -53,7 +54,7 @@ pub(crate) async fn dispatch(
                     }
                 };
 
-            // Resolve resource group(s)
+            let verbose = verbose || list_verbose;
             if verbose {
                 eprintln!(
                     "[VERBOSE] Fetching VMs from resource group: {}",

@@ -35,6 +35,7 @@ pub(crate) async fn dispatch(
                 resource_group,
                 tag,
                 yes,
+                no_deallocate: _no_deallocate,
                 ..
             } => {
                 let rg = resolve_resource_group(resource_group)?;

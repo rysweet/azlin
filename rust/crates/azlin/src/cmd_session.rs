@@ -175,9 +175,13 @@ pub(crate) async fn dispatch(
             vm_identifier,
             resource_group,
             auth_profile: _,
+            user: _user,
+            key: _key,
+            no_extensions: _no_extensions,
+            workspace: _workspace,
             ..
         } => {
-            let name = vm_identifier.ok_or_else(|| anyhow::anyhow!("VM name is required."))?;
+            let name = vm_identifier;
 
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);

@@ -30,6 +30,9 @@ pub(crate) async fn dispatch(
             force,
             terminal,
             exclude,
+            dry_run: _dry_run,
+            no_multi_tab: _no_multi_tab,
+            verbose: _verbose,
             ..
         } => {
             crate::cmd_cleanup_ops::handle_restore(
