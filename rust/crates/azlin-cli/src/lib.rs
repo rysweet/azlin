@@ -5,7 +5,7 @@ pub mod table_render;
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -53,6 +53,23 @@ pub enum LogType {
     CloudInit,
     Syslog,
     Auth,
+}
+
+// ---------------------------------------------------------------------------
+// VM size tier enum for --size flag
+// ---------------------------------------------------------------------------
+
+/// VM size tier for quick selection (maps to Azure VM sizes).
+#[derive(ValueEnum, Debug, Clone, Copy)]
+pub enum VmSizeTier {
+    /// Small (~8 GB RAM)
+    S,
+    /// Medium (~64 GB RAM)
+    M,
+    /// Large (~128 GB RAM)
+    L,
+    /// Extra-large (~256 GB RAM)
+    Xl,
 }
 
 // ---------------------------------------------------------------------------
@@ -133,7 +150,11 @@ pub enum Commands {
         #[arg(long)]
         repo: Option<String>,
 
-        /// Azure VM size
+        /// VM size tier: s(mall), m(edium), l(arge), xl (default: l)
+        #[arg(long, value_enum, ignore_case = true)]
+        size: Option<VmSizeTier>,
+
+        /// Azure VM size (overrides --size)
         #[arg(long)]
         vm_size: Option<String>,
 
@@ -169,6 +190,14 @@ pub enum Commands {
         #[arg(long)]
         nfs_storage: Option<String>,
 
+        /// Skip NFS storage mounting (use local home directory only)
+        #[arg(long)]
+        no_nfs: bool,
+
+        /// Skip bastion auto-detection and always create public IP
+        #[arg(long)]
+        no_bastion: bool,
+
         /// Disable tmux session management
         #[arg(long)]
         no_tmux: bool,
@@ -188,6 +217,22 @@ pub enum Commands {
         /// Skip confirmation prompts (auto-accept auth forwarding)
         #[arg(short = 'y', long)]
         yes: bool,
+
+        /// Size of separate /home disk in GB (default: 100)
+        #[arg(long)]
+        home_disk_size: Option<u32>,
+
+        /// Disable separate /home disk (use OS disk)
+        #[arg(long)]
+        no_home_disk: bool,
+
+        /// Size of separate /tmp disk in GB (enables /tmp on dedicated disk)
+        #[arg(long)]
+        tmp_disk_size: Option<u32>,
+
+        /// OS image (e.g., 25.10, 24.04-lts, Ubuntu2510, or full URN; default: Ubuntu 25.10)
+        #[arg(long)]
+        os: Option<String>,
     },
 
     /// Clone a VM with its home directory contents
