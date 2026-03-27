@@ -3,6 +3,9 @@
 pub mod table;
 pub mod table_render;
 
+#[cfg(test)]
+mod parity_tests;
+
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -342,6 +345,10 @@ pub enum Commands {
         /// Config file path
         #[arg(long)]
         config: Option<PathBuf>,
+
+        /// Enable verbose output for list command
+        #[arg(long)]
+        verbose: bool,
     },
 
     /// Set or view session name for a VM
@@ -932,7 +939,7 @@ pub enum Commands {
     /// Open VS Code connected to VM
     Code {
         /// VM name or session name
-        vm_identifier: Option<String>,
+        vm_identifier: String,
 
         /// Resource group
         #[arg(long, alias = "rg")]
@@ -945,6 +952,22 @@ pub enum Commands {
         /// Service principal authentication profile to use
         #[arg(long)]
         auth_profile: Option<String>,
+
+        /// SSH username for remote connection
+        #[arg(long, default_value = "azureuser")]
+        user: String,
+
+        /// Path to SSH private key
+        #[arg(long)]
+        key: Option<PathBuf>,
+
+        /// Skip installing VS Code extensions on remote
+        #[arg(long)]
+        no_extensions: bool,
+
+        /// Remote workspace directory to open
+        #[arg(long, default_value = "/home/user")]
+        workspace: String,
     },
 
     /// Manage multi-subscription contexts
@@ -1015,6 +1038,18 @@ pub enum Commands {
         /// Exclude VMs by name pattern
         #[arg(long)]
         exclude: Option<String>,
+
+        /// Show what would be restored without actually restoring
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Restore in single tab instead of multiple tabs
+        #[arg(long)]
+        no_multi_tab: bool,
+
+        /// Enable verbose output for restore
+        #[arg(long)]
+        verbose: bool,
     },
 
     /// Save/load/list session configurations
@@ -1694,6 +1729,9 @@ pub enum BatchAction {
         /// Skip confirmation prompt
         #[arg(long, alias = "confirm")]
         yes: bool,
+        /// Stop VMs without deallocating (keeps VM allocated, billing continues)
+        #[arg(long)]
+        no_deallocate: bool,
     },
     /// Start multiple VMs
     Start {
@@ -1784,6 +1822,9 @@ pub enum FleetAction {
         /// Only run if CPU below threshold
         #[arg(long)]
         if_cpu_below: Option<u32>,
+        /// Only run if memory usage below threshold (percentage)
+        #[arg(long)]
+        if_mem_below: Option<f64>,
         /// Route to least-loaded VMs first
         #[arg(long)]
         smart_route: bool,
@@ -1976,10 +2017,10 @@ pub enum AutopilotAction {
         #[arg(long, default_value = "balanced")]
         strategy: String,
         /// Idle threshold in minutes
-        #[arg(long, default_value = "30")]
+        #[arg(long, default_value = "120")]
         idle_threshold: u32,
         /// CPU threshold percentage
-        #[arg(long, default_value = "10")]
+        #[arg(long, default_value = "20")]
         cpu_threshold: u32,
     },
     /// Disable autopilot
@@ -2092,8 +2133,8 @@ pub enum DiskAction {
         /// Disk size in GB
         #[arg(long)]
         size: u32,
-        /// Disk SKU (Premium_LRS, Standard_LRS, etc.)
-        #[arg(long, default_value = "Premium_LRS")]
+        /// Disk SKU (Standard_LRS, Premium_LRS, etc.)
+        #[arg(long, default_value = "Standard_LRS")]
         sku: String,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
@@ -2102,6 +2143,9 @@ pub enum DiskAction {
         /// Logical Unit Number
         #[arg(long)]
         lun: Option<u32>,
+        /// Mount point for the disk
+        #[arg(long, default_value = "/tmp")]
+        mount: String,
     },
 }
 
@@ -2242,6 +2286,30 @@ pub enum DoitAction {
     },
     /// Delete all doit-created resources
     Cleanup {
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        force: bool,
+        /// Show what would be deleted
+        #[arg(long)]
+        dry_run: bool,
+        /// Azure username to filter by
+        #[arg(short, long)]
+        username: Option<String>,
+    },
+    /// Destroy all doit-created resources (alias for cleanup)
+    Destroy {
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        force: bool,
+        /// Show what would be destroyed
+        #[arg(long)]
+        dry_run: bool,
+        /// Azure username to filter by
+        #[arg(short, long)]
+        username: Option<String>,
+    },
+    /// Delete specific doit-created resources (alias for cleanup)
+    Delete {
         /// Skip confirmation prompt
         #[arg(short, long)]
         force: bool,
@@ -3338,7 +3406,7 @@ mod tests {
     fn test_code_command() {
         let cli = Cli::parse_from(["azlin", "code", "my-vm"]);
         if let Commands::Code { vm_identifier, .. } = cli.command {
-            assert_eq!(vm_identifier, Some("my-vm".to_string()));
+            assert_eq!(vm_identifier, "my-vm");
         } else {
             panic!("Expected Code command");
         }
@@ -3346,12 +3414,9 @@ mod tests {
 
     #[test]
     fn test_code_command_no_vm() {
-        let cli = Cli::parse_from(["azlin", "code"]);
-        if let Commands::Code { vm_identifier, .. } = cli.command {
-            assert!(vm_identifier.is_none());
-        } else {
-            panic!("Expected Code command");
-        }
+        // With vm_identifier now required, parsing without it should fail
+        let result = Cli::try_parse_from(["azlin", "code"]);
+        assert!(result.is_err(), "code without vm_identifier should fail");
     }
 
     #[test]
@@ -3472,7 +3537,7 @@ mod tests {
         } = cli.command
         {
             assert_eq!(lun, Some(2));
-            assert_eq!(sku, "Premium_LRS");
+            assert_eq!(sku, "Standard_LRS");
         } else {
             panic!("Expected Disk Add");
         }

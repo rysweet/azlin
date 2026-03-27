@@ -1,6 +1,6 @@
 #[allow(unused_imports)]
 use super::*;
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 pub(crate) fn handle_storage_delete(
     name: &str,
@@ -95,7 +95,14 @@ pub(crate) fn handle_storage_mount_file(
 
     let creds_dir = home_dir()?.join(".azlin");
     std::fs::create_dir_all(&creds_dir)?;
-    let creds_path = creds_dir.join(format!(".mount_creds_{}", account));
+
+    // Use a scoped temp file for credentials — auto-deleted when `_creds_file` drops,
+    // ensuring cleanup even on early returns or panics.
+    let creds_file = tempfile::Builder::new()
+        .prefix(".mount_creds_")
+        .tempfile_in(&creds_dir)
+        .context("creating temporary credentials file")?;
+    let creds_path = creds_file.path().to_path_buf();
     std::fs::write(
         &creds_path,
         format!("username={}\npassword={}\n", account, key),
@@ -118,12 +125,14 @@ pub(crate) fn handle_storage_mount_file(
         ])
         .status()?;
 
-    if let Err(e) = std::fs::remove_file(&creds_path) {
-        eprintln!(
-            "Warning: could not remove credentials file {}: {e}",
-            creds_path.display()
-        );
-        eprintln!("  Please remove it manually (contains storage account key).");
+    // creds_file is dropped here (auto-cleanup), but verify explicitly
+    drop(creds_file);
+    if creds_path.exists() {
+        if let Err(e) = std::fs::remove_file(&creds_path) {
+            eprintln!(
+                "Warning: could not remove temporary credentials file: {e}",
+            );
+        }
     }
 
     if status.success() {

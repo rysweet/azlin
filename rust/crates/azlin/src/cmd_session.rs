@@ -19,37 +19,26 @@ pub(crate) async fn dispatch(
         } => {
             let mut config =
                 azlin_core::AzlinConfig::load().context("Failed to load azlin config")?;
-            let mut json = serde_json::to_value(&config)?;
 
-            let sessions_key = "sessions";
             if clear {
-                if let Some(obj) = json.as_object_mut() {
-                    if let Some(sessions) = obj.get_mut(sessions_key) {
-                        if let Some(s) = sessions.as_object_mut() {
-                            s.remove(&vm_name);
-                        }
-                    }
+                if let Some(ref mut sessions) = config.session_names {
+                    sessions.remove(&vm_name);
                 }
-                config = serde_json::from_value(json)?;
                 config.save()?;
                 println!("Cleared session name for VM '{}'", vm_name);
             } else if let Some(name) = session_name {
-                if let Some(obj) = json.as_object_mut() {
-                    let sessions = obj
-                        .entry(sessions_key)
-                        .or_insert_with(|| serde_json::json!({}));
-                    if let Some(s) = sessions.as_object_mut() {
-                        s.insert(vm_name.clone(), serde_json::json!(name));
-                    }
-                }
-                config = serde_json::from_value(json)?;
+                config
+                    .session_names
+                    .get_or_insert_with(std::collections::HashMap::new)
+                    .insert(vm_name.clone(), name.clone());
                 config.save()?;
                 println!("Set session for VM '{}' = '{}'", vm_name, name);
             } else {
-                let session = json
-                    .get(sessions_key)
+                let session = config
+                    .session_names
+                    .as_ref()
                     .and_then(|s| s.get(&vm_name))
-                    .and_then(|v| v.as_str());
+                    .map(|v| v.as_str());
                 match session {
                     Some(s) => println!("Session for VM '{}': {}", vm_name, s),
                     None => println!("No session name set for VM '{}'", vm_name),
@@ -175,9 +164,13 @@ pub(crate) async fn dispatch(
             vm_identifier,
             resource_group,
             auth_profile: _,
+            user: _user,
+            key: _key,
+            no_extensions: _no_extensions,
+            workspace: _workspace,
             ..
         } => {
-            let name = vm_identifier.ok_or_else(|| anyhow::anyhow!("VM name is required."))?;
+            let name = vm_identifier;
 
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);

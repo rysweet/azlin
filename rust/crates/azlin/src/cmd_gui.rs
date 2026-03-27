@@ -144,7 +144,7 @@ pub(crate) async fn dispatch(
 
     // Step 6: Launch local VNC viewer
     println!("Launching VNC viewer (127.0.0.1:{})...", VNC_PORT);
-    println!("VNC password: {}", vnc_password);
+    eprintln!("(VNC password set on remote — not displayed for security)");
     println!("Press Ctrl+C to stop the GUI session.\n");
 
     let viewer_result = launch_viewer(&ssh_cmd_prefix, &vnc_password);
@@ -366,10 +366,11 @@ fn start_vnc_server(
         anyhow::bail!("Failed to generate VNC password on remote host");
     }
 
-    // Set up VNC password file
+    // Set up VNC password file (shell-escape password to prevent injection)
+    let escaped_password = shell_escape::unix::escape(password.as_str().into());
     let passwd_cmd = format!(
-        "mkdir -p ~/.vnc && echo '{}' | vncpasswd -f > ~/.vnc/passwd && chmod 600 ~/.vnc/passwd",
-        password
+        "mkdir -p ~/.vnc && echo {} | vncpasswd -f > ~/.vnc/passwd && chmod 600 ~/.vnc/passwd",
+        escaped_password
     );
     let (code, _, stderr) = run_ssh_command_full(ssh_cmd_prefix, &passwd_cmd)?;
     if code != 0 {
@@ -477,17 +478,30 @@ fn launch_viewer(ssh_cmd_prefix: &[String], password: &str) -> Result<()> {
     let passwd_b64 = run_ssh_command(ssh_cmd_prefix, "base64 < ~/.vnc/passwd")?;
     let passwd_bytes = base64_decode(passwd_b64.trim())?;
 
-    // Write to a temp file
+    // Write to a temp file with restricted permissions from creation (no TOCTOU window)
     let tmp_dir = std::env::temp_dir();
     let passwd_file = tmp_dir.join(format!("azlin_vnc_passwd_{}", std::process::id()));
-    std::fs::write(&passwd_file, &passwd_bytes)
-        .context("Failed to write temporary VNC passwd file")?;
-
-    // Ensure proper permissions
-    #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&passwd_file, std::fs::Permissions::from_mode(0o600))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&passwd_file)
+                .and_then(|mut f| {
+                    use std::io::Write;
+                    f.write_all(&passwd_bytes)
+                })
+                .context("Failed to write temporary VNC passwd file")?;
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::write(&passwd_file, &passwd_bytes)
+                .context("Failed to write temporary VNC passwd file")?;
+        }
     }
 
     // Ensure DISPLAY is set for the viewer
@@ -514,10 +528,14 @@ fn launch_viewer(ssh_cmd_prefix: &[String], password: &str) -> Result<()> {
         cmd.env("DISPLAY", &effective_display);
     }
 
-    let status = cmd.status().context("Failed to launch vncviewer")?;
+    let launch_result = cmd.status().context("Failed to launch vncviewer");
 
-    // Clean up temp passwd file
-    let _ = std::fs::remove_file(&passwd_file);
+    // Clean up temp passwd file unconditionally (before propagating any error)
+    if let Err(e) = std::fs::remove_file(&passwd_file) {
+        eprintln!("warning: failed to remove temp VNC passwd file {}: {e}", passwd_file.display());
+    }
+
+    let status = launch_result?;
 
     if !status.success() {
         let _ = password; // suppress unused warning

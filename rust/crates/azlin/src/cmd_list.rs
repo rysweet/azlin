@@ -1,6 +1,6 @@
 #[allow(unused_imports)]
 use super::*;
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 pub(crate) async fn dispatch(
     command: azlin_cli::Commands,
@@ -28,10 +28,12 @@ pub(crate) async fn dispatch(
             restore,
             contexts,
             no_cache,
+            verbose: list_verbose,
             ..
         } => {
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
+            let config = azlin_core::AzlinConfig::load().unwrap_or_default();
             let include_all = all || include_stopped;
 
             // Select cached or uncached list methods based on --no-cache flag
@@ -53,8 +55,8 @@ pub(crate) async fn dispatch(
                     }
                 };
 
-            // Resolve resource group(s)
-            if verbose {
+            let effective_verbose = verbose || list_verbose;
+            if effective_verbose {
                 eprintln!(
                     "[VERBOSE] Fetching VMs from resource group: {}",
                     resource_group.as_deref().unwrap_or("(default)")
@@ -120,16 +122,12 @@ pub(crate) async fn dispatch(
                     );
                     match &resource_group {
                         Some(rg) => list_vms(&vm_manager, rg)?,
-                        None => {
-                            let config = azlin_core::AzlinConfig::load()
-                                .context("Failed to load azlin config")?;
-                            match config.default_resource_group {
-                                Some(rg) => list_vms(&vm_manager, &rg)?,
-                                None => {
-                                    anyhow::bail!("No resource group specified. Use --resource-group or set in config.");
-                                }
+                        None => match &config.default_resource_group {
+                            Some(rg) => list_vms(&vm_manager, rg)?,
+                            None => {
+                                anyhow::bail!("No resource group specified. Use --resource-group or set in config.");
                             }
-                        }
+                        },
                     }
                 }
             } else if show_all_vms {
@@ -137,21 +135,17 @@ pub(crate) async fn dispatch(
             } else {
                 match &resource_group {
                     Some(rg) => list_vms(&vm_manager, rg)?,
-                    None => {
-                        let config = azlin_core::AzlinConfig::load()
-                            .context("Failed to load azlin config")?;
-                        match config.default_resource_group {
-                            Some(rg) => list_vms(&vm_manager, &rg)?,
-                            None => {
-                                anyhow::bail!("No resource group specified. Use --resource-group or set in config.");
-                            }
+                    None => match &config.default_resource_group {
+                        Some(rg) => list_vms(&vm_manager, rg)?,
+                        None => {
+                            anyhow::bail!("No resource group specified. Use --resource-group or set in config.");
                         }
-                    }
+                    },
                 }
             };
 
             pb.finish_and_clear();
-            if verbose {
+            if effective_verbose {
                 eprintln!("[VERBOSE] Fetched {} VMs", all_vms.len());
             }
 
@@ -166,7 +160,7 @@ pub(crate) async fn dispatch(
 
             // Preserve Azure's natural ordering (matches Python behavior)
 
-            if verbose {
+            if effective_verbose {
                 eprintln!("[VERBOSE] Detecting bastion hosts...");
             }
             // Detect and display bastion hosts (matching Python: shown above VM table)
@@ -199,19 +193,17 @@ pub(crate) async fn dispatch(
                 }
             }
 
-            if verbose {
+            if effective_verbose {
                 eprintln!("[VERBOSE] Collecting tmux sessions via bastion SSH...");
             }
-            let ssh_timeout = azlin_core::AzlinConfig::load()
-                .unwrap_or_default()
-                .ssh_connect_timeout;
+            let ssh_timeout = config.ssh_connect_timeout;
             let tmux_sessions = if !no_tmux {
                 let pb = penguin_spinner("Collecting tmux sessions...");
                 let sessions = crate::cmd_list_data::collect_tmux_sessions(
                     &all_vms,
                     effective_rg,
                     matches!(output, azlin_cli::OutputFormat::Table),
-                    verbose,
+                    effective_verbose,
                     vm_manager.subscription_id(),
                     ssh_timeout,
                 );
@@ -281,32 +273,18 @@ pub(crate) async fn dispatch(
             if quota {
                 let _rg = match resource_group {
                     Some(rg) => rg,
-                    None => {
-                        let config = azlin_core::AzlinConfig::load()
-                            .context("Failed to load azlin config")?;
-                        config.default_resource_group.ok_or_else(|| {
-                            anyhow::anyhow!("No resource group specified. Use --resource-group or set in config.")
-                        })?
-                    }
+                    None => config.default_resource_group.clone().ok_or_else(|| {
+                        anyhow::anyhow!("No resource group specified. Use --resource-group or set in config.")
+                    })?,
                 };
                 println!("\nvCPU Quota:");
-                // Use the configured default region instead of hardcoding "westus"
-                let config_for_quota = match azlin_core::AzlinConfig::load() {
-                    Ok(c) => c,
-                    Err(e) => {
-                        eprintln!(
-                            "Warning: failed to load config for quota check, using defaults: {e}"
-                        );
-                        azlin_core::AzlinConfig::default()
-                    }
-                };
-                let quota_location = config_for_quota.default_region.clone();
+                let quota_location = &config.default_region;
                 let output = std::process::Command::new("az")
                     .args([
                         "vm",
                         "list-usage",
                         "--location",
-                        &quota_location,
+                        quota_location,
                         "--query",
                         "[?contains(name.value, 'vCPUs')].{Name:name.localizedValue, Current:currentValue, Limit:limit}",
                         "--output",

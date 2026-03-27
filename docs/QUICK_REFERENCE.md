@@ -659,3 +659,12 @@ azlin <command> --help
 - `azlin doit` adds 2-3 seconds parsing time
 - Batch operations run in parallel
 - Pool provisioning parallelized (4-7 min regardless of size)
+
+---
+
+## Detailed References
+
+- [CLI Python Parity Reference](./reference/cli-python-parity.md) — Complete flag and default reference for all commands
+- [Configuration Reference](./reference/configuration-reference.md) — Config file options
+- [Restore Command](./reference/cli-help-restore.md) — Detailed restore help
+- [Destroy Command](./reference/destroy-command.md) — Detailed destroy help

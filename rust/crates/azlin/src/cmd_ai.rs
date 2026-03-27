@@ -49,6 +49,16 @@ pub(crate) async fn dispatch(
                 force,
                 dry_run,
                 username,
+            }
+            | azlin_cli::DoitAction::Destroy {
+                force,
+                dry_run,
+                username,
+            }
+            | azlin_cli::DoitAction::Delete {
+                force,
+                dry_run,
+                username,
             } => {
                 crate::cmd_ai_ops2::handle_doit_cleanup(force, dry_run, username)?;
             }
