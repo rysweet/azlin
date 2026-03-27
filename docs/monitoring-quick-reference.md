@@ -1,46 +1,62 @@
 # Monitoring Quick Reference
 
-**All monitoring commands use tag-based VM discovery**, supporting custom VM names including compound formats like "hostname:session". See [VM Discovery for Monitoring Commands](monitoring-commands-vm-discovery.md) for details.
+Azlin provides monitoring through dedicated subcommands — there is no `azlin monitor` namespace.
 
 ## Commands
 
 ```bash
-# Dashboard
-azlin monitor dashboard                           # Launch dashboard (60s refresh)
-azlin monitor dashboard --refresh-interval 30     # Faster refresh
-azlin monitor dashboard --resource-group my-rg    # Filter by RG
+# Health Dashboard (Four Golden Signals)
+azlin health                                       # All VMs in default RG
+azlin health --vm dev-vm-01                        # Single VM
+azlin health --tui                                 # Interactive TUI dashboard
+azlin health --tui --interval 5                    # TUI with 5s refresh
+azlin health --resource-group my-rg                # Filter by RG
 
-# Alerts
-azlin monitor alert list                          # List all alert rules
-azlin monitor alert add NAME --metric M --threshold T --severity S
-azlin monitor alert enable NAME                   # Enable alert
-azlin monitor alert disable NAME                  # Disable alert
-azlin monitor alert delete NAME                   # Delete alert
+# Distributed Real-Time Monitoring
+azlin top                                          # Live monitoring dashboard
+azlin top --interval 5                             # 5s refresh
+azlin top --vm dev-vm-01                           # Single VM
+azlin top --ip 10.0.1.4                            # Direct IP (skip Azure lookup)
 
-# History
-azlin monitor history VM_NAME                     # Last 7 days
-azlin monitor history VM_NAME --days 30           # Last 30 days
-azlin monitor history VM_NAME --metric cpu_percent
-azlin monitor history VM_NAME --export metrics.csv
+# Cost Intelligence
+azlin costs dashboard                              # Current spending dashboard
+azlin costs history                                # Historical cost trends
+azlin costs budget                                 # Budget management
+azlin costs recommend                              # Optimization recommendations
+azlin costs actions                                # Execute cost-saving actions
 
-# Forecast
-azlin monitor forecast                            # All VMs, 30 days ahead
-azlin monitor forecast --vm-name VM               # Specific VM
-azlin monitor forecast --days 7                   # 7 days ahead
-azlin monitor forecast --at-risk-only             # Only VMs at risk
+# VM Status & Processes
+azlin status VM_NAME                               # Detailed VM status
+azlin w                                            # Who's logged in (all VMs)
+azlin ps                                           # Process list (all VMs)
 
-# Configuration
-azlin monitor alert config-email                  # Configure email notifications
-azlin monitor alert config-slack --webhook-url URL
-azlin monitor alert config-webhook --url URL --auth-type bearer
+# Logs
+azlin logs VM_NAME                                 # View syslog (default, 100 lines)
+azlin logs VM_NAME -t auth                         # Auth logs
+azlin logs VM_NAME -t cloud-init                   # Cloud-init logs
+azlin logs VM_NAME -t azlin                        # Azlin application logs
+azlin logs VM_NAME -t all                          # All log sources
+azlin logs VM_NAME -f                              # Follow logs (tail -f)
+azlin logs VM_NAME -n 500                          # Last 500 lines
 ```
 
-## Dashboard Keyboard Shortcuts
+## Health Dashboard Flags
 
-- `q` - Quit
-- `r` - Refresh now
-- `+` - Increase refresh rate
-- `-` - Decrease refresh rate
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--vm` | Check a single VM by name | all VMs |
+| `--tui` | Launch interactive TUI dashboard | off |
+| `--interval` | Refresh interval in seconds (TUI only) | 5 |
+| `--resource-group` | Filter to resource group | default RG |
+
+## Top Dashboard Flags
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-i, --interval` | Refresh interval in seconds | 10 |
+| `-t, --timeout` | SSH timeout per VM | 5 |
+| `--vm` | Target a single VM | all VMs |
+| `--ip` | Direct IP (skip Azure lookup) | — |
 
 ## Color Coding
 
@@ -83,74 +99,47 @@ az account show
 # Verify VM access
 az vm list --output table
 
-# Test email notifications
-azlin monitor alert test-email
+# View VM status
+azlin status VM_NAME
 
-# Test Slack notifications
-azlin monitor alert test-slack
-
-# View alert history
-azlin monitor alert history --days 7
-
-# Check database
-ls -lh ~/.azlin/metrics.db
-
-# View collection status
-azlin monitor status
+# Check health for a single VM
+azlin health --vm VM_NAME --verbose
 ```
 
 ## Common Tasks
 
-### Setup Email Alerts
+### Monitor a Specific VM
 
 ```bash
-1. azlin monitor alert config-email
-2. Enter SMTP details when prompted
-3. azlin monitor alert test-email
-4. azlin monitor alert enable high_cpu
+# Quick health check
+azlin health --vm dev-vm-01
+
+# Live resource monitoring
+azlin top --vm dev-vm-01 --interval 5
+
+# View recent logs
+azlin logs dev-vm-01 -n 200
 ```
 
-### Export Metrics to CSV
+### Fleet-Wide Overview
 
 ```bash
-# Single VM
-azlin monitor history dev-vm-01 --days 30 --export metrics.csv
+# Health dashboard for all VMs
+azlin health --tui
 
-# All VMs (bash loop)
-for vm in $(az vm list --query "[].name" -o tsv); do
-  azlin monitor history $vm --days 30 --export "${vm}_metrics.csv"
-done
-```
+# Cost overview
+azlin costs dashboard
 
-### Find At-Risk VMs
-
-```bash
-# Quick check
-azlin monitor forecast --at-risk-only
-
-# Detailed forecast for specific VM
-azlin monitor forecast --vm-name dev-vm-01 --days 7
-```
-
-### Custom Alert Rule
-
-```yaml
-# Add to ~/.azlin/alert_rules.yaml
-- name: custom_network_alert
-  metric: network_out_bytes
-  threshold: 10000000  # 10 MB/s
-  comparison: ">"
-  severity: warning
-  enabled: true
-  notification_channels: [slack]
+# Who's logged in
+azlin w
 ```
 
 ## Performance Tips
 
-1. **Increase refresh interval** for many VMs: `--refresh-interval 120`
+1. **Increase refresh interval** for many VMs: `azlin top --interval 30`
 2. **Filter by resource group** to reduce API calls: `--resource-group my-rg`
-3. **Use aggregated queries** for historical data: `--days 30` (hourly) vs `--days 7` (raw)
-4. **Run in screen/tmux** for long-running dashboards
+3. **Run in screen/tmux** for long-running dashboards
+4. **Use `--vm` flag** to focus on a single VM when debugging
 
 ## Security Best Practices
 

@@ -12,6 +12,7 @@ This document covers all CLI flags and defaults that match the original Python C
 - [fleet run](#fleet-run) — Execute commands across fleet
 - [restore](#restore) — Restore terminal sessions
 - [autopilot enable](#autopilot-enable) — Enable autopilot scheduling
+- [logs](#logs) — View VM logs
 - [doit destroy / doit delete](#doit-destroy--doit-delete) — Autonomous cleanup
 
 ---
@@ -168,7 +169,7 @@ azlin batch stop [OPTIONS]
 | `--config` | `PATH` | `~/.azlin/config.toml` | Config file path |
 | `--no-deallocate` | flag | `false` | Stop without deallocating (continues billing) |
 | `--max-workers` | `INT` | `10` | Maximum parallel workers |
-| `--confirm` | flag | `false` | Skip confirmation prompt |
+| `--yes`, `-y` | flag | `false` | Skip confirmation prompt |
 
 By default, stopped VMs are **deallocated** (no compute billing). Use `--no-deallocate` to keep the VM allocated for faster restart at the cost of continued billing.
 
@@ -182,7 +183,7 @@ azlin batch stop --tag 'env=dev'
 azlin batch stop --vm-pattern 'test-*' --no-deallocate
 
 # Stop all VMs, skip confirmation
-azlin batch stop --all --confirm
+azlin batch stop --all --yes
 ```
 
 ---
@@ -356,7 +357,7 @@ azlin autopilot enable [OPTIONS]
 | `--resource-group`, `--rg` | `TEXT` | config default | Azure resource group |
 | `--idle-threshold` | `INT` | `120` | Idle time in minutes before auto-stop |
 | `--cpu-threshold` | `INT` | `20` | CPU percentage below which VM is considered idle |
-| `--schedule` | `TEXT` | — | Cron-style schedule for start/stop |
+| ~~`--schedule`~~ | — | — | *Removed — not implemented in Rust CLI* |
 
 ### Examples
 
@@ -373,7 +374,61 @@ azlin autopilot enable --rg dev-rg
 
 ---
 
-## doit destroy / doit delete
+## logs
+
+View or stream log files from a VM.
+
+```
+azlin logs <VM_IDENTIFIER> [OPTIONS]
+```
+
+### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `VM_IDENTIFIER` | Yes | VM name, session name, or IP address |
+
+### Options
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--lines`, `-n` | `INT` | `100` | Number of lines to display |
+| `--follow`, `-f` | flag | `false` | Stream logs in real-time (`tail -f`) |
+| `--type`, `-t` | `TEXT` | `syslog` | Log type: `syslog`, `cloud-init`, `auth`, `azlin`, `all` |
+| `--resource-group`, `--rg` | `TEXT` | config default | Azure resource group |
+
+### Log Types
+
+| Type | Log File |
+|------|----------|
+| `syslog` | `/var/log/syslog` |
+| `cloud-init` | `/var/log/cloud-init-output.log` |
+| `auth` | `/var/log/auth.log` |
+| `azlin` | `/var/log/azlin/azlin.log` |
+| `all` | All four log files |
+
+> **Note**: `--type all` with `--follow` produces interleaved output from all four files. For easier reading, use `--type all` without `--follow` for a snapshot, or target a specific log type when streaming.
+
+### Examples
+
+```bash
+# View last 100 lines of syslog (defaults)
+azlin logs my-vm
+
+# Stream syslog in real-time
+azlin logs my-vm --follow
+
+# View cloud-init provisioning logs
+azlin logs my-vm --type cloud-init
+
+# View last 50 lines of auth logs
+azlin logs my-vm --type auth --lines 50
+
+# Snapshot of all log types
+azlin logs my-vm --type all
+```
+
+---
 
 Autonomous cleanup of previously deployed infrastructure. Both `destroy` and `delete` are aliases that perform identical cleanup operations.
 
@@ -425,6 +480,9 @@ All default values match the original Python CLI:
 | `batch stop` | deallocate behavior | `true` (use `--no-deallocate` to override) |
 | `fleet run` | `--parallel` | `10` |
 | `restore` | `--timeout` | `30` (seconds) |
+| `logs` | `--lines` | `100` |
+| `logs` | `--type` | `syslog` |
+| `connect` | `--yes` | `false` (prompt for confirmation) |
 
 ---
 
@@ -440,5 +498,6 @@ Users migrating from the Python CLI will find identical flag names and defaults.
 
 - [Quick Reference](../QUICK_REFERENCE.md) — Common command patterns
 - [Configuration Reference](./configuration-reference.md) — Config file options
+- [Logs Command Reference](./logs-command.md) — Detailed logs command docs
 - [Restore Help](./cli-help-restore.md) — Detailed restore command docs
 - [Destroy Command](./destroy-command.md) — Detailed destroy command docs

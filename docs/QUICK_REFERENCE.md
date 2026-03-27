@@ -28,7 +28,7 @@ azlin self-update
 ### First Time Setup
 ```bash
 # Provision VM with resource group (saves to config)
-azlin --rg my-dev-rg
+azlin new --resource-group my-dev-rg
 
 # Config automatically saved to ~/.azlin/config.toml
 ```
@@ -57,6 +57,7 @@ azlin [OPTIONS]                    # Show help (or no args for help)
 ### Subcommands
 ```bash
 azlin list [OPTIONS]               # List VMs in resource group
+azlin logs <vm> [OPTIONS]          # View VM logs (default: syslog, 100 lines)
 azlin w [OPTIONS]                  # Run 'w' command on all VMs
 azlin ps [OPTIONS]                 # Run 'ps aux' on all VMs
 azlin kill <vm-name> [OPTIONS]     # Delete a VM and all resources
@@ -100,9 +101,9 @@ azlin <command> --help             # Command-specific help
 
 ### 1. Config Management
 
-**First run - set default resource group:**
+**First run - provision with resource group:**
 ```bash
-azlin --rg my-dev-rg
+azlin new --resource-group my-dev-rg
 ```
 
 **Config saved at:** `~/.azlin/config.toml`
@@ -156,7 +157,34 @@ azlin list --rg production-rg
 
 ---
 
-### 3. Interactive Session Selection
+### 3. View VM Logs
+
+**View syslog (default):**
+```bash
+azlin logs my-vm
+```
+
+**Stream logs in real-time:**
+```bash
+azlin logs my-vm --follow
+```
+
+**View specific log types:**
+```bash
+azlin logs my-vm --type cloud-init    # Provisioning logs
+azlin logs my-vm --type auth          # Authentication logs
+azlin logs my-vm --type azlin         # Azlin agent logs
+azlin logs my-vm --type all           # All log types
+```
+
+**Control line count:**
+```bash
+azlin logs my-vm --lines 50           # Last 50 lines (default: 100)
+```
+
+---
+
+### 4. Interactive Session Selection
 
 **Run azlin with no args:**
 ```bash

@@ -257,17 +257,27 @@ pub(crate) async fn handle_logs(
     log_type: azlin_cli::LogType,
     resource_group: Option<String>,
 ) -> Result<()> {
-    let log_path = match log_type {
-        azlin_cli::LogType::CloudInit => "/var/log/cloud-init-output.log",
-        azlin_cli::LogType::Syslog => "/var/log/syslog",
-        azlin_cli::LogType::Auth => "/var/log/auth.log",
+    let log_paths: Vec<&str> = match log_type {
+        azlin_cli::LogType::CloudInit => vec!["/var/log/cloud-init-output.log"],
+        azlin_cli::LogType::Syslog => vec!["/var/log/syslog"],
+        azlin_cli::LogType::Auth => vec!["/var/log/auth.log"],
+        azlin_cli::LogType::Azlin => vec!["/var/log/azlin/azlin.log"],
+        azlin_cli::LogType::All => vec![
+            "/var/log/syslog",
+            "/var/log/auth.log",
+            "/var/log/cloud-init-output.log",
+            "/var/log/azlin/azlin.log",
+        ],
     };
 
     let config = azlin_core::AzlinConfig::load().unwrap_or_default();
     let target = resolve_vm_ssh_target(vm_identifier, None, resource_group).await?;
 
+    // tail -f natively supports multiple files; join paths with spaces
+    let paths_str = log_paths.join(" ");
+
     if follow {
-        println!("Following {} on {}...", log_path, vm_identifier);
+        println!("Following {} on {}...", paths_str, vm_identifier);
         if let Some(ref b) = target.bastion {
             let mut args = vec![
                 "network".to_string(),
@@ -289,7 +299,7 @@ pub(crate) async fn handle_logs(
                 args.push(key.to_string_lossy().to_string());
             }
             args.push("--".to_string());
-            args.push(format!("sudo tail -f {}", log_path));
+            args.push(format!("sudo tail -f {}", paths_str));
             let status = std::process::Command::new("az").args(&args).status()?;
             if !status.success() {
                 std::process::exit(status.code().unwrap_or(1));
@@ -298,7 +308,7 @@ pub(crate) async fn handle_logs(
             let follow_args = crate::connect_helpers::build_log_follow_args(
                 &target.user,
                 &target.ip,
-                log_path,
+                &paths_str,
                 config.ssh_connect_timeout,
             );
             let status = std::process::Command::new("ssh")
@@ -314,7 +324,7 @@ pub(crate) async fn handle_logs(
             log_type, vm_identifier
         ));
 
-        let tail_cmd = crate::sync_helpers::build_tail_command(lines, log_path);
+        let tail_cmd = crate::sync_helpers::build_tail_command(lines, &paths_str);
         let result = target.exec(&tail_cmd);
 
         pb.finish_and_clear();

@@ -59,15 +59,7 @@ pub fn build_tail_command(lines: u32, log_path: &str) -> String {
     format!("sudo tail -n {} {}", lines, log_path)
 }
 
-/// Map a log type name to its filesystem path on the remote VM.
-pub fn log_path_for_type(log_type: &str) -> &'static str {
-    match log_type {
-        "cloud-init" | "CloudInit" => "/var/log/cloud-init-output.log",
-        "syslog" | "Syslog" => "/var/log/syslog",
-        "auth" | "Auth" => "/var/log/auth.log",
-        _ => "/var/log/syslog",
-    }
-}
+
 
 #[cfg(test)]
 mod tests {
@@ -168,34 +160,5 @@ mod tests {
         assert!(cmd.contains("/var/log/auth.log"));
     }
 
-    // ── log_path_for_type ────────────────────────────────────────
 
-    #[test]
-    fn test_log_path_for_type_cloud_init() {
-        assert_eq!(
-            log_path_for_type("CloudInit"),
-            "/var/log/cloud-init-output.log"
-        );
-        assert_eq!(
-            log_path_for_type("cloud-init"),
-            "/var/log/cloud-init-output.log"
-        );
-    }
-
-    #[test]
-    fn test_log_path_for_type_syslog() {
-        assert_eq!(log_path_for_type("Syslog"), "/var/log/syslog");
-        assert_eq!(log_path_for_type("syslog"), "/var/log/syslog");
-    }
-
-    #[test]
-    fn test_log_path_for_type_auth() {
-        assert_eq!(log_path_for_type("Auth"), "/var/log/auth.log");
-        assert_eq!(log_path_for_type("auth"), "/var/log/auth.log");
-    }
-
-    #[test]
-    fn test_log_path_for_type_unknown_defaults() {
-        assert_eq!(log_path_for_type("something"), "/var/log/syslog");
-    }
 }

@@ -155,6 +155,23 @@ audit_log_max_size_mb = 10
 # Type: integer
 # Default: 5
 audit_log_backup_count = 5
+
+# ============================================================================
+# Log Viewing Defaults (azlin logs command)
+# ============================================================================
+[log_viewer]
+
+# Default number of log lines to display
+# Type: integer
+# Default: 100
+# CLI Override: --lines=<n> or -n <n>
+default_lines = 100
+
+# Default log type when --type is not specified
+# Type: string (syslog, cloud-init, auth, azlin, all)
+# Default: "syslog"
+# CLI Override: --type=<type> or -t <type>
+default_type = "syslog"
 ```
 
 ## Configuration Options by Category
@@ -528,21 +545,21 @@ audit_log_backup_count = 10  # Keep 10 rotated logs
 
 ## CLI Flags Reference
 
-All configuration options can be overridden via CLI flags:
+Connect flags that override configuration (from `azlin connect --help`):
 
 | Config Option | CLI Flag | Example |
 |---------------|----------|---------|
-| `ssh.auto_sync_keys` | `--no-auto-sync-keys` | `azlin connect vm --no-auto-sync-keys` |
-| `ssh.sync_timeout` | `--sync-timeout=<sec>` | `azlin connect vm --sync-timeout=60` |
-| `ssh.sync_method` | `--sync-method=<method>` | `azlin connect vm --sync-method=ssh` |
-| `ssh.key_path` | `--ssh-key=<path>` | `azlin connect vm --ssh-key ~/.ssh/key` |
-| `resource_group.auto_detect` | `--no-auto-detect-rg` | `azlin connect vm --no-auto-detect-rg` |
-| `resource_group.cache_ttl` | `--cache-ttl=<sec>` | `azlin connect vm --cache-ttl=300` |
-| `resource_group.query_timeout` | `--query-timeout=<sec>` | `azlin connect vm --query-timeout=60` |
-| `default_resource_group` | `--resource-group=<rg>` | `azlin connect vm --resource-group rg-prod` |
-| `logging.level` | `--debug` or `--quiet` | `azlin --debug connect vm` |
-| - | `--force-rg-refresh` | `azlin connect vm --force-rg-refresh` |
-| - | `--dry-run` | `azlin connect vm --dry-run` |
+| `default_resource_group` | `--resource-group <RG>` | `azlin connect vm --resource-group rg-prod` |
+| `ssh.key_path` | `--key <PATH>` | `azlin connect vm --key ~/.ssh/custom_key` |
+| `ssh.user` | `--user <USER>` | `azlin connect vm --user ubuntu` |
+| `ssh.tmux_enabled` | `--no-tmux` | `azlin connect vm --no-tmux` |
+| `ssh.tmux_session` | `--tmux-session <NAME>` | `azlin connect vm --tmux-session dev` |
+| `ssh.reconnect` | `--no-reconnect` | `azlin connect vm --no-reconnect` |
+| `ssh.max_retries` | `--max-retries <N>` | `azlin connect vm --max-retries 5` |
+| - | `-y, --yes` | `azlin connect vm --yes` |
+| - | `-X, --x11` | `azlin connect vm -X` |
+| - | `--no-status` | `azlin connect vm --no-status` |
+| - | `--disable-bastion-pool` | `azlin connect vm --disable-bastion-pool` |
 
 ## Configuration Management Commands
 
@@ -768,6 +785,7 @@ audit_log_backup_count = 50              # Long retention
 
 - [Auto-Sync SSH Keys](../features/auto-sync-keys.md) - Feature guide for key synchronization
 - [Auto-Detect Resource Group](../features/auto-detect-rg.md) - Feature guide for RG discovery
+- [Logs Command Reference](./logs-command.md) - Detailed logs command documentation
 - [Troubleshooting Connection Issues](../how-to/troubleshoot-connection-issues.md) - Common problems and solutions
 
 ## Feedback
