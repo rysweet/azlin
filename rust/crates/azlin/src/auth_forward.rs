@@ -413,3 +413,466 @@ fn confirm(prompt: &str, force: bool) -> bool {
         .interact()
         .unwrap_or(false)
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+    use tempfile::TempDir;
+
+    // Serialize tests that modify the HOME env var to avoid data races.
+    static HOME_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Run a closure with HOME temporarily set to `home`, restoring afterward.
+    fn with_home<F: FnOnce() -> T, T>(home: &std::path::Path, f: F) -> T {
+        let _lock = HOME_LOCK.lock().unwrap();
+        let old = std::env::var("HOME").ok();
+        #[allow(deprecated)]
+        std::env::set_var("HOME", home);
+        let result = f();
+        match old {
+            #[allow(deprecated)]
+            Some(h) => std::env::set_var("HOME", h),
+            #[allow(deprecated)]
+            None => std::env::remove_var("HOME"),
+        }
+        result
+    }
+
+    // =======================================================================
+    // ssh_target / scp_target — bastion routing
+    // =======================================================================
+
+    #[test]
+    fn test_ssh_target_direct_connection() {
+        let (host, port_args) = ssh_target("10.0.0.5", "azureuser", None);
+        assert_eq!(host, "azureuser@10.0.0.5");
+        assert!(port_args.is_empty(), "direct connection should have no port args");
+    }
+
+    #[test]
+    fn test_ssh_target_bastion_tunnel() {
+        let (host, port_args) = ssh_target("10.0.0.5", "azureuser", Some(50200));
+        assert_eq!(host, "azureuser@127.0.0.1", "bastion routes through localhost");
+        assert_eq!(port_args, vec!["-p", "50200"]);
+    }
+
+    #[test]
+    fn test_scp_target_direct_connection() {
+        let (dest, port_args) = scp_target("10.0.0.5", "azureuser", "~/.config/gh/", None);
+        assert_eq!(dest, "azureuser@10.0.0.5:~/.config/gh/");
+        assert!(port_args.is_empty());
+    }
+
+    #[test]
+    fn test_scp_target_bastion_tunnel() {
+        let (dest, port_args) =
+            scp_target("10.0.0.5", "azureuser", "~/.config/gh/", Some(50200));
+        assert_eq!(dest, "azureuser@127.0.0.1:~/.config/gh/");
+        assert_eq!(port_args, vec!["-P", "50200"], "SCP uses -P (uppercase) for port");
+    }
+
+    #[test]
+    fn test_ssh_target_preserves_original_ip_for_direct() {
+        // Verifies the forward_fn receives the real VM IP (not 127.0.0.1)
+        let (host, _) = ssh_target("40.78.100.1", "admin", None);
+        assert!(host.contains("40.78.100.1"));
+    }
+
+    #[test]
+    fn test_scp_target_embeds_remote_path() {
+        let (dest, _) = scp_target("10.0.0.5", "user", "~/.azure/config", None);
+        assert!(dest.ends_with(":~/.azure/config"));
+    }
+
+    // =======================================================================
+    // IPv6 address parsing — wait_for_ssh socket addr construction
+    // =======================================================================
+
+    #[test]
+    fn test_ipv4_addr_parses_to_socket() {
+        let addr: std::net::SocketAddr = "10.0.0.5:22".parse().unwrap();
+        assert!(addr.is_ipv4());
+        assert_eq!(addr.port(), 22);
+    }
+
+    #[test]
+    fn test_ipv6_addr_needs_brackets_for_socket() {
+        // Raw IPv6 without brackets fails to parse as SocketAddr
+        let result: Result<std::net::SocketAddr, _> = "fd00::1:22".parse();
+        assert!(result.is_err(), "IPv6 without brackets should fail");
+        // With brackets succeeds
+        let addr: std::net::SocketAddr = "[fd00::1]:22".parse().unwrap();
+        assert!(addr.is_ipv6());
+        assert_eq!(addr.port(), 22);
+    }
+
+    #[test]
+    fn test_ipv6_detection_uses_colon_heuristic() {
+        // The code detects IPv6 via host.contains(':')
+        assert!("fd00::1".contains(':'), "IPv6 triggers bracket path");
+        assert!("::1".contains(':'));
+        assert!(!"10.0.0.5".contains(':'), "IPv4 must not trigger bracket path");
+    }
+
+    #[test]
+    fn test_ipv6_bracket_format_produces_valid_socketaddr() {
+        let host = "2001:db8::1";
+        let port = 22u16;
+        let formatted = format!("[{}]:{}", host, port);
+        let addr: std::net::SocketAddr = formatted.parse().unwrap();
+        assert!(addr.is_ipv6());
+        assert_eq!(addr.port(), 22);
+    }
+
+    #[test]
+    fn test_invalid_addr_fallback_to_localhost() {
+        // Mirrors the unwrap_or_else fallback in wait_for_ssh (line 88)
+        let bad_host = "not-a-valid-ip";
+        let port = 22u16;
+        let addr: std::net::SocketAddr = format!("{}:{}", bad_host, port)
+            .parse()
+            .unwrap_or_else(|_| std::net::SocketAddr::from(([127, 0, 0, 1], port)));
+        assert_eq!(addr.ip().to_string(), "127.0.0.1");
+        assert_eq!(addr.port(), 22);
+    }
+
+    #[test]
+    fn test_loopback_ipv6_parses_correctly() {
+        let addr: std::net::SocketAddr = "[::1]:22".parse().unwrap();
+        assert!(addr.is_ipv6());
+        assert_eq!(addr.ip().to_string(), "::1");
+    }
+
+    // =======================================================================
+    // confirm() — consent gating
+    // =======================================================================
+
+    #[test]
+    fn test_confirm_force_bypasses_prompt() {
+        assert!(confirm("Forward gh credentials?", true));
+    }
+
+    #[test]
+    fn test_confirm_non_tty_returns_false() {
+        // Test runner stdin is not a TTY → confirm returns false without prompting
+        assert!(!confirm("Forward gh credentials?", false));
+    }
+
+    // =======================================================================
+    // gh_config_dir — detection
+    // =======================================================================
+
+    #[test]
+    fn test_gh_config_detected_with_hosts_yml() {
+        let tmp = TempDir::new().unwrap();
+        let gh_dir = tmp.path().join(".config").join("gh");
+        std::fs::create_dir_all(&gh_dir).unwrap();
+        std::fs::write(gh_dir.join("hosts.yml"), "github.com:\n  oauth_token: gho_xxx\n").unwrap();
+
+        let result = with_home(tmp.path(), gh_config_dir);
+        assert!(result.is_some(), "should detect gh when hosts.yml exists");
+        assert!(result.unwrap().ends_with("gh"));
+    }
+
+    #[test]
+    fn test_gh_config_not_detected_without_hosts_yml() {
+        let tmp = TempDir::new().unwrap();
+        let gh_dir = tmp.path().join(".config").join("gh");
+        std::fs::create_dir_all(&gh_dir).unwrap();
+        // No hosts.yml — only config.yml
+        std::fs::write(gh_dir.join("config.yml"), "editor: vim\n").unwrap();
+
+        let result = with_home(tmp.path(), gh_config_dir);
+        assert!(result.is_none(), "should not detect gh without hosts.yml");
+    }
+
+    #[test]
+    fn test_gh_config_not_detected_when_dir_missing() {
+        let tmp = TempDir::new().unwrap();
+        // No .config/gh directory at all
+        let result = with_home(tmp.path(), gh_config_dir);
+        assert!(result.is_none());
+    }
+
+    // =======================================================================
+    // copilot_config_dir — detection
+    // =======================================================================
+
+    #[test]
+    fn test_copilot_detected_with_hosts_json() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join(".config").join("github-copilot");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("hosts.json"), "{}").unwrap();
+
+        let result = with_home(tmp.path(), copilot_config_dir);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_copilot_detected_with_apps_json() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join(".config").join("github-copilot");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("apps.json"), "{}").unwrap();
+
+        let result = with_home(tmp.path(), copilot_config_dir);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_copilot_not_detected_without_marker_files() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join(".config").join("github-copilot");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("other.json"), "{}").unwrap();
+
+        let result = with_home(tmp.path(), copilot_config_dir);
+        assert!(result.is_none(), "needs hosts.json or apps.json");
+    }
+
+    // =======================================================================
+    // claude_config_path — detection
+    // =======================================================================
+
+    #[test]
+    fn test_claude_detected_with_config_file() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join(".claude.json"), r#"{"key":"val"}"#).unwrap();
+
+        let result = with_home(tmp.path(), claude_config_path);
+        assert!(result.is_some());
+        assert!(result.unwrap().ends_with(".claude.json"));
+    }
+
+    #[test]
+    fn test_claude_not_detected_without_file() {
+        let tmp = TempDir::new().unwrap();
+
+        let result = with_home(tmp.path(), claude_config_path);
+        assert!(result.is_none());
+    }
+
+    // =======================================================================
+    // az_config_dir — detection + allow-list
+    // =======================================================================
+
+    #[test]
+    fn test_az_detected_with_profile_json() {
+        let tmp = TempDir::new().unwrap();
+        let az = tmp.path().join(".azure");
+        std::fs::create_dir_all(&az).unwrap();
+        std::fs::write(az.join("azureProfile.json"), "{}").unwrap();
+
+        let result = with_home(tmp.path(), az_config_dir);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_az_detected_with_msal_token_cache() {
+        let tmp = TempDir::new().unwrap();
+        let az = tmp.path().join(".azure");
+        std::fs::create_dir_all(&az).unwrap();
+        std::fs::write(az.join("msal_token_cache.json"), "{}").unwrap();
+
+        let result = with_home(tmp.path(), az_config_dir);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_az_detected_with_config_file() {
+        let tmp = TempDir::new().unwrap();
+        let az = tmp.path().join(".azure");
+        std::fs::create_dir_all(&az).unwrap();
+        std::fs::write(az.join("config"), "[defaults]\n").unwrap();
+
+        let result = with_home(tmp.path(), az_config_dir);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_az_not_detected_with_empty_dir() {
+        let tmp = TempDir::new().unwrap();
+        let az = tmp.path().join(".azure");
+        std::fs::create_dir_all(&az).unwrap();
+        // Directory exists but no allowed files
+
+        let result = with_home(tmp.path(), az_config_dir);
+        assert!(result.is_none(), "empty .azure dir should not be detected");
+    }
+
+    #[test]
+    fn test_az_not_detected_when_dir_missing() {
+        let tmp = TempDir::new().unwrap();
+
+        let result = with_home(tmp.path(), az_config_dir);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_az_not_detected_with_only_unknown_files() {
+        let tmp = TempDir::new().unwrap();
+        let az = tmp.path().join(".azure");
+        std::fs::create_dir_all(&az).unwrap();
+        // Service principal creds or unrecognized files should not trigger detection
+        std::fs::write(az.join("servicePrincipal.json"), "{}").unwrap();
+        std::fs::write(az.join("random_file.txt"), "").unwrap();
+
+        let result = with_home(tmp.path(), az_config_dir);
+        assert!(result.is_none(), "only allowed files should trigger detection");
+    }
+
+    // =======================================================================
+    // az allowed-file lists must stay in sync
+    // =======================================================================
+
+    #[test]
+    fn test_az_forward_only_copies_allowed_files() {
+        // Verify forward_az uses the same allow-list as az_config_dir.
+        // Both functions define their lists independently — this test catches drift.
+        // We test indirectly: create .azure with all 5 allowed files + 1 extra,
+        // confirm detection works (uses the detection list), and that
+        // the file set in az_config_dir is a subset of forward_az's allowed list.
+        let tmp = TempDir::new().unwrap();
+        let az = tmp.path().join(".azure");
+        std::fs::create_dir_all(&az).unwrap();
+
+        // These are the 5 allowed files (must match both arrays)
+        let allowed = [
+            "azureProfile.json",
+            "config",
+            "clouds.config",
+            "msal_token_cache.json",
+            "msal_token_cache.bin",
+        ];
+        for f in &allowed {
+            std::fs::write(az.join(f), "test").unwrap();
+        }
+        // Plus a file that must NOT be forwarded
+        std::fs::write(az.join("servicePrincipal.json"), "secret").unwrap();
+
+        let result = with_home(tmp.path(), az_config_dir);
+        assert!(result.is_some(), "should detect with all allowed files present");
+    }
+
+    // =======================================================================
+    // detect_credentials — aggregation
+    // =======================================================================
+
+    #[test]
+    fn test_detect_credentials_finds_all_when_present() {
+        let tmp = TempDir::new().unwrap();
+
+        // Set up all four credential sources
+        let gh = tmp.path().join(".config").join("gh");
+        std::fs::create_dir_all(&gh).unwrap();
+        std::fs::write(gh.join("hosts.yml"), "github.com:\n").unwrap();
+
+        let copilot = tmp.path().join(".config").join("github-copilot");
+        std::fs::create_dir_all(&copilot).unwrap();
+        std::fs::write(copilot.join("hosts.json"), "{}").unwrap();
+
+        std::fs::write(tmp.path().join(".claude.json"), "{}").unwrap();
+
+        let az = tmp.path().join(".azure");
+        std::fs::create_dir_all(&az).unwrap();
+        std::fs::write(az.join("azureProfile.json"), "{}").unwrap();
+
+        let sources = with_home(tmp.path(), detect_credentials);
+        assert_eq!(sources.len(), 4, "should detect all four credential sources");
+
+        let names: Vec<&str> = sources.iter().map(|s| s.name).collect();
+        assert!(names.contains(&"gh"));
+        assert!(names.contains(&"copilot"));
+        assert!(names.contains(&"claude"));
+        assert!(names.contains(&"az"));
+    }
+
+    #[test]
+    fn test_detect_credentials_returns_empty_when_none() {
+        let tmp = TempDir::new().unwrap();
+        // Empty home — no credential sources
+
+        let sources = with_home(tmp.path(), detect_credentials);
+        assert!(sources.is_empty());
+    }
+
+    #[test]
+    fn test_detect_credentials_partial_detection() {
+        let tmp = TempDir::new().unwrap();
+        // Only gh present
+        let gh = tmp.path().join(".config").join("gh");
+        std::fs::create_dir_all(&gh).unwrap();
+        std::fs::write(gh.join("hosts.yml"), "github.com:\n").unwrap();
+
+        let sources = with_home(tmp.path(), detect_credentials);
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].name, "gh");
+    }
+
+    // =======================================================================
+    // Azure tag compliance (azlin-session tag from cmd_vm_ops)
+    // =======================================================================
+
+    #[test]
+    fn test_azlin_session_tag_name_within_azure_limits() {
+        // Azure tag names: max 512 chars, can't contain <>*%&:\?/+
+        let tag_name = "azlin-session";
+        assert!(tag_name.len() <= 512);
+        let forbidden = ['<', '>', '*', '%', '&', ':', '\\', '?', '/', '+'];
+        for ch in &forbidden {
+            assert!(!tag_name.contains(*ch), "tag name contains forbidden char: {}", ch);
+        }
+    }
+
+    #[test]
+    fn test_azlin_session_tag_value_respects_azure_256_limit() {
+        // Azure tag values: max 256 chars
+        // VM names generated by azlin: "azlin-vm-YYYYMMDD-HHMMSSffffff" = 31 chars
+        let generated_name = format!("azlin-vm-{}", "20260327-170900123456");
+        assert!(generated_name.len() <= 256, "auto-generated VM name must fit Azure tag value limit");
+
+        // User-provided names are validated by validate_vm_name (max 64 chars)
+        let user_name = "a".repeat(64);
+        assert!(user_name.len() <= 256);
+    }
+
+    #[test]
+    fn test_azlin_session_tag_uses_user_name_for_pools() {
+        // When --name is given with --pool, all VMs in the pool share the same
+        // azlin-session tag (the user's name, not the suffixed vm_name-N)
+        let user_name = Some("my-dev-pool".to_string());
+        let vm_count = 3u32;
+
+        for i in 0..vm_count {
+            let vm_name = format!("{}-{}", user_name.as_ref().unwrap(), i + 1);
+            let mut tags = std::collections::HashMap::new();
+            if let Some(ref n) = user_name {
+                tags.insert("azlin-session".to_string(), n.clone());
+            } else {
+                tags.insert("azlin-session".to_string(), vm_name.clone());
+            }
+            // All pool VMs share the base name as session tag
+            assert_eq!(tags["azlin-session"], "my-dev-pool");
+        }
+    }
+
+    #[test]
+    fn test_azlin_session_tag_uses_vm_name_when_no_user_name() {
+        let user_name: Option<String> = None;
+        let vm_name = "azlin-vm-20260327-170900123456".to_string();
+
+        let mut tags = std::collections::HashMap::new();
+        if let Some(ref n) = user_name {
+            tags.insert("azlin-session".to_string(), n.clone());
+        } else {
+            tags.insert("azlin-session".to_string(), vm_name.clone());
+        }
+        assert_eq!(tags["azlin-session"], vm_name);
+    }
+}

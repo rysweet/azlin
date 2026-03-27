@@ -29,6 +29,9 @@ This directory contains comprehensive documentation for azlin - Azure VM provisi
 - **[features/tmux-session-status.md](features/tmux-session-status.md)** - Visual tmux session connection status in VM listings
 - **[features/memory-latency.md](features/memory-latency.md)** - Memory allocation and network latency monitoring
 - **[features/session-restore.md](features/session-restore.md)** - Automatic session restore feature overview and architecture
+- **[features/credential-forwarding.md](features/credential-forwarding.md)** - Automatic credential forwarding (gh, az, Copilot, Claude) to new VMs
+- **[how-to/forward-credentials.md](how-to/forward-credentials.md)** - Forward developer credentials to a VM after creation
+- **[reference/credential-forwarding.md](reference/credential-forwarding.md)** - Credential forwarding technical reference (detection, SCP, security)
 
 ### For Developers
 

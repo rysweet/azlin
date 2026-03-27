@@ -14,7 +14,7 @@ Replace the sections below with information about your project.
 
 ## Overview
 
-**[Full Documentation](https://rysweet.github.io/azlin/)** | **[Quick Start](https://rysweet.github.io/azlin/getting-started/quickstart/)** | **[Discussions](https://github.com/rysweet/azlin/discussions)** **Version:** 2.6.1
+[![Latest Release](https://img.shields.io/github/v/release/rysweet/azlin?label=latest&sort=semver)](https://github.com/rysweet/azlin/releases/latest) **[Full Documentation](https://rysweet.github.io/azlin/)** | **[Quick Start](https://rysweet.github.io/azlin/getting-started/quickstart/)** | **[Discussions](https://github.com/rysweet/azlin/discussions)** | **[Release Notes](https://github.com/rysweet/azlin/releases/latest)** | **[Changelog](CHANGELOG.m
 
 ## Architecture
 
@@ -29,6 +29,7 @@ Replace the sections below with information about your project.
 - **Language**: Python
 - **Language**: JavaScript/TypeScript
 - **Language**: Rust
+- **Language**: Go
 - **Framework**: [Main framework if applicable]
 - **Database**: [Database system if applicable]
 

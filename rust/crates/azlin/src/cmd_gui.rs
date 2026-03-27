@@ -316,8 +316,8 @@ fn check_remote_deps(ssh_cmd_prefix: &[String], auto_yes: bool, mode: &VncMode) 
         ),
     };
 
-    let output = run_ssh_command(ssh_cmd_prefix, check_cmd)?;
-    if output.contains("DEPS_OK") {
+    let (_, stdout, _) = run_ssh_command_full(ssh_cmd_prefix, check_cmd)?;
+    if stdout.contains("DEPS_OK") {
         return Ok(());
     }
 
