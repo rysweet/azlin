@@ -295,12 +295,18 @@ pub(crate) async fn handle_logs(
                 std::process::exit(status.code().unwrap_or(1));
             }
         } else {
-            let follow_args = crate::connect_helpers::build_log_follow_args(
+            let mut follow_args = crate::connect_helpers::build_log_follow_args(
                 &target.user,
                 &target.ip,
                 log_path,
                 config.ssh_connect_timeout,
             );
+            if let Some(ref k) = resolve_ssh_key() {
+                // Insert -i <key> before the user@host argument
+                let insert_pos = follow_args.len().saturating_sub(2);
+                follow_args.insert(insert_pos, k.display().to_string());
+                follow_args.insert(insert_pos, "-i".to_string());
+            }
             let status = std::process::Command::new("ssh")
                 .args(&follow_args)
                 .status()?;
