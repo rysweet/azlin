@@ -478,17 +478,30 @@ fn launch_viewer(ssh_cmd_prefix: &[String], password: &str) -> Result<()> {
     let passwd_b64 = run_ssh_command(ssh_cmd_prefix, "base64 < ~/.vnc/passwd")?;
     let passwd_bytes = base64_decode(passwd_b64.trim())?;
 
-    // Write to a temp file
+    // Write to a temp file with restricted permissions from creation (no TOCTOU window)
     let tmp_dir = std::env::temp_dir();
     let passwd_file = tmp_dir.join(format!("azlin_vnc_passwd_{}", std::process::id()));
-    std::fs::write(&passwd_file, &passwd_bytes)
-        .context("Failed to write temporary VNC passwd file")?;
-
-    // Ensure proper permissions
-    #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&passwd_file, std::fs::Permissions::from_mode(0o600))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&passwd_file)
+                .and_then(|mut f| {
+                    use std::io::Write;
+                    f.write_all(&passwd_bytes)
+                })
+                .context("Failed to write temporary VNC passwd file")?;
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::write(&passwd_file, &passwd_bytes)
+                .context("Failed to write temporary VNC passwd file")?;
+        }
     }
 
     // Ensure DISPLAY is set for the viewer
@@ -518,7 +531,9 @@ fn launch_viewer(ssh_cmd_prefix: &[String], password: &str) -> Result<()> {
     let status = cmd.status().context("Failed to launch vncviewer")?;
 
     // Clean up temp passwd file
-    let _ = std::fs::remove_file(&passwd_file);
+    if let Err(e) = std::fs::remove_file(&passwd_file) {
+        eprintln!("warning: failed to remove temp VNC passwd file {}: {e}", passwd_file.display());
+    }
 
     if !status.success() {
         let _ = password; // suppress unused warning

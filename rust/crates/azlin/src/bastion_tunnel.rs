@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Global port counter to avoid collisions across concurrent tunnels.
 static NEXT_PORT: AtomicU16 = AtomicU16::new(50200);
@@ -30,7 +30,10 @@ static WATCHDOG_STARTED: AtomicBool = AtomicBool::new(false);
 /// Uses `~/.azlin/tunnels/` instead of `/tmp` to avoid world-readable race conditions.
 fn tunnel_dir() -> PathBuf {
     dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .unwrap_or_else(|| {
+            warn!("$HOME is unset — falling back to /tmp for tunnel state; tunnel registry will be world-readable");
+            PathBuf::from("/tmp")
+        })
         .join(".azlin")
         .join("tunnels")
 }
@@ -85,7 +88,14 @@ impl TunnelRegistry {
                 .context("setting tunnel directory permissions to 0700")?;
         }
         let data = serde_json::to_string_pretty(self)?;
-        std::fs::write(registry_path(), data).context("writing tunnel registry")?;
+        let path = registry_path();
+        std::fs::write(&path, data).context("writing tunnel registry")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .context("setting tunnel registry file permissions to 0600")?;
+        }
         Ok(())
     }
 
