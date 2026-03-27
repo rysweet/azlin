@@ -528,12 +528,14 @@ fn launch_viewer(ssh_cmd_prefix: &[String], password: &str) -> Result<()> {
         cmd.env("DISPLAY", &effective_display);
     }
 
-    let status = cmd.status().context("Failed to launch vncviewer")?;
+    let launch_result = cmd.status().context("Failed to launch vncviewer");
 
-    // Clean up temp passwd file
+    // Clean up temp passwd file unconditionally (before propagating any error)
     if let Err(e) = std::fs::remove_file(&passwd_file) {
         eprintln!("warning: failed to remove temp VNC passwd file {}: {e}", passwd_file.display());
     }
+
+    let status = launch_result?;
 
     if !status.success() {
         let _ = password; // suppress unused warning

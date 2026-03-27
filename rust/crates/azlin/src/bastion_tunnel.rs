@@ -89,12 +89,22 @@ impl TunnelRegistry {
         }
         let data = serde_json::to_string_pretty(self)?;
         let path = registry_path();
-        std::fs::write(&path, data).context("writing tunnel registry")?;
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-                .context("setting tunnel registry file permissions to 0600")?;
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&path)
+                .and_then(|mut f| f.write_all(data.as_bytes()))
+                .context("writing tunnel registry")?;
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::write(&path, data).context("writing tunnel registry")?;
         }
         Ok(())
     }
