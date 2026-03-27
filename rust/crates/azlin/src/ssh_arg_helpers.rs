@@ -14,6 +14,21 @@ pub fn build_ssh_args(ip: &str, user: &str, cmd: &str, connect_timeout: u64) -> 
     ]
 }
 
+/// Inject `-i <key_path>` into an SSH args vector before the `user@host` argument.
+///
+/// The args vector must contain at least `user@host` and a command (len >= 2).
+/// The key is inserted at `len - 2` so the final order is:
+///   `[options...] -i <key> user@host command`
+pub fn inject_identity_key(args: &mut Vec<String>, key_path: &std::path::Path) {
+    debug_assert!(
+        args.len() >= 2,
+        "SSH args must contain at least user@host and command"
+    );
+    let insert_pos = args.len().saturating_sub(2);
+    args.insert(insert_pos, key_path.display().to_string());
+    args.insert(insert_pos, "-i".to_string());
+}
+
 /// Build the argument list for an `az network bastion ssh` command.
 /// Returns the args that would be passed to `az`.
 pub fn build_bastion_ssh_args<'a>(
@@ -229,5 +244,48 @@ mod tests {
     #[test]
     fn no_bastion_when_has_public_ip() {
         assert!(!needs_bastion(Some("1.2.3.4")));
+    }
+
+    // -- inject_identity_key --
+
+    #[test]
+    fn inject_key_into_ssh_args() {
+        let mut args = build_ssh_args("10.0.0.1", "azureuser", "uptime", 10);
+        let key = std::path::Path::new("/home/u/.ssh/azlin_key");
+        inject_identity_key(&mut args, key);
+        // -i and key should appear just before user@host and command
+        let i_pos = args.iter().position(|a| a == "-i").unwrap();
+        assert_eq!(args[i_pos + 1], "/home/u/.ssh/azlin_key");
+        assert_eq!(args[i_pos + 2], "azureuser@10.0.0.1");
+        assert_eq!(args.last().unwrap(), "uptime");
+    }
+
+    #[test]
+    fn inject_key_preserves_all_options() {
+        let mut args = build_ssh_args("1.2.3.4", "admin", "ls", 10);
+        let original_len = args.len();
+        inject_identity_key(&mut args, std::path::Path::new("/tmp/key"));
+        assert_eq!(args.len(), original_len + 2, "should add exactly -i and key path");
+        assert!(args.contains(&"StrictHostKeyChecking=accept-new".to_string()));
+        assert!(args.contains(&"BatchMode=yes".to_string()));
+    }
+
+    #[test]
+    fn inject_key_into_log_follow_args() {
+        let mut args = super::super::connect_helpers::build_log_follow_args(
+            "azureuser", "10.0.0.1", "/var/log/syslog", 10,
+        );
+        let key = std::path::Path::new("/home/u/.ssh/azlin_key");
+        inject_identity_key(&mut args, key);
+        let i_pos = args.iter().position(|a| a == "-i").unwrap();
+        assert_eq!(args[i_pos + 1], "/home/u/.ssh/azlin_key");
+        assert_eq!(args[i_pos + 2], "azureuser@10.0.0.1");
+    }
+
+    #[test]
+    fn inject_key_with_minimal_args() {
+        let mut args = vec!["user@host".to_string(), "cmd".to_string()];
+        inject_identity_key(&mut args, std::path::Path::new("/key"));
+        assert_eq!(args, vec!["-i", "/key", "user@host", "cmd"]);
     }
 }

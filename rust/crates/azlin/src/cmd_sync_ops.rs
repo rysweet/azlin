@@ -302,10 +302,7 @@ pub(crate) async fn handle_logs(
                 config.ssh_connect_timeout,
             );
             if let Some(ref k) = resolve_ssh_key() {
-                // Insert -i <key> before the user@host argument
-                let insert_pos = follow_args.len().saturating_sub(2);
-                follow_args.insert(insert_pos, k.display().to_string());
-                follow_args.insert(insert_pos, "-i".to_string());
+                crate::ssh_arg_helpers::inject_identity_key(&mut follow_args, k);
             }
             let status = std::process::Command::new("ssh")
                 .args(&follow_args)
