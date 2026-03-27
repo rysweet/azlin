@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "azlin-rs"
-version = "2.6.27"
+version = "2.6.28"
 description = "Azure VM fleet management CLI (Rust) — provision, manage, and monitor development VMs"
 requires-python = ">=3.8"
 license = {text = "MIT"}
