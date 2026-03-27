@@ -1,5 +1,7 @@
 # azlin API Reference
 
+> **Legacy Python API Notice:** This document describes the Python API from azlin v1.x. The project has been rewritten in Rust (v2.x). The Rust codebase does not expose a public library API — it is a CLI tool. For programmatic integration, use the CLI via `std::process::Command` or shell scripts. The Python API below is retained for historical reference only and is no longer maintained.
+
 This document provides a comprehensive reference for all public APIs in the azlin project. Use these APIs to programmatically integrate azlin into your own tools and automation scripts.
 
 ## Table of Contents

@@ -56,6 +56,8 @@ pub enum LogType {
     CloudInit,
     Syslog,
     Auth,
+    Azlin,
+    All,
 }
 
 // ---------------------------------------------------------------------------
@@ -658,7 +660,7 @@ pub enum Commands {
         vm_identifier: String,
 
         /// Number of log lines to show
-        #[arg(short = 'n', long, default_value = "50")]
+        #[arg(short = 'n', long, default_value = "100")]
         lines: u32,
 
         /// Follow log output (like tail -f)
@@ -666,7 +668,7 @@ pub enum Commands {
         follow: bool,
 
         /// Type of log to view
-        #[arg(short = 't', long = "type", default_value = "cloud-init")]
+        #[arg(short = 't', long = "type", default_value = "syslog")]
         log_type: LogType,
 
         /// Resource group

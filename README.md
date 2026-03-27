@@ -108,10 +108,15 @@ azlin health --vm my-vm      # Single VM check
 Displays latency (SSH), traffic (state), errors, and saturation (CPU/Mem/Disk).
 
 ### VM Log Viewer
-View cloud-init, syslog, and custom logs from any VM:
+View syslog, cloud-init, auth, and azlin logs from any VM:
 ```bash
-azlin logs my-vm             # View logs
-azlin logs my-vm --follow    # Stream in real-time
+azlin logs my-vm                      # View last 100 lines of syslog (default)
+azlin logs my-vm --follow             # Stream syslog in real-time
+azlin logs my-vm --type cloud-init    # View cloud-init provisioning logs
+azlin logs my-vm --type auth          # View authentication logs
+azlin logs my-vm --type azlin         # View azlin agent logs
+azlin logs my-vm --type all           # View all log types (snapshot)
+azlin logs my-vm --lines 50           # View last 50 lines
 ```
 
 ### Ubuntu Version Selection
@@ -251,8 +256,8 @@ Connect to VMs securely without public IPs using Azure Bastion:
 # List available Bastion hosts
 azlin bastion list
 
-# Connect to VM through Bastion (auto-detected)
-azlin connect my-vm --use-bastion
+# Connect to VM through Bastion (auto-detected when available)
+azlin connect my-vm
 
 # Configure VM to use specific Bastion
 azlin bastion configure my-vm --bastion-name my-bastion --resource-group my-rg
@@ -419,11 +424,8 @@ Disable features for specific connections:
 # Disable auto-sync for this connection
 azlin connect my-vm --no-auto-sync-keys
 
-# Disable auto-detect (requires --resource-group)
-azlin connect my-vm --no-auto-detect-rg --resource-group my-rg
-
-# Force cache refresh
-azlin connect my-vm --force-rg-refresh
+# Specify resource group explicitly
+azlin connect my-vm --resource-group my-rg
 ```
 
 ### Documentation
@@ -488,7 +490,7 @@ This section provides detailed examples of all azlin commands with practical use
 
 Most azlin commands support these standard options:
 
-- **`--resource-group, --rg TEXT`** - Specify the Azure resource group to use. If not provided, uses the default resource group from your config file (`~/.azlin/config.toml`) or prompts for selection.
+- **`--resource-group <RESOURCE_GROUP>`** - Specify the Azure resource group to use. If not provided, uses the default resource group from your config file (`~/.azlin/config.toml`) or prompts for selection.
 - **`--config PATH`** - Path to a custom config file (overrides the default `~/.azlin/config.toml`)
 
 These options are available on nearly all commands that interact with Azure resources, including:
@@ -1102,11 +1104,11 @@ Stores VM-to-Bastion mapping in `~/.azlin/bastion_config.toml` for automatic use
 azlin connect my-private-vm --resource-group my-rg
 # Output: Found Bastion host 'my-bastion'. Use it? (y/N)
 
-# Force Bastion connection
-azlin connect my-vm --use-bastion --resource-group my-rg
+# Connect via Bastion (auto-detected when Bastion exists)
+azlin connect my-vm --resource-group my-rg
 
-# Use specific Bastion
-azlin connect my-vm --use-bastion --bastion-name my-bastion
+# Disable Bastion connection pooling
+azlin connect my-vm --disable-bastion-pool
 ```
 
 **How It Works:**

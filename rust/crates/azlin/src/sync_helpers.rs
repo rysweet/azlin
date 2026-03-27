@@ -65,6 +65,7 @@ pub fn log_path_for_type(log_type: &str) -> &'static str {
         "cloud-init" | "CloudInit" => "/var/log/cloud-init-output.log",
         "syslog" | "Syslog" => "/var/log/syslog",
         "auth" | "Auth" => "/var/log/auth.log",
+        "azlin" | "Azlin" => "/var/log/azlin/azlin.log",
         _ => "/var/log/syslog",
     }
 }

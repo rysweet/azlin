@@ -963,7 +963,139 @@ mod parity_tests {
     }
 
     // =====================================================================
-    // 12. CLI STRUCTURE VALIDATION — clap debug_assert still passes
+    // 12. LOGS COMMAND — default value corrections + missing enum variants
+    //
+    //     Python CLI defaults: --lines 100, --type syslog
+    //     Rust CLI (current):  --lines 50,  --type cloud-init
+    //     Missing LogType variants: Azlin, All
+    // =====================================================================
+
+    #[test]
+    fn test_logs_default_lines_is_100() {
+        // Python CLI defaulted --lines to 100; Rust currently defaults to 50
+        let cli = Cli::parse_from(["azlin", "logs", "my-vm"]);
+        if let Commands::Logs { lines, .. } = cli.command {
+            assert_eq!(lines, 100, "logs --lines should default to 100 (Python parity)");
+        } else {
+            panic!("Expected Logs command");
+        }
+    }
+
+    #[test]
+    fn test_logs_default_type_is_syslog() {
+        // Python CLI defaulted --type to syslog; Rust currently defaults to cloud-init
+        let cli = Cli::parse_from(["azlin", "logs", "my-vm"]);
+        if let Commands::Logs { log_type, .. } = cli.command {
+            assert!(
+                matches!(log_type, LogType::Syslog),
+                "logs --type should default to syslog (Python parity), got {:?}",
+                log_type
+            );
+        } else {
+            panic!("Expected Logs command");
+        }
+    }
+
+    #[test]
+    fn test_logs_type_azlin_variant_parses() {
+        // LogType must include an Azlin variant for /var/log/azlin/azlin.log
+        let cli = Cli::parse_from(["azlin", "logs", "my-vm", "--type", "azlin"]);
+        if let Commands::Logs { log_type, .. } = cli.command {
+            assert!(
+                matches!(log_type, LogType::Azlin),
+                "logs --type azlin should parse to LogType::Azlin, got {:?}",
+                log_type
+            );
+        } else {
+            panic!("Expected Logs command");
+        }
+    }
+
+    #[test]
+    fn test_logs_type_all_variant_parses() {
+        // LogType must include an All variant that shows all log sources
+        let cli = Cli::parse_from(["azlin", "logs", "my-vm", "--type", "all"]);
+        if let Commands::Logs { log_type, .. } = cli.command {
+            assert!(
+                matches!(log_type, LogType::All),
+                "logs --type all should parse to LogType::All, got {:?}",
+                log_type
+            );
+        } else {
+            panic!("Expected Logs command");
+        }
+    }
+
+    #[test]
+    fn test_logs_type_azlin_short_flag() {
+        // -t azlin should also work (short form of --type)
+        let cli = Cli::parse_from(["azlin", "logs", "my-vm", "-t", "azlin"]);
+        if let Commands::Logs { log_type, .. } = cli.command {
+            assert!(
+                matches!(log_type, LogType::Azlin),
+                "-t azlin should parse to LogType::Azlin"
+            );
+        } else {
+            panic!("Expected Logs command");
+        }
+    }
+
+    #[test]
+    fn test_logs_type_all_short_flag() {
+        // -t all should also work (short form of --type)
+        let cli = Cli::parse_from(["azlin", "logs", "my-vm", "-t", "all"]);
+        if let Commands::Logs { log_type, .. } = cli.command {
+            assert!(
+                matches!(log_type, LogType::All),
+                "-t all should parse to LogType::All"
+            );
+        } else {
+            panic!("Expected Logs command");
+        }
+    }
+
+    #[test]
+    fn test_log_type_enum_has_five_variants() {
+        // LogType should have exactly 5 variants: CloudInit, Syslog, Auth, Azlin, All
+        // We verify by parsing all 5 possible values
+        let variants = ["cloud-init", "syslog", "auth", "azlin", "all"];
+        for v in &variants {
+            let cli = Cli::parse_from(["azlin", "logs", "my-vm", "--type", v]);
+            assert!(
+                matches!(cli.command, Commands::Logs { .. }),
+                "Failed to parse --type {} as valid LogType variant",
+                v
+            );
+        }
+    }
+
+    #[test]
+    fn test_logs_explicit_lines_override_still_works() {
+        // Explicit -n value should override the new default
+        let cli = Cli::parse_from(["azlin", "logs", "my-vm", "-n", "42"]);
+        if let Commands::Logs { lines, .. } = cli.command {
+            assert_eq!(lines, 42, "explicit -n 42 should override default");
+        } else {
+            panic!("Expected Logs command");
+        }
+    }
+
+    #[test]
+    fn test_logs_explicit_type_cloud_init_still_works() {
+        // Even though default changed, explicit --type cloud-init must still work
+        let cli = Cli::parse_from(["azlin", "logs", "my-vm", "--type", "cloud-init"]);
+        if let Commands::Logs { log_type, .. } = cli.command {
+            assert!(
+                matches!(log_type, LogType::CloudInit),
+                "explicit --type cloud-init should still parse correctly"
+            );
+        } else {
+            panic!("Expected Logs command");
+        }
+    }
+
+    // =====================================================================
+    // 13. CLI STRUCTURE VALIDATION — clap debug_assert still passes
     // =====================================================================
 
     #[test]
