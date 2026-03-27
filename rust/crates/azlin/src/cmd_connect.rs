@@ -155,7 +155,7 @@ pub(crate) async fn dispatch(
                         "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
                         vm_manager.subscription_id(), rg, name
                     );
-                    let ssh_key = resolve_ssh_key();
+                    let ssh_key = key.clone().or_else(resolve_ssh_key);
                     let mut args = vec![
                         "network".to_string(),
                         "bastion".to_string(),
@@ -199,8 +199,9 @@ pub(crate) async fn dispatch(
                 } else {
                     // Direct SSH for VMs with public IPs
                     let ip = vm.public_ip.as_deref().unwrap();
+                    let resolved_key = key.clone().or_else(resolve_ssh_key);
                     let mut ssh_args =
-                        crate::connect_helpers::build_ssh_args(&username, ip, key.as_deref());
+                        crate::connect_helpers::build_ssh_args(&username, ip, resolved_key.as_deref());
                     // Enable X11 forwarding for direct SSH
                     if x11 {
                         // Insert -Y before the user@host argument (last element)

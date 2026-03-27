@@ -49,7 +49,10 @@ struct HealthMetrics {
 /// Run an SSH command on a remote host and return (exit_code, stdout, stderr).
 fn ssh_exec(ip: &str, user: &str, cmd: &str) -> Result<(i32, String, String)> {
     let config = azlin_core::AzlinConfig::load().unwrap_or_default();
-    let args = ssh_arg_helpers::build_ssh_args(ip, user, cmd, config.ssh_connect_timeout);
+    let mut args = ssh_arg_helpers::build_ssh_args(ip, user, cmd, config.ssh_connect_timeout);
+    if let Some(ref k) = resolve_ssh_key() {
+        ssh_arg_helpers::inject_identity_key(&mut args, k);
+    }
     let output = std::process::Command::new("ssh").args(&args).output()?;
     Ok((
         output.status.code().unwrap_or(-1),

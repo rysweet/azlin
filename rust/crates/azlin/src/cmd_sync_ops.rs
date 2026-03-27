@@ -305,12 +305,15 @@ pub(crate) async fn handle_logs(
                 std::process::exit(status.code().unwrap_or(1));
             }
         } else {
-            let follow_args = crate::connect_helpers::build_log_follow_args(
+            let mut follow_args = crate::connect_helpers::build_log_follow_args(
                 &target.user,
                 &target.ip,
                 &paths_str,
                 config.ssh_connect_timeout,
             );
+            if let Some(ref k) = resolve_ssh_key() {
+                crate::ssh_arg_helpers::inject_identity_key(&mut follow_args, k);
+            }
             let status = std::process::Command::new("ssh")
                 .args(&follow_args)
                 .status()?;
