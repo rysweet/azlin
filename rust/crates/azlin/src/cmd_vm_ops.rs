@@ -27,6 +27,14 @@ pub(crate) async fn handle_vm_new(
     _tmp_disk_size: Option<u32>,
     _os: Option<String>,
 ) -> Result<()> {
+    // Validate flag combinations early, before creating any resources
+    if private && no_bastion {
+        anyhow::bail!(
+            "--private and --no-bastion cannot be used together: \
+             a private VM has no public IP and requires bastion for SSH access"
+        );
+    }
+
     let auth = create_auth()?;
     let vm_manager = azlin_azure::VmManager::new(&auth);
     let rg = resolve_resource_group(resource_group)?;
@@ -183,12 +191,6 @@ pub(crate) async fn handle_vm_new(
 
         // Resolve SSH target with bastion support
         let target = if no_bastion {
-            if private {
-                anyhow::bail!(
-                    "--private and --no-bastion cannot be used together: \
-                     a private VM has no public IP and requires bastion for SSH access"
-                );
-            }
             // --no-bastion: skip bastion auto-detection, use public IP only
             let vm_ip = vm.public_ip.as_deref()
                 .filter(|ip| !ip.is_empty())
