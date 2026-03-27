@@ -55,8 +55,8 @@ pub(crate) async fn dispatch(
                     }
                 };
 
-            let verbose = verbose || list_verbose;
-            if verbose {
+            let effective_verbose = verbose || list_verbose;
+            if effective_verbose {
                 eprintln!(
                     "[VERBOSE] Fetching VMs from resource group: {}",
                     resource_group.as_deref().unwrap_or("(default)")
@@ -145,7 +145,7 @@ pub(crate) async fn dispatch(
             };
 
             pb.finish_and_clear();
-            if verbose {
+            if effective_verbose {
                 eprintln!("[VERBOSE] Fetched {} VMs", all_vms.len());
             }
 
@@ -160,7 +160,7 @@ pub(crate) async fn dispatch(
 
             // Preserve Azure's natural ordering (matches Python behavior)
 
-            if verbose {
+            if effective_verbose {
                 eprintln!("[VERBOSE] Detecting bastion hosts...");
             }
             // Detect and display bastion hosts (matching Python: shown above VM table)
@@ -193,7 +193,7 @@ pub(crate) async fn dispatch(
                 }
             }
 
-            if verbose {
+            if effective_verbose {
                 eprintln!("[VERBOSE] Collecting tmux sessions via bastion SSH...");
             }
             let ssh_timeout = config.ssh_connect_timeout;
@@ -203,7 +203,7 @@ pub(crate) async fn dispatch(
                     &all_vms,
                     effective_rg,
                     matches!(output, azlin_cli::OutputFormat::Table),
-                    verbose,
+                    effective_verbose,
                     vm_manager.subscription_id(),
                     ssh_timeout,
                 );

@@ -1,7 +1,7 @@
 //! Persistent bastion tunnel daemon for SSH/SCP through Azure Bastion.
 //!
 //! Instead of creating/destroying tunnels per operation, this module maintains
-//! a tunnel registry at `/tmp/azlin-tunnels/registry.json`. Tunnels are reused
+//! a tunnel registry at `~/.azlin/tunnels/registry.json`. Tunnels are reused
 //! across commands and kept alive by a background watchdog thread.
 //!
 //! ## Architecture
@@ -16,7 +16,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use tracing::debug;
 
@@ -27,11 +27,17 @@ static NEXT_PORT: AtomicU16 = AtomicU16::new(50200);
 static WATCHDOG_STARTED: AtomicBool = AtomicBool::new(false);
 
 /// Directory for tunnel state files.
-const TUNNEL_DIR: &str = "/tmp/azlin-tunnels";
+/// Uses `~/.azlin/tunnels/` instead of `/tmp` to avoid world-readable race conditions.
+fn tunnel_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join(".azlin")
+        .join("tunnels")
+}
 
 /// Registry file path.
 fn registry_path() -> PathBuf {
-    PathBuf::from(TUNNEL_DIR).join("registry.json")
+    tunnel_dir().join("registry.json")
 }
 
 // ---- Registry data model ----
@@ -68,14 +74,15 @@ impl TunnelRegistry {
 
     /// Save the registry to disk.
     pub fn save(&self) -> Result<()> {
-        let dir = Path::new(TUNNEL_DIR);
+        let dir = tunnel_dir();
         if !dir.exists() {
-            std::fs::create_dir_all(dir).context("creating tunnel directory")?;
+            std::fs::create_dir_all(&dir).context("creating tunnel directory")?;
         }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+                .context("setting tunnel directory permissions to 0700")?;
         }
         let data = serde_json::to_string_pretty(self)?;
         std::fs::write(registry_path(), data).context("writing tunnel registry")?;

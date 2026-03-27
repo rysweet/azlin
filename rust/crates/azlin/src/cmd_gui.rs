@@ -144,7 +144,7 @@ pub(crate) async fn dispatch(
 
     // Step 6: Launch local VNC viewer
     println!("Launching VNC viewer (127.0.0.1:{})...", VNC_PORT);
-    println!("VNC password: {}", vnc_password);
+    eprintln!("(VNC password set on remote — not displayed for security)");
     println!("Press Ctrl+C to stop the GUI session.\n");
 
     let viewer_result = launch_viewer(&ssh_cmd_prefix, &vnc_password);
@@ -366,10 +366,11 @@ fn start_vnc_server(
         anyhow::bail!("Failed to generate VNC password on remote host");
     }
 
-    // Set up VNC password file
+    // Set up VNC password file (shell-escape password to prevent injection)
+    let escaped_password = shell_escape::unix::escape(password.as_str().into());
     let passwd_cmd = format!(
-        "mkdir -p ~/.vnc && echo '{}' | vncpasswd -f > ~/.vnc/passwd && chmod 600 ~/.vnc/passwd",
-        password
+        "mkdir -p ~/.vnc && echo {} | vncpasswd -f > ~/.vnc/passwd && chmod 600 ~/.vnc/passwd",
+        escaped_password
     );
     let (code, _, stderr) = run_ssh_command_full(ssh_cmd_prefix, &passwd_cmd)?;
     if code != 0 {

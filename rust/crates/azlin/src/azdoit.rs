@@ -161,11 +161,14 @@ async fn main() -> Result<()> {
             }
         }
         println!("-> [{}/{}] {}", i + 1, commands.len(), cmd);
-        let parts: Vec<&str> = cmd.split_whitespace().collect();
-        if parts.is_empty() {
-            continue;
-        }
-        let output = std::process::Command::new(parts[0])
+        let parts = match shlex::split(cmd) {
+            Some(p) if !p.is_empty() => p,
+            _ => {
+                eprintln!("  Failed to parse command: {}", cmd);
+                continue;
+            }
+        };
+        let output = std::process::Command::new(&parts[0])
             .args(&parts[1..])
             .output()?;
         if !output.stdout.is_empty() {
