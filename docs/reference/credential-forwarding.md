@@ -20,7 +20,7 @@ Before forwarding, azlin waits for the VM's SSH service to become reachable:
 |-----------|-------|
 | Timeout | Configurable (default: 120 seconds) |
 | Poll interval | Configurable (default: 5 seconds) |
-| TCP connect timeout | Configurable (default: 5 seconds) |
+| TCP connect timeout | 3 seconds per attempt |
 | Verification | TCP connect + SSH auth handshake |
 
 The check performs two steps per attempt:
@@ -72,7 +72,7 @@ Each credential source is detected independently. Only sources that exist locall
 - `config`
 - `msal_token_cache.json`
 - `msal_token_cache.bin`
-- `az.sess`
+- `clouds.config`
 
 Files **excluded** from forwarding:
 
@@ -132,8 +132,9 @@ No forwarding failure ever causes `azlin new` to return a non-zero exit code.
 
 `TcpStream::connect_timeout` requires a `SocketAddr`. IP parsing:
 
-1. Attempt to parse `ip:22` as `SocketAddr`
-2. If that fails (e.g., bare IPv6 without brackets), fall back to `127.0.0.1:22`
+1. If the host contains `:` (IPv6 heuristic), bracket it: `[host]:port`
+2. Otherwise parse as `host:port`
+3. If parsing fails, fall back to `127.0.0.1:<port>` (preserves the actual port)
 
 In practice, Azure VMs use IPv4 addresses. The fallback exists as a safety net for unexpected address formats.
 

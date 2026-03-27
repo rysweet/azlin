@@ -732,12 +732,11 @@ mod tests {
     // =======================================================================
 
     #[test]
-    fn test_az_forward_only_copies_allowed_files() {
-        // Verify forward_az uses the same allow-list as az_config_dir.
-        // Both functions define their lists independently — this test catches drift.
-        // We test indirectly: create .azure with all 5 allowed files + 1 extra,
-        // confirm detection works (uses the detection list), and that
-        // the file set in az_config_dir is a subset of forward_az's allowed list.
+    fn test_az_detection_allow_list_accepts_all_five_files() {
+        // Verify az_config_dir detects presence when all 5 allowed files exist,
+        // even alongside files that should NOT be forwarded.
+        // NOTE: This tests detection only — actual SCP forwarding requires a
+        // live SSH connection and is covered by integration tests.
         let tmp = TempDir::new().unwrap();
         let az = tmp.path().join(".azure");
         std::fs::create_dir_all(&az).unwrap();
