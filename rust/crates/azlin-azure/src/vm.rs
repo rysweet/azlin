@@ -662,7 +662,7 @@ fn cloud_init_script(admin_username: &str) -> String {
         "azureuser"
     };
     format!(
-        r#"#!/bin/bash
+        r##"#!/bin/bash
 set -euo pipefail
 
 apt-get update -qq
@@ -672,16 +672,73 @@ apt-get install -y -qq \
     git curl wget jq unzip \
     build-essential make \
     tmux ripgrep fd-find \
-    docker.io
+    docker.io software-properties-common \
+    python3-pip pipx htop tree vim
 
 systemctl enable docker
 systemctl start docker
 usermod -aG docker {username}
 
-# Install Rust and Cargo
+# Python 3.13+ — use deadsnakes PPA only on LTS that needs it
+if python3 --version 2>&1 | grep -qE '3\.1[3-9]|3\.[2-9][0-9]'; then
+    echo "Python 3.13+ already available"
+else
+    add-apt-repository -y ppa:deadsnakes/ppa && apt-get update && apt-get install -y python3.13 python3.13-venv python3.13-dev
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1
+    update-alternatives --set python3 /usr/bin/python3.13
+fi
+curl -sS https://bootstrap.pypa.io/get-pip.py | python3
+
+# GitHub CLI
+mkdir -p -m 755 /etc/apt/keyrings
+wget -nv -O /tmp/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg
+tee /etc/apt/keyrings/githubcli-archive-keyring.gpg < /tmp/githubcli-archive-keyring.gpg > /dev/null
+chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+apt-get update && apt-get install -y gh
+
+# Azure CLI
+curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+
+# astral-uv
+snap install astral-uv --classic || true
+
+# Node.js 22 LTS
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt-get install -y nodejs
+mkdir -p /home/{username}/.npm-packages
+echo 'prefix=${{HOME}}/.npm-packages' > /home/{username}/.npmrc
+chown {username}:{username} /home/{username}/.npmrc /home/{username}/.npm-packages
+
+# Tmux configuration
+cat > /home/{username}/.tmux.conf << 'TMUXEOF'
+set -g status-left-length 50
+set -g status-left "#[fg=cyan][#h]#[fg=green] #S #[fg=yellow]| "
+set -g status-right "#[fg=cyan]%Y-%m-%d %H:%M"
+set -g status-interval 60
+set -g status-bg black
+set -g status-fg white
+TMUXEOF
+chown {username}:{username} /home/{username}/.tmux.conf
+
+# Fix tmux socket dir permissions (Ubuntu 25.10+)
+chmod 1777 /tmp
+mkdir -p /tmp/tmux-1000
+chmod 700 /tmp/tmux-1000
+chown {username}:{username} /tmp/tmux-1000
+
+# Claude Code AI Assistant
+su - {username} -c 'curl -fsSL https://claude.ai/install.sh | bash' || echo "WARNING: Claude Code install failed"
+
+# Rust and Cargo
 su - {username} -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
 
-# Install .NET 10 SDK (preview until GA release, then remove --quality flag)
+# Go
+wget -q https://go.dev/dl/go1.21.5.linux-amd64.tar.gz -O /tmp/go.tar.gz
+tar -C /usr/local -xzf /tmp/go.tar.gz
+rm -f /tmp/go.tar.gz
+
+# .NET 10 SDK
 curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
 chmod +x /tmp/dotnet-install.sh
 /tmp/dotnet-install.sh --channel 10.0 --quality preview --install-dir /usr/share/dotnet \
@@ -690,11 +747,23 @@ chmod +x /tmp/dotnet-install.sh
 ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet 2>/dev/null || true
 rm -f /tmp/dotnet-install.sh
 
-# Install amplihack
-su - {username} -c 'git clone https://github.com/rysweet/amplihack.git ~/amplihack && cd ~/amplihack && make install || true'
+# bashrc additions
+cat >> /home/{username}/.bashrc << 'BASHEOF'
+
+# npm user-local configuration
+NPM_PACKAGES="${{HOME}}/.npm-packages"
+PATH="$NPM_PACKAGES/bin:$PATH"
+MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
+
+# Go
+export PATH=$PATH:/usr/local/go/bin
+
+# Cargo
+source $HOME/.cargo/env 2>/dev/null
+BASHEOF
 
 echo "cloud-init provisioning complete"
-"#,
+"##,
         username = safe_username
     )
 }
@@ -1017,11 +1086,15 @@ mod tests {
     }
 
     #[test]
-    fn test_cloud_init_script_installs_amplihack() {
+    fn test_cloud_init_script_installs_gh_and_az() {
         let script = cloud_init_script("testuser");
         assert!(
-            script.contains("github.com/rysweet/amplihack"),
-            "Missing amplihack clone"
+            script.contains("apt-get install -y gh"),
+            "Missing GitHub CLI install"
+        );
+        assert!(
+            script.contains("InstallAzureCLIDeb"),
+            "Missing Azure CLI install"
         );
     }
 
