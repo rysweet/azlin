@@ -87,7 +87,7 @@ pub fn generate_cloud_init(
 ///
 /// These install toolchains that aren't available as apt packages, matching
 /// the full Python azlin provisioning (gh, az, node, claude, rust, go, .NET).
-pub fn default_dev_setup_commands() -> Vec<String> {
+pub fn default_dev_setup_commands(username: &str) -> Vec<String> {
     vec![
         // Full system upgrade
         "apt update && apt full-upgrade -y && apt autoremove -y && apt autoclean -y".to_string(),
@@ -105,23 +105,23 @@ pub fn default_dev_setup_commands() -> Vec<String> {
         // Node.js 22 LTS (via NodeSource)
         "curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt install -y nodejs".to_string(),
         // npm user-local configuration
-        "mkdir -p /home/azureuser/.npm-packages && echo 'prefix=${HOME}/.npm-packages' > /home/azureuser/.npmrc && chown azureuser:azureuser /home/azureuser/.npmrc /home/azureuser/.npm-packages".to_string(),
+        format!("mkdir -p /home/{u}/.npm-packages && echo 'prefix=${{HOME}}/.npm-packages' > /home/{u}/.npmrc && chown {u}:{u} /home/{u}/.npmrc /home/{u}/.npm-packages", u = username),
         // Tmux configuration
-        "printf '[%%s] %%s\\n' \"$(hostname)\" \"tmux.conf\" && cat > /home/azureuser/.tmux.conf << 'TMUXEOF'\nset -g status-left-length 50\nset -g status-left \"#[fg=cyan][#h]#[fg=green] #S #[fg=yellow]| \"\nset -g status-right \"#[fg=cyan]%%Y-%%m-%%d %%H:%%M\"\nset -g status-interval 60\nset -g status-bg black\nset -g status-fg white\nTMUXEOF\nchown azureuser:azureuser /home/azureuser/.tmux.conf".to_string(),
+        format!("printf '[%%s] %%s\\n' \"$(hostname)\" \"tmux.conf\" && cat > /home/{u}/.tmux.conf << 'TMUXEOF'\nset -g status-left-length 50\nset -g status-left \"#[fg=cyan][#h]#[fg=green] #S #[fg=yellow]| \"\nset -g status-right \"#[fg=cyan]%%Y-%%m-%%d %%H:%%M\"\nset -g status-interval 60\nset -g status-bg black\nset -g status-fg white\nTMUXEOF\nchown {u}:{u} /home/{u}/.tmux.conf", u = username),
         // Fix tmux socket dir permissions (Ubuntu 25.10+)
-        "chmod 1777 /tmp && mkdir -p /tmp/tmux-1000 && chmod 700 /tmp/tmux-1000 && chown azureuser:azureuser /tmp/tmux-1000".to_string(),
+        format!("chmod 1777 /tmp && TMUX_UID=$(id -u {u}) && mkdir -p /tmp/tmux-$TMUX_UID && chmod 700 /tmp/tmux-$TMUX_UID && chown {u}:{u} /tmp/tmux-$TMUX_UID", u = username),
         // Claude Code AI Assistant
-        "su - azureuser -c 'curl -fsSL https://claude.ai/install.sh | bash' || echo 'WARNING: Claude Code installation failed'".to_string(),
+        format!("su - {u} -c 'curl -fsSL https://claude.ai/install.sh | bash' || echo 'WARNING: Claude Code installation failed'", u = username),
         // Rust
-        "su - azureuser -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'".to_string(),
+        format!("su - {u} -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'", u = username),
         // Go
         "wget -q https://go.dev/dl/go1.21.5.linux-amd64.tar.gz -O /tmp/go.tar.gz && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz".to_string(),
         // .NET 10 SDK
         "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && chmod +x /tmp/dotnet-install.sh && (/tmp/dotnet-install.sh --channel 10.0 --quality preview --install-dir /usr/share/dotnet || /tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet || echo 'WARNING: .NET 10 SDK install failed') && ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet; rm -f /tmp/dotnet-install.sh".to_string(),
         // Docker post-install
-        "usermod -aG docker azureuser && systemctl enable docker && systemctl start docker".to_string(),
+        format!("usermod -aG docker {u} && systemctl enable docker && systemctl start docker", u = username),
         // bashrc additions (npm path, go path, cargo env, azlin alias)
-        "cat >> /home/azureuser/.bashrc << 'BASHEOF'\n\n# npm user-local configuration\nNPM_PACKAGES=\"${HOME}/.npm-packages\"\nPATH=\"$NPM_PACKAGES/bin:$PATH\"\nMANPATH=\"$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)\"\n\n# Go\nexport PATH=$PATH:/usr/local/go/bin\n\n# Cargo\nsource $HOME/.cargo/env 2>/dev/null\nBASHEOF".to_string(),
+        format!("cat >> /home/{u}/.bashrc << 'BASHEOF'\n\n# npm user-local configuration\nNPM_PACKAGES=\"${{HOME}}/.npm-packages\"\nPATH=\"$NPM_PACKAGES/bin:$PATH\"\nMANPATH=\"$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)\"\n\n# Go\nexport PATH=$PATH:/usr/local/go/bin\n\n# Cargo\nsource $HOME/.cargo/env 2>/dev/null\nBASHEOF", u = username),
         // Version verification
         "echo '[AZLIN] Provisioning complete' && which gh && gh --version && which az && az --version | head -2 && which node && node --version && which rustc && rustc --version && which dotnet && dotnet --version || true".to_string(),
     ]
@@ -221,7 +221,7 @@ mod tests {
 
     #[test]
     fn test_default_dev_setup_commands() {
-        let cmds = default_dev_setup_commands();
+        let cmds = default_dev_setup_commands("azureuser");
         assert!(
             cmds.iter().any(|c| c.contains("rustup.rs")),
             "Missing Rust install command"

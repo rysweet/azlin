@@ -723,9 +723,10 @@ chown {username}:{username} /home/{username}/.tmux.conf
 
 # Fix tmux socket dir permissions (Ubuntu 25.10+)
 chmod 1777 /tmp
-mkdir -p /tmp/tmux-1000
-chmod 700 /tmp/tmux-1000
-chown {username}:{username} /tmp/tmux-1000
+TMUX_UID=$(id -u {username})
+mkdir -p /tmp/tmux-$TMUX_UID
+chmod 700 /tmp/tmux-$TMUX_UID
+chown {username}:{username} /tmp/tmux-$TMUX_UID
 
 # Claude Code AI Assistant
 su - {username} -c 'curl -fsSL https://claude.ai/install.sh | bash' || echo "WARNING: Claude Code install failed"
@@ -761,6 +762,14 @@ export PATH=$PATH:/usr/local/go/bin
 # Cargo
 source $HOME/.cargo/env 2>/dev/null
 BASHEOF
+
+# Version verification
+echo "[AZLIN] Verifying installed tools..."
+which gh && gh --version || echo "WARNING: gh not found"
+which az && az --version | head -2 || echo "WARNING: az not found"
+which node && node --version || echo "WARNING: node not found"
+su - {username} -c 'which rustc && rustc --version' || echo "WARNING: rustc not found"
+which dotnet && dotnet --version || echo "WARNING: dotnet not found"
 
 echo "cloud-init provisioning complete"
 "##,
