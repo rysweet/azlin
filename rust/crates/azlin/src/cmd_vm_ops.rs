@@ -189,12 +189,12 @@ pub(crate) async fn handle_vm_new(
                      a private VM has no public IP and requires bastion for SSH access"
                 );
             }
-            // --no-bastion: skip bastion auto-detection, use public IP directly
+            // --no-bastion: skip bastion auto-detection, use public IP only
             let vm_ip = vm.public_ip.as_deref()
-                .or(vm.private_ip.as_deref())
                 .filter(|ip| !ip.is_empty())
                 .ok_or_else(|| anyhow::anyhow!(
-                    "VM '{}' has no IP address available for SSH connection", vm_name
+                    "VM '{}' has no public IP and --no-bastion was specified; \
+                     remove --no-bastion to allow bastion auto-detection", vm_name
                 ))?
                 .to_string();
             crate::VmSshTarget {
