@@ -78,14 +78,16 @@ fn wait_for_ssh(host: &str, port: u16, user: &str, timeout: Duration) -> Result<
         }
 
         // Step 1: TCP port check
-        if TcpStream::connect_timeout(
-            &format!("{}:{}", host, port).parse().unwrap_or_else(|_| {
-                std::net::SocketAddr::from(([127, 0, 0, 1], port))
-            }),
-            Duration::from_secs(3),
-        )
-        .is_ok()
-        {
+        let addr: std::net::SocketAddr = if host.contains(':') {
+            // IPv6 address — bracket it
+            format!("[{}]:{}", host, port)
+        } else {
+            format!("{}:{}", host, port)
+        }
+        .parse()
+        .unwrap_or_else(|_| std::net::SocketAddr::from(([127, 0, 0, 1], port)));
+
+        if TcpStream::connect_timeout(&addr, Duration::from_secs(3)).is_ok() {
             // Step 2: actual SSH auth test
             if test_ssh_auth(host, port, user) {
                 println!("SSH ready.");
@@ -313,7 +315,7 @@ fn ssh_run(ip: &str, user: &str, bastion_port: Option<u16>, command: &str) -> Re
 
 /// SCP a single file to the remote.
 fn scp_file(
-    local: &PathBuf,
+    local: &std::path::Path,
     ip: &str,
     user: &str,
     remote_path: &str,
@@ -337,7 +339,7 @@ fn scp_file(
 
 /// SCP a directory recursively to the remote.
 fn scp_recursive(
-    local_dir: &PathBuf,
+    local_dir: &std::path::Path,
     ip: &str,
     user: &str,
     remote_path: &str,
