@@ -16,9 +16,13 @@ pub fn build_ssh_args(ip: &str, user: &str, cmd: &str, connect_timeout: u64) -> 
 
 /// Inject `-i <key_path>` into an SSH args vector before the `user@host` argument.
 ///
-/// The args vector must contain at least `user@host` and a command (len >= 2).
-/// The key is inserted at `len - 2` so the final order is:
-///   `[options...] -i <key> user@host command`
+/// The key is inserted at `len - 2` (or position 0 if len < 2) so the final
+/// order is typically: `[options...] -i <key> user@host command`
+///
+/// # Panics (debug builds only)
+///
+/// Debug-asserts that `args.len() >= 2`. Release builds handle short vectors
+/// gracefully via `saturating_sub`.
 pub fn inject_identity_key(args: &mut Vec<String>, key_path: &std::path::Path) {
     debug_assert!(
         args.len() >= 2,
