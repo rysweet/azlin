@@ -164,7 +164,7 @@ pub(crate) async fn handle_vm_new(
         println!("VM '{}' created successfully!", vm.name);
 
         if let Some(ref nfs) = nfs_storage {
-            println!("NFS storage '{}' will be mounted as home directory.", nfs);
+            eprintln!("Warning: --nfs-storage '{}' accepted but NFS mounting is not yet implemented in the Rust CLI.", nfs);
         }
 
         let mut table = crate::table_render::SimpleTable::new(&["Property", "Value"], &[14, 40]);
@@ -183,9 +183,20 @@ pub(crate) async fn handle_vm_new(
 
         // Resolve SSH target with bastion support
         let target = if no_bastion {
+            if private {
+                anyhow::bail!(
+                    "--private and --no-bastion cannot be used together: \
+                     a private VM has no public IP and requires bastion for SSH access"
+                );
+            }
             // --no-bastion: skip bastion auto-detection, use public IP directly
-            let vm_ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref())
-                .unwrap_or("").to_string();
+            let vm_ip = vm.public_ip.as_deref()
+                .or(vm.private_ip.as_deref())
+                .filter(|ip| !ip.is_empty())
+                .ok_or_else(|| anyhow::anyhow!(
+                    "VM '{}' has no IP address available for SSH connection", vm_name
+                ))?
+                .to_string();
             crate::VmSshTarget {
                 vm_name: vm_name.clone(),
                 ip: vm_ip,
