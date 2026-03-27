@@ -50,7 +50,7 @@ Credential forwarding follows a strict security model:
   - `config` — CLI configuration
   - `msal_token_cache.json` — login tokens
   - `msal_token_cache.bin` — binary token cache
-  - `az.sess` — session state
+  - `clouds.config` — cloud endpoint definitions
   - Service principal credentials (`servicePrincipalProfile`, `accessTokens.json`) are **never** copied.
 
 - **No shell injection**: All SSH/SCP commands use `Command::new()` with argument arrays — never shell interpolation.
