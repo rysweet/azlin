@@ -42,7 +42,7 @@ azlin
 azlin list
 
 # Or provision a new VM
-azlin --name my-vm
+azlin new --name my-vm
 ```
 
 ---
@@ -51,7 +51,7 @@ azlin --name my-vm
 
 ### Main Command
 ```bash
-azlin [OPTIONS]                    # Show help (or no args for help)
+azlin                              # Show help
 ```
 
 ### Subcommands
@@ -225,7 +225,7 @@ Select VM (number or 'n' for new):
 
 **Custom name:**
 ```bash
-azlin --name my-dev-vm
+azlin new --name my-dev-vm
 ```
 
 **Auto-generated (default):**
@@ -236,8 +236,8 @@ azlin
 
 **With command (extracts slug):**
 ```bash
-azlin -- python train.py
-# Creates: azlin-20241009-120000-python-train
+azlin new -- python train.py
+# Creates: azlin-YYYYMMDD-HHMMSS-python-train
 ```
 
 ---
@@ -279,12 +279,12 @@ azlin w --rg production-rg
 
 **Create 3 VMs in parallel:**
 ```bash
-azlin --pool 3
+azlin new --pool 3
 ```
 
 **Pool with custom configuration:**
 ```bash
-azlin --pool 5 --vm-size Standard_D4s_v3 --rg batch-jobs
+azlin new --pool 5 --vm-size Standard_D4s_v3 --rg batch-jobs
 ```
 
 **Warning for large pools (>10):**
@@ -484,13 +484,13 @@ azlin
 ### Workflow 2: Named Project VM
 ```bash
 # Create named VM with repo
-azlin --name project-alpha --repo https://github.com/user/project
+azlin new --name project-alpha --repo https://github.com/user/project
 ```
 
 ### Workflow 3: Batch Processing
 ```bash
 # Create pool for batch job
-azlin --pool 10 --rg batch-processing
+azlin new --pool 10 --rg batch-processing
 
 # Check on all VMs
 azlin w --rg batch-processing
@@ -508,7 +508,7 @@ azlin killall --rg batch-processing
 ### Workflow 4: Training Job
 ```bash
 # Provision and run training
-azlin --vm-size Standard_NC6 -- python train.py --epochs 100
+azlin new --vm-size Standard_NC6 -- python train.py --epochs 100
 
 # Opens in new terminal, shows output
 ```
@@ -516,10 +516,10 @@ azlin --vm-size Standard_NC6 -- python train.py --epochs 100
 ### Workflow 5: Multiple Resource Groups
 ```bash
 # Development
-azlin --rg dev-rg --name dev-vm
+azlin new --rg dev-rg --name dev-vm
 
 # Production
-azlin --rg prod-rg --name prod-vm
+azlin new --rg prod-rg --name prod-vm
 
 # List each
 azlin list --rg dev-rg
@@ -533,7 +533,7 @@ azlin list --rg prod-rg
 ### Tip 1: Default Resource Group
 Set once, use everywhere:
 ```bash
-azlin --rg my-team-rg  # Sets default
+azlin new --rg my-team-rg  # Sets default
 azlin                   # Uses my-team-rg
 azlin list              # Uses my-team-rg
 azlin w                 # Uses my-team-rg
@@ -545,7 +545,7 @@ Run `azlin` with no args for quick access to existing VMs.
 ### Tip 3: Parallel Execution
 Use `--pool` for multiple VMs:
 ```bash
-azlin --pool 5  # 5x faster than sequential
+azlin new --pool 5  # 5x faster than sequential
 ```
 
 ### Tip 4: Command Execution
@@ -558,7 +558,7 @@ azlin -- long-running-job
 ### Tip 5: VM Naming
 Use meaningful names:
 ```bash
-azlin --name ml-training-$(date +%Y%m%d)
+azlin new --name ml-training-$(date +%Y%m%d)
 ```
 
 ---
@@ -568,7 +568,7 @@ azlin --name ml-training-$(date +%Y%m%d)
 ### Issue: "No resource group specified"
 **Solution:** Set default or use --rg flag
 ```bash
-azlin --rg my-rg
+azlin new --rg my-rg
 ```
 
 ### Issue: "No VMs found"
