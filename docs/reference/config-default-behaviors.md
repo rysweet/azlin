@@ -586,43 +586,23 @@ azlin config set logging.level DEBUG
 
 ### Reset to Defaults
 
-Reset specific setting:
+To reset configuration, delete or edit the config file directly:
 ```bash
-azlin config reset ssh.auto_sync_keys
+# View current config
+azlin config show
+
+# Edit manually
+nano ~/.azlin/config.toml
+
+# Or delete to start fresh (azlin config init recreates it)
+rm ~/.azlin/config.toml && azlin config init
 ```
 
-Reset all settings:
+### Compare with Defaults
+
+Show differences between current config and defaults:
 ```bash
-azlin config reset --all
-```
-
-### Validate Configuration
-
-Check configuration file for errors:
-```bash
-azlin config validate
-```
-
-Output:
-```
-Validating configuration file: ~/.azlin/config.toml
-✓ Syntax valid (TOML)
-✓ All required fields present
-✓ All values have correct types
-✓ All values within valid ranges
-Configuration is valid.
-```
-
-### Export Configuration
-
-Export current configuration (useful for backup or sharing):
-```bash
-azlin config export > my-azlin-config.toml
-```
-
-Import configuration:
-```bash
-azlin config import my-azlin-config.toml
+azlin config diff
 ```
 
 ## Configuration Best Practices
@@ -735,15 +715,14 @@ audit_log_backup_count = 50              # Long retention
 
 **Solutions**:
 
-1. Validate syntax:
+1. View current config to check for issues:
    ```bash
-   azlin config validate
+   azlin config show
    ```
 
 2. Check config file location:
    ```bash
-   azlin config path
-   # Output: /Users/you/.azlin/config.toml
+   ls -la ~/.azlin/config.toml
    ```
 
 3. Check for typos (TOML is case-sensitive):
@@ -770,9 +749,9 @@ audit_log_backup_count = 50              # Long retention
    ls -la ~/.azlin/config.toml
    ```
 
-2. Check value ranges:
+2. Check current config values:
    ```bash
-   azlin config validate
+   azlin config show
    ```
 
 3. View effective configuration:

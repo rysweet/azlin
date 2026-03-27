@@ -234,7 +234,7 @@ azlin disk add <VM_NAME> --size <GB> [OPTIONS]
 ### Examples
 
 ```bash
-# Add a 64GB disk at the default mount point (/mnt/data)
+# Add a 64GB disk at the default mount point (/tmp)
 azlin disk add my-vm --size 64
 
 # Add a 128GB disk at a custom mount point

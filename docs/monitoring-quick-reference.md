@@ -145,5 +145,5 @@ azlin w
 
 - Never commit `alert_rules.yaml` with secrets to version control
 - Use environment variables for webhook tokens
-- Rotate SMTP passwords regularly using `azlin monitor alert config-email`
+- Rotate SMTP passwords regularly if using email-based alerts
 - Restrict database file permissions: `chmod 600 ~/.azlin/metrics.db`
