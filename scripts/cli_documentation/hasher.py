@@ -12,10 +12,9 @@ Philosophy:
 
 import hashlib
 import json
-import sys
 from pathlib import Path
 
-from .models import ChangeSet, CLIMetadata
+from .models import ChangeSet, CLIMetadata, DocumentationError
 
 
 class CLIHasher:
@@ -125,7 +124,11 @@ class CLIHasher:
         """Save all hashes to disk.
 
         Returns:
-            True if save succeeded, False otherwise
+            True if save succeeded.
+
+        Raises:
+            DocumentationError: If the file cannot be written due to I/O or
+                other unexpected errors.
 
         Example:
             >>> hasher = CLIHasher()
@@ -137,17 +140,13 @@ class CLIHasher:
         try:
             self.hash_file.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(self.hash_file, "w") as f:
+            with open(self.hash_file, "w", encoding="utf-8") as f:
                 json.dump(self._hashes, f, indent=2, sort_keys=True)
 
             return True
 
         except Exception as e:
-            print(
-                f"Warning: Failed to save hashes to '{self.hash_file}': {e}",
-                file=sys.stderr,
-            )
-            return False
+            raise DocumentationError("Failed to save hashes to hash file") from e
 
     def compare_hashes(self, current_commands: dict[str, CLIMetadata]) -> ChangeSet:
         """Compare current commands with stored hashes.
@@ -184,20 +183,28 @@ class CLIHasher:
         return ChangeSet(changed=changed, added=added, removed=removed)
 
     def _load_hashes(self) -> None:
-        """Load hashes from disk."""
+        """Load hashes from disk.
+
+        Raises:
+            DocumentationError: If the file exists but cannot be read or parsed.
+        """
         if not self.hash_file.exists():
             self._hashes = {}
             return
 
         try:
-            with open(self.hash_file) as f:
+            with open(self.hash_file, encoding="utf-8") as f:
                 self._hashes = json.load(f)
-        except Exception as e:
-            print(
-                f"Warning: Failed to load hashes from '{self.hash_file}': {e}",
-                file=sys.stderr,
-            )
+        except FileNotFoundError:
             self._hashes = {}
+        except json.JSONDecodeError as e:
+            raise DocumentationError(
+                f"Hash file {self.hash_file} is corrupt: {e}"
+            ) from e
+        except OSError as e:
+            raise DocumentationError(
+                f"Cannot read hash file {self.hash_file}: {e}"
+            ) from e
 
     def clear_hashes(self) -> None:
         """Clear all stored hashes (force full regeneration)."""
