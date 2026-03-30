@@ -366,18 +366,10 @@ fn start_vnc_server(
         anyhow::bail!("Failed to generate VNC password on remote host");
     }
 
-    // Set up VNC password file (shell-escape password to prevent injection)
+    // Set up VNC password, xstartup, and start server in a single SSH call
+    // to reduce round trips through potentially slow bastion tunnels (was 4 calls, now 1).
     let escaped_password = shell_escape::unix::escape(password.as_str().into());
-    let passwd_cmd = format!(
-        "mkdir -p ~/.vnc && echo {} | vncpasswd -f > ~/.vnc/passwd && chmod 600 ~/.vnc/passwd",
-        escaped_password
-    );
-    let (code, _, stderr) = run_ssh_command_full(ssh_cmd_prefix, &passwd_cmd)?;
-    if code != 0 {
-        anyhow::bail!("Failed to set VNC password: {}", stderr);
-    }
 
-    // Create xstartup based on mode
     // DISPLAY must be explicitly exported for apps to find the VNC X server.
     // xhost +local: allows local apps to connect without xauth issues
     // (safe because VNC only listens on localhost).
@@ -400,29 +392,18 @@ fn start_vnc_server(
         }
     };
 
-    let xstartup_cmd = format!(
-        "cat > ~/.vnc/xstartup << 'XSTARTUP'\n#!/bin/sh\n{}\nXSTARTUP\nchmod +x ~/.vnc/xstartup",
-        xstartup_body
+    let setup_and_start_cmd = format!(
+        "set -e\n\
+         mkdir -p ~/.vnc && echo {} | vncpasswd -f > ~/.vnc/passwd && chmod 600 ~/.vnc/passwd\n\
+         cat > ~/.vnc/xstartup << 'XSTARTUP'\n#!/bin/sh\n{}\nXSTARTUP\n\
+         chmod +x ~/.vnc/xstartup\n\
+         vncserver -kill :{} 2>/dev/null || true\n\
+         vncserver :{} -localhost yes -geometry {} -depth {}",
+        escaped_password, xstartup_body, VNC_DISPLAY, VNC_DISPLAY, resolution, depth
     );
-    let (code, _, stderr) = run_ssh_command_full(ssh_cmd_prefix, &xstartup_cmd)?;
+    let (code, _, stderr) = run_ssh_command_full(ssh_cmd_prefix, &setup_and_start_cmd)?;
     if code != 0 {
-        anyhow::bail!("Failed to create VNC xstartup: {}", stderr);
-    }
-
-    // Kill any existing VNC server on display :1
-    let _ = run_ssh_command(
-        ssh_cmd_prefix,
-        &format!("vncserver -kill :{} 2>/dev/null || true", VNC_DISPLAY),
-    );
-
-    // Start VNC server
-    let start_cmd = format!(
-        "vncserver :{} -localhost yes -geometry {} -depth {}",
-        VNC_DISPLAY, resolution, depth
-    );
-    let (code, _, stderr) = run_ssh_command_full(ssh_cmd_prefix, &start_cmd)?;
-    if code != 0 {
-        anyhow::bail!("Failed to start VNC server: {}", stderr);
+        anyhow::bail!("Failed to set up and start VNC server: {}", stderr);
     }
 
     Ok(password)
@@ -597,11 +578,14 @@ fn run_ssh_command_full(
         .output()
         .context("Failed to execute SSH command")?;
 
-    Ok((
-        output.status.code().unwrap_or(-1),
-        String::from_utf8_lossy(&output.stdout).to_string(),
-        String::from_utf8_lossy(&output.stderr).to_string(),
-    ))
+    // Prefer zero-copy String::from_utf8 (common case: valid UTF-8),
+    // falling back to lossy conversion only for malformed output.
+    let stdout = String::from_utf8(output.stdout)
+        .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
+    let stderr = String::from_utf8(output.stderr)
+        .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
+
+    Ok((output.status.code().unwrap_or(-1), stdout, stderr))
 }
 
 // ---------------------------------------------------------------------------
@@ -610,14 +594,13 @@ fn run_ssh_command_full(
 
 /// Validate resolution string format (WIDTHxHEIGHT, both > 0).
 fn is_valid_resolution(res: &str) -> bool {
-    let parts: Vec<&str> = res.split('x').collect();
-    if parts.len() != 2 {
+    let Some((w_str, h_str)) = res.split_once('x') else {
         return false;
-    }
-    match (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
-        (Ok(w), Ok(h)) => w > 0 && h > 0,
-        _ => false,
-    }
+    };
+    matches!(
+        (w_str.parse::<u32>(), h_str.parse::<u32>()),
+        (Ok(w), Ok(h)) if w > 0 && h > 0
+    )
 }
 
 /// Simple base64 decoder (avoids adding a dependency).
