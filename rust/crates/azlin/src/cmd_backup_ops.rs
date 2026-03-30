@@ -31,10 +31,17 @@ fn backup_config_path(vm_name: &str) -> PathBuf {
     backup_config_dir().join(format!("{}.toml", vm_name))
 }
 
-fn load_backup_config(vm_name: &str) -> Option<BackupConfig> {
+fn load_backup_config(vm_name: &str) -> Result<Option<BackupConfig>> {
     let path = backup_config_path(vm_name);
-    let contents = std::fs::read_to_string(path).ok()?;
-    toml::from_str(&contents).ok()
+    match std::fs::read_to_string(&path) {
+        Ok(contents) => {
+            let config: BackupConfig = toml::from_str(&contents)
+                .map_err(|e| anyhow::anyhow!("Corrupt backup config at {}: {}", path.display(), e))?;
+            Ok(Some(config))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(anyhow::anyhow!("Failed to read backup config: {}", e)),
+    }
 }
 
 fn save_backup_config(config: &BackupConfig) -> Result<()> {
@@ -100,7 +107,7 @@ pub(crate) fn handle_backup_configure(
 // ---------------------------------------------------------------------------
 
 pub(crate) fn handle_backup_config_show(vm_name: &str) -> Result<()> {
-    match load_backup_config(vm_name) {
+    match load_backup_config(vm_name)? {
         Some(config) => {
             println!("Backup configuration for VM '{}':", vm_name);
             println!(
@@ -258,7 +265,8 @@ pub(crate) async fn handle_backup_list(
 
     if output.status.success() {
         let snapshots: Vec<serde_json::Value> =
-            serde_json::from_slice(&output.stdout).unwrap_or_default();
+            serde_json::from_slice(&output.stdout)
+                .map_err(|e| anyhow::anyhow!("Failed to parse backup list JSON: {}", e))?;
 
         if snapshots.is_empty() {
             println!("No backups found for VM '{}'.", vm_name);
@@ -495,7 +503,8 @@ pub(crate) async fn handle_backup_replicate_all(
         );
     }
 
-    let names: Vec<String> = serde_json::from_slice(&output.stdout).unwrap_or_default();
+    let names: Vec<String> = serde_json::from_slice(&output.stdout)
+        .map_err(|e| anyhow::anyhow!("Failed to parse backup list JSON: {}", e))?;
     if names.is_empty() {
         println!("No backups found for VM '{}'.", vm_name);
         return Ok(());
@@ -573,7 +582,8 @@ pub(crate) async fn handle_replication_status(vm_name: &str, rg: &str) -> Result
 
     if output.status.success() {
         let replicas: Vec<serde_json::Value> =
-            serde_json::from_slice(&output.stdout).unwrap_or_default();
+            serde_json::from_slice(&output.stdout)
+                .map_err(|e| anyhow::anyhow!("Failed to parse replica list JSON: {}", e))?;
         if replicas.is_empty() {
             println!("No replicated backups found for VM '{}'.", vm_name);
         } else {
@@ -643,7 +653,8 @@ pub(crate) async fn handle_replication_jobs(
 
     if output.status.success() {
         let jobs: Vec<serde_json::Value> =
-            serde_json::from_slice(&output.stdout).unwrap_or_default();
+            serde_json::from_slice(&output.stdout)
+                .map_err(|e| anyhow::anyhow!("Failed to parse replication jobs JSON: {}", e))?;
 
         let filtered: Vec<&serde_json::Value> = if let Some(st) = status_filter {
             jobs.iter()
@@ -721,7 +732,8 @@ pub(crate) async fn handle_backup_verify_all(vm_name: &str, rg: &str) -> Result<
         );
     }
 
-    let names: Vec<String> = serde_json::from_slice(&output.stdout).unwrap_or_default();
+    let names: Vec<String> = serde_json::from_slice(&output.stdout)
+        .map_err(|e| anyhow::anyhow!("Failed to parse backup list JSON: {}", e))?;
     if names.is_empty() {
         println!("No backups found for VM '{}'.", vm_name);
         return Ok(());
@@ -807,7 +819,8 @@ pub(crate) async fn handle_verification_report(
     }
 
     let snaps: Vec<serde_json::Value> =
-        serde_json::from_slice(&output.stdout).unwrap_or_default();
+        serde_json::from_slice(&output.stdout)
+            .map_err(|e| anyhow::anyhow!("Failed to parse backup list JSON: {}", e))?;
 
     let recent: Vec<&serde_json::Value> = snaps
         .iter()

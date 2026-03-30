@@ -140,8 +140,8 @@ fn dr_test_core(
         .output()?;
 
     if create_output.status.success() {
-        // Clean up test snapshot
-        let _ = std::process::Command::new("az")
+        // Clean up test snapshot — surface failure rather than silently orphaning resources
+        let cleanup = std::process::Command::new("az")
             .args([
                 "snapshot",
                 "delete",
@@ -152,6 +152,21 @@ fn dr_test_core(
                 "--yes",
             ])
             .output();
+        match cleanup {
+            Ok(o) if !o.status.success() => {
+                eprintln!(
+                    "Warning: DR test passed but cleanup of '{}' failed (orphaned resource)",
+                    test_name
+                );
+            }
+            Err(e) => {
+                eprintln!(
+                    "Warning: DR test passed but cleanup of '{}' failed: {}",
+                    test_name, e
+                );
+            }
+            _ => {}
+        }
 
         record_dr_result(vm_name, test_region, &backup_name, true)?;
         Ok(DrTestOutcome {
@@ -217,7 +232,8 @@ async fn handle_dr_test_all(test_region: Option<&str>, rg: &str) -> Result<()> {
         );
     }
 
-    let vm_names: Vec<String> = serde_json::from_slice(&output.stdout).unwrap_or_default();
+    let vm_names: Vec<String> = serde_json::from_slice(&output.stdout)
+        .map_err(|e| anyhow::anyhow!("Failed to parse VM list JSON: {}", e))?;
     let unique_vms: std::collections::BTreeSet<String> = vm_names.into_iter().collect();
 
     if unique_vms.is_empty() {
@@ -319,11 +335,12 @@ fn record_dr_result(
     Ok(())
 }
 
-fn load_dr_history(vm_filter: Option<&str>, days: u32) -> Vec<DrTestResult> {
+fn load_dr_history(vm_filter: Option<&str>, days: u32) -> Result<Vec<DrTestResult>> {
     let dir = dr_history_dir();
     let entries = match std::fs::read_dir(&dir) {
         Ok(e) => e,
-        Err(_) => return Vec::new(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => anyhow::bail!("Failed to read DR history directory: {}", e),
     };
 
     let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
@@ -343,24 +360,24 @@ fn load_dr_history(vm_filter: Option<&str>, days: u32) -> Vec<DrTestResult> {
                 }
             }
         }
-        if let Ok(contents) = std::fs::read_to_string(&path) {
-            if let Ok(result) = serde_json::from_str::<DrTestResult>(&contents) {
-                if let Some(vm) = vm_filter {
-                    if result.vm_name != vm {
-                        continue;
-                    }
-                }
-                if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(&result.timestamp) {
-                    if ts >= cutoff {
-                        results.push(result);
-                    }
-                }
+        let contents = std::fs::read_to_string(&path)
+            .map_err(|e| anyhow::anyhow!("Failed to read DR history file {}: {}", path.display(), e))?;
+        let result: DrTestResult = serde_json::from_str(&contents)
+            .map_err(|e| anyhow::anyhow!("Corrupt DR history file {}: {}", path.display(), e))?;
+        if let Some(vm) = vm_filter {
+            if result.vm_name != vm {
+                continue;
+            }
+        }
+        if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(&result.timestamp) {
+            if ts >= cutoff {
+                results.push(result);
             }
         }
     }
 
     results.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-    results
+    Ok(results)
 }
 
 // ---------------------------------------------------------------------------
@@ -371,7 +388,7 @@ fn handle_dr_test_history(vm_name: &str, days: u32) -> Result<()> {
     if let Err(e) = crate::name_validation::validate_name(vm_name) {
         anyhow::bail!("Invalid VM name: {}", e);
     }
-    let results = load_dr_history(Some(vm_name), days);
+    let results = load_dr_history(Some(vm_name), days)?;
 
     if results.is_empty() {
         println!(
@@ -415,7 +432,7 @@ fn handle_dr_success_rate(vm_filter: Option<&str>, days: u32) -> Result<()> {
             anyhow::bail!("Invalid VM name: {}", e);
         }
     }
-    let results = load_dr_history(vm_filter, days);
+    let results = load_dr_history(vm_filter, days)?;
 
     if results.is_empty() {
         println!("No DR test results found in the last {} days.", days);
