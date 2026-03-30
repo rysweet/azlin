@@ -24,7 +24,7 @@ This runs all unit and integration tests (excluding `#[ignore]`-gated live Azure
 
 ### Rust Unit Tests
 
-67 test groups in `rust/crates/azlin/src/tests/` plus 13 handler test groups in
+72 test groups in `rust/crates/azlin/src/tests/` plus 13 handler test groups in
 `rust/crates/azlin/src/handlers/tests/`. These test command parsing, output
 formatting, config handling, and business logic with mock data.
 
