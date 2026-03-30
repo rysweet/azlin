@@ -221,6 +221,22 @@ pub(crate) async fn handle_backup_list(
     tier: Option<azlin_cli::BackupTier>,
     rg: &str,
 ) -> Result<()> {
+    // Push tier filter into JMESPath query to reduce data transfer from Azure
+    let query = match &tier {
+        Some(t) => {
+            let tier_str = match t {
+                azlin_cli::BackupTier::Daily => "daily",
+                azlin_cli::BackupTier::Weekly => "weekly",
+                azlin_cli::BackupTier::Monthly => "monthly",
+            };
+            format!(
+                "[?tags.vm=='{}' && tags.type=='backup' && tags.tier=='{}']",
+                vm_name, tier_str
+            )
+        }
+        None => format!("[?tags.vm=='{}' && tags.type=='backup']", vm_name),
+    };
+
     let output = std::process::Command::new("az")
         .args([
             "snapshot",
@@ -228,10 +244,7 @@ pub(crate) async fn handle_backup_list(
             "--resource-group",
             rg,
             "--query",
-            &format!(
-                "[?tags.vm=='{}' && tags.type=='backup']",
-                vm_name
-            ),
+            &query,
             "--output",
             "json",
         ])
@@ -241,33 +254,14 @@ pub(crate) async fn handle_backup_list(
         let snapshots: Vec<serde_json::Value> =
             serde_json::from_slice(&output.stdout).unwrap_or_default();
 
-        let filtered: Vec<&serde_json::Value> = if let Some(ref t) = tier {
-            let tier_str = match t {
-                azlin_cli::BackupTier::Daily => "daily",
-                azlin_cli::BackupTier::Weekly => "weekly",
-                azlin_cli::BackupTier::Monthly => "monthly",
-            };
-            snapshots
-                .iter()
-                .filter(|s| {
-                    s.get("tags")
-                        .and_then(|t| t.get("tier"))
-                        .and_then(|t| t.as_str())
-                        == Some(tier_str)
-                })
-                .collect()
-        } else {
-            snapshots.iter().collect()
-        };
-
-        if filtered.is_empty() {
+        if snapshots.is_empty() {
             println!("No backups found for VM '{}'.", vm_name);
         } else {
             let mut table = new_table(
                 &["Name", "Tier", "Disk Size (GB)", "Created", "State"],
                 &[40, 8, 14, 22, 10],
             );
-            for snap in &filtered {
+            for snap in &snapshots {
                 let name = snap["name"].as_str().unwrap_or("-");
                 let snap_tier = snap
                     .get("tags")
@@ -327,9 +321,8 @@ pub(crate) async fn handle_backup_restore(
 // backup verify — verifies backup integrity
 // ---------------------------------------------------------------------------
 
-pub(crate) async fn handle_backup_verify(backup_name: &str, rg: &str) -> Result<()> {
-    let pb = penguin_spinner(&format!("Verifying backup '{}'...", backup_name));
-
+/// Core blocking verify — shared by single verify and parallel verify-all.
+fn verify_backup_core(backup_name: &str, rg: &str) -> Result<(String, u64)> {
     let output = std::process::Command::new("az")
         .args([
             "snapshot",
@@ -343,14 +336,14 @@ pub(crate) async fn handle_backup_verify(backup_name: &str, rg: &str) -> Result<
         ])
         .output()?;
 
-    pb.finish_and_clear();
     if output.status.success() {
         let snap: serde_json::Value = serde_json::from_slice(&output.stdout)?;
         let state = snap["provisioningState"]
             .as_str()
-            .unwrap_or("Unknown");
+            .unwrap_or("Unknown")
+            .to_string();
         let size = snap["diskSizeGb"].as_u64().unwrap_or(0);
-        println!("Backup '{}': state={}, size={}GB — Verified OK", backup_name, state, size);
+        Ok((state, size))
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!(
@@ -359,6 +352,14 @@ pub(crate) async fn handle_backup_verify(backup_name: &str, rg: &str) -> Result<
             azlin_core::sanitizer::sanitize(stderr.trim())
         );
     }
+}
+
+pub(crate) async fn handle_backup_verify(backup_name: &str, rg: &str) -> Result<()> {
+    let pb = penguin_spinner(&format!("Verifying backup '{}'...", backup_name));
+    let result = verify_backup_core(backup_name, rg);
+    pb.finish_and_clear();
+    let (state, size) = result?;
+    println!("Backup '{}': state={}, size={}GB — Verified OK", backup_name, state, size);
     Ok(())
 }
 
@@ -366,16 +367,8 @@ pub(crate) async fn handle_backup_verify(backup_name: &str, rg: &str) -> Result<
 // backup replicate — replicates a single backup to another region
 // ---------------------------------------------------------------------------
 
-pub(crate) async fn handle_backup_replicate(
-    backup_name: &str,
-    target_region: &str,
-    rg: &str,
-) -> Result<()> {
-    let pb = penguin_spinner(&format!(
-        "Replicating '{}' to {}...",
-        backup_name, target_region
-    ));
-
+/// Core blocking replicate — shared by single replicate and parallel replicate-all.
+fn replicate_backup_core(backup_name: &str, target_region: &str, rg: &str) -> Result<String> {
     let replica_name = format!("{}-replica-{}", backup_name, target_region);
 
     let show_output = std::process::Command::new("az")
@@ -394,7 +387,6 @@ pub(crate) async fn handle_backup_replicate(
         .output()?;
 
     if !show_output.status.success() {
-        pb.finish_and_clear();
         anyhow::bail!("Backup '{}' not found.", backup_name);
     }
 
@@ -422,12 +414,8 @@ pub(crate) async fn handle_backup_replicate(
         ])
         .output()?;
 
-    pb.finish_and_clear();
     if output.status.success() {
-        println!(
-            "Replicated '{}' to {} as '{}'",
-            backup_name, target_region, replica_name
-        );
+        Ok(replica_name)
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!(
@@ -435,6 +423,24 @@ pub(crate) async fn handle_backup_replicate(
             azlin_core::sanitizer::sanitize(stderr.trim())
         );
     }
+}
+
+pub(crate) async fn handle_backup_replicate(
+    backup_name: &str,
+    target_region: &str,
+    rg: &str,
+) -> Result<()> {
+    let pb = penguin_spinner(&format!(
+        "Replicating '{}' to {}...",
+        backup_name, target_region
+    ));
+    let result = replicate_backup_core(backup_name, target_region, rg);
+    pb.finish_and_clear();
+    let replica_name = result?;
+    println!(
+        "Replicated '{}' to {} as '{}'",
+        backup_name, target_region, replica_name
+    );
     Ok(())
 }
 
@@ -474,16 +480,49 @@ pub(crate) async fn handle_backup_replicate_all(
         return Ok(());
     }
 
+    let total = names.len();
     println!(
         "Replicating {} backups for '{}' to {}...",
-        names.len(),
-        vm_name,
-        target_region
+        total, vm_name, target_region
     );
-    for name in &names {
-        handle_backup_replicate(name, target_region, rg).await?;
+
+    // Run replications in parallel via the blocking thread pool
+    let mut set = tokio::task::JoinSet::new();
+    for name in names {
+        let region = target_region.to_string();
+        let rg = rg.to_string();
+        set.spawn_blocking(move || {
+            replicate_backup_core(&name, &region, &rg).map(|replica| (name, replica))
+        });
     }
-    println!("All backups replicated successfully.");
+
+    let mut ok_count = 0u32;
+    let mut fail_count = 0u32;
+    while let Some(result) = set.join_next().await {
+        match result {
+            Ok(Ok((name, replica))) => {
+                println!("  OK: '{}' → '{}'", name, replica);
+                ok_count += 1;
+            }
+            Ok(Err(e)) => {
+                eprintln!("  FAIL: {}", e);
+                fail_count += 1;
+            }
+            Err(join_err) => {
+                eprintln!("  FAIL: task error — {}", join_err);
+                fail_count += 1;
+            }
+        }
+    }
+
+    if fail_count > 0 {
+        anyhow::bail!(
+            "{} of {} backups failed to replicate",
+            fail_count,
+            total
+        );
+    }
+    println!("All {} backups replicated successfully.", ok_count);
     Ok(())
 }
 
@@ -656,23 +695,39 @@ pub(crate) async fn handle_backup_verify_all(vm_name: &str, rg: &str) -> Result<
         return Ok(());
     }
 
-    println!("Verifying {} backups for '{}'...", names.len(), vm_name);
+    let total = names.len();
+    println!("Verifying {} backups for '{}'...", total, vm_name);
+
+    // Run verifications in parallel via the blocking thread pool
+    let mut set = tokio::task::JoinSet::new();
+    for name in names {
+        let rg = rg.to_string();
+        set.spawn_blocking(move || {
+            verify_backup_core(&name, &rg).map(|(state, size)| (name, state, size))
+        });
+    }
+
     let mut passed = 0u32;
     let mut failed = 0u32;
-    for name in &names {
-        match handle_backup_verify(name, rg).await {
-            Ok(()) => passed += 1,
-            Err(e) => {
-                eprintln!("  FAIL: {} — {}", name, e);
+    while let Some(result) = set.join_next().await {
+        match result {
+            Ok(Ok((name, state, size))) => {
+                println!("  OK: '{}' state={}, size={}GB", name, state, size);
+                passed += 1;
+            }
+            Ok(Err(e)) => {
+                eprintln!("  FAIL: {}", e);
+                failed += 1;
+            }
+            Err(join_err) => {
+                eprintln!("  FAIL: task error — {}", join_err);
                 failed += 1;
             }
         }
     }
     println!(
         "Verification complete: {} passed, {} failed out of {} total",
-        passed,
-        failed,
-        names.len()
+        passed, failed, total
     );
     Ok(())
 }

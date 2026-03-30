@@ -43,16 +43,22 @@ pub(crate) async fn dispatch(
 // dr test — run a DR test for a single VM
 // ---------------------------------------------------------------------------
 
-async fn handle_dr_test(
+/// Outcome of a successful DR test, used for reporting.
+struct DrTestOutcome {
+    backup_name: String,
+    test_name: String,
+}
+
+/// Core blocking DR test — shared by single test and parallel test-all.
+fn dr_test_core(
     vm_name: &str,
     test_region: &str,
     backup: Option<&str>,
     rg: &str,
-) -> Result<()> {
+) -> Result<DrTestOutcome> {
     let backup_name = match backup {
         Some(b) => b.to_string(),
         None => {
-            // Find most recent backup for this VM
             let output = std::process::Command::new("az")
                 .args([
                     "snapshot",
@@ -80,12 +86,6 @@ async fn handle_dr_test(
         }
     };
 
-    let pb = penguin_spinner(&format!(
-        "Running DR test for '{}' in {}...",
-        vm_name, test_region
-    ));
-
-    // Create a test replica in the target region
     let test_name = format!(
         "{}-dr-test-{}",
         vm_name,
@@ -108,7 +108,6 @@ async fn handle_dr_test(
         .output()?;
 
     if !source_output.status.success() {
-        pb.finish_and_clear();
         anyhow::bail!("Backup '{}' not found.", backup_name);
     }
 
@@ -137,14 +136,7 @@ async fn handle_dr_test(
         ])
         .output()?;
 
-    pb.finish_and_clear();
-
     if create_output.status.success() {
-        println!("DR test for '{}' PASSED:", vm_name);
-        println!("  Backup:      {}", backup_name);
-        println!("  Test region: {}", test_region);
-        println!("  Test name:   {}", test_name);
-
         // Clean up test snapshot
         let _ = std::process::Command::new("az")
             .args([
@@ -158,8 +150,11 @@ async fn handle_dr_test(
             ])
             .output();
 
-        // Record result
         record_dr_result(vm_name, test_region, &backup_name, true)?;
+        Ok(DrTestOutcome {
+            backup_name,
+            test_name,
+        })
     } else {
         let stderr = String::from_utf8_lossy(&create_output.stderr);
         record_dr_result(vm_name, test_region, &backup_name, false)?;
@@ -169,6 +164,25 @@ async fn handle_dr_test(
             azlin_core::sanitizer::sanitize(stderr.trim())
         );
     }
+}
+
+async fn handle_dr_test(
+    vm_name: &str,
+    test_region: &str,
+    backup: Option<&str>,
+    rg: &str,
+) -> Result<()> {
+    let pb = penguin_spinner(&format!(
+        "Running DR test for '{}' in {}...",
+        vm_name, test_region
+    ));
+    let result = dr_test_core(vm_name, test_region, backup, rg);
+    pb.finish_and_clear();
+    let outcome = result?;
+    println!("DR test for '{}' PASSED:", vm_name);
+    println!("  Backup:      {}", outcome.backup_name);
+    println!("  Test region: {}", test_region);
+    println!("  Test name:   {}", outcome.test_name);
     Ok(())
 }
 
@@ -208,29 +222,44 @@ async fn handle_dr_test_all(test_region: Option<&str>, rg: &str) -> Result<()> {
         return Ok(());
     }
 
+    let total = unique_vms.len();
     println!(
         "Running DR tests for {} VMs in {} (target: {})...",
-        unique_vms.len(),
-        rg,
-        region
+        total, rg, region
     );
+
+    // Run DR tests in parallel via the blocking thread pool
+    let mut set = tokio::task::JoinSet::new();
+    for vm in unique_vms {
+        let region = region.to_string();
+        let rg = rg.to_string();
+        set.spawn_blocking(move || -> (String, Result<DrTestOutcome>) {
+            let result = dr_test_core(&vm, &region, None, &rg);
+            (vm, result)
+        });
+    }
 
     let mut passed = 0u32;
     let mut failed = 0u32;
-    for vm in &unique_vms {
-        match handle_dr_test(vm, region, None, rg).await {
-            Ok(()) => passed += 1,
-            Err(e) => {
+    while let Some(result) = set.join_next().await {
+        match result {
+            Ok((vm, Ok(_outcome))) => {
+                println!("  PASS: {}", vm);
+                passed += 1;
+            }
+            Ok((vm, Err(e))) => {
                 eprintln!("  FAIL: {} — {}", vm, e);
+                failed += 1;
+            }
+            Err(join_err) => {
+                eprintln!("  FAIL: task error — {}", join_err);
                 failed += 1;
             }
         }
     }
     println!(
         "DR test-all complete: {} passed, {} failed out of {} VMs",
-        passed,
-        failed,
-        unique_vms.len()
+        passed, failed, total
     );
     Ok(())
 }
@@ -301,6 +330,15 @@ fn load_dr_history(vm_filter: Option<&str>, days: u32) -> Vec<DrTestResult> {
         let path = entry.path();
         if path.extension().map_or(true, |e| e != "json") {
             continue;
+        }
+        // Skip files whose name doesn't start with the VM prefix (avoids
+        // unnecessary file reads and JSON parsing for large history dirs)
+        if let Some(vm) = vm_filter {
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                if !stem.starts_with(vm) {
+                    continue;
+                }
+            }
         }
         if let Ok(contents) = std::fs::read_to_string(&path) {
             if let Ok(result) = serde_json::from_str::<DrTestResult>(&contents) {
