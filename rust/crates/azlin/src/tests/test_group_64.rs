@@ -97,6 +97,57 @@ fn test_gui_help_exits_zero() {
 }
 
 #[test]
+fn test_gui_help_shows_all_flags() {
+    let out = assert_cmd::Command::cargo_bin("azlin")
+        .unwrap()
+        .args(["gui", "--help"])
+        .timeout(std::time::Duration::from_secs(10))
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    for flag in &[
+        "--minimal",
+        "--app",
+        "--resolution",
+        "--depth",
+        "--key",
+        "--yes",
+        "--resource-group",
+        "--user",
+    ] {
+        assert!(
+            stdout.contains(flag),
+            "gui --help should show {} flag, got: {}",
+            flag,
+            stdout
+        );
+    }
+}
+
+#[test]
+fn test_gui_invalid_resolution_errors_gracefully() {
+    // Resolution validation runs before auth/dep checks,
+    // so this should fail with a clear error even without vncviewer.
+    let out = assert_cmd::Command::cargo_bin("azlin")
+        .unwrap()
+        .args(["gui", "test-vm", "--resolution", "not-a-resolution"])
+        .timeout(std::time::Duration::from_secs(10))
+        .output()
+        .unwrap();
+    assert!(
+        !out.status.success(),
+        "invalid resolution should fail"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("Invalid resolution"),
+        "should report invalid resolution, got: {}",
+        stderr
+    );
+}
+
+#[test]
 fn test_top_help_exits_zero() {
     let out = assert_cmd::Command::cargo_bin("azlin")
         .unwrap()

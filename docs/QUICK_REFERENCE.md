@@ -57,6 +57,8 @@ azlin                              # Show help
 ### Subcommands
 ```bash
 azlin list [OPTIONS]               # List VMs in resource group
+azlin gui <vm> [OPTIONS]           # Open VNC desktop session
+azlin connect --x11 <vm>          # X11 forwarding for GUI apps
 azlin logs <vm> [OPTIONS]          # View VM logs (default: syslog, 100 lines)
 azlin w [OPTIONS]                  # Run 'w' command on all VMs
 azlin ps [OPTIONS]                 # Run 'ps aux' on all VMs
@@ -221,7 +223,7 @@ Select VM (number or 'n' for new):
 
 ---
 
-### 4. Custom VM Names
+### 5. Custom VM Names
 
 **Custom name:**
 ```bash
@@ -242,7 +244,7 @@ azlin new -- python train.py
 
 ---
 
-### 5. Run 'w' Command
+### 6. Run 'w' Command
 
 **Run on all VMs:**
 ```bash
@@ -275,7 +277,7 @@ azlin w --rg production-rg
 
 ---
 
-### 6. Pool Provisioning
+### 7. Pool Provisioning
 
 **Create 3 VMs in parallel:**
 ```bash
@@ -296,7 +298,7 @@ Continue? [y/N]:
 
 ---
 
-### 7. Remote Command Execution
+### 8. Remote Command Execution
 
 **Execute command on new VM:**
 ```bash
@@ -318,7 +320,51 @@ azlin -- 'cd /tmp && git clone https://github.com/user/repo && make test'
 
 ---
 
-### 8. Process Monitoring (NEW)
+### 9. GUI Forwarding & Remote Desktop
+
+**Full VNC desktop (XFCE):**
+```bash
+azlin gui my-vm
+```
+
+**Minimal window manager (openbox):**
+```bash
+azlin gui my-vm --minimal
+```
+
+**Single app mode (exits when app closes):**
+```bash
+azlin gui my-vm --app "chromium-browser --no-sandbox"
+```
+
+**Custom resolution and color depth:**
+```bash
+azlin gui my-vm --resolution 2560x1440 --depth 24
+```
+
+**X11 forwarding for lightweight GUI apps:**
+```bash
+azlin connect --x11 my-vm
+# Then on the VM:
+gitk --all &
+meld file1 file2 &
+```
+
+**Run a single remote app via X11:**
+```bash
+azlin connect my-vm --x11 --no-tmux -- gitk --all
+```
+
+**Skip dependency prompts:**
+```bash
+azlin gui my-vm --yes
+```
+
+See [GUI Forwarding Guide](./GUI_FORWARDING.md) for prerequisites, security details, and troubleshooting.
+
+---
+
+### 10. Process Monitoring (NEW)
 
 **Run ps aux on all VMs:**
 ```bash
@@ -361,7 +407,7 @@ root         1  0.0  0.1 168820 13312 ?        Ss   Oct08   0:00 /sbin/init
 
 ---
 
-### 9. VM Deletion (NEW)
+### 11. VM Deletion (NEW)
 
 **Delete single VM:**
 ```bash
@@ -429,7 +475,7 @@ azlin killall --force
 
 ---
 
-### 10. Help Commands
+### 12. Help Commands
 
 **Main help:**
 ```bash
@@ -524,6 +570,19 @@ azlin new --rg prod-rg --name prod-vm
 # List each
 azlin list --rg dev-rg
 azlin list --rg prod-rg
+```
+
+### Workflow 6: GUI Development on Remote VM
+```bash
+# Full desktop for visual tools
+azlin gui my-vm
+
+# Or lightweight X11 for quick git visualization
+azlin connect --x11 my-vm
+gitk --all &
+
+# Single app mode for focused work
+azlin gui my-vm --app "code --disable-gpu"
 ```
 
 ---
@@ -652,6 +711,7 @@ azlin <command> --help
 **Status:** Production Ready (Rust rewrite)
 
 **Key Features:**
+- GUI forwarding (VNC desktop, minimal, single-app, X11)
 - Natural language commands with AI
 - Config storage and defaults
 - VM listing and filtering
