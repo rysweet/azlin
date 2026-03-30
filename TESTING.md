@@ -56,6 +56,7 @@ Key integration test files:
 | `session_integration.rs` | Session persistence |
 | `local_e2e.rs` | End-to-end command flows (local, no Azure) |
 | `parity_integration.rs` | Python/Rust output parity |
+| `backup_dr_integration.rs` | Snapshot/backup CLI validation |
 | `azure_live_integration.rs` | Live Azure API calls (ignored) |
 | `live_commands_integration.rs` | Live command execution (ignored) |
 
@@ -124,6 +125,26 @@ python benchmarks/benchmark_parallel_vm_list.py
 See [benchmarks/README.md](benchmarks/README.md) for full setup and
 baseline comparison workflows.
 
+### Backup & Disaster Recovery Tests
+
+[PLANNED — Implementation Pending]
+
+The backup and DR feature (Issue #439) adds four modules: BackupManager,
+ReplicationManager, VerificationManager, and DRTestManager. The test plan
+follows the testing pyramid:
+
+- **Unit tests (60%)** — 102+ methods across 4 test files covering backup
+  scheduling, cross-region replication, backup verification, and DR test
+  orchestration.
+- **Integration tests (30%)** — 12+ methods testing multi-module workflows
+  (backup → replicate → verify).
+- **E2E tests (10%)** — 6 methods covering complete user journeys including
+  region-failover and RTO validation (<15 min target).
+
+Current Rust integration tests in `backup_dr_integration.rs` validate the
+`snapshot` subcommand CLI surface. Full test specifications are in
+[docs/testing/backup-dr-test-coverage.md](docs/testing/backup-dr-test-coverage.md).
+
 ## Environment Variables
 
 | Variable | Purpose | Required |
@@ -167,4 +188,5 @@ push and PR touching `rust/**`:
 - [docs/TEST_SUITE_SPECIFICATION.md](docs/TEST_SUITE_SPECIFICATION.md) — Exhaustive CLI syntax test spec (300+ tests)
 - [docs/AGENTIC_INTEGRATION_TESTS.md](docs/AGENTIC_INTEGRATION_TESTS.md) — Agentic "do" mode test cases
 - [docs/REAL_AZURE_TESTING.md](docs/REAL_AZURE_TESTING.md) — Manual Azure testing procedures
+- [docs/testing/backup-dr-test-coverage.md](docs/testing/backup-dr-test-coverage.md) — Backup & DR TDD test plan (170+ tests)
 - [benchmarks/README.md](benchmarks/README.md) — Benchmark setup and comparison workflows
