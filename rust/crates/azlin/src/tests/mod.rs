@@ -67,3 +67,6 @@ mod test_group_63;
 mod test_group_64;
 mod test_group_65;
 mod test_group_66;
+mod test_group_backup_config;
+mod test_group_backup_ops;
+mod test_group_dr_testing;
