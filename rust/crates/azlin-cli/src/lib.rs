@@ -548,6 +548,20 @@ pub enum Commands {
         action: SnapshotAction,
     },
 
+    // ── Backup Commands ──────────────────────────────────────────────
+    /// Manage VM backup policies, retention, and cross-region replication
+    Backup {
+        #[command(subcommand)]
+        action: BackupAction,
+    },
+
+    // ── Disaster Recovery Commands ───────────────────────────────────
+    /// Disaster recovery testing and validation
+    Dr {
+        #[command(subcommand)]
+        action: DrAction,
+    },
+
     // ── Storage Commands ──────────────────────────────────────────────
     /// Manage NFS storage for shared home directories
     Storage {
@@ -1488,6 +1502,194 @@ pub enum SnapshotAction {
         resource_group: Option<String>,
         #[arg(long)]
         config: Option<PathBuf>,
+    },
+}
+
+// ── Backup subcommands ────────────────────────────────────────────────────
+
+/// Backup tier for retention classification.
+#[derive(ValueEnum, Debug, Clone, Copy)]
+pub enum BackupTier {
+    /// Daily backups
+    Daily,
+    /// Weekly backups
+    Weekly,
+    /// Monthly backups
+    Monthly,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum BackupAction {
+    /// Configure backup policy for a VM
+    Configure {
+        /// VM name
+        vm_name: String,
+        /// Number of daily backups to retain
+        #[arg(long)]
+        daily_retention: Option<u32>,
+        /// Number of weekly backups to retain
+        #[arg(long)]
+        weekly_retention: Option<u32>,
+        /// Number of monthly backups to retain
+        #[arg(long)]
+        monthly_retention: Option<u32>,
+        /// Enable cross-region replication
+        #[arg(long)]
+        cross_region: bool,
+        /// Target region for cross-region replication
+        #[arg(long)]
+        target_region: Option<String>,
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+    },
+    /// Trigger an on-demand backup for a VM
+    Trigger {
+        /// VM name
+        vm_name: String,
+        /// Backup tier override
+        #[arg(long, value_enum)]
+        tier: Option<BackupTier>,
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+    },
+    /// List backups for a VM
+    List {
+        /// VM name
+        vm_name: String,
+        /// Filter by backup tier
+        #[arg(long, value_enum)]
+        tier: Option<BackupTier>,
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+    },
+    /// Restore a VM from a backup
+    Restore {
+        /// VM name
+        vm_name: String,
+        /// Backup name to restore from
+        #[arg(long)]
+        backup: String,
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+    },
+    /// Verify integrity of a specific backup
+    Verify {
+        /// Backup name to verify
+        backup_name: String,
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+    },
+    /// Replicate a backup to another region
+    Replicate {
+        /// Backup name to replicate
+        backup_name: String,
+        /// Target region for replication
+        target_region: String,
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+    },
+    /// Show current backup configuration for a VM
+    ConfigShow {
+        /// VM name
+        vm_name: String,
+    },
+    /// Disable backups for a VM
+    Disable {
+        /// VM name
+        vm_name: String,
+    },
+    /// Replicate all backups for a VM to another region
+    ReplicateAll {
+        /// VM name
+        vm_name: String,
+        /// Target region for replication
+        target_region: String,
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+    },
+    /// Show replication status for a VM
+    ReplicationStatus {
+        /// VM name
+        vm_name: String,
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+    },
+    /// List replication jobs
+    ReplicationJobs {
+        /// Filter by job status
+        #[arg(long)]
+        status: Option<String>,
+        /// Filter by VM name
+        #[arg(long)]
+        vm: Option<String>,
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+    },
+    /// Verify all backups for a VM
+    VerifyAll {
+        /// VM name
+        vm_name: String,
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+    },
+    /// Show backup verification report
+    VerificationReport {
+        /// Number of days to include in report
+        #[arg(long, default_value = "30")]
+        days: u32,
+        /// Filter by VM name
+        #[arg(long)]
+        vm: Option<String>,
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+    },
+}
+
+// ── Disaster Recovery subcommands ─────────────────────────────────────────
+
+#[derive(Subcommand, Debug)]
+pub enum DrAction {
+    /// Run a disaster recovery test for a VM
+    Test {
+        /// VM name
+        vm_name: String,
+        /// Region to test recovery in
+        #[arg(long)]
+        test_region: String,
+        /// Specific backup to use for DR test
+        #[arg(long)]
+        backup: Option<String>,
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+    },
+    /// Run DR tests for all VMs in a resource group
+    TestAll {
+        /// Test region for DR validation
+        #[arg(long)]
+        test_region: Option<String>,
+        /// Resource group to test
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+    },
+    /// Show DR test history for a VM
+    TestHistory {
+        /// VM name
+        vm_name: String,
+        /// Number of days of history to show
+        #[arg(long, default_value = "30")]
+        days: u32,
+    },
+    /// Show DR test success rate
+    SuccessRate {
+        /// Filter by VM name
+        #[arg(long)]
+        vm: Option<String>,
+        /// Number of days to include
+        #[arg(long, default_value = "90")]
+        days: u32,
     },
 }
 
