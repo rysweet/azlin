@@ -59,8 +59,10 @@ done
 # ─── Section 3: Unit test group count ─────────────────────────────────────
 echo "3. Unit test group counts"
 actual_unit=$(find "$REPO_ROOT/rust/crates/azlin/src/tests" -name '*.rs' -not -name 'mod.rs' | wc -l)
-doc_unit=$(grep -oP '\d+ test groups.*tests/' <<< "$TESTING_CONTENT" | head -1 | grep -oP '^\d+')
-if [[ "$actual_unit" -eq "$doc_unit" ]]; then
+doc_unit=$(grep -oP '\d+ test groups.*tests/' <<< "$TESTING_CONTENT" | head -1 | grep -oP '^\d+' || true)
+if [[ -z "$doc_unit" ]]; then
+    fail "Unit test groups: could not extract count from TESTING.md"
+elif [[ "$actual_unit" -eq "$doc_unit" ]]; then
     pass "Unit test groups: doc=$doc_unit, actual=$actual_unit"
 else
     fail "Unit test groups: doc=$doc_unit, actual=$actual_unit"
@@ -69,8 +71,10 @@ fi
 # ─── Section 4: Handler test group count ──────────────────────────────────
 echo "4. Handler test group counts"
 actual_handler=$(find "$REPO_ROOT/rust/crates/azlin/src/handlers/tests" -name '*.rs' -not -name 'mod.rs' | wc -l)
-doc_handler=$(grep -oP '\d+ handler test groups' <<< "$TESTING_CONTENT" | grep -oP '^\d+')
-if [[ "$actual_handler" -eq "$doc_handler" ]]; then
+doc_handler=$(grep -oP '\d+ handler test groups' <<< "$TESTING_CONTENT" | grep -oP '^\d+' || true)
+if [[ -z "$doc_handler" ]]; then
+    fail "Handler test groups: could not extract count from TESTING.md"
+elif [[ "$actual_handler" -eq "$doc_handler" ]]; then
     pass "Handler test groups: doc=$doc_handler, actual=$actual_handler"
 else
     fail "Handler test groups: doc=$doc_handler, actual=$actual_handler"
@@ -79,8 +83,10 @@ fi
 # ─── Section 5: Integration test file count ───────────────────────────────
 echo "5. Integration test file count"
 actual_integ=$(find "$REPO_ROOT/rust/crates/azlin/tests" -maxdepth 1 -name '*.rs' | wc -l)
-doc_integ=$(grep -oP '\d+ test files in' <<< "$TESTING_CONTENT" | grep -oP '^\d+')
-if [[ "$actual_integ" -eq "$doc_integ" ]]; then
+doc_integ=$(grep -oP '\d+ test files in' <<< "$TESTING_CONTENT" | grep -oP '^\d+' || true)
+if [[ -z "$doc_integ" ]]; then
+    fail "Integration test files: could not extract count from TESTING.md"
+elif [[ "$actual_integ" -eq "$doc_integ" ]]; then
     pass "Integration test files: doc=$doc_integ, actual=$actual_integ"
 else
     fail "Integration test files: doc=$doc_integ, actual=$actual_integ"
@@ -138,9 +144,11 @@ done
 
 # ─── Section 9: Agentic shell test function count ─────────────────────────
 echo "9. Agentic integration shell test count"
-actual_agentic=$(grep -c '^test_' "$REPO_ROOT/scripts/test_agentic_integration.sh")
-doc_agentic=$(grep -oP 'runs \d+ agentic tests' <<< "$TESTING_CONTENT" | grep -oP '\d+')
-if [[ "$actual_agentic" -eq "$doc_agentic" ]]; then
+actual_agentic=$(grep -c '^test_' "$REPO_ROOT/scripts/test_agentic_integration.sh" || true)
+doc_agentic=$(grep -oP 'runs \d+ agentic tests' <<< "$TESTING_CONTENT" | grep -oP '\d+' || true)
+if [[ -z "$doc_agentic" || -z "$actual_agentic" ]]; then
+    fail "Agentic test functions: could not extract counts (doc=$doc_agentic, actual=$actual_agentic)"
+elif [[ "$actual_agentic" -eq "$doc_agentic" ]]; then
     pass "Agentic test functions: doc=$doc_agentic, actual=$actual_agentic"
 else
     fail "Agentic test functions: doc=$doc_agentic, actual=$actual_agentic"
