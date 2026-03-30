@@ -10,7 +10,7 @@ Replace the sections below with information about your project.
 
 ---
 
-## Project: azlin
+## Project: task-unnamed-1774877900
 
 ## Overview
 
@@ -29,7 +29,6 @@ Replace the sections below with information about your project.
 - **Language**: Python
 - **Language**: JavaScript/TypeScript
 - **Language**: Rust
-- **Language**: Go
 - **Framework**: [Main framework if applicable]
 - **Database**: [Database system if applicable]
 

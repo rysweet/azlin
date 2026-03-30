@@ -129,10 +129,6 @@ The tunnel may not be ready yet. azlin waits for the tunnel to be established be
 ```bash
 # Retry the connection
 azlin gui my-vm
-
-# Or start without auto-viewer and connect manually
-azlin gui my-vm --no-viewer
-# Then open your VNC viewer and connect to localhost:<port> shown in output
 ```
 
 **Black screen or no desktop**

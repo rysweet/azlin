@@ -39,6 +39,7 @@
 
 ## Features
 
+- [GUI Forwarding & Remote Desktop](./GUI_FORWARDING.md) — VNC desktop, minimal mode, single-app mode, and X11 forwarding
 - [Auto-Sync SSH Keys](./features/auto-sync-keys.md)
 - [Auto-Detect Resource Group](./features/auto-detect-rg.md)
 - [Health TUI Dashboard](./features/health-tui-dashboard.md)

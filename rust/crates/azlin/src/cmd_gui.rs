@@ -366,18 +366,10 @@ fn start_vnc_server(
         anyhow::bail!("Failed to generate VNC password on remote host");
     }
 
-    // Set up VNC password file (shell-escape password to prevent injection)
+    // Set up VNC password, xstartup, and start server in a single SSH call
+    // to reduce round trips through potentially slow bastion tunnels (was 4 calls, now 1).
     let escaped_password = shell_escape::unix::escape(password.as_str().into());
-    let passwd_cmd = format!(
-        "mkdir -p ~/.vnc && echo {} | vncpasswd -f > ~/.vnc/passwd && chmod 600 ~/.vnc/passwd",
-        escaped_password
-    );
-    let (code, _, stderr) = run_ssh_command_full(ssh_cmd_prefix, &passwd_cmd)?;
-    if code != 0 {
-        anyhow::bail!("Failed to set VNC password: {}", stderr);
-    }
 
-    // Create xstartup based on mode
     // DISPLAY must be explicitly exported for apps to find the VNC X server.
     // xhost +local: allows local apps to connect without xauth issues
     // (safe because VNC only listens on localhost).
@@ -400,29 +392,18 @@ fn start_vnc_server(
         }
     };
 
-    let xstartup_cmd = format!(
-        "cat > ~/.vnc/xstartup << 'XSTARTUP'\n#!/bin/sh\n{}\nXSTARTUP\nchmod +x ~/.vnc/xstartup",
-        xstartup_body
+    let setup_and_start_cmd = format!(
+        "set -e\n\
+         mkdir -p ~/.vnc && echo {} | vncpasswd -f > ~/.vnc/passwd && chmod 600 ~/.vnc/passwd\n\
+         cat > ~/.vnc/xstartup << 'XSTARTUP'\n#!/bin/sh\n{}\nXSTARTUP\n\
+         chmod +x ~/.vnc/xstartup\n\
+         vncserver -kill :{} 2>/dev/null || true\n\
+         vncserver :{} -localhost yes -geometry {} -depth {}",
+        escaped_password, xstartup_body, VNC_DISPLAY, VNC_DISPLAY, resolution, depth
     );
-    let (code, _, stderr) = run_ssh_command_full(ssh_cmd_prefix, &xstartup_cmd)?;
+    let (code, _, stderr) = run_ssh_command_full(ssh_cmd_prefix, &setup_and_start_cmd)?;
     if code != 0 {
-        anyhow::bail!("Failed to create VNC xstartup: {}", stderr);
-    }
-
-    // Kill any existing VNC server on display :1
-    let _ = run_ssh_command(
-        ssh_cmd_prefix,
-        &format!("vncserver -kill :{} 2>/dev/null || true", VNC_DISPLAY),
-    );
-
-    // Start VNC server
-    let start_cmd = format!(
-        "vncserver :{} -localhost yes -geometry {} -depth {}",
-        VNC_DISPLAY, resolution, depth
-    );
-    let (code, _, stderr) = run_ssh_command_full(ssh_cmd_prefix, &start_cmd)?;
-    if code != 0 {
-        anyhow::bail!("Failed to start VNC server: {}", stderr);
+        anyhow::bail!("Failed to set up and start VNC server: {}", stderr);
     }
 
     Ok(password)
@@ -597,24 +578,29 @@ fn run_ssh_command_full(
         .output()
         .context("Failed to execute SSH command")?;
 
-    Ok((
-        output.status.code().unwrap_or(-1),
-        String::from_utf8_lossy(&output.stdout).to_string(),
-        String::from_utf8_lossy(&output.stderr).to_string(),
-    ))
+    // Prefer zero-copy String::from_utf8 (common case: valid UTF-8),
+    // falling back to lossy conversion only for malformed output.
+    let stdout = String::from_utf8(output.stdout)
+        .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
+    let stderr = String::from_utf8(output.stderr)
+        .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
+
+    Ok((output.status.code().unwrap_or(-1), stdout, stderr))
 }
 
 // ---------------------------------------------------------------------------
 // Utility functions
 // ---------------------------------------------------------------------------
 
-/// Validate resolution string format (WIDTHxHEIGHT).
+/// Validate resolution string format (WIDTHxHEIGHT, both > 0).
 fn is_valid_resolution(res: &str) -> bool {
-    let parts: Vec<&str> = res.split('x').collect();
-    if parts.len() != 2 {
+    let Some((w_str, h_str)) = res.split_once('x') else {
         return false;
-    }
-    parts[0].parse::<u32>().is_ok() && parts[1].parse::<u32>().is_ok()
+    };
+    matches!(
+        (w_str.parse::<u32>(), h_str.parse::<u32>()),
+        (Ok(w), Ok(h)) if w > 0 && h > 0
+    )
 }
 
 /// Simple base64 decoder (avoids adding a dependency).
@@ -643,11 +629,6 @@ fn base64_decode(input: &str) -> Result<Vec<u8>> {
     Ok(output.stdout)
 }
 
-/// Build SSH arguments for X11 forwarding (used by connect --x11).
-#[allow(dead_code)]
-pub fn build_x11_ssh_args() -> Vec<String> {
-    vec!["-Y".to_string()]
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -657,12 +638,26 @@ pub fn build_x11_ssh_args() -> Vec<String> {
 mod tests {
     use super::*;
 
+    // ── Resolution validation: valid formats ────────────────────────────
+
     #[test]
     fn test_valid_resolution() {
         assert!(is_valid_resolution("1920x1080"));
         assert!(is_valid_resolution("1280x720"));
         assert!(is_valid_resolution("3840x2160"));
     }
+
+    #[test]
+    fn test_resolution_common_display_formats() {
+        assert!(is_valid_resolution("1024x768")); // XGA
+        assert!(is_valid_resolution("1280x1024")); // SXGA
+        assert!(is_valid_resolution("1920x1080")); // Full HD
+        assert!(is_valid_resolution("2560x1440")); // QHD
+        assert!(is_valid_resolution("3840x2160")); // 4K UHD
+        assert!(is_valid_resolution("1x1")); // Minimum valid
+    }
+
+    // ── Resolution validation: invalid formats ──────────────────────────
 
     #[test]
     fn test_invalid_resolution() {
@@ -673,6 +668,61 @@ mod tests {
         assert!(!is_valid_resolution("1920x1080x32"));
         assert!(!is_valid_resolution(""));
     }
+
+    #[test]
+    fn test_resolution_rejects_zero_dimensions() {
+        // Zero dimensions are meaningless for VNC — must be > 0
+        assert!(!is_valid_resolution("0x0"), "0x0 should be rejected");
+        assert!(
+            !is_valid_resolution("1920x0"),
+            "zero height should be rejected"
+        );
+        assert!(
+            !is_valid_resolution("0x1080"),
+            "zero width should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_resolution_rejects_overflow() {
+        // Values exceeding u32::MAX should be rejected
+        assert!(!is_valid_resolution("4294967296x1080"));
+        assert!(!is_valid_resolution("1920x4294967296"));
+    }
+
+    #[test]
+    fn test_resolution_rejects_whitespace() {
+        assert!(!is_valid_resolution(" 1920x1080"));
+        assert!(!is_valid_resolution("1920x1080 "));
+        assert!(!is_valid_resolution("1920 x 1080"));
+        assert!(!is_valid_resolution(" "));
+    }
+
+    #[test]
+    fn test_resolution_case_sensitive_separator() {
+        // Must use lowercase 'x', not uppercase 'X'
+        assert!(!is_valid_resolution("1920X1080"));
+    }
+
+    #[test]
+    fn test_resolution_rejects_negative_and_decimal() {
+        assert!(!is_valid_resolution("-1920x1080"));
+        assert!(!is_valid_resolution("1920x-1080"));
+        assert!(!is_valid_resolution("1920.5x1080"));
+        assert!(!is_valid_resolution("1920x1080.5"));
+    }
+
+    // ── VNC constants ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_vnc_constants_correct() {
+        assert_eq!(VNC_DISPLAY, 1, "VNC display should be :1");
+        assert_eq!(VNC_PORT, 5901, "VNC port should be 5900 + display");
+        assert_eq!(VNC_PORT, 5900 + VNC_DISPLAY, "port = 5900 + display");
+        assert_eq!(BASTION_SSH_PORT, 50210, "bastion SSH tunnel port");
+    }
+
+    // ── SSH prefix builders ─────────────────────────────────────────────
 
     #[test]
     fn test_direct_ssh_prefix_no_key() {
@@ -693,6 +743,58 @@ mod tests {
     }
 
     #[test]
+    fn test_direct_ssh_prefix_exact_structure_no_key() {
+        let prefix = build_direct_ssh_prefix("10.0.0.1", "azureuser", None);
+        let as_strs: Vec<&str> = prefix.iter().map(|s| s.as_str()).collect();
+        assert_eq!(
+            as_strs,
+            vec!["ssh", "-o", "StrictHostKeyChecking=accept-new", "azureuser@10.0.0.1"]
+        );
+    }
+
+    #[test]
+    fn test_direct_ssh_prefix_exact_structure_with_key() {
+        let key = std::path::Path::new("/home/user/.ssh/mykey");
+        let prefix = build_direct_ssh_prefix("10.0.0.1", "azureuser", Some(key));
+        let as_strs: Vec<&str> = prefix.iter().map(|s| s.as_str()).collect();
+        assert_eq!(
+            as_strs,
+            vec![
+                "ssh",
+                "-o",
+                "StrictHostKeyChecking=accept-new",
+                "-i",
+                "/home/user/.ssh/mykey",
+                "azureuser@10.0.0.1"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_direct_ssh_prefix_user_at_host_always_last() {
+        // user@host must be last element (SSH requirement for command appending)
+        let key = std::path::Path::new("/tmp/key");
+        let prefix = build_direct_ssh_prefix("myhost.example.com", "admin", Some(key));
+        assert_eq!(prefix.last().unwrap(), "admin@myhost.example.com");
+
+        let prefix_no_key = build_direct_ssh_prefix("192.168.1.1", "root", None);
+        assert_eq!(prefix_no_key.last().unwrap(), "root@192.168.1.1");
+    }
+
+    #[test]
+    fn test_direct_ssh_prefix_preserves_hostname() {
+        // Should work with FQDNs, not just IPs
+        let prefix =
+            build_direct_ssh_prefix("myvm.westus2.cloudapp.azure.com", "azureuser", None);
+        assert_eq!(
+            prefix.last().unwrap(),
+            "azureuser@myvm.westus2.cloudapp.azure.com"
+        );
+    }
+
+    // ── X11 forwarding ──────────────────────────────────────────────────
+
+    #[test]
     fn test_x11_check_with_display_set() {
         // When DISPLAY is set, x11 check should not fail
         // (This tests the logic path, not actual X server availability)
@@ -705,9 +807,4 @@ mod tests {
         let _has_x = display_set || x_socket;
     }
 
-    #[test]
-    fn test_build_x11_ssh_args() {
-        let args = build_x11_ssh_args();
-        assert_eq!(args, vec!["-Y".to_string()]);
-    }
 }
