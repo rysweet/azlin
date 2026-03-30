@@ -56,6 +56,9 @@ fn dr_test_core(
     backup: Option<&str>,
     rg: &str,
 ) -> Result<DrTestOutcome> {
+    if let Err(e) = crate::name_validation::validate_name(vm_name) {
+        anyhow::bail!("Invalid VM name: {}", e);
+    }
     let backup_name = match backup {
         Some(b) => b.to_string(),
         None => {
@@ -365,6 +368,9 @@ fn load_dr_history(vm_filter: Option<&str>, days: u32) -> Vec<DrTestResult> {
 // ---------------------------------------------------------------------------
 
 fn handle_dr_test_history(vm_name: &str, days: u32) -> Result<()> {
+    if let Err(e) = crate::name_validation::validate_name(vm_name) {
+        anyhow::bail!("Invalid VM name: {}", e);
+    }
     let results = load_dr_history(Some(vm_name), days);
 
     if results.is_empty() {
@@ -404,6 +410,11 @@ fn handle_dr_test_history(vm_name: &str, days: u32) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 fn handle_dr_success_rate(vm_filter: Option<&str>, days: u32) -> Result<()> {
+    if let Some(vm) = vm_filter {
+        if let Err(e) = crate::name_validation::validate_name(vm) {
+            anyhow::bail!("Invalid VM name: {}", e);
+        }
+    }
     let results = load_dr_history(vm_filter, days);
 
     if results.is_empty() {

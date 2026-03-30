@@ -161,6 +161,9 @@ pub(crate) async fn handle_backup_trigger(
     tier: Option<azlin_cli::BackupTier>,
     rg: &str,
 ) -> Result<()> {
+    if let Err(e) = crate::name_validation::validate_name(vm_name) {
+        anyhow::bail!("Invalid VM name: {}", e);
+    }
     let tier_label = match tier {
         Some(azlin_cli::BackupTier::Daily) => "daily",
         Some(azlin_cli::BackupTier::Weekly) => "weekly",
@@ -221,6 +224,9 @@ pub(crate) async fn handle_backup_list(
     tier: Option<azlin_cli::BackupTier>,
     rg: &str,
 ) -> Result<()> {
+    if let Err(e) = crate::name_validation::validate_name(vm_name) {
+        anyhow::bail!("Invalid VM name: {}", e);
+    }
     // Push tier filter into JMESPath query to reduce data transfer from Azure
     let query = match &tier {
         Some(t) => {
@@ -465,6 +471,9 @@ pub(crate) async fn handle_backup_replicate_all(
     target_region: &str,
     rg: &str,
 ) -> Result<()> {
+    if let Err(e) = crate::name_validation::validate_name(vm_name) {
+        anyhow::bail!("Invalid VM name: {}", e);
+    }
     let output = std::process::Command::new("az")
         .args([
             "snapshot",
@@ -543,6 +552,9 @@ pub(crate) async fn handle_backup_replicate_all(
 // ---------------------------------------------------------------------------
 
 pub(crate) async fn handle_replication_status(vm_name: &str, rg: &str) -> Result<()> {
+    if let Err(e) = crate::name_validation::validate_name(vm_name) {
+        anyhow::bail!("Invalid VM name: {}", e);
+    }
     let output = std::process::Command::new("az")
         .args([
             "snapshot",
@@ -606,6 +618,11 @@ pub(crate) async fn handle_replication_jobs(
     vm_filter: Option<&str>,
     rg: &str,
 ) -> Result<()> {
+    if let Some(vm) = vm_filter {
+        if let Err(e) = crate::name_validation::validate_name(vm) {
+            anyhow::bail!("Invalid VM name: {}", e);
+        }
+    }
     let mut query = "[?tags.type=='replica']".to_string();
     if let Some(vm) = vm_filter {
         query = format!("[?tags.vm=='{}' && tags.type=='replica']", vm);
@@ -680,6 +697,9 @@ pub(crate) async fn handle_replication_jobs(
 // ---------------------------------------------------------------------------
 
 pub(crate) async fn handle_backup_verify_all(vm_name: &str, rg: &str) -> Result<()> {
+    if let Err(e) = crate::name_validation::validate_name(vm_name) {
+        anyhow::bail!("Invalid VM name: {}", e);
+    }
     let output = std::process::Command::new("az")
         .args([
             "snapshot",
@@ -753,6 +773,11 @@ pub(crate) async fn handle_verification_report(
     vm_filter: Option<&str>,
     rg: &str,
 ) -> Result<()> {
+    if let Some(vm) = vm_filter {
+        if let Err(e) = crate::name_validation::validate_name(vm) {
+            anyhow::bail!("Invalid VM name: {}", e);
+        }
+    }
     let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
 
     let mut query = "[?tags.type=='backup']".to_string();
