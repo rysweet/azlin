@@ -54,7 +54,7 @@ Key integration test files:
 | `cli_integration.rs` | CLI arg parsing, help, version |
 | `config_integration.rs` | Config load/save/defaults |
 | `session_integration.rs` | Session persistence |
-| `e2e_integration.rs` | End-to-end command flows |
+| `local_e2e.rs` | End-to-end command flows (local, no Azure) |
 | `parity_integration.rs` | Python/Rust output parity |
 | `azure_live_integration.rs` | Live Azure API calls (ignored) |
 | `live_commands_integration.rs` | Live command execution (ignored) |
