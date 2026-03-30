@@ -46,6 +46,19 @@
 - [Tmux Session Status](./features/tmux-session-status.md)
 - [VM Lifecycle Automation](./features/vm-lifecycle-automation.md)
 
+## Testing
+
+- [Testing Guide](../TESTING.md) — How to run all azlin tests (quick start, categories, env vars, CI)
+- [Test Suite Specification](./TEST_SUITE_SPECIFICATION.md) — 300+ CLI syntax tests
+- [Agentic Integration Tests](./AGENTIC_INTEGRATION_TESTS.md) — YAML-based scenario tests
+- [Real Azure Testing](./REAL_AZURE_TESTING.md) — Manual testing with live Azure credentials
+- [Backup & DR Test Coverage](./testing/backup-dr-test-coverage.md) — TDD test plan for backup and disaster recovery (170+ tests)
+- [Test Strategy](./testing/test_strategy.md) — Test pyramid, mocking patterns, TDD approach
+
+## Features (In Progress)
+
+- [Backup & Disaster Recovery](./backup-disaster-recovery.md) — Automated backup scheduling, cross-region replication, verification, and DR testing
+
 ## Monitoring
 
 - [Monitoring Quick Reference](./monitoring-quick-reference.md) — Dashboard, alerts, metrics

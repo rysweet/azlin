@@ -59,6 +59,12 @@ pub(crate) async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
         cmd @ azlin_cli::Commands::Snapshot { .. } => {
             crate::cmd_snapshot::dispatch(cmd, cli.verbose, &cli.output).await?;
         }
+        cmd @ azlin_cli::Commands::Backup { .. } => {
+            crate::cmd_backup::dispatch(cmd, cli.verbose, &cli.output).await?;
+        }
+        cmd @ azlin_cli::Commands::Dr { .. } => {
+            crate::cmd_dr::dispatch(cmd, cli.verbose, &cli.output).await?;
+        }
         cmd @ azlin_cli::Commands::Storage { .. } => {
             crate::cmd_storage::dispatch(cmd, cli.verbose, &cli.output).await?;
         }

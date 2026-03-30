@@ -2395,4 +2395,4 @@ azlin COMMAND --help
 
 ---
 
-**For detailed API documentation and architecture, see [docs/](docs/)**
+**For detailed API documentation and architecture, see [docs/](docs/)** | **[Testing Guide](TESTING.md)**
