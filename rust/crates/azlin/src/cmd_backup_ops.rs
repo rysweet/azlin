@@ -371,6 +371,7 @@ pub(crate) async fn handle_backup_verify(backup_name: &str, rg: &str) -> Result<
 fn replicate_backup_core(backup_name: &str, target_region: &str, rg: &str) -> Result<String> {
     let replica_name = format!("{}-replica-{}", backup_name, target_region);
 
+    // Query both the snapshot ID and its vm tag so we can propagate it to the replica
     let show_output = std::process::Command::new("az")
         .args([
             "snapshot",
@@ -380,9 +381,9 @@ fn replicate_backup_core(backup_name: &str, target_region: &str, rg: &str) -> Re
             "--name",
             backup_name,
             "--query",
-            "id",
+            "{id: id, vm: tags.vm}",
             "--output",
-            "tsv",
+            "json",
         ])
         .output()?;
 
@@ -390,29 +391,40 @@ fn replicate_backup_core(backup_name: &str, target_region: &str, rg: &str) -> Re
         anyhow::bail!("Backup '{}' not found.", backup_name);
     }
 
-    let source_id = String::from_utf8_lossy(&show_output.stdout)
-        .trim()
-        .to_string();
+    let info: serde_json::Value = serde_json::from_slice(&show_output.stdout)?;
+    let source_id = info["id"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("Backup '{}' has no resource ID.", backup_name))?;
+    let vm_tag = info["vm"].as_str().unwrap_or("");
 
-    let output = std::process::Command::new("az")
-        .args([
-            "snapshot",
-            "create",
-            "--resource-group",
-            rg,
-            "--name",
-            &replica_name,
-            "--source",
-            &source_id,
-            "--location",
-            target_region,
-            "--tags",
-            &format!("source={}", backup_name),
-            "type=replica",
-            "--output",
-            "json",
-        ])
-        .output()?;
+    let mut tag_args = vec![
+        format!("source={}", backup_name),
+        "type=replica".to_string(),
+    ];
+    if !vm_tag.is_empty() {
+        tag_args.push(format!("vm={}", vm_tag));
+    }
+
+    let mut args = vec![
+        "snapshot",
+        "create",
+        "--resource-group",
+        rg,
+        "--name",
+        &replica_name,
+        "--source",
+        source_id,
+        "--location",
+        target_region,
+        "--tags",
+    ];
+    for tag in &tag_args {
+        args.push(tag);
+    }
+    args.push("--output");
+    args.push("json");
+
+    let output = std::process::Command::new("az").args(&args).output()?;
 
     if output.status.success() {
         Ok(replica_name)
