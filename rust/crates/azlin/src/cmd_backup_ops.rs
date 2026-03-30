@@ -107,6 +107,9 @@ pub(crate) fn handle_backup_configure(
 // ---------------------------------------------------------------------------
 
 pub(crate) fn handle_backup_config_show(vm_name: &str) -> Result<()> {
+    if let Err(e) = crate::name_validation::validate_name(vm_name) {
+        anyhow::bail!("Invalid VM name: {}", e);
+    }
     match load_backup_config(vm_name)? {
         Some(config) => {
             println!("Backup configuration for VM '{}':", vm_name);
@@ -149,6 +152,9 @@ pub(crate) fn handle_backup_config_show(vm_name: &str) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 pub(crate) fn handle_backup_disable(vm_name: &str) -> Result<()> {
+    if let Err(e) = crate::name_validation::validate_name(vm_name) {
+        anyhow::bail!("Invalid VM name: {}", e);
+    }
     let path = backup_config_path(vm_name);
     if path.exists() {
         std::fs::remove_file(&path)?;
@@ -317,6 +323,12 @@ pub(crate) async fn handle_backup_restore(
     force: bool,
     rg: &str,
 ) -> Result<()> {
+    if let Err(e) = crate::name_validation::validate_name(vm_name) {
+        anyhow::bail!("Invalid VM name: {}", e);
+    }
+    if let Err(e) = crate::name_validation::validate_name(backup_name) {
+        anyhow::bail!("Invalid backup name: {}", e);
+    }
     if !safe_confirm(
         &format!(
             "Restore VM '{}' from backup '{}'? This will replace the current disk.",
@@ -369,6 +381,9 @@ fn verify_backup_core(backup_name: &str, rg: &str) -> Result<(String, u64)> {
 }
 
 pub(crate) async fn handle_backup_verify(backup_name: &str, rg: &str) -> Result<()> {
+    if let Err(e) = crate::name_validation::validate_name(backup_name) {
+        anyhow::bail!("Invalid backup name: {}", e);
+    }
     let pb = penguin_spinner(&format!("Verifying backup '{}'...", backup_name));
     let result = verify_backup_core(backup_name, rg);
     pb.finish_and_clear();
@@ -456,6 +471,12 @@ pub(crate) async fn handle_backup_replicate(
     target_region: &str,
     rg: &str,
 ) -> Result<()> {
+    if let Err(e) = crate::name_validation::validate_name(backup_name) {
+        anyhow::bail!("Invalid backup name: {}", e);
+    }
+    if let Err(e) = crate::name_validation::validate_name(target_region) {
+        anyhow::bail!("Invalid target region: {}", e);
+    }
     let pb = penguin_spinner(&format!(
         "Replicating '{}' to {}...",
         backup_name, target_region
