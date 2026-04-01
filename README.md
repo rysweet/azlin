@@ -24,6 +24,19 @@ curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-macos-
 
 # macOS aarch64 (Apple Silicon)
 curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-macos-aarch64.tar.gz | tar xz -C /usr/local/bin
+
+# Windows x86_64 (PowerShell)
+# Create directory if it doesn't exist
+$dest = "$env:USERPROFILE\.local\bin"
+if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force }
+# Download and extract
+$url = "https://github.com/rysweet/azlin/releases/latest/download/azlin-windows-x86_64.zip"
+Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\azlin.zip"
+Expand-Archive -Path "$env:TEMP\azlin.zip" -DestinationPath $dest -Force
+# Add to PATH for current session
+$env:PATH += ";$dest"
+# To persist PATH, add this line to your PowerShell profile:
+# $env:PATH += ";$env:USERPROFILE\.local\bin"
 ```
 
 ### Option 2: Build from Source with Cargo
