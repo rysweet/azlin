@@ -199,6 +199,8 @@ Before using azlin, ensure these tools are installed:
 - `git`
 - `ssh`
 - `tmux`
+
+**Note**: If you plan to install via `uvx` (Option 3 below), you'll also need:
 - `uv`
 - `python`
 
