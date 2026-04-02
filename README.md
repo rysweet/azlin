@@ -34,6 +34,8 @@ cargo install --git https://github.com/rysweet/azlin
 
 ### Option 3: Run via uvx (No Install)
 
+> Requires [`uv`](https://docs.astral.sh/uv/) to be installed. This option runs the legacy Python entrypoint directly from the repo.
+
 ```bash
 uvx --from git+https://github.com/rysweet/azlin azlin list
 ```
@@ -199,8 +201,10 @@ Before using azlin, ensure these tools are installed:
 - `git`
 - `ssh`
 - `tmux`
+
+If you are using **Option 3 (`uvx`)**, you also need:
+
 - `uv`
-- `python`
 
 **macOS**: `brew install azure-cli gh git tmux`
 **Linux**: See platform-specific installation in Prerequisites module
