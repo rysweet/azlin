@@ -18,8 +18,8 @@ Before forwarding, azlin waits for the VM's SSH service to become reachable:
 
 | Parameter | Value |
 |-----------|-------|
-| Timeout | Configurable (default: 120 seconds) |
-| Poll interval | Configurable (default: 5 seconds) |
+| Timeout | 300 seconds |
+| Poll interval | 5 seconds |
 | TCP connect timeout | 3 seconds per attempt |
 | Verification | TCP connect + SSH auth handshake |
 
@@ -29,6 +29,30 @@ The check performs two steps per attempt:
 2. **SSH auth test** — runs `ssh -o BatchMode=yes <host> true` to verify authentication works
 
 Both must succeed before forwarding begins. If the timeout elapses, forwarding is skipped with a warning.
+
+## Cloud-Init Completion Check
+
+After SSH is reachable, azlin waits for cloud-init provisioning to complete before forwarding credentials or connecting the user. This ensures all tools (gh, az, node, rustc, go, dotnet, claude) are installed.
+
+| Parameter | Value |
+|-----------|-------|
+| Timeout | 600 seconds |
+| Poll interval | 10 seconds |
+| Remote command | `cloud-init status` |
+| Terminal states | `status: done`, `status: error` |
+
+Behavior by cloud-init state:
+
+| State | Action |
+|-------|--------|
+| `status: done` | Print success message, proceed |
+| `status: disabled` | Print info message, proceed (cloud-init not active) |
+| `status: error` | Print warning, proceed (best-effort) |
+| `status: running` | Continue polling |
+| Command not found | Treat as done (non-cloud-init VM) |
+| Timeout (600s) | Print warning, proceed anyway |
+
+Cloud-init issues never block VM creation or user connection. All failure paths produce warnings and continue.
 
 ## Credential Detection
 
