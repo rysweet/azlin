@@ -199,11 +199,11 @@ Before using azlin, ensure these tools are installed:
 - `git`
 - `ssh`
 - `tmux`
-- `uv`
-- `python`
 
 **macOS**: `brew install azure-cli gh git tmux`
 **Linux**: See platform-specific installation in Prerequisites module
+
+> **Note**: `uv` and `python` are only required for **Option 3** (Run via uvx). They are not needed for the Rust binary (Option 1 and Option 2).
 
 ### Copy Files to/from VMs
 
