@@ -679,15 +679,13 @@ systemctl enable docker
 systemctl start docker
 usermod -aG docker {username}
 
-# Python 3.13+ — use deadsnakes PPA only on LTS that needs it
+# Python 3.13+ - install via deadsnakes but do NOT change system python3
+# (changing system python3 breaks apt tools that depend on apt_pkg)
 if python3 --version 2>&1 | grep -qE '3\.1[3-9]|3\.[2-9][0-9]'; then
     echo "Python 3.13+ already available"
 else
-    add-apt-repository -y ppa:deadsnakes/ppa && apt-get update && apt-get install -y python3.13 python3.13-venv python3.13-dev
-    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1
-    update-alternatives --set python3 /usr/bin/python3.13
+    add-apt-repository -y ppa:deadsnakes/ppa && apt-get update && apt-get install -y python3.13 python3.13-venv python3.13-dev || echo "WARNING: Python 3.13 install failed"
 fi
-curl -sS https://bootstrap.pypa.io/get-pip.py | python3
 
 # GitHub CLI
 mkdir -p -m 755 /etc/apt/keyrings
