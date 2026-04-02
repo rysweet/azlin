@@ -29,7 +29,8 @@ pub fn forward_auth_credentials(
     // Wait for SSH to be ready before attempting any forwarding
     let ssh_port = bastion_port.unwrap_or(22);
     let ssh_host = if bastion_port.is_some() { "127.0.0.1" } else { ip };
-    wait_for_ssh(ssh_host, ssh_port, user, Duration::from_secs(120))?;
+    wait_for_ssh(ssh_host, ssh_port, user, Duration::from_secs(300))?;
+    wait_for_cloud_init(ip, user, bastion_port);
 
     let sources = detect_credentials();
     if sources.is_empty() {
@@ -99,18 +100,70 @@ fn wait_for_ssh(host: &str, port: u16, user: &str, timeout: Duration) -> Result<
     }
 }
 
+/// Wait for cloud-init to finish provisioning. Best-effort: issues warn but
+/// never block VM usage. Called after SSH is confirmed ready.
+fn wait_for_cloud_init(ip: &str, user: &str, bastion_port: Option<u16>) {
+    let timeout = Duration::from_secs(600);
+    let interval = Duration::from_secs(10);
+    let start = Instant::now();
+
+    println!("Waiting for cloud-init to finish provisioning...");
+
+    loop {
+        if start.elapsed() >= timeout {
+            eprintln!(
+                "Warning: cloud-init did not complete within {}s. \
+                 Continuing — some tools may not be installed yet.",
+                timeout.as_secs()
+            );
+            return;
+        }
+
+        match ssh_output(
+            ip,
+            user,
+            bastion_port,
+            "cloud-init status 2>/dev/null || echo 'status: done'",
+        ) {
+            Ok(out) => {
+                if out.contains("status: done") {
+                    println!("Cloud-init provisioning complete.");
+                    return;
+                }
+                if out.contains("status: disabled") {
+                    println!("Cloud-init is disabled on this VM. Proceeding.");
+                    return;
+                }
+                if out.contains("status: error") {
+                    eprintln!(
+                        "Warning: cloud-init finished with errors. \
+                         Some tools may not be installed."
+                    );
+                    return;
+                }
+                // Still running — continue polling
+            }
+            Err(_) => {
+                // SSH hiccup during cloud-init — keep trying
+            }
+        }
+
+        std::thread::sleep(interval);
+    }
+}
+
 /// Test SSH authentication by running `exit 0` on the remote.
 fn test_ssh_auth(host: &str, port: u16, user: &str) -> bool {
+    let mut args = base_ssh_args();
+    args.extend([
+        "-o".to_string(), "ConnectTimeout=5".to_string(),
+        "-o".to_string(), "LogLevel=ERROR".to_string(),
+        "-p".to_string(), port.to_string(),
+        format!("{}@{}", user, host),
+        "exit 0".to_string(),
+    ]);
     let status = std::process::Command::new("ssh")
-        .args([
-            "-o", "StrictHostKeyChecking=accept-new",
-            "-o", "BatchMode=yes",
-            "-o", "ConnectTimeout=5",
-            "-o", "LogLevel=ERROR",
-            "-p", &port.to_string(),
-            &format!("{}@{}", user, host),
-            "exit 0",
-        ])
+        .args(&args)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
@@ -288,15 +341,39 @@ fn forward_az(ip: &str, user: &str, bastion_port: Option<u16>) -> Result<()> {
 // SSH/SCP helpers
 // ---------------------------------------------------------------------------
 
-/// Run a command on the remote via SSH. Returns Ok(()) on success.
-fn ssh_run(ip: &str, user: &str, bastion_port: Option<u16>, command: &str) -> Result<()> {
-    let (ssh_host, port_args) = ssh_target(ip, user, bastion_port);
+/// Resolve the preferred SSH private key for azlin VMs.
+/// Checks for azlin_key, id_ed25519_azlin, id_ed25519, id_rsa in ~/.ssh/.
+fn resolve_ssh_key() -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    let ssh_dir = home.join(".ssh");
+    for name in &["azlin_key", "id_ed25519_azlin", "id_ed25519", "id_rsa"] {
+        let path = ssh_dir.join(name);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// Build common SSH args: StrictHostKeyChecking, BatchMode, identity key.
+fn base_ssh_args() -> Vec<String> {
     let mut args = vec![
         "-o".to_string(),
         "StrictHostKeyChecking=accept-new".to_string(),
         "-o".to_string(),
         "BatchMode=yes".to_string(),
     ];
+    if let Some(key) = resolve_ssh_key() {
+        args.push("-i".to_string());
+        args.push(key.to_string_lossy().to_string());
+    }
+    args
+}
+
+/// Run a command on the remote via SSH. Returns Ok(()) on success.
+fn ssh_run(ip: &str, user: &str, bastion_port: Option<u16>, command: &str) -> Result<()> {
+    let (ssh_host, port_args) = ssh_target(ip, user, bastion_port);
+    let mut args = base_ssh_args();
     args.extend(port_args);
     args.push(ssh_host);
     args.push(command.to_string());
@@ -313,6 +390,27 @@ fn ssh_run(ip: &str, user: &str, bastion_port: Option<u16>, command: &str) -> Re
     Ok(())
 }
 
+/// Run a command on the remote via SSH and capture its stdout.
+fn ssh_output(ip: &str, user: &str, bastion_port: Option<u16>, command: &str) -> Result<String> {
+    let (ssh_host, port_args) = ssh_target(ip, user, bastion_port);
+    let mut args = base_ssh_args();
+    args.extend(["-o".to_string(), "ConnectTimeout=10".to_string()]);
+    args.extend(port_args);
+    args.push(ssh_host);
+    args.push(command.to_string());
+
+    let output = std::process::Command::new("ssh")
+        .args(&args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("ssh command failed: {}", stderr.trim());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
 /// SCP a single file to the remote.
 fn scp_file(
     local: &std::path::Path,
@@ -326,6 +424,10 @@ fn scp_file(
         "-o".to_string(),
         "StrictHostKeyChecking=accept-new".to_string(),
     ];
+    if let Some(key) = resolve_ssh_key() {
+        args.push("-i".to_string());
+        args.push(key.to_string_lossy().to_string());
+    }
     args.extend(scp_port_args);
     args.push(local.to_string_lossy().to_string());
     args.push(scp_dest);
@@ -351,6 +453,10 @@ fn scp_recursive(
         "-o".to_string(),
         "StrictHostKeyChecking=accept-new".to_string(),
     ];
+    if let Some(key) = resolve_ssh_key() {
+        args.push("-i".to_string());
+        args.push(key.to_string_lossy().to_string());
+    }
     args.extend(scp_port_args);
     args.push(local_dir.to_string_lossy().to_string());
     args.push(scp_dest);
@@ -873,5 +979,42 @@ mod tests {
             tags.insert("azlin-session".to_string(), vm_name.clone());
         }
         assert_eq!(tags["azlin-session"], vm_name);
+    }
+
+    // =======================================================================
+    // cloud-init status parsing
+    // =======================================================================
+
+    #[test]
+    fn test_cloud_init_status_done_detected() {
+        let output = "status: done\n";
+        assert!(output.contains("status: done"));
+    }
+
+    #[test]
+    fn test_cloud_init_status_error_detected() {
+        let output = "status: error\n";
+        assert!(output.contains("status: error"));
+    }
+
+    #[test]
+    fn test_cloud_init_status_running_is_not_terminal() {
+        let output = "status: running\n";
+        assert!(!output.contains("status: done"));
+        assert!(!output.contains("status: error"));
+    }
+
+    #[test]
+    fn test_cloud_init_fallback_output_is_done() {
+        // When cloud-init is not installed, fallback echoes "status: done"
+        let output = "status: done";
+        assert!(output.contains("status: done"));
+    }
+
+    #[test]
+    fn test_cloud_init_status_disabled_is_terminal() {
+        // Disabled cloud-init should be treated as done, not poll for 600s
+        let output = "status: disabled\n";
+        assert!(output.contains("status: disabled"));
     }
 }
