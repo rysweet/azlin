@@ -679,12 +679,12 @@ systemctl enable docker
 systemctl start docker
 usermod -aG docker {username}
 
-# Python 3.13+ - install via deadsnakes but do NOT change system python3
+# Python 3.14 - install via deadsnakes but do NOT change system python3
 # (changing system python3 breaks apt tools that depend on apt_pkg)
-if python3 --version 2>&1 | grep -qE '3\.1[3-9]|3\.[2-9][0-9]'; then
-    echo "Python 3.13+ already available"
+if python3.14 --version 2>/dev/null; then
+    echo "Python 3.14 already available"
 else
-    add-apt-repository -y ppa:deadsnakes/ppa && apt-get update && apt-get install -y python3.13 python3.13-venv python3.13-dev || echo "WARNING: Python 3.13 install failed"
+    add-apt-repository -y ppa:deadsnakes/ppa && apt-get update && apt-get install -y python3.14 python3.14-venv python3.14-dev || echo "WARNING: Python 3.14 install failed"
 fi
 
 # GitHub CLI
@@ -732,16 +732,15 @@ su - {username} -c 'curl -fsSL https://claude.ai/install.sh | bash' || echo "WAR
 su - {username} -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
 
 # Go
-wget -q https://go.dev/dl/go1.21.5.linux-amd64.tar.gz -O /tmp/go.tar.gz
+wget -q https://go.dev/dl/go1.26.1.linux-amd64.tar.gz -O /tmp/go.tar.gz
 tar -C /usr/local -xzf /tmp/go.tar.gz
 rm -f /tmp/go.tar.gz
 
-# .NET 10 SDK
+# .NET 10 SDK (GA LTS)
 curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
 chmod +x /tmp/dotnet-install.sh
-/tmp/dotnet-install.sh --channel 10.0 --quality preview --install-dir /usr/share/dotnet \
-    || /tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet \
-    || echo "WARNING: .NET 10 SDK install failed (may not be available yet)"
+/tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet \
+    || echo "WARNING: .NET 10 SDK install failed"
 ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet 2>/dev/null || true
 rm -f /tmp/dotnet-install.sh
 

@@ -91,9 +91,8 @@ pub fn default_dev_setup_commands(username: &str) -> Vec<String> {
     vec![
         // Full system upgrade (apt-get upgrade is safer than full-upgrade: never removes packages)
         "apt-get update && apt-get upgrade -y && apt-get autoremove -y && apt-get autoclean -y".to_string(),
-        // Python 3.13+ — use deadsnakes PPA only on LTS that needs it
-        "if python3 --version 2>&1 | grep -qE '3\\.1[3-9]|3\\.[2-9][0-9]'; then echo 'Python 3.13+ available'; else add-apt-repository -y ppa:deadsnakes/ppa && apt update && apt install -y python3.13 python3.13-venv python3.13-dev && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1 && update-alternatives --set python3 /usr/bin/python3.13; fi".to_string(),
-        "curl -sS https://bootstrap.pypa.io/get-pip.py | python3".to_string(),
+        // Python 3.14 - install via deadsnakes but do NOT change system python3
+        "if python3.14 --version 2>/dev/null; then echo 'Python 3.14 available'; else add-apt-repository -y ppa:deadsnakes/ppa && apt update && apt install -y python3.14 python3.14-venv python3.14-dev || echo 'WARNING: Python 3.14 install failed'; fi".to_string(),
         // GitHub CLI
         "mkdir -p -m 755 /etc/apt/keyrings && wget -nv -O /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && mkdir -p -m 755 /etc/apt/sources.list.d && echo \"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && apt update && apt install -y gh".to_string(),
         // Azure CLI
@@ -113,9 +112,9 @@ pub fn default_dev_setup_commands(username: &str) -> Vec<String> {
         // Rust
         format!("su - {u} -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'", u = username),
         // Go
-        "wget -q https://go.dev/dl/go1.21.5.linux-amd64.tar.gz -O /tmp/go.tar.gz && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz".to_string(),
+        "wget -q https://go.dev/dl/go1.26.1.linux-amd64.tar.gz -O /tmp/go.tar.gz && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz".to_string(),
         // .NET 10 SDK
-        "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && chmod +x /tmp/dotnet-install.sh && (/tmp/dotnet-install.sh --channel 10.0 --quality preview --install-dir /usr/share/dotnet || /tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet || echo 'WARNING: .NET 10 SDK install failed') && ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet; rm -f /tmp/dotnet-install.sh".to_string(),
+        "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && chmod +x /tmp/dotnet-install.sh && (/tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet || echo 'WARNING: .NET 10 SDK install failed') && ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet; rm -f /tmp/dotnet-install.sh".to_string(),
         // Docker post-install
         format!("usermod -aG docker {u} && systemctl enable docker && systemctl start docker", u = username),
         // bashrc additions (npm path, go path, cargo env, azlin alias)
