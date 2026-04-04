@@ -233,16 +233,13 @@ fn build_dependency_setup_script(mode: &VncMode) -> String {
     };
 
     let script = format!(
-        "set -euo pipefail\n\
-         if {check_cmd}; then\n\
-           exit 0\n\
-         fi\n\
-         sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq\n\
-         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y {install_packages}\n\
-         if ! {check_cmd}; then\n\
-           echo 'Remote GUI dependencies are still missing after installation.' >&2\n\
-           exit 1\n\
-         fi\n"
+        "if {check_cmd}; then exit 0; fi; \
+         sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq || exit $?; \
+         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y {install_packages} || exit $?; \
+         if ! ({check_cmd}); then \
+           echo 'Remote GUI dependencies are still missing after installation.' >&2; \
+           exit 1; \
+         fi"
     );
     format!("bash -lc {}", crate::shell_escape(&script))
 }
@@ -710,6 +707,20 @@ mod tests {
         assert!(!script.contains("read "));
         assert!(!script.contains("[Y/n]"));
         assert!(script.contains("startxfce4"));
+        assert!(!script.contains('\n'));
+        assert!(script.contains("if ! (command -v vncserver"));
+        assert!(!script.contains("set -e"));
+    }
+
+    #[test]
+    fn test_build_dependency_setup_script_propagates_apt_failures() {
+        let script = build_dependency_setup_script(&VncMode::Desktop);
+        assert!(script.contains("apt-get update -qq || exit $?"));
+        assert!(
+            script.contains(
+                "apt-get install -y tigervnc-standalone-server xfce4 xfce4-goodies dbus-x11 || exit $?"
+            )
+        );
     }
 
     #[test]
