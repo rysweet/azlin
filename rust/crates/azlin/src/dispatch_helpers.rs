@@ -239,6 +239,94 @@ pub(crate) async fn resolve_vm_targets(
     Ok(targets)
 }
 
+/// Build a shared SSH prefix for a resolved VM target, opening a bastion tunnel
+/// when required.
+pub(crate) fn build_routed_ssh_prefix(
+    target: &VmSshTarget,
+    connect_timeout: u64,
+    key_override: Option<&std::path::Path>,
+) -> Result<(
+    Vec<String>,
+    Option<crate::bastion_tunnel::ScopedBastionTunnel>,
+)> {
+    if let Some(ref bastion) = target.bastion {
+        let tunnel = crate::bastion_tunnel::ScopedBastionTunnel::new(
+            &bastion.bastion_name,
+            &bastion.resource_group,
+            &bastion.vm_resource_id,
+        )?;
+        let mut prefix = crate::ssh_arg_helpers::build_tunneled_ssh_prefix(
+            &target.user,
+            tunnel.local_port,
+            connect_timeout,
+        );
+        if let Some(key_path) = key_override {
+            crate::ssh_arg_helpers::inject_identity_key_before_destination(&mut prefix, key_path);
+        } else if let Some(ref key_path) = bastion.ssh_key_path {
+            crate::ssh_arg_helpers::inject_identity_key_before_destination(&mut prefix, key_path);
+        }
+        Ok((prefix, Some(tunnel)))
+    } else {
+        let mut prefix =
+            crate::ssh_arg_helpers::build_ssh_prefix(&target.ip, &target.user, connect_timeout);
+        if let Some(key_path) = key_override {
+            crate::ssh_arg_helpers::inject_identity_key_before_destination(&mut prefix, key_path);
+        } else if let Some(key_path) = resolve_ssh_key() {
+            crate::ssh_arg_helpers::inject_identity_key_before_destination(&mut prefix, &key_path);
+        }
+        Ok((prefix, None))
+    }
+}
+
+/// Build the `ssh ...` transport string used by rsync/scp-style commands for a
+/// resolved target and optional already-open bastion tunnel port.
+pub(crate) fn build_routed_ssh_transport(
+    target: &VmSshTarget,
+    bastion_port: Option<u16>,
+    connect_timeout: u64,
+) -> String {
+    let mut parts = vec![
+        "ssh".to_string(),
+        "-o".to_string(),
+        "StrictHostKeyChecking=accept-new".to_string(),
+        "-o".to_string(),
+        format!("ConnectTimeout={}", connect_timeout),
+        "-o".to_string(),
+        "BatchMode=yes".to_string(),
+    ];
+
+    if let Some(port) = bastion_port {
+        parts.push("-p".to_string());
+        parts.push(port.to_string());
+        if let Some(ref bastion) = target.bastion {
+            if let Some(ref key_path) = bastion.ssh_key_path {
+                parts.push("-i".to_string());
+                parts.push(key_path.display().to_string());
+            }
+        }
+    } else if let Some(key_path) = resolve_ssh_key() {
+        parts.push("-i".to_string());
+        parts.push(key_path.display().to_string());
+    }
+
+    parts.join(" ")
+}
+
+/// Run a remote command through the shared SSH routing path with a hard timeout.
+pub(crate) fn run_target_command_with_timeout(
+    target: &VmSshTarget,
+    remote_cmd: &str,
+    timeout_secs: u64,
+    key_override: Option<&std::path::Path>,
+) -> Result<(i32, String, String)> {
+    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+    let (mut prefix, _tunnel) =
+        build_routed_ssh_prefix(target, config.ssh_connect_timeout, key_override)?;
+    prefix.push(remote_cmd.to_string());
+    let arg_refs: Vec<&str> = prefix.iter().map(|arg| arg.as_str()).collect();
+    azlin_azure::run_with_timeout("ssh", &arg_refs, timeout_secs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -285,5 +373,40 @@ mod tests {
             "Error should suggest --yes/--force or be a terminal error, got: {}",
             err_msg
         );
+    }
+
+    #[test]
+    fn build_routed_ssh_transport_direct_uses_noninteractive_ssh() {
+        let target = VmSshTarget {
+            vm_name: "simard".to_string(),
+            ip: "1.2.3.4".to_string(),
+            user: "azureuser".to_string(),
+            bastion: None,
+        };
+
+        let transport = build_routed_ssh_transport(&target, None, 42);
+        assert!(transport.contains("StrictHostKeyChecking=accept-new"));
+        assert!(transport.contains("ConnectTimeout=42"));
+        assert!(transport.contains("BatchMode=yes"));
+    }
+
+    #[test]
+    fn build_routed_ssh_transport_bastion_includes_local_port() {
+        let target = VmSshTarget {
+            vm_name: "simard".to_string(),
+            ip: "10.0.0.5".to_string(),
+            user: "azureuser".to_string(),
+            bastion: Some(BastionRoute {
+                bastion_name: "bastion".to_string(),
+                resource_group: "rg".to_string(),
+                vm_resource_id: "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/simard".to_string(),
+                ssh_key_path: Some(std::path::PathBuf::from("/tmp/key")),
+            }),
+        };
+
+        let transport = build_routed_ssh_transport(&target, Some(50210), 30);
+        assert!(transport.contains("-p 50210"));
+        assert!(transport.contains("-i /tmp/key"));
+        assert!(transport.contains("BatchMode=yes"));
     }
 }

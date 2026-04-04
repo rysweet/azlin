@@ -13,7 +13,6 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::{Context, Result};
-use std::collections::HashMap;
 
 /// VNC session mode.
 enum VncMode {
@@ -25,14 +24,14 @@ enum VncMode {
     App(String),
 }
 
-/// Bastion tunnel local port for SSH access to the VM.
-const BASTION_SSH_PORT: u16 = 50210;
-
 /// VNC display number (maps to port 5901).
 const VNC_DISPLAY: u16 = 1;
 
 /// VNC port = 5900 + display number.
 const VNC_PORT: u16 = 5900 + VNC_DISPLAY;
+
+/// Hard timeout for the remote GUI dependency/setup phase.
+const GUI_SETUP_TIMEOUT_SECS: u64 = 600;
 
 // ---------------------------------------------------------------------------
 // Dispatch
@@ -40,7 +39,7 @@ const VNC_PORT: u16 = 5900 + VNC_DISPLAY;
 
 pub(crate) async fn dispatch(
     command: azlin_cli::Commands,
-    verbose: bool,
+    _verbose: bool,
     _output: &azlin_cli::OutputFormat,
 ) -> Result<()> {
     let azlin_cli::Commands::Gui {
@@ -50,7 +49,7 @@ pub(crate) async fn dispatch(
         key,
         resolution,
         depth,
-        yes,
+        yes: _yes,
         minimal,
         app,
     } = command
@@ -70,8 +69,6 @@ pub(crate) async fn dispatch(
     check_local_deps()?;
 
     // Step 2: Resolve VM
-    let auth = create_auth()?;
-    let vm_manager = azlin_azure::VmManager::new(&auth);
     let rg = resolve_resource_group(resource_group)?;
 
     let name = if let Some(n) = vm_identifier {
@@ -81,36 +78,18 @@ pub(crate) async fn dispatch(
     };
 
     let pb = penguin_spinner(&format!("Looking up {}...", name));
-    let vm = vm_manager.get_vm(&rg, &name)?;
+    let mut target = resolve_vm_ssh_target(&name, None, Some(rg.clone())).await?;
+    if user != DEFAULT_ADMIN_USERNAME {
+        target.user = user;
+    }
     pb.finish_and_clear();
-
-    let username = vm.admin_username.clone().unwrap_or_else(|| user.clone());
-    let use_bastion = vm.public_ip.is_none();
-
-    // Resolve SSH key: use --key flag if provided, otherwise fall back to default
+    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
     let effective_key = key.or_else(resolve_ssh_key);
-
-    // Build SSH command prefix for running commands on the remote VM.
-    // This prefix is reused for all remote operations.
-    let (ssh_cmd_prefix, cleanup_pids) = if use_bastion {
-        build_bastion_ssh_prefix(
-            &vm,
-            &vm_manager,
-            &rg,
-            &username,
-            effective_key.as_deref(),
-            verbose,
-        )?
-    } else {
-        let ip = vm
-            .public_ip
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("VM has no public IP"))?;
-        (
-            build_direct_ssh_prefix(ip, &username, effective_key.as_deref()),
-            vec![],
-        )
-    };
+    let (ssh_cmd_prefix, _route_tunnel) = build_gui_ssh_command_prefix(
+        &target,
+        config.ssh_connect_timeout,
+        effective_key.as_deref(),
+    )?;
 
     // Determine VNC mode
     let vnc_mode = if let Some(cmd) = app {
@@ -123,7 +102,7 @@ pub(crate) async fn dispatch(
 
     // Step 3: Check/install remote dependencies
     let pb = penguin_spinner("Checking remote dependencies...");
-    check_remote_deps(&ssh_cmd_prefix, yes, &vnc_mode)?;
+    check_remote_deps(&target, effective_key.as_deref(), &vnc_mode)?;
     pb.finish_and_clear();
 
     // Step 4: Start VNC server on the remote VM
@@ -133,14 +112,10 @@ pub(crate) async fn dispatch(
 
     // Step 5: Open SSH port-forward for VNC
     let pb = penguin_spinner("Opening VNC tunnel...");
-    let tunnel_pids = open_vnc_tunnel(&ssh_cmd_prefix, use_bastion)?;
+    let tunnel_pids = open_vnc_tunnel(&ssh_cmd_prefix)?;
     pb.finish_and_clear();
 
-    let all_pids: Vec<u32> = cleanup_pids
-        .iter()
-        .chain(tunnel_pids.iter())
-        .copied()
-        .collect();
+    let all_pids: Vec<u32> = tunnel_pids.to_vec();
 
     // Step 6: Launch local VNC viewer
     println!("Launching VNC viewer (127.0.0.1:{})...", VNC_PORT);
@@ -200,151 +175,131 @@ fn check_local_deps() -> Result<()> {
 // ---------------------------------------------------------------------------
 
 /// Build an SSH command prefix for direct connection to a public-IP VM.
+#[cfg(test)]
 fn build_direct_ssh_prefix(ip: &str, user: &str, key: Option<&std::path::Path>) -> Vec<String> {
-    let mut prefix = vec![
-        "ssh".to_string(),
-        "-o".to_string(),
-        "StrictHostKeyChecking=accept-new".to_string(),
-    ];
+    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+    let mut prefix = vec!["ssh".to_string()];
+    prefix.extend(crate::ssh_arg_helpers::build_ssh_prefix(
+        ip,
+        user,
+        config.ssh_connect_timeout,
+    ));
     if let Some(k) = key {
-        prefix.push("-i".to_string());
-        prefix.push(k.display().to_string());
+        crate::ssh_arg_helpers::inject_identity_key_before_destination(&mut prefix, k);
     }
-    prefix.push(format!("{}@{}", user, ip));
     prefix
 }
 
-/// Build an SSH prefix that routes through a bastion tunnel.
-/// Returns (ssh_prefix, bastion_pids) — caller must clean up the bastion PIDs on exit.
-fn build_bastion_ssh_prefix(
-    vm: &azlin_core::models::VmInfo,
-    vm_manager: &azlin_azure::VmManager,
-    rg: &str,
-    user: &str,
-    key: Option<&std::path::Path>,
-    verbose: bool,
-) -> Result<(Vec<String>, Vec<u32>)> {
-    let bastions = crate::list_helpers::detect_bastion_hosts(rg).unwrap_or_default();
-    let bastion_map: HashMap<String, String> =
-        bastions.into_iter().map(|(n, l, _)| (l, n)).collect();
-    let bastion_name = bastion_map.get(&vm.location).ok_or_else(|| {
-        anyhow::anyhow!(
-            "No bastion host found for region '{}'. Cannot connect to private VM.",
-            vm.location
-        )
-    })?;
-
-    let vm_rid = format!(
-        "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
-        vm_manager.subscription_id(),
-        rg,
-        vm.name
-    );
-
-    // Open bastion tunnel to VM:22 on BASTION_SSH_PORT
-    if verbose {
-        eprintln!(
-            "Opening bastion tunnel on port {} to {}...",
-            BASTION_SSH_PORT, vm.name
-        );
-    }
-
-    let bastion_child = std::process::Command::new("az")
-        .args([
-            "network",
-            "bastion",
-            "tunnel",
-            "--name",
-            bastion_name,
-            "--resource-group",
-            rg,
-            "--target-resource-id",
-            &vm_rid,
-            "--resource-port",
-            "22",
-            "--port",
-            &BASTION_SSH_PORT.to_string(),
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .context("Failed to spawn az bastion tunnel")?;
-
-    let bastion_pid = bastion_child.id();
-    std::mem::forget(bastion_child);
-
-    // Wait for tunnel to establish
-    std::thread::sleep(std::time::Duration::from_secs(3));
-
-    let mut prefix = vec![
-        "ssh".to_string(),
-        "-o".to_string(),
-        "StrictHostKeyChecking=accept-new".to_string(),
-        "-p".to_string(),
-        BASTION_SSH_PORT.to_string(),
-    ];
-    if let Some(k) = key {
-        prefix.push("-i".to_string());
-        prefix.push(k.display().to_string());
-    }
-    prefix.push(format!("{}@127.0.0.1", user));
-
-    Ok((prefix, vec![bastion_pid]))
+fn build_gui_ssh_command_prefix(
+    target: &VmSshTarget,
+    connect_timeout: u64,
+    key_override: Option<&std::path::Path>,
+) -> Result<(
+    Vec<String>,
+    Option<crate::bastion_tunnel::ScopedBastionTunnel>,
+)> {
+    let (routed_prefix, tunnel) =
+        crate::dispatch_helpers::build_routed_ssh_prefix(target, connect_timeout, key_override)?;
+    let mut ssh_cmd_prefix = Vec::with_capacity(routed_prefix.len() + 1);
+    ssh_cmd_prefix.push("ssh".to_string());
+    ssh_cmd_prefix.extend(routed_prefix);
+    Ok((ssh_cmd_prefix, tunnel))
 }
 
 // ---------------------------------------------------------------------------
 // Remote dependency checks
 // ---------------------------------------------------------------------------
 
-fn check_remote_deps(ssh_cmd_prefix: &[String], auto_yes: bool, mode: &VncMode) -> Result<()> {
-    // Determine which deps to check based on mode
-    let (check_cmd, install_packages, desc) = match mode {
+fn build_dependency_setup_script(mode: &VncMode) -> String {
+    let (check_cmd, install_packages) = match mode {
         VncMode::Desktop => (
-            "which vncserver && which startxfce4 && echo DEPS_OK",
+            "command -v vncserver >/dev/null 2>&1 && command -v startxfce4 >/dev/null 2>&1",
             "tigervnc-standalone-server xfce4 xfce4-goodies dbus-x11",
-            "VNC server and XFCE desktop",
         ),
         VncMode::Minimal => (
-            "which vncserver && which openbox && echo DEPS_OK",
+            "command -v vncserver >/dev/null 2>&1 && command -v openbox >/dev/null 2>&1",
             "tigervnc-standalone-server openbox",
-            "VNC server and openbox window manager",
         ),
         VncMode::App(_) => (
-            "which vncserver && echo DEPS_OK",
+            "command -v vncserver >/dev/null 2>&1",
             "tigervnc-standalone-server",
-            "VNC server",
         ),
     };
 
-    let (_, stdout, _) = run_ssh_command_full(ssh_cmd_prefix, check_cmd)?;
-    if stdout.contains("DEPS_OK") {
-        return Ok(());
-    }
+    let script = format!(
+        "set -euo pipefail\n\
+         if {check_cmd}; then\n\
+           exit 0\n\
+         fi\n\
+         sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq\n\
+         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y {install_packages}\n\
+         if ! {check_cmd}; then\n\
+           echo 'Remote GUI dependencies are still missing after installation.' >&2\n\
+           exit 1\n\
+         fi\n"
+    );
+    format!("bash -lc {}", crate::shell_escape(&script))
+}
 
-    eprintln!("Remote dependencies not found: {}", desc);
-    if !auto_yes {
-        eprint!("Install {}? [Y/n] ", install_packages);
-        use std::io::Write;
-        std::io::stdout().flush()?;
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input)?;
-        if input.trim().eq_ignore_ascii_case("n") {
-            anyhow::bail!("Remote dependencies required. Install manually and retry.");
+fn run_dependency_setup_with_runner<F>(
+    mode: &VncMode,
+    timeout_secs: u64,
+    mut runner: F,
+) -> Result<()>
+where
+    F: FnMut(&str, u64) -> Result<(i32, String, String)>,
+{
+    let script = build_dependency_setup_script(mode);
+    match runner(&script, timeout_secs) {
+        Ok((0, _, _)) => Ok(()),
+        Ok((code, stdout, stderr)) => {
+            let detail = stderr.trim();
+            let detail = if detail.is_empty() {
+                stdout.trim()
+            } else {
+                detail
+            };
+            let detail = if detail.is_empty() {
+                format!("exit code {}", code)
+            } else {
+                azlin_core::sanitizer::sanitize(detail)
+            };
+            anyhow::bail!(
+                "GUI dependency/setup phase failed (exit {}): {}",
+                code,
+                detail
+            );
+        }
+        Err(err) => {
+            let msg = err.to_string();
+            if msg.contains("timed out") {
+                anyhow::bail!(
+                    "GUI dependency/setup phase timed out after {} minutes: {}",
+                    timeout_secs / 60,
+                    azlin_core::sanitizer::sanitize(&msg)
+                );
+            }
+            anyhow::bail!(
+                "GUI dependency/setup phase failed: {}",
+                azlin_core::sanitizer::sanitize(&msg)
+            );
         }
     }
+}
 
-    eprintln!("Installing remote packages (this may take a few minutes)...");
-    let install_cmd = format!(
-        "sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq && \
-         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y {}",
-        install_packages
-    );
-    let (code, _stdout, stderr) = run_ssh_command_full(ssh_cmd_prefix, &install_cmd)?;
-    if code != 0 {
-        anyhow::bail!("Failed to install remote dependencies: {}", stderr);
-    }
-
-    Ok(())
+fn check_remote_deps(
+    target: &VmSshTarget,
+    key_override: Option<&std::path::Path>,
+    mode: &VncMode,
+) -> Result<()> {
+    run_dependency_setup_with_runner(mode, GUI_SETUP_TIMEOUT_SECS, |script, timeout_secs| {
+        crate::dispatch_helpers::run_target_command_with_timeout(
+            target,
+            script,
+            timeout_secs,
+            key_override,
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -432,7 +387,7 @@ fn start_vnc_server(
 // VNC tunnel (SSH -L port forwarding)
 // ---------------------------------------------------------------------------
 
-fn open_vnc_tunnel(ssh_cmd_prefix: &[String], _use_bastion: bool) -> Result<Vec<u32>> {
+fn open_vnc_tunnel(ssh_cmd_prefix: &[String]) -> Result<Vec<u32>> {
     // Build ssh -N -L 5901:localhost:5901 using the same SSH prefix
     // (which already includes -p <port> for bastion, or user@ip for direct)
     let mut args: Vec<String> = Vec::new();
@@ -532,7 +487,10 @@ fn launch_viewer(ssh_cmd_prefix: &[String], password: &str) -> Result<()> {
 
     // Clean up temp passwd file unconditionally (before propagating any error)
     if let Err(e) = std::fs::remove_file(&passwd_file) {
-        eprintln!("warning: failed to remove temp VNC passwd file {}: {e}", passwd_file.display());
+        eprintln!(
+            "warning: failed to remove temp VNC passwd file {}: {e}",
+            passwd_file.display()
+        );
     }
 
     let status = launch_result?;
@@ -693,6 +651,22 @@ mod tests {
     }
 
     #[test]
+    fn test_gui_routed_ssh_command_prefix_starts_with_ssh_binary() {
+        let target = VmSshTarget {
+            vm_name: "simard".to_string(),
+            ip: "1.2.3.4".to_string(),
+            user: "azureuser".to_string(),
+            bastion: None,
+        };
+
+        let (prefix, tunnel) = build_gui_ssh_command_prefix(&target, 30, None).unwrap();
+        assert!(tunnel.is_none());
+        assert_eq!(prefix.first().map(String::as_str), Some("ssh"));
+        assert!(prefix.contains(&"BatchMode=yes".to_string()));
+        assert_eq!(prefix.last().map(String::as_str), Some("azureuser@1.2.3.4"));
+    }
+
+    #[test]
     fn test_x11_check_with_display_set() {
         // When DISPLAY is set, x11 check should not fail
         // (This tests the logic path, not actual X server availability)
@@ -709,5 +683,67 @@ mod tests {
     fn test_build_x11_ssh_args() {
         let args = build_x11_ssh_args();
         assert_eq!(args, vec!["-Y".to_string()]);
+    }
+
+    #[test]
+    fn test_build_dependency_setup_script_is_noninteractive() {
+        let script = build_dependency_setup_script(&VncMode::Desktop);
+        assert!(script.contains("DEBIAN_FRONTEND=noninteractive"));
+        assert!(!script.contains("read "));
+        assert!(!script.contains("[Y/n]"));
+        assert!(script.contains("startxfce4"));
+    }
+
+    #[test]
+    fn test_dependency_setup_runner_uses_outer_timeout() {
+        let mut captured_timeout = None;
+        let mut captured_script = None;
+
+        run_dependency_setup_with_runner(
+            &VncMode::Minimal,
+            GUI_SETUP_TIMEOUT_SECS,
+            |script, timeout_secs| {
+                captured_timeout = Some(timeout_secs);
+                captured_script = Some(script.to_string());
+                Ok((0, "GUI_DEPS_OK".to_string(), String::new()))
+            },
+        )
+        .unwrap();
+
+        assert_eq!(captured_timeout, Some(GUI_SETUP_TIMEOUT_SECS));
+        assert!(
+            captured_script
+                .as_deref()
+                .is_some_and(|script: &str| script.contains("openbox")),
+            "expected minimal mode dependency script"
+        );
+    }
+
+    #[test]
+    fn test_dependency_setup_timeout_is_explicit_failure() {
+        let err = run_dependency_setup_with_runner(
+            &VncMode::Desktop,
+            GUI_SETUP_TIMEOUT_SECS,
+            |_script, _timeout_secs| Err(anyhow::anyhow!("ssh timed out after 600s")),
+        )
+        .unwrap_err();
+
+        let msg = err.to_string();
+        assert!(msg.contains("dependency/setup phase"));
+        assert!(msg.contains("timed out"));
+    }
+
+    #[test]
+    fn test_dependency_setup_nonzero_exit_is_explicit_failure() {
+        let err = run_dependency_setup_with_runner(
+            &VncMode::App("xterm".to_string()),
+            GUI_SETUP_TIMEOUT_SECS,
+            |_script, _timeout_secs| Ok((100, String::new(), "apt failed".to_string())),
+        )
+        .unwrap_err();
+
+        let msg = err.to_string();
+        assert!(msg.contains("dependency/setup phase"));
+        assert!(msg.contains("apt failed"));
     }
 }
