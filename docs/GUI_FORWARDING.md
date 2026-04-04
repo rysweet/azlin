@@ -31,16 +31,14 @@ Both approaches work transparently through Azure Bastion tunnels when your VM ha
 - Enable "Allow connections from network clients" in XQuartz Preferences > Security.
 
 **VNC Viewer** (for `azlin gui` only):
-- Any VNC client works. Recommendations:
-  - [TigerVNC](https://tigervnc.org/) (cross-platform, free)
-  - [RealVNC Viewer](https://www.realvnc.com/en/connect/download/viewer/) (cross-platform, free for personal use)
-  - Remmina (Linux, free)
+- `azlin gui` launches a local `vncviewer` command.
+- [TigerVNC](https://tigervnc.org/) is the tested viewer and provides that binary on Linux, macOS, and Windows/WSL setups.
 
 ### Remote VM
 
-No manual setup required. azlin automatically installs any missing packages on
-the VM when you use `azlin gui` or `azlin connect --x11`. The setup SSH pass
-uses the same `--user` and `--key` values that `azlin gui` uses for the tunnel.
+`azlin gui` automatically installs any missing VNC/desktop packages on first
+use. `azlin connect --x11` does **not** install remote GUI applications or X11
+packages for you; it only enables X11 forwarding on the SSH connection.
 
 ## VNC Desktop
 
@@ -98,7 +96,7 @@ azlin gui my-vm --user azureuser --key ~/.ssh/azlin_key
 | `--key` | `~/.ssh/azlin_key` | Path to SSH private key |
 | `--minimal` | false | Use openbox window manager instead of full XFCE desktop |
 | `--app` | none | Run a single application (e.g. `--app "chromium-browser"`) |
-| `-y, --yes` | false | Skip dependency installation prompts |
+| `-y, --yes` | false | Compatibility flag; GUI dependency setup is already non-interactive |
 
 ### Dependency Management
 
@@ -112,7 +110,8 @@ azlin automatically detects and installs missing packages on first use. The foll
 | `dbus-x11` | D-Bus session bus (required by XFCE) |
 
 Installation happens once per VM and takes 2-3 minutes. Subsequent connections
-skip this step. The package setup is non-interactive; if it cannot finish
+skip this step. The package setup is non-interactive; `--yes` is accepted for
+CLI compatibility but does not change the behavior. If setup cannot finish
 cleanly, `azlin gui` exits with the setup error instead of waiting indefinitely.
 
 ### Security
@@ -133,10 +132,22 @@ The tunnel may not be ready yet. azlin waits for the tunnel to be established be
 ```bash
 # Retry the connection
 azlin gui my-vm
+```
 
-# Or start without auto-viewer and connect manually
-azlin gui my-vm --no-viewer
-# Then open your VNC viewer and connect to localhost:<port> shown in output
+**`GUI dependency/setup phase failed (exit 1): exit code 1`**
+
+This empty setup error usually means the local azlin client is too old and is
+packaging the remote GUI dependency check incorrectly, especially on private
+VMs that route through Azure Bastion. Upgrade or rebuild azlin, then retry:
+
+```bash
+azlin gui my-vm
+```
+
+If the error persists after upgrading, verify that basic SSH still works first:
+
+```bash
+azlin connect my-vm --no-tmux -- whoami
 ```
 
 **Black screen or no desktop**
@@ -252,7 +263,7 @@ xauth generate $DISPLAY . trusted
 
 **`Warning: No xauth data`**
 
-The xauth package may be missing on the VM. azlin installs it automatically, but if you connected without `--x11` first:
+The `xauth` package may be missing on the VM:
 
 ```bash
 # On the VM
@@ -263,7 +274,7 @@ sudo apt-get install -y xauth
 **Apps are slow or laggy**
 
 X11 forwarding sends individual draw commands over the network, which can be slow for complex UIs. Options:
-- Use `ssh -C` (compression) for lower-bandwidth connections -- azlin enables this automatically.
+- Use `ssh -C` (compression) if you need it on a manual SSH command.
 - For heavy GUI usage, switch to VNC (`azlin gui`) which sends compressed screen updates instead.
 
 ## General Troubleshooting

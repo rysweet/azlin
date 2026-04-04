@@ -234,8 +234,8 @@ fn build_dependency_setup_script(mode: &VncMode) -> String {
 
     let script = format!(
         "if {check_cmd}; then exit 0; fi; \
-         if ! sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq; then exit $?; fi; \
-         if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y {install_packages}; then exit $?; fi; \
+         sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq || exit $?; \
+         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y {install_packages} || exit $?; \
          if ! ({check_cmd}); then \
            echo 'Remote GUI dependencies are still missing after installation.' >&2; \
            exit 1; \
@@ -710,6 +710,17 @@ mod tests {
         assert!(!script.contains('\n'));
         assert!(script.contains("if ! (command -v vncserver"));
         assert!(!script.contains("set -e"));
+    }
+
+    #[test]
+    fn test_build_dependency_setup_script_propagates_apt_failures() {
+        let script = build_dependency_setup_script(&VncMode::Desktop);
+        assert!(script.contains("apt-get update -qq || exit $?"));
+        assert!(
+            script.contains(
+                "apt-get install -y tigervnc-standalone-server xfce4 xfce4-goodies dbus-x11 || exit $?"
+            )
+        );
     }
 
     #[test]

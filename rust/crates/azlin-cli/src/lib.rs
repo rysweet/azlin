@@ -509,7 +509,7 @@ pub enum Commands {
         #[arg(long, default_value = "24")]
         depth: u8,
 
-        /// Skip dependency installation prompts
+        /// Compatibility flag; GUI dependency setup is already non-interactive
         #[arg(short, long)]
         yes: bool,
 
