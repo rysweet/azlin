@@ -18,5 +18,5 @@ Version 2.0 Features:
 - Enhanced CLI with subcommands
 """
 
-__version__ = "2.6.35"
+__version__ = "2.6.36"
 __all__ = ["__version__"]
