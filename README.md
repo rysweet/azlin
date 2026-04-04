@@ -37,6 +37,7 @@ cargo install --git https://github.com/rysweet/azlin
 ```bash
 uvx --from git+https://github.com/rysweet/azlin azlin list
 ```
+> **Note:** This option requires uv to be installed separately.
 
 ### Self-Update
 
@@ -199,8 +200,6 @@ Before using azlin, ensure these tools are installed:
 - `git`
 - `ssh`
 - `tmux`
-- `uv`
-- `python`
 
 **macOS**: `brew install azure-cli gh git tmux`
 **Linux**: See platform-specific installation in Prerequisites module
