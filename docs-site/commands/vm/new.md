@@ -29,7 +29,7 @@ azlin new [OPTIONS]
 | `--vm-size TEXT` | Azure Size | Exact Azure VM size (e.g., `Standard_E8as_v5`). Overrides `--size` |
 | `--region TEXT` | Azure Region | Azure region for VM placement (default: from config or interactive) |
 | `--resource-group, --rg TEXT` | Name | Azure resource group (default: from config or interactive) |
-| `--name TEXT` | Name | Custom VM name (default: auto-generated `azlin-vm-TIMESTAMP`) |
+| `--name TEXT` | Name | Base VM name for a single create (or a base name for pools). Single named creates also use the resolved VM name as the `azlin-session` tag shown by `azlin list`. |
 | `--pool INTEGER` | Count | Number of VMs to create in parallel for distributed workloads |
 | `--no-auto-connect` | Flag | Skip automatic SSH connection after provisioning |
 | `--config PATH` | File | Path to custom config file (default: `~/.azlin/config.toml`) |
@@ -85,6 +85,11 @@ azlin new --name web-app --repo https://github.com/owner/webapp
 azlin new --name backend-dev --size m
 azlin new --name frontend-dev --size s
 ```
+
+For a single named VM, azlin also seeds the new machine from your local
+`~/.azlin/home/` directory when that directory exists and is not empty. With
+`--pool`, azlin treats `--name` as a base name for the generated VM names
+instead of applying one shared session label.
 
 ### Exact Azure VM Size
 
@@ -186,7 +191,7 @@ When you run `azlin new`, the following happens automatically:
 4. **Cloud-Init** - Installs all development tools (4-5 minutes)
 5. **SSH Key Storage** - Automatically stores private key in Azure Key Vault for cross-system access
 6. **NFS Storage** (optional) - Mounts shared persistent home directory
-7. **Home Sync** - Syncs initial dotfiles and configuration
+7. **Home Sync** - For named single-VM creates, seeds initial dotfiles and configuration from `~/.azlin/home/` when that directory exists and is not empty
 8. **GitHub Setup** (optional) - Clones repository if `--repo` specified
 9. **SSH Connection** (optional) - Auto-connects with tmux unless `--no-auto-connect`
 
