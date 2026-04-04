@@ -33,6 +33,14 @@ const VNC_PORT: u16 = 5900 + VNC_DISPLAY;
 /// Hard timeout for the remote GUI dependency/setup phase.
 const GUI_SETUP_TIMEOUT_SECS: u64 = 600;
 
+fn resolve_gui_target_user(requested_user: &str, detected_user: &str) -> String {
+    if requested_user != DEFAULT_ADMIN_USERNAME {
+        requested_user.to_string()
+    } else {
+        detected_user.to_string()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
@@ -79,9 +87,7 @@ pub(crate) async fn dispatch(
 
     let pb = penguin_spinner(&format!("Looking up {}...", name));
     let mut target = resolve_vm_ssh_target(&name, None, Some(rg.clone())).await?;
-    if user != DEFAULT_ADMIN_USERNAME {
-        target.user = user;
-    }
+    target.user = resolve_gui_target_user(&user, &target.user);
     pb.finish_and_clear();
     let config = azlin_core::AzlinConfig::load().unwrap_or_default();
     let effective_key = key.or_else(resolve_ssh_key);
@@ -683,6 +689,18 @@ mod tests {
     fn test_build_x11_ssh_args() {
         let args = build_x11_ssh_args();
         assert_eq!(args, vec!["-Y".to_string()]);
+    }
+
+    #[test]
+    fn test_resolve_gui_target_user_honors_non_default_override() {
+        assert_eq!(
+            resolve_gui_target_user("customuser", "azureuser"),
+            "customuser"
+        );
+        assert_eq!(
+            resolve_gui_target_user(DEFAULT_ADMIN_USERNAME, "vmadmin"),
+            "vmadmin"
+        );
     }
 
     #[test]
