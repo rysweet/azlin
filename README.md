@@ -1169,6 +1169,7 @@ azlin gui my-vm --resolution 2560x1440
 
 - **X11 forwarding** (`--x11`) tunnels individual app windows over SSH. Best for lightweight tools like gitk, meld, and xeyes.
 - **VNC desktop** (`azlin gui`) launches a full XFCE desktop, auto-installs dependencies, and opens your local VNC viewer. VNC runs on localhost only with random per-session passwords -- all traffic is encrypted through the SSH or bastion tunnel.
+- **First-run GUI setup** uses the same `--user` and `--key` values as the tunnel, runs non-interactively, and exits with the setup error if dependency installation cannot finish.
 
 Both approaches work transparently through Azure Bastion.
 

@@ -1,0 +1,105 @@
+name: "PR 939 regression coverage"
+description: |
+  Validates the focused regression tests that back PR #939:
+  named single-VM session tagging, named create home seeding,
+  routed SSH transport for GUI setup, GUI dependency setup behavior,
+  and explicit GUI --user preservation.
+version: "1.0.0"
+
+config:
+  timeout: 900000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 180000
+
+steps:
+  - name: "resolve_session_identity regression test passes"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust &&
+        OUTPUT=$(cargo test -p azlin resolve_session_identity -- --nocapture 2>&1) &&
+        printf '%s\n' "$OUTPUT" &&
+        printf '%s\n' "$OUTPUT" | grep -q 'test_resolve_session_identity_uses_resolved_name_for_named_single_vm ... ok' &&
+        printf '%s\n' "$OUTPUT" | grep -q 'test_resolve_session_identity_preserves_pool_base_name ... ok' &&
+        echo RESOLVE_SESSION_IDENTITY_OK
+    expect:
+      exit_code: 0
+      stdout_contains: "RESOLVE_SESSION_IDENTITY_OK"
+    timeout: 180000
+
+  - name: "seed_remote_home_with_runner regression test passes"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust &&
+        OUTPUT=$(cargo test -p azlin seed_remote_home_with_runner -- --nocapture 2>&1) &&
+        printf '%s\n' "$OUTPUT" &&
+        printf '%s\n' "$OUTPUT" | grep -q 'test_seed_remote_home_with_runner_returns_false_when_directory_missing ... ok' &&
+        printf '%s\n' "$OUTPUT" | grep -q 'test_seed_remote_home_with_runner_succeeds_with_sources ... ok' &&
+        echo SEED_REMOTE_HOME_OK
+    expect:
+      exit_code: 0
+      stdout_contains: "SEED_REMOTE_HOME_OK"
+    timeout: 180000
+
+  - name: "build_routed_ssh_transport regression test passes"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust &&
+        OUTPUT=$(cargo test -p azlin build_routed_ssh_transport -- --nocapture 2>&1) &&
+        printf '%s\n' "$OUTPUT" &&
+        printf '%s\n' "$OUTPUT" | grep -q 'build_routed_ssh_transport_bastion_includes_local_port ... ok' &&
+        printf '%s\n' "$OUTPUT" | grep -q 'build_routed_ssh_transport_direct_uses_noninteractive_ssh ... ok' &&
+        echo BUILD_ROUTED_SSH_TRANSPORT_OK
+    expect:
+      exit_code: 0
+      stdout_contains: "BUILD_ROUTED_SSH_TRANSPORT_OK"
+    timeout: 180000
+
+  - name: "dependency_setup regression test passes"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust &&
+        OUTPUT=$(cargo test -p azlin dependency_setup -- --nocapture 2>&1) &&
+        printf '%s\n' "$OUTPUT" &&
+        printf '%s\n' "$OUTPUT" | grep -q 'test_dependency_setup_runner_uses_outer_timeout ... ok' &&
+        printf '%s\n' "$OUTPUT" | grep -q 'test_dependency_setup_timeout_is_explicit_failure ... ok' &&
+        echo DEPENDENCY_SETUP_OK
+    expect:
+      exit_code: 0
+      stdout_contains: "DEPENDENCY_SETUP_OK"
+    timeout: 180000
+
+  - name: "resolve_gui_target_user regression test passes"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust &&
+        OUTPUT=$(cargo test -p azlin resolve_gui_target_user -- --nocapture 2>&1) &&
+        printf '%s\n' "$OUTPUT" &&
+        printf '%s\n' "$OUTPUT" | grep -q 'test_resolve_gui_target_user_honors_non_default_override ... ok' &&
+        echo RESOLVE_GUI_TARGET_USER_OK
+    expect:
+      exit_code: 0
+      stdout_contains: "RESOLVE_GUI_TARGET_USER_OK"
+    timeout: 180000
+
+metadata:
+  tags:
+    - "regression"
+    - "merge-ready"
+    - "pr-939"
+  priority: "critical"

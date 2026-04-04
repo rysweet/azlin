@@ -1,7 +1,4 @@
-/// Build the argument list for a direct SSH command.
-/// Returns the args that would be passed to `ssh`.
-/// `connect_timeout` is the SSH ConnectTimeout in seconds.
-pub fn build_ssh_args(ip: &str, user: &str, cmd: &str, connect_timeout: u64) -> Vec<String> {
+fn common_ssh_options(connect_timeout: u64) -> Vec<String> {
     vec![
         "-o".to_string(),
         "StrictHostKeyChecking=accept-new".to_string(),
@@ -9,9 +6,32 @@ pub fn build_ssh_args(ip: &str, user: &str, cmd: &str, connect_timeout: u64) -> 
         format!("ConnectTimeout={}", connect_timeout),
         "-o".to_string(),
         "BatchMode=yes".to_string(),
-        format!("{}@{}", user, ip),
-        cmd.to_string(),
     ]
+}
+
+/// Build SSH args without a remote command, ending at `user@host`.
+pub fn build_ssh_prefix(ip: &str, user: &str, connect_timeout: u64) -> Vec<String> {
+    let mut args = common_ssh_options(connect_timeout);
+    args.push(format!("{}@{}", user, ip));
+    args
+}
+
+/// Build SSH args for a local tunneled target, ending at `user@127.0.0.1`.
+pub fn build_tunneled_ssh_prefix(user: &str, local_port: u16, connect_timeout: u64) -> Vec<String> {
+    let mut args = common_ssh_options(connect_timeout);
+    args.push("-p".to_string());
+    args.push(local_port.to_string());
+    args.push(format!("{}@127.0.0.1", user));
+    args
+}
+
+/// Build the argument list for a direct SSH command.
+/// Returns the args that would be passed to `ssh`.
+/// `connect_timeout` is the SSH ConnectTimeout in seconds.
+pub fn build_ssh_args(ip: &str, user: &str, cmd: &str, connect_timeout: u64) -> Vec<String> {
+    let mut args = build_ssh_prefix(ip, user, connect_timeout);
+    args.push(cmd.to_string());
+    args
 }
 
 /// Inject `-i <key_path>` into an SSH args vector before the `user@host` argument.
@@ -29,6 +49,18 @@ pub fn inject_identity_key(args: &mut Vec<String>, key_path: &std::path::Path) {
         "SSH args must contain at least user@host and command"
     );
     let insert_pos = args.len().saturating_sub(2);
+    args.insert(insert_pos, key_path.display().to_string());
+    args.insert(insert_pos, "-i".to_string());
+}
+
+/// Inject `-i <key_path>` into an SSH prefix vector before the destination
+/// argument, where the last element is `user@host`.
+pub fn inject_identity_key_before_destination(args: &mut Vec<String>, key_path: &std::path::Path) {
+    debug_assert!(
+        !args.is_empty(),
+        "SSH prefix must contain at least a destination argument"
+    );
+    let insert_pos = args.len().saturating_sub(1);
     args.insert(insert_pos, key_path.display().to_string());
     args.insert(insert_pos, "-i".to_string());
 }
@@ -250,6 +282,24 @@ mod tests {
         assert!(!needs_bastion(Some("1.2.3.4")));
     }
 
+    #[test]
+    fn ssh_prefix_has_batchmode_and_timeout_without_remote_cmd() {
+        let args = build_ssh_prefix("1.2.3.4", "azureuser", 45);
+        assert!(args.contains(&"StrictHostKeyChecking=accept-new".to_string()));
+        assert!(args.contains(&"ConnectTimeout=45".to_string()));
+        assert!(args.contains(&"BatchMode=yes".to_string()));
+        assert_eq!(args.last().unwrap(), "azureuser@1.2.3.4");
+    }
+
+    #[test]
+    fn tunneled_ssh_prefix_uses_localhost_and_port() {
+        let args = build_tunneled_ssh_prefix("azureuser", 50210, 30);
+        assert!(args.contains(&"-p".to_string()));
+        assert!(args.contains(&"50210".to_string()));
+        assert!(args.contains(&"BatchMode=yes".to_string()));
+        assert_eq!(args.last().unwrap(), "azureuser@127.0.0.1");
+    }
+
     // -- inject_identity_key --
 
     #[test]
@@ -269,7 +319,11 @@ mod tests {
         let mut args = build_ssh_args("1.2.3.4", "admin", "ls", 10);
         let original_len = args.len();
         inject_identity_key(&mut args, std::path::Path::new("/tmp/key"));
-        assert_eq!(args.len(), original_len + 2, "should add exactly -i and key path");
+        assert_eq!(
+            args.len(),
+            original_len + 2,
+            "should add exactly -i and key path"
+        );
         assert!(args.contains(&"StrictHostKeyChecking=accept-new".to_string()));
         assert!(args.contains(&"BatchMode=yes".to_string()));
     }
@@ -277,7 +331,10 @@ mod tests {
     #[test]
     fn inject_key_into_log_follow_args() {
         let mut args = super::super::connect_helpers::build_log_follow_args(
-            "azureuser", "10.0.0.1", "/var/log/syslog", 10,
+            "azureuser",
+            "10.0.0.1",
+            "/var/log/syslog",
+            10,
         );
         let key = std::path::Path::new("/home/u/.ssh/azlin_key");
         inject_identity_key(&mut args, key);

@@ -45,7 +45,10 @@ pub(crate) async fn handle_vm_new(
         match azlin_core::AzlinConfig::load_from(config_path) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Warning: failed to load config from {}: {e}", config_path.display());
+                eprintln!(
+                    "Warning: failed to load config from {}: {e}",
+                    config_path.display()
+                );
                 azlin_core::AzlinConfig::default()
             }
         }
@@ -149,11 +152,14 @@ pub(crate) async fn handle_vm_new(
         azlin_core::models::validate_vm_name(&vm_name).map_err(|e| anyhow::anyhow!(e))?;
 
         let mut tags = std::collections::HashMap::new();
-        if let Some(ref n) = name {
-            tags.insert("azlin-session".to_string(), n.clone());
-        } else {
-            tags.insert("azlin-session".to_string(), vm_name.clone());
-        }
+        tags.insert(
+            "azlin-session".to_string(),
+            crate::create_helpers::resolve_session_identity(
+                name.as_deref(),
+                &vm_name,
+                vm_count as usize,
+            ),
+        );
 
         let params = azlin_core::models::CreateVmParams {
             name: vm_name.clone(),
@@ -199,12 +205,17 @@ pub(crate) async fn handle_vm_new(
         // Resolve SSH target with bastion support
         let target = if no_bastion {
             // --no-bastion: skip bastion auto-detection, use public IP only
-            let vm_ip = vm.public_ip.as_deref()
+            let vm_ip = vm
+                .public_ip
+                .as_deref()
                 .filter(|ip| !ip.is_empty())
-                .ok_or_else(|| anyhow::anyhow!(
-                    "VM '{}' has no public IP and --no-bastion was specified; \
-                     remove --no-bastion to allow bastion auto-detection", vm_name
-                ))?
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "VM '{}' has no public IP and --no-bastion was specified; \
+                     remove --no-bastion to allow bastion auto-detection",
+                        vm_name
+                    )
+                })?
                 .to_string();
             crate::VmSshTarget {
                 vm_name: vm_name.clone(),
@@ -219,8 +230,7 @@ pub(crate) async fn handle_vm_new(
         // Set up bastion tunnel if needed (kept alive for auth + clone + connect)
         // --bastion-name overrides auto-detected bastion
         let _tunnel = if let Some(ref bastion) = target.bastion {
-            let effective_bastion_name = bastion_name.as_deref()
-                .unwrap_or(&bastion.bastion_name);
+            let effective_bastion_name = bastion_name.as_deref().unwrap_or(&bastion.bastion_name);
             Some(crate::bastion_tunnel::ScopedBastionTunnel::new(
                 effective_bastion_name,
                 &bastion.resource_group,
@@ -244,6 +254,34 @@ pub(crate) async fn handle_vm_new(
             bastion_port,
         ) {
             eprintln!("Warning: auth forwarding failed: {}", e);
+        }
+
+        if crate::create_helpers::should_seed_remote_home(name.as_deref(), vm_count) {
+            let home_sync_dir = home_dir()?.join(".azlin").join("home");
+            let ssh_transport = crate::dispatch_helpers::build_routed_ssh_transport(
+                &target,
+                bastion_port,
+                config_defaults.ssh_connect_timeout,
+            );
+            println!("Seeding remote home from {}...", home_sync_dir.display());
+            let seeded = crate::create_helpers::seed_remote_home_with_runner(
+                &home_sync_dir,
+                &target.user,
+                effective_ip,
+                Some(ssh_transport.as_str()),
+                |args| {
+                    let status = std::process::Command::new("rsync").args(args).status()?;
+                    Ok(status.code().unwrap_or(-1))
+                },
+            )?;
+            if seeded {
+                println!("Remote home seeded.");
+            } else {
+                println!(
+                    "No seed files found in {}; skipping remote home seeding.",
+                    home_sync_dir.display()
+                );
+            }
         }
 
         if let Some(ref repo_url) = repo {

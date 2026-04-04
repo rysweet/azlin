@@ -129,13 +129,19 @@ Bastion detection is automatic. The forwarding code receives the tunnel port fro
 
 ## VM Session Tagging
 
-When a VM is created with `azlin new --name <name>`, the VM name is stored as an Azure tag:
+For a named single-VM create (`azlin new --name <name>` without `--pool`),
+the resolved VM name is stored as an Azure tag:
 
 | Tag Key | Tag Value | Purpose |
 |---------|-----------|---------|
 | `azlin-session` | VM name | Shown in `azlin list` Session column |
 
-This tag is set during VM creation (not during forwarding) and follows Azure tag requirements (max 256 chars for key, 256 for value).
+This tag is set during VM creation (not during forwarding) and follows Azure
+tag requirements (max 256 chars for key, 256 for value).
+
+Named single-VM creates also perform a one-time seed from local
+`~/.azlin/home/` after SSH is ready. If that directory is missing or empty,
+azlin skips the seed step.
 
 ## Error Handling
 

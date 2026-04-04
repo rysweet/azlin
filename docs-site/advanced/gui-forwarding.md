@@ -38,7 +38,9 @@ Both approaches work transparently through Azure Bastion tunnels when your VM ha
 
 ### Remote VM
 
-No manual setup required. azlin automatically installs any missing packages on the VM when you use `azlin gui` or `azlin connect --x11`.
+No manual setup required. azlin automatically installs any missing packages on
+the VM when you use `azlin gui` or `azlin connect --x11`. The setup SSH pass
+uses the same `--user` and `--key` values that `azlin gui` uses for the tunnel.
 
 ## VNC Desktop
 
@@ -60,7 +62,7 @@ azlin gui my-vm --app "gimp"
 # Custom resolution
 azlin gui my-vm --resolution 2560x1440
 
-# Specify SSH user and key
+# Specify SSH user and key for setup and tunneling
 azlin gui my-vm --user azureuser --key ~/.ssh/azlin_key
 ```
 
@@ -81,7 +83,7 @@ azlin gui my-vm --user azureuser --key ~/.ssh/azlin_key
 
 ### How It Works
 
-1. **Dependency check**: azlin SSHs into the VM and checks for required packages (`tigervnc-standalone-server`, `xfce4`, `dbus-x11`). Missing packages are installed automatically.
+1. **Dependency check**: azlin SSHs into the VM with the same `--user` and `--key` settings you provided and checks for required packages (`tigervnc-standalone-server`, `xfce4`, `dbus-x11`). Missing packages are installed automatically.
 2. **VNC server start**: A TigerVNC server is started on the VM, bound to `localhost` only (no network exposure). A random password is generated for the session.
 3. **Tunnel creation**: azlin creates an SSH tunnel (or bastion tunnel) forwarding a local port to the VNC server port on the VM.
 4. **Viewer launch**: azlin launches your local VNC viewer, connecting to `localhost:<local_port>` with the session password.
@@ -110,7 +112,9 @@ azlin automatically detects and installs missing packages on first use:
 | `xfce4-terminal` | Terminal emulator for the desktop |
 | `dbus-x11` | D-Bus session bus (required by XFCE) |
 
-Installation happens once per VM and takes 2-3 minutes. Subsequent connections skip this step.
+Installation happens once per VM and takes 2-3 minutes. Subsequent connections
+skip this step. The package setup is non-interactive; if it cannot finish
+cleanly, `azlin gui` exits with the setup error instead of waiting indefinitely.
 
 ### Security
 
