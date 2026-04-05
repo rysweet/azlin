@@ -59,6 +59,23 @@ fn leading_remote_command_program(remote_command: &[String]) -> Option<&str> {
     None
 }
 
+fn normalize_remote_command_for_shell(remote_command: &[String]) -> Vec<String> {
+    let leading_assignments = remote_command
+        .iter()
+        .take_while(|arg| is_env_assignment(arg))
+        .count();
+
+    if leading_assignments == 0 {
+        return remote_command.to_vec();
+    }
+
+    let mut normalized = Vec::with_capacity(remote_command.len() + 1);
+    normalized.push("env".to_string());
+    normalized.extend(remote_command.iter().take(leading_assignments).cloned());
+    normalized.extend(remote_command.iter().skip(leading_assignments).cloned());
+    normalized
+}
+
 fn split_first_shell_word(command: &str) -> Option<(String, &str)> {
     let trimmed = command.trim_start();
     if trimmed.is_empty() {
@@ -156,7 +173,8 @@ pub(crate) fn maybe_wrap_x11_remote_command(
         return None;
     }
 
-    let escaped_args = remote_command
+    let normalized_command = normalize_remote_command_for_shell(remote_command);
+    let escaped_args = normalized_command
         .iter()
         .map(|arg| shell_escape(arg))
         .collect::<Vec<_>>()

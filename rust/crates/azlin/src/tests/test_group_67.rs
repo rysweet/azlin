@@ -43,8 +43,9 @@ fn test_build_effective_remote_command_wraps_bare_env_assignment_chromium() {
 
     assert_eq!(wrapped.len(), 1);
     assert!(wrapped[0].contains("FOO=1"));
-    assert!(wrapped[0].contains("then exec systemd-run --user --scope --quiet --"));
-    assert!(wrapped[0].contains("'chromium-browser' '--no-sandbox';"));
+    assert!(wrapped[0].contains(
+        "then exec systemd-run --user --scope --quiet -- 'env' 'FOO=1' 'chromium-browser' '--no-sandbox';"
+    ));
 }
 
 #[test]
@@ -62,6 +63,73 @@ fn test_build_effective_remote_command_wraps_env_option_prefixed_chromium() {
     assert!(wrapped[0].contains(
         "then exec systemd-run --user --scope --quiet -- 'env' '-u' 'DISPLAY' 'chromium-browser' '--no-sandbox';"
     ));
+}
+
+#[test]
+fn test_build_effective_remote_command_executes_bare_env_assignment() {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after epoch")
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "azlin-bare-env-command-{}-{}",
+        std::process::id(),
+        unique
+    ));
+    fs::create_dir_all(&temp_dir).expect("create temp dir");
+
+    let snap_path = temp_dir.join("snap");
+    let chromium_path = temp_dir.join("chromium-browser");
+    let output_path = temp_dir.join("bare-env-output.txt");
+
+    fs::write(&snap_path, "#!/bin/sh\nexit 1\n").expect("write snap stub");
+    fs::write(
+        &chromium_path,
+        format!(
+            "#!/bin/sh\nprintf '%s' \"$FOO\" > {}\n",
+            output_path.display()
+        ),
+    )
+    .expect("write chromium stub");
+
+    fs::set_permissions(&snap_path, fs::Permissions::from_mode(0o755)).expect("chmod snap stub");
+    fs::set_permissions(&chromium_path, fs::Permissions::from_mode(0o755))
+        .expect("chmod chromium stub");
+
+    let remote_command = vec![
+        "FOO=1".to_string(),
+        "chromium-browser".to_string(),
+        output_path.display().to_string(),
+    ];
+    let wrapped = crate::cmd_connect::build_effective_remote_command(true, &remote_command);
+    let path = format!(
+        "{}:{}",
+        temp_dir.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let status = Command::new("sh")
+        .arg("-lc")
+        .arg(&wrapped[0])
+        .env("PATH", path)
+        .status()
+        .expect("execute wrapped shell command");
+
+    assert!(
+        status.success(),
+        "wrapped command should execute successfully"
+    );
+    assert_eq!(
+        fs::read_to_string(&output_path).expect("read output"),
+        "1",
+        "bare env assignment should reach chromium stub via env"
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
 }
 
 #[test]
