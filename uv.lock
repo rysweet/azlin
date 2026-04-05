@@ -4,7 +4,7 @@ requires-python = ">=3.11"
 
 [[package]]
 name = "azlin"
-version = "2.6.22"
+version = "2.6.23"
 source = { editable = "." }
 
 [package.dev-dependencies]
