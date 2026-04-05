@@ -21,7 +21,10 @@ fn is_env_assignment(word: &str) -> bool {
 }
 
 fn is_env_flag(word: &str) -> bool {
-    matches!(word, "-i" | "--ignore-environment" | "-0" | "--null")
+    matches!(
+        word,
+        "-i" | "--ignore-environment" | "-0" | "--null" | "-v" | "--debug"
+    )
         || word.starts_with("--unset=")
         || word.starts_with("--chdir=")
 }
@@ -44,15 +47,15 @@ fn leading_remote_command_program(remote_command: &[String]) -> Option<String> {
             end_of_env_options = true;
             continue;
         }
-        if is_env_assignment(arg) {
-            continue;
-        }
         if saw_env && !end_of_env_options && (arg == "-S" || arg == "--split-string") {
             let payload = args.next()?;
             return leading_shell_command_word(payload);
         }
         if saw_env && !end_of_env_options && arg.starts_with("--split-string=") {
             return leading_shell_command_word(arg.trim_start_matches("--split-string="));
+        }
+        if is_env_assignment(arg) {
+            continue;
         }
         if saw_env && !end_of_env_options && is_env_flag(arg) {
             continue;
@@ -155,9 +158,6 @@ fn leading_shell_command_word(command: &str) -> Option<String> {
             end_of_env_options = true;
             continue;
         }
-        if is_env_assignment(&raw_word) {
-            continue;
-        }
         if saw_env && !end_of_env_options && (word == "-S" || word == "--split-string") {
             let (payload, _rest_after_payload) = split_first_shell_word(remainder)?;
             let payload = dequote_shell_word(&payload);
@@ -166,6 +166,9 @@ fn leading_shell_command_word(command: &str) -> Option<String> {
         if saw_env && !end_of_env_options && word.starts_with("--split-string=") {
             let payload = dequote_shell_word(word.trim_start_matches("--split-string="));
             return leading_shell_command_word(&payload);
+        }
+        if is_env_assignment(&raw_word) {
+            continue;
         }
         if saw_env && !end_of_env_options && is_env_flag(&word) {
             continue;
