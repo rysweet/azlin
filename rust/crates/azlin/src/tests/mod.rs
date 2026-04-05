@@ -62,6 +62,7 @@ mod test_group_59;
 mod test_group_60;
 mod test_group_61;
 mod test_group_62;
+mod test_group_67;
 mod test_multi_session_restore;
 mod test_group_63;
 mod test_group_64;

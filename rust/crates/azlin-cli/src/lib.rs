@@ -517,7 +517,7 @@ pub enum Commands {
         #[arg(long)]
         minimal: bool,
 
-        /// Run a single application instead of a desktop (e.g. "chromium-browser")
+        /// Run a single application instead of a desktop (e.g. "chromium-browser --no-sandbox")
         #[arg(long)]
         app: Option<String>,
     },

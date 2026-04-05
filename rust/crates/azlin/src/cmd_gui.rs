@@ -41,6 +41,31 @@ fn resolve_gui_target_user(requested_user: &str, detected_user: &str) -> String 
     }
 }
 
+fn build_vnc_xstartup_body(mode: &VncMode) -> String {
+    // DISPLAY must be explicitly exported for apps to find the VNC X server.
+    // xhost +local: allows local apps to connect without xauth issues
+    // (safe because VNC only listens on localhost).
+    let preamble = format!(
+        "export DISPLAY=:{}\nxhost +local: >/dev/null 2>&1\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nif [ -z \"$XDG_RUNTIME_DIR\" ] && [ -d \"/run/user/$(id -u)\" ]; then export XDG_RUNTIME_DIR=\"/run/user/$(id -u)\"; fi\nexport XDG_SESSION_TYPE=x11",
+        VNC_DISPLAY
+    );
+    match mode {
+        VncMode::Desktop => {
+            format!("{}\nexec startxfce4", preamble)
+        }
+        VncMode::Minimal => {
+            format!("{}\nexec openbox-session", preamble)
+        }
+        VncMode::App(cmd) => {
+            let wrapped = crate::gui_launch_helpers::maybe_wrap_vnc_app_command(cmd);
+            format!(
+                "{}\n{}\nvncserver -kill :{} 2>/dev/null",
+                preamble, wrapped, VNC_DISPLAY
+            )
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
@@ -335,28 +360,7 @@ fn start_vnc_server(
         anyhow::bail!("Failed to set VNC password: {}", stderr);
     }
 
-    // Create xstartup based on mode
-    // DISPLAY must be explicitly exported for apps to find the VNC X server.
-    // xhost +local: allows local apps to connect without xauth issues
-    // (safe because VNC only listens on localhost).
-    let preamble = format!(
-        "export DISPLAY=:{}\nxhost +local: >/dev/null 2>&1\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexport XDG_SESSION_TYPE=x11",
-        VNC_DISPLAY
-    );
-    let xstartup_body = match mode {
-        VncMode::Desktop => {
-            format!("{}\nexec startxfce4", preamble)
-        }
-        VncMode::Minimal => {
-            format!("{}\nexec openbox-session", preamble)
-        }
-        VncMode::App(cmd) => {
-            format!(
-                "{}\n{}\nvncserver -kill :{} 2>/dev/null",
-                preamble, cmd, VNC_DISPLAY
-            )
-        }
-    };
+    let xstartup_body = build_vnc_xstartup_body(mode);
 
     let xstartup_cmd = format!(
         "cat > ~/.vnc/xstartup << 'XSTARTUP'\n#!/bin/sh\n{}\nXSTARTUP\nchmod +x ~/.vnc/xstartup",
@@ -716,11 +720,42 @@ mod tests {
     fn test_build_dependency_setup_script_propagates_apt_failures() {
         let script = build_dependency_setup_script(&VncMode::Desktop);
         assert!(script.contains("apt-get update -qq || exit $?"));
-        assert!(
-            script.contains(
-                "apt-get install -y tigervnc-standalone-server xfce4 xfce4-goodies dbus-x11 || exit $?"
-            )
-        );
+        assert!(script.contains(
+            "apt-get install -y tigervnc-standalone-server xfce4 xfce4-goodies dbus-x11 || exit $?"
+        ));
+    }
+
+    #[test]
+    fn test_build_vnc_xstartup_body_wraps_direct_chromium_app() {
+        let body =
+            build_vnc_xstartup_body(&VncMode::App("chromium-browser --no-sandbox".to_string()));
+
+        assert!(body.contains("export XDG_RUNTIME_DIR=\"/run/user/$(id -u)\""));
+        assert!(body.contains(
+            "systemd-run --user --scope --quiet -- sh -lc 'chromium-browser --no-sandbox'"
+        ));
+        assert!(body.contains("else sh -lc 'chromium-browser --no-sandbox'; fi"));
+        assert!(body.contains("vncserver -kill :1 2>/dev/null"));
+    }
+
+    #[test]
+    fn test_build_vnc_xstartup_body_wraps_env_prefixed_chromium_app() {
+        let body = build_vnc_xstartup_body(&VncMode::App(
+            "FOO=1 chromium-browser --no-sandbox".to_string(),
+        ));
+
+        assert!(body.contains(
+            "systemd-run --user --scope --quiet -- sh -lc 'FOO=1 chromium-browser --no-sandbox'"
+        ));
+        assert!(body.contains("else sh -lc 'FOO=1 chromium-browser --no-sandbox'; fi"));
+    }
+
+    #[test]
+    fn test_build_vnc_xstartup_body_leaves_other_apps_unwrapped() {
+        let body = build_vnc_xstartup_body(&VncMode::App("gimp".to_string()));
+
+        assert!(!body.contains("systemd-run --user --scope --quiet --"));
+        assert!(body.contains("\ngimp\nvncserver -kill :1 2>/dev/null"));
     }
 
     #[test]

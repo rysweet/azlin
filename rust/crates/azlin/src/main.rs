@@ -1009,6 +1009,9 @@ mod create_helpers;
 /// Pure helpers for the connect handler: SSH arg building, VS Code URI construction.
 mod connect_helpers;
 
+/// Snap-aware wrappers for GUI/X11 command launches.
+mod gui_launch_helpers;
+
 /// Pure helpers for update/os-update commands: script generation.
 mod update_helpers;
 
