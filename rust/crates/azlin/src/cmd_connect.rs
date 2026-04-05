@@ -2,6 +2,11 @@
 use super::*;
 use anyhow::{Context, Result};
 
+pub(crate) fn build_effective_remote_command(x11: bool, remote_command: &[String]) -> Vec<String> {
+    crate::gui_launch_helpers::maybe_wrap_x11_remote_command(x11, remote_command)
+        .unwrap_or_else(|| remote_command.to_vec())
+}
+
 pub(crate) async fn dispatch(
     command: azlin_cli::Commands,
     verbose: bool,
@@ -134,6 +139,8 @@ pub(crate) async fn dispatch(
                 }
             }
 
+            let effective_remote_command = build_effective_remote_command(x11, &remote_command);
+
             let mut attempt = 0u32;
             let max = if no_reconnect { 1 } else { max_retries + 1 };
             loop {
@@ -181,18 +188,18 @@ pub(crate) async fn dispatch(
                         args.push("-Y".to_string());
                     }
                     // Force TTY allocation for interactive sessions (tmux needs it)
-                    if tmux_sess.is_some() || remote_command.is_empty() {
+                    if tmux_sess.is_some() || effective_remote_command.is_empty() {
                         args.push("-t".to_string());
                     }
                     // Build the remote command
                     if let Some(ref sess) = tmux_sess {
-                        if remote_command.is_empty() {
+                        if effective_remote_command.is_empty() {
                             args.push(format!("tmux new-session -A -s {}", sess));
                         } else {
-                            args.extend(remote_command.iter().cloned());
+                            args.extend(effective_remote_command.iter().cloned());
                         }
-                    } else if !remote_command.is_empty() {
-                        args.extend(remote_command.iter().cloned());
+                    } else if !effective_remote_command.is_empty() {
+                        args.extend(effective_remote_command.iter().cloned());
                     }
                     let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                     std::process::Command::new("az").args(&str_args).status()?
@@ -200,8 +207,11 @@ pub(crate) async fn dispatch(
                     // Direct SSH for VMs with public IPs
                     let ip = vm.public_ip.as_deref().unwrap();
                     let resolved_key = key.clone().or_else(resolve_ssh_key);
-                    let mut ssh_args =
-                        crate::connect_helpers::build_ssh_args(&username, ip, resolved_key.as_deref());
+                    let mut ssh_args = crate::connect_helpers::build_ssh_args(
+                        &username,
+                        ip,
+                        resolved_key.as_deref(),
+                    );
                     // Enable X11 forwarding for direct SSH
                     if x11 {
                         // Insert -Y before the user@host argument (last element)
@@ -210,14 +220,14 @@ pub(crate) async fn dispatch(
                         ssh_args.push(user_host);
                     }
                     if let Some(ref sess) = tmux_sess {
-                        if remote_command.is_empty() {
+                        if effective_remote_command.is_empty() {
                             ssh_args.push("-t".to_string());
                             ssh_args.push(format!("tmux new-session -A -s {}", sess));
                         } else {
-                            ssh_args.extend(remote_command.iter().cloned());
+                            ssh_args.extend(effective_remote_command.iter().cloned());
                         }
-                    } else if !remote_command.is_empty() {
-                        ssh_args.extend(remote_command.iter().cloned());
+                    } else if !effective_remote_command.is_empty() {
+                        ssh_args.extend(effective_remote_command.iter().cloned());
                     }
                     std::process::Command::new("ssh").args(&ssh_args).status()?
                 };

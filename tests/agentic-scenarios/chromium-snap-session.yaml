@@ -1,0 +1,86 @@
+name: "Chromium snap session handling"
+description: |
+  Verifies the azlin Chromium GUI fix by building the Rust CLI,
+  running the focused snap-wrapper regression tests, and confirming
+  the user-facing docs point callers at the snap-safe Chromium launch.
+version: "1.0.0"
+
+config:
+  timeout: 120000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 120000
+
+steps:
+  - name: "build azlin test binary"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo build -q -p azlin --bin azlin 2>&1 && echo BUILD_OK"
+    expect:
+      exit_code: 0
+      stdout_contains: "BUILD_OK"
+    timeout: 120000
+
+  - name: "connect x11 Chromium command tests pass"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo test -q -p azlin --bin azlin test_build_effective_remote_command_ -- --nocapture 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok."
+    timeout: 120000
+
+  - name: "gui xstartup Chromium command tests pass"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo test -q -p azlin --bin azlin test_build_vnc_xstartup_body_ -- --nocapture 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok."
+    timeout: 120000
+
+  - name: "Chromium helper parser tests pass"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo test -q -p azlin --bin azlin test_maybe_wrap_vnc_app_command_ -- --nocapture 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok."
+    timeout: 120000
+
+  - name: "CLI docs mention snap-safe interactive Chromium command"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "grep -F \"systemd-run --user --scope chromium-browser --no-sandbox\" docs/GUI_FORWARDING.md"
+    expect:
+      exit_code: 0
+      stdout_contains: "systemd-run --user --scope chromium-browser --no-sandbox"
+    timeout: 5000
+
+  - name: "Docs site mentions snap-safe interactive Chromium command"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "grep -F \"systemd-run --user --scope chromium-browser --no-sandbox\" docs-site/advanced/gui-forwarding.md"
+    expect:
+      exit_code: 0
+      stdout_contains: "systemd-run --user --scope chromium-browser --no-sandbox"
+    timeout: 5000
+
+metadata:
+  tags:
+    - "cli"
+    - "gui"
+    - "smoke"
+    - "chromium"
+  priority: "high"

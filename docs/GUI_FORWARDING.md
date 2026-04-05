@@ -76,7 +76,7 @@ azlin gui my-vm --user azureuser --key ~/.ssh/azlin_key
 
 **Single app mode** runs the specified command directly. The VNC window shows only that application. When the app is closed, the VNC server exits automatically.
 
-> **Note on Chromium/browsers**: Use `--no-sandbox` flag when running Chromium in VNC: `azlin gui my-vm --app "chromium-browser --no-sandbox"`. This is required because the VNC session runs as a regular user without a full desktop sandbox.
+> **Note on Chromium/browsers**: Use `--no-sandbox` when running Chromium in VNC: `azlin gui my-vm --app "chromium-browser --no-sandbox"`. When azlin launches Chromium directly, it auto-wraps snap-backed invocations in `systemd-run --user --scope`, which avoids the common `is not a snap cgroup` failure on Ubuntu VMs.
 
 ### How It Works
 
@@ -95,7 +95,7 @@ azlin gui my-vm --user azureuser --key ~/.ssh/azlin_key
 | `--user` | `azureuser` | SSH username on the VM |
 | `--key` | `~/.ssh/azlin_key` | Path to SSH private key |
 | `--minimal` | false | Use openbox window manager instead of full XFCE desktop |
-| `--app` | none | Run a single application (e.g. `--app "chromium-browser"`) |
+| `--app` | none | Run a single application (e.g. `--app "chromium-browser --no-sandbox"`) |
 | `-y, --yes` | false | Compatibility flag; GUI dependency setup is already non-interactive |
 
 ### Dependency Management
@@ -214,7 +214,7 @@ You can run any remote GUI app directly without opening an interactive session:
 
 ```bash
 # Run a single app via X11 — app window appears locally
-azlin connect my-vm --x11 --no-tmux -- chromium-browser
+azlin connect my-vm --x11 --no-tmux -- chromium-browser --no-sandbox
 azlin connect my-vm --x11 --no-tmux -- eog ~/screenshot.png
 azlin connect my-vm --x11 --no-tmux -- thunar
 azlin connect my-vm --x11 --no-tmux -- gitk --all
@@ -222,6 +222,8 @@ azlin connect my-vm --x11 --no-tmux -- meld file1.py file2.py
 ```
 
 The `--no-tmux` flag avoids wrapping in tmux, and `--` separates azlin args from the remote command. The app renders locally and the connection closes when the app exits.
+
+If you open an interactive X11 shell with `azlin connect --x11 my-vm` and then launch Chromium manually, use `systemd-run --user --scope chromium-browser --no-sandbox` inside that shell. The automatic snap wrapper only applies when azlin launches Chromium directly.
 
 ### Common GUI Applications
 
@@ -231,7 +233,7 @@ The `--no-tmux` flag avoids wrapping in tmux, and `--` separates azlin args from
 | gitk | `gitk --all` | Visual git history browser |
 | meld | `meld dir1 dir2` | Visual diff and merge tool |
 | gedit | `gedit file.py` | Lightweight text editor |
-| Chromium | `chromium-browser` | Web browser (consider VNC for better performance) |
+| Chromium | `chromium-browser --no-sandbox` | Web browser (consider VNC for better performance) |
 | eog | `eog image.png` | Image viewer |
 | thunar | `thunar` | File manager |
 | Firefox | `firefox` | Web browser (heavier, consider VNC) |
