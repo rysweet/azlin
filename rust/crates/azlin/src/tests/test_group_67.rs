@@ -97,6 +97,23 @@ fn test_build_effective_remote_command_wraps_env_terminator_chromium() {
 }
 
 #[test]
+fn test_build_effective_remote_command_wraps_env_terminator_assignment_prefixed_chromium() {
+    let remote_command = vec![
+        "env".to_string(),
+        "--".to_string(),
+        "FOO=1".to_string(),
+        "chromium-browser".to_string(),
+        "--no-sandbox".to_string(),
+    ];
+    let wrapped = crate::cmd_connect::build_effective_remote_command(true, &remote_command);
+
+    assert_eq!(wrapped.len(), 1);
+    assert!(wrapped[0].contains(
+        "then exec systemd-run --user --scope --quiet -- 'env' '--' 'FOO=1' 'chromium-browser' '--no-sandbox';"
+    ));
+}
+
+#[test]
 fn test_build_effective_remote_command_executes_bare_env_assignment() {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
@@ -237,6 +254,26 @@ fn test_maybe_wrap_vnc_app_command_handles_env_terminator_chromium() {
     );
     assert!(wrapped.contains("systemd-run --user --scope --quiet -- sh -lc"));
     assert!(wrapped.contains("env -- chromium-browser --no-sandbox"));
+}
+
+#[test]
+fn test_maybe_wrap_vnc_app_command_handles_env_terminator_assignment_prefixed_chromium() {
+    let wrapped = crate::gui_launch_helpers::maybe_wrap_vnc_app_command(
+        "env -- FOO=1 chromium-browser --no-sandbox",
+    );
+    assert!(wrapped.contains("systemd-run --user --scope --quiet -- sh -lc"));
+    assert!(wrapped.contains("env -- FOO=1 chromium-browser --no-sandbox"));
+}
+
+#[test]
+fn test_maybe_wrap_vnc_app_command_handles_env_terminator_quoted_assignment_prefixed_chromium() {
+    let wrapped = crate::gui_launch_helpers::maybe_wrap_vnc_app_command(
+        "env -- FOO='two words' chromium-browser --no-sandbox",
+    );
+    assert!(wrapped.contains("systemd-run --user --scope --quiet -- sh -lc"));
+    assert!(wrapped.contains("env --"));
+    assert!(wrapped.contains("chromium-browser --no-sandbox"));
+    assert!(wrapped.contains("two words"));
 }
 
 #[test]

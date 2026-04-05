@@ -33,29 +33,31 @@ fn env_flag_takes_value(word: &str) -> bool {
 fn leading_remote_command_program(remote_command: &[String]) -> Option<String> {
     let mut args = remote_command.iter().map(String::as_str);
     let mut saw_env = false;
+    let mut end_of_env_options = false;
 
     while let Some(arg) = args.next() {
-        if arg == "env" {
+        if !saw_env && arg == "env" {
             saw_env = true;
             continue;
         }
-        if saw_env && arg == "--" {
-            return args.next().map(str::to_string);
+        if saw_env && !end_of_env_options && arg == "--" {
+            end_of_env_options = true;
+            continue;
         }
         if is_env_assignment(arg) {
             continue;
         }
-        if saw_env && (arg == "-S" || arg == "--split-string") {
+        if saw_env && !end_of_env_options && (arg == "-S" || arg == "--split-string") {
             let payload = args.next()?;
             return leading_shell_command_word(payload);
         }
-        if saw_env && arg.starts_with("--split-string=") {
+        if saw_env && !end_of_env_options && arg.starts_with("--split-string=") {
             return leading_shell_command_word(arg.trim_start_matches("--split-string="));
         }
-        if saw_env && is_env_flag(arg) {
+        if saw_env && !end_of_env_options && is_env_flag(arg) {
             continue;
         }
-        if saw_env && env_flag_takes_value(arg) {
+        if saw_env && !end_of_env_options && env_flag_takes_value(arg) {
             let _ = args.next();
             continue;
         }
@@ -139,35 +141,36 @@ fn split_first_shell_word(command: &str) -> Option<(String, &str)> {
 fn leading_shell_command_word(command: &str) -> Option<String> {
     let mut remainder = command;
     let mut saw_env = false;
+    let mut end_of_env_options = false;
 
     loop {
         let (raw_word, rest) = split_first_shell_word(remainder)?;
         remainder = rest;
         let word = dequote_shell_word(&raw_word);
-        if word == "env" {
+        if !saw_env && word == "env" {
             saw_env = true;
             continue;
         }
-        if saw_env && word == "--" {
-            let (payload, _rest_after_payload) = split_first_shell_word(remainder)?;
-            return Some(dequote_shell_word(&payload));
+        if saw_env && !end_of_env_options && word == "--" {
+            end_of_env_options = true;
+            continue;
         }
         if is_env_assignment(&raw_word) {
             continue;
         }
-        if saw_env && (word == "-S" || word == "--split-string") {
+        if saw_env && !end_of_env_options && (word == "-S" || word == "--split-string") {
             let (payload, _rest_after_payload) = split_first_shell_word(remainder)?;
             let payload = dequote_shell_word(&payload);
             return leading_shell_command_word(&payload);
         }
-        if saw_env && word.starts_with("--split-string=") {
+        if saw_env && !end_of_env_options && word.starts_with("--split-string=") {
             let payload = dequote_shell_word(word.trim_start_matches("--split-string="));
             return leading_shell_command_word(&payload);
         }
-        if saw_env && is_env_flag(&word) {
+        if saw_env && !end_of_env_options && is_env_flag(&word) {
             continue;
         }
-        if saw_env && env_flag_takes_value(&word) {
+        if saw_env && !end_of_env_options && env_flag_takes_value(&word) {
             let (_, rest_after_value) = split_first_shell_word(remainder)?;
             remainder = rest_after_value;
             continue;
