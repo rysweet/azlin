@@ -76,35 +76,58 @@ fn normalize_remote_command_for_shell(remote_command: &[String]) -> Vec<String> 
     normalized
 }
 
+fn dequote_shell_word(word: &str) -> String {
+    if word.len() >= 2 {
+        let first = word.as_bytes()[0] as char;
+        let last = word.as_bytes()[word.len() - 1] as char;
+        if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+            return word[1..word.len() - 1].to_string();
+        }
+    }
+
+    word.to_string()
+}
+
 fn split_first_shell_word(command: &str) -> Option<(String, &str)> {
     let trimmed = command.trim_start();
     if trimmed.is_empty() {
         return None;
     }
 
-    let mut chars = trimmed.char_indices();
-    let (_, first) = chars.next()?;
-    if first == '"' || first == '\'' {
-        let quote = first;
-        for (index, ch) in chars {
-            if ch == quote {
-                return Some((trimmed[1..index].to_string(), &trimmed[index + 1..]));
-            }
+    let mut active_quote = None;
+    let mut escaped = false;
+
+    for (index, ch) in trimmed.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
         }
-        return None;
+
+        if let Some(quote) = active_quote {
+            if ch == quote {
+                active_quote = None;
+                continue;
+            }
+            if ch == '\\' && quote != '\'' {
+                escaped = true;
+            }
+            continue;
+        }
+
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '"' || ch == '\'' {
+            active_quote = Some(ch);
+            continue;
+        }
+        if ch.is_whitespace() || ";|&()<>".contains(ch) {
+            return Some((trimmed[..index].to_string(), &trimmed[index..]));
+        }
     }
 
-    let end = trimmed
-        .char_indices()
-        .find_map(|(index, ch)| {
-            if ch.is_whitespace() || ";|&()<>".contains(ch) {
-                Some(index)
-            } else {
-                None
-            }
-        })
-        .unwrap_or(trimmed.len());
-    Some((trimmed[..end].to_string(), &trimmed[end..]))
+    Some((trimmed.to_string(), ""))
 }
 
 fn leading_shell_command_word(command: &str) -> Option<String> {
@@ -112,13 +135,14 @@ fn leading_shell_command_word(command: &str) -> Option<String> {
     let mut saw_env = false;
 
     loop {
-        let (word, rest) = split_first_shell_word(remainder)?;
+        let (raw_word, rest) = split_first_shell_word(remainder)?;
         remainder = rest;
+        let word = dequote_shell_word(&raw_word);
         if word == "env" {
             saw_env = true;
             continue;
         }
-        if is_env_assignment(&word) {
+        if is_env_assignment(&raw_word) {
             continue;
         }
         if saw_env && is_env_flag(&word) {

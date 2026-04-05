@@ -191,6 +191,16 @@ fn test_maybe_wrap_vnc_app_command_handles_env_option_prefixed_chromium() {
 }
 
 #[test]
+fn test_maybe_wrap_vnc_app_command_handles_quoted_env_assignment_value() {
+    let wrapped = crate::gui_launch_helpers::maybe_wrap_vnc_app_command(
+        "FOO='two words' chromium-browser --no-sandbox",
+    );
+    assert!(wrapped.contains("systemd-run --user --scope --quiet -- sh -lc"));
+    assert!(wrapped.contains("chromium-browser --no-sandbox"));
+    assert!(wrapped.contains("two words"));
+}
+
+#[test]
 fn test_maybe_wrap_vnc_app_command_leaves_other_apps_unchanged() {
     let wrapped = crate::gui_launch_helpers::maybe_wrap_vnc_app_command("gimp");
     assert_eq!(wrapped, "gimp");
