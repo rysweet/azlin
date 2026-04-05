@@ -23,7 +23,17 @@ fn is_env_assignment(word: &str) -> bool {
 fn is_env_flag(word: &str) -> bool {
     matches!(
         word,
-        "-i" | "--ignore-environment" | "-0" | "--null" | "-v" | "--debug"
+        "-"
+            | "-i"
+            | "--ignore-environment"
+            | "-0"
+            | "--null"
+            | "-v"
+            | "--debug"
+            | "--block-signal"
+            | "--default-signal"
+            | "--ignore-signal"
+            | "--list-signal-handling"
     )
         || word.starts_with("--unset=")
         || word.starts_with("--chdir=")
@@ -31,6 +41,10 @@ fn is_env_flag(word: &str) -> bool {
 
 fn env_flag_takes_value(word: &str) -> bool {
     matches!(word, "-u" | "--unset" | "-C" | "--chdir")
+}
+
+fn env_short_option_value<'a>(word: &'a str, option: &str) -> Option<&'a str> {
+    word.strip_prefix(option).filter(|value| !value.is_empty())
 }
 
 fn leading_remote_command_program(remote_command: &[String]) -> Option<String> {
@@ -51,8 +65,20 @@ fn leading_remote_command_program(remote_command: &[String]) -> Option<String> {
             let payload = args.next()?;
             return leading_shell_command_word(payload);
         }
+        if saw_env && !end_of_env_options {
+            if let Some(payload) = env_short_option_value(arg, "-S") {
+                return leading_shell_command_word(payload);
+            }
+        }
         if saw_env && !end_of_env_options && arg.starts_with("--split-string=") {
             return leading_shell_command_word(arg.trim_start_matches("--split-string="));
+        }
+        if saw_env
+            && !end_of_env_options
+            && (env_short_option_value(arg, "-u").is_some()
+                || env_short_option_value(arg, "-C").is_some())
+        {
+            continue;
         }
         if is_env_assignment(arg) {
             continue;
@@ -163,9 +189,22 @@ fn leading_shell_command_word(command: &str) -> Option<String> {
             let payload = dequote_shell_word(&payload);
             return leading_shell_command_word(&payload);
         }
+        if saw_env && !end_of_env_options {
+            if let Some(payload) = env_short_option_value(&raw_word, "-S") {
+                let payload = dequote_shell_word(payload);
+                return leading_shell_command_word(&payload);
+            }
+        }
         if saw_env && !end_of_env_options && word.starts_with("--split-string=") {
             let payload = dequote_shell_word(word.trim_start_matches("--split-string="));
             return leading_shell_command_word(&payload);
+        }
+        if saw_env
+            && !end_of_env_options
+            && (env_short_option_value(&raw_word, "-u").is_some()
+                || env_short_option_value(&raw_word, "-C").is_some())
+        {
+            continue;
         }
         if is_env_assignment(&raw_word) {
             continue;
