@@ -734,7 +734,10 @@ mod tests {
         assert!(body.contains(
             "systemd-run --user --scope --quiet -- sh -lc 'chromium-browser --no-sandbox'"
         ));
-        assert!(body.contains("else sh -lc 'chromium-browser --no-sandbox'; fi"));
+        assert!(
+            body.contains("azlin: snap Chromium detected but systemd-run --user is unavailable")
+        );
+        assert!(body.contains("sh -lc 'chromium-browser --no-sandbox'; fi"));
         assert!(body.contains("vncserver -kill :1 2>/dev/null"));
     }
 
@@ -747,7 +750,7 @@ mod tests {
         assert!(body.contains(
             "systemd-run --user --scope --quiet -- sh -lc 'FOO=1 chromium-browser --no-sandbox'"
         ));
-        assert!(body.contains("else sh -lc 'FOO=1 chromium-browser --no-sandbox'; fi"));
+        assert!(body.contains("sh -lc 'FOO=1 chromium-browser --no-sandbox'; fi"));
     }
 
     #[test]

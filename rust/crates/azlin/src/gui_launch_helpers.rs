@@ -4,6 +4,8 @@ const SNAP_CHROMIUM_PROBE: &str =
     "command -v snap >/dev/null 2>&1 && snap list chromium >/dev/null 2>&1";
 const USER_SYSTEMD_PROBE: &str =
     "command -v systemd-run >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1";
+const SYSTEMD_RUN_WARNING: &str =
+    "azlin: snap Chromium detected but systemd-run --user is unavailable; Chromium may still fail with the snap cgroup error. Retry from a login session or run systemd-run --user --scope chromium-browser --no-sandbox manually.";
 
 fn is_snap_sensitive_browser_program(program: &str) -> bool {
     let trimmed = program.trim_matches(|c| c == '"' || c == '\'');
@@ -18,6 +20,20 @@ fn is_env_assignment(word: &str) -> bool {
     matches!(word.split_once('='), Some((name, _)) if !name.is_empty())
 }
 
+fn is_env_flag(word: &str) -> bool {
+    matches!(word, "-i" | "--ignore-environment" | "-0" | "--null")
+        || word.starts_with("--unset=")
+        || word.starts_with("--chdir=")
+        || word.starts_with("--split-string=")
+}
+
+fn env_flag_takes_value(word: &str) -> bool {
+    matches!(
+        word,
+        "-u" | "--unset" | "-C" | "--chdir" | "-S" | "--split-string"
+    )
+}
+
 fn leading_remote_command_program(remote_command: &[String]) -> Option<&str> {
     let mut args = remote_command.iter().map(String::as_str);
     let mut saw_env = false;
@@ -27,7 +43,14 @@ fn leading_remote_command_program(remote_command: &[String]) -> Option<&str> {
             saw_env = true;
             continue;
         }
-        if saw_env && is_env_assignment(arg) {
+        if is_env_assignment(arg) {
+            continue;
+        }
+        if saw_env && is_env_flag(arg) {
+            continue;
+        }
+        if saw_env && env_flag_takes_value(arg) {
+            let _ = args.next();
             continue;
         }
         return Some(arg);
@@ -69,11 +92,24 @@ fn split_first_shell_word(command: &str) -> Option<(String, &str)> {
 
 fn leading_shell_command_word(command: &str) -> Option<String> {
     let mut remainder = command;
+    let mut saw_env = false;
 
     loop {
         let (word, rest) = split_first_shell_word(remainder)?;
         remainder = rest;
-        if word == "env" || is_env_assignment(&word) {
+        if word == "env" {
+            saw_env = true;
+            continue;
+        }
+        if is_env_assignment(&word) {
+            continue;
+        }
+        if saw_env && is_env_flag(&word) {
+            continue;
+        }
+        if saw_env && env_flag_takes_value(&word) {
+            let (_, rest_after_value) = split_first_shell_word(remainder)?;
+            remainder = rest_after_value;
             continue;
         }
         return Some(word);
@@ -87,19 +123,23 @@ fn is_snap_sensitive_browser_command(command: &str) -> bool {
 }
 
 fn build_conditional_scoped_x11_command(command: &str) -> String {
+    let escaped_warning = shell_escape(SYSTEMD_RUN_WARNING);
     format!(
-        "if {snap_probe} && {systemd_probe}; then exec systemd-run --user --scope --quiet -- {command}; else exec {command}; fi",
+        "if {snap_probe}; then if {systemd_probe}; then exec systemd-run --user --scope --quiet -- {command}; else >&2 printf '%s\\n' {warning}; exec {command}; fi; else exec {command}; fi",
         snap_probe = SNAP_CHROMIUM_PROBE,
         systemd_probe = USER_SYSTEMD_PROBE,
+        warning = escaped_warning,
         command = command
     )
 }
 
 fn build_conditional_scoped_vnc_command(command: &str) -> String {
+    let escaped_warning = shell_escape(SYSTEMD_RUN_WARNING);
     format!(
-        "if {snap_probe} && {systemd_probe}; then systemd-run --user --scope --quiet -- {command}; else {command}; fi",
+        "if {snap_probe}; then if {systemd_probe}; then systemd-run --user --scope --quiet -- {command}; else >&2 printf '%s\\n' {warning}; {command}; fi; else {command}; fi",
         snap_probe = SNAP_CHROMIUM_PROBE,
         systemd_probe = USER_SYSTEMD_PROBE,
+        warning = escaped_warning,
         command = command
     )
 }

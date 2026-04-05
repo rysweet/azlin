@@ -34,7 +34,7 @@ steps:
       command: "cd rust && cargo test -q -p azlin --bin azlin test_build_effective_remote_command_ -- --nocapture 2>&1"
     expect:
       exit_code: 0
-      stdout_contains: "5 passed"
+      stdout_contains: "7 passed"
     timeout: 120000
 
   - name: "gui xstartup Chromium command tests pass"
@@ -45,6 +45,16 @@ steps:
     expect:
       exit_code: 0
       stdout_contains: "3 passed"
+    timeout: 120000
+
+  - name: "Chromium helper parser tests pass"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo test -q -p azlin --bin azlin test_maybe_wrap_vnc_app_command_ -- --nocapture 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains: "5 passed"
     timeout: 120000
 
   - name: "CLI docs mention snap-safe interactive Chromium command"
