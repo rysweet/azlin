@@ -92,6 +92,8 @@ pub(crate) async fn handle_vm_new(
         .find(|p| p.exists())
         .unwrap_or_else(|| ssh_dir.join("id_rsa.pub"))
     };
+    let created_private_key =
+        crate::create_helpers::matching_private_key_for_public_key(&ssh_key_path);
 
     let (tmpl_size, tmpl_region) = if let Some(ref tmpl_name) = template {
         if let Err(e) = crate::name_validation::validate_name(tmpl_name) {
@@ -262,6 +264,7 @@ pub(crate) async fn handle_vm_new(
                 &target,
                 bastion_port,
                 config_defaults.ssh_connect_timeout,
+                created_private_key.as_deref(),
             );
             println!("Seeding remote home from {}...", home_sync_dir.display());
             let seeded = crate::create_helpers::seed_remote_home_with_runner(
@@ -309,15 +312,19 @@ pub(crate) async fn handle_vm_new(
 
         if !no_auto_connect && vm_count == 1 {
             println!("Connecting to '{}'...", vm_name);
-            let mut ssh_args = vec![
-                "-o".to_string(),
-                "StrictHostKeyChecking=accept-new".to_string(),
-            ];
-            if let Some(port) = bastion_port {
-                ssh_args.push("-p".to_string());
-                ssh_args.push(port.to_string());
-            }
-            ssh_args.push(format!("{}@{}", admin_user, effective_ip));
+            let identity_key = created_private_key.as_deref().or_else(|| {
+                target
+                    .bastion
+                    .as_ref()
+                    .and_then(|bastion| bastion.ssh_key_path.as_deref())
+            });
+            let ssh_args = crate::create_helpers::build_auto_connect_ssh_args(
+                &target.user,
+                effective_ip,
+                bastion_port,
+                config_defaults.ssh_connect_timeout,
+                identity_key,
+            );
             let status = std::process::Command::new("ssh").args(&ssh_args).status()?;
             if !status.success() {
                 eprintln!("SSH connection ended with exit code: {:?}", status.code());

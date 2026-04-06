@@ -284,6 +284,7 @@ pub(crate) fn build_routed_ssh_transport(
     target: &VmSshTarget,
     bastion_port: Option<u16>,
     connect_timeout: u64,
+    key_override: Option<&std::path::Path>,
 ) -> String {
     let mut parts = vec![
         "ssh".to_string(),
@@ -298,15 +299,21 @@ pub(crate) fn build_routed_ssh_transport(
     if let Some(port) = bastion_port {
         parts.push("-p".to_string());
         parts.push(port.to_string());
-        if let Some(ref bastion) = target.bastion {
+        if let Some(key_path) = key_override {
+            parts.push("-i".to_string());
+            parts.push(key_path.display().to_string());
+        } else if let Some(ref bastion) = target.bastion {
             if let Some(ref key_path) = bastion.ssh_key_path {
                 parts.push("-i".to_string());
                 parts.push(key_path.display().to_string());
             }
         }
-    } else if let Some(key_path) = resolve_ssh_key() {
-        parts.push("-i".to_string());
-        parts.push(key_path.display().to_string());
+    } else {
+        let resolved_key = resolve_ssh_key();
+        if let Some(key_path) = key_override.or(resolved_key.as_deref()) {
+            parts.push("-i".to_string());
+            parts.push(key_path.display().to_string());
+        }
     }
 
     parts.join(" ")
@@ -384,7 +391,7 @@ mod tests {
             bastion: None,
         };
 
-        let transport = build_routed_ssh_transport(&target, None, 42);
+        let transport = build_routed_ssh_transport(&target, None, 42, None);
         assert!(transport.contains("StrictHostKeyChecking=accept-new"));
         assert!(transport.contains("ConnectTimeout=42"));
         assert!(transport.contains("BatchMode=yes"));
@@ -404,9 +411,23 @@ mod tests {
             }),
         };
 
-        let transport = build_routed_ssh_transport(&target, Some(50210), 30);
+        let transport = build_routed_ssh_transport(&target, Some(50210), 30, None);
         assert!(transport.contains("-p 50210"));
         assert!(transport.contains("-i /tmp/key"));
         assert!(transport.contains("BatchMode=yes"));
+    }
+
+    #[test]
+    fn build_routed_ssh_transport_prefers_explicit_key_override() {
+        let target = VmSshTarget {
+            vm_name: "simard".to_string(),
+            ip: "1.2.3.4".to_string(),
+            user: "azureuser".to_string(),
+            bastion: None,
+        };
+
+        let override_key = std::path::Path::new("/tmp/created-key");
+        let transport = build_routed_ssh_transport(&target, None, 30, Some(override_key));
+        assert!(transport.contains("-i /tmp/created-key"));
     }
 }
