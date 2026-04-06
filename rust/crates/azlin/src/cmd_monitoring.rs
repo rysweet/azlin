@@ -88,54 +88,31 @@ pub(crate) async fn dispatch(
                     .collect();
 
             // Resolve SSH key path for bastion tunnelling
-            let ssh_key_path = home_dir()
-                .ok()
-                .map(|h| h.join(".ssh").join("azlin_key"))
-                .filter(|p| p.exists())
-                .or_else(|| {
-                    home_dir()
-                        .ok()
-                        .map(|h| h.join(".ssh").join("id_rsa"))
-                        .filter(|p| p.exists())
-                });
+            let ssh_key_path = dirs::home_dir()
+                .map(|h| h.join(".ssh"))
+                .and_then(|ssh_dir| crate::key_helpers::find_preferred_private_key(&ssh_dir));
 
             let sub_id = vm_manager.subscription_id().to_string();
 
             let mut metrics: Vec<HealthMetrics> = if let Some(vm_name) = vm {
                 // Single VM — no need to parallelize
                 let vm_info = vm_manager.get_vm(&rg, &vm_name)?;
-                let ip = vm_info
-                    .public_ip
-                    .clone()
-                    .or(vm_info.private_ip.clone())
-                    .ok_or_else(|| anyhow::anyhow!("No IP found for VM '{}'", vm_name))?;
-                let user = vm_info
-                    .admin_username
-                    .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
+                let target = build_ssh_target(&vm_info, &sub_id, &bastion_map, &ssh_key_path);
+                if target.ip.is_empty() {
+                    anyhow::bail!("No IP found for VM '{}'", vm_name);
+                }
+                let ip = target.ip.clone();
+                let user = target.user.clone();
                 let state = vm_info.power_state.to_string();
 
-                // Use bastion when there is no public IP
-                let bastion_info_owned: Option<(
-                    String,
-                    String,
-                    String,
-                    Option<std::path::PathBuf>,
-                )> = if vm_info.public_ip.is_none() {
-                    bastion_map.get(&vm_info.location).map(|bn| {
-                        let vm_rid = format!(
-                            "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
-                            sub_id, vm_info.resource_group, vm_info.name
-                        );
-                        (
-                            bn.clone(),
-                            vm_info.resource_group.clone(),
-                            vm_rid,
-                            ssh_key_path.clone(),
-                        )
-                    })
-                } else {
-                    None
-                };
+                let bastion_info_owned = target.bastion.map(|b| {
+                    (
+                        b.bastion_name,
+                        b.resource_group,
+                        b.vm_resource_id,
+                        b.ssh_key_path,
+                    )
+                });
                 let bastion_ref = bastion_info_owned.as_ref().map(|(bn, rg_b, rid, key)| {
                     (bn.as_str(), rg_b.as_str(), rid.as_str(), key.as_deref())
                 });
@@ -158,39 +135,24 @@ pub(crate) async fn dispatch(
                 let tasks: Vec<_> = vms
                     .iter()
                     .filter_map(|vm_info| {
-                        let ip = vm_info
-                            .public_ip
-                            .as_ref()
-                            .or(vm_info.private_ip.as_ref())?
-                            .clone();
-                        let user = vm_info
-                            .admin_username
-                            .clone()
-                            .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
+                        let target =
+                            build_ssh_target(vm_info, &sub_id, &bastion_map, &ssh_key_path);
+                        if target.ip.is_empty() {
+                            return None;
+                        }
+                        let ip = target.ip.clone();
+                        let user = target.user.clone();
                         let state = vm_info.power_state.to_string();
-                        let name = vm_info.name.clone();
+                        let name = target.vm_name.clone();
 
-                        let bastion_owned: Option<(
-                            String,
-                            String,
-                            String,
-                            Option<std::path::PathBuf>,
-                        )> = if vm_info.public_ip.is_none() {
-                            bastion_map.get(&vm_info.location).map(|bn| {
-                                let vm_rid = format!(
-                                    "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
-                                    sub_id, vm_info.resource_group, vm_info.name
-                                );
-                                (
-                                    bn.clone(),
-                                    vm_info.resource_group.clone(),
-                                    vm_rid,
-                                    ssh_key_path.clone(),
-                                )
-                            })
-                        } else {
-                            None
-                        };
+                        let bastion_owned = target.bastion.map(|b| {
+                            (
+                                b.bastion_name,
+                                b.resource_group,
+                                b.vm_resource_id,
+                                b.ssh_key_path,
+                            )
+                        });
 
                         Some((name, ip, user, state, bastion_owned))
                     })

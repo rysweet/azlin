@@ -159,6 +159,8 @@ fn test_build_ssh_target_with_admin_username() {
     assert_eq!(target.vm_name, "test-vm");
     assert_eq!(target.ip, "1.2.3.4");
     assert_eq!(target.user, "customuser");
+    assert!(target.ssh_key_path.is_none());
+    assert!(target.allow_preferred_key_fallback);
     assert!(target.bastion.is_none());
 }
 
@@ -187,6 +189,8 @@ fn test_build_ssh_target_no_admin_username() {
     let target = crate::build_ssh_target(&vm, "sub-id", &bastion_map, &ssh_key);
     assert_eq!(target.ip, "10.0.0.2");
     assert_eq!(target.user, "azureuser");
+    assert!(target.ssh_key_path.is_none());
+    assert!(target.allow_preferred_key_fallback);
     // No bastion in map for "westus"
     assert!(target.bastion.is_none());
 }
@@ -215,6 +219,14 @@ fn test_build_ssh_target_no_ip() {
     let ssh_key = None;
     let target = crate::build_ssh_target(&vm, "sub-id", &bastion_map, &ssh_key);
     assert_eq!(target.ip, "");
+    assert!(target.ssh_key_path.is_none());
+    assert!(target.allow_preferred_key_fallback);
+}
+
+#[test]
+fn test_resolve_target_ssh_key_path_skips_fallback_when_disabled() {
+    let key = crate::resolve_target_ssh_key_path(None, None, false);
+    assert!(key.is_none());
 }
 
 #[test]

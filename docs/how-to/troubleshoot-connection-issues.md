@@ -23,6 +23,18 @@ Look for these indicators in the output:
 | "Timeout" | Network or Azure service issue | [Timeout Issues](#timeout-issues) |
 | "Permission denied" (Azure) | RBAC permissions missing | [Permission Issues](#permission-issues) |
 
+**Note for `azlin new`:** when post-create home seeding, repo clone, or the
+first auto-connect shell run, they reuse the private key that matches the
+public key chosen at provision time. The create flow looks for public keys in
+this order:
+`~/.ssh/azlin_key.pub`, `~/.ssh/id_ed25519_azlin.pub`,
+`~/.ssh/id_ed25519.pub`, then `~/.ssh/id_rsa.pub`. If the matching private key
+for the selected public key is missing and a post-create SSH phase is enabled,
+`azlin new` now fails immediately instead of falling back to a different
+identity. If the create flow routes through bastion, `azlin new --bastion-name
+<name>` is reused for the post-create auth-forward, home seeding, and first
+auto-connect SSH phases.
+
 ## Auto-Sync Issues
 
 Problems with automatic SSH key synchronization.
@@ -337,6 +349,16 @@ The sync succeeded, but there's a different authentication issue.
    PubkeyAuthentication yes
    AuthorizedKeysFile .ssh/authorized_keys
    ```
+
+**Note for `azlin new`:** provisioning chooses a public key, and when
+post-create home seeding, repo clone, or the first auto-connect shell run they
+reuse the matching private key. If you depend on azlin's local key
+auto-resolution, keep the selected public/private key pair available locally:
+`~/.ssh/azlin_key(.pub)`, `~/.ssh/id_ed25519_azlin(.pub)`,
+`~/.ssh/id_ed25519(.pub)`, or `~/.ssh/id_rsa(.pub)`. If the create flow routes
+through bastion and you override it with `azlin new --bastion-name <name>`,
+that same override also drives the later auth-forward, seeding, and first
+auto-connect steps.
 
 **Solutions:**
 

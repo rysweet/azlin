@@ -1,10 +1,17 @@
 use std::path::Path;
 
 /// Well-known private key basenames (no `.pub` suffix).
-pub const KNOWN_PRIVATE_KEYS: &[&str] = &["id_rsa", "id_ed25519", "id_ecdsa", "id_dsa"];
+pub const KNOWN_PRIVATE_KEYS: &[&str] = &[
+    "azlin_key",
+    "id_ed25519_azlin",
+    "id_ed25519",
+    "id_rsa",
+    "id_ecdsa",
+    "id_dsa",
+];
 
-/// Priority-ordered list of public key filenames tried during export / sync-keys.
-pub const PREFERRED_PUBKEYS: &[&str] = &["id_ed25519_azlin.pub", "id_ed25519.pub", "id_rsa.pub"];
+/// Priority-ordered SSH key stems shared by both public and private resolution.
+pub const PREFERRED_KEY_STEMS: &[&str] = &["azlin_key", "id_ed25519_azlin", "id_ed25519", "id_rsa"];
 
 /// Detect the SSH key type from a filename.
 pub fn detect_key_type(name: &str) -> &'static str {
@@ -28,17 +35,33 @@ pub fn is_known_key_name(name: &str) -> bool {
 }
 
 /// Return true when a filename should be included in the key-backup set
-/// (any file whose name starts with `id_`).
+/// (the preferred azlin key pair plus any file whose name starts with `id_`).
 pub fn is_key_backup_candidate(name: &str) -> bool {
-    name.starts_with("id_")
+    matches!(name, "azlin_key" | "azlin_key.pub") || name.starts_with("id_")
 }
 
 /// Find the first preferred public key that exists inside `ssh_dir`.
 pub fn find_preferred_pubkey(ssh_dir: &Path) -> Option<std::path::PathBuf> {
-    PREFERRED_PUBKEYS
+    PREFERRED_KEY_STEMS
         .iter()
-        .map(|f| ssh_dir.join(f))
+        .map(|stem| ssh_dir.join(format!("{stem}.pub")))
         .find(|p| p.exists())
+}
+
+/// Find the first preferred private key that exists inside `ssh_dir`.
+pub fn find_preferred_private_key(ssh_dir: &Path) -> Option<std::path::PathBuf> {
+    PREFERRED_KEY_STEMS
+        .iter()
+        .map(|stem| ssh_dir.join(stem))
+        .find(|p| p.exists())
+}
+
+/// Return the preferred public key filenames in priority order for display.
+pub fn preferred_pubkey_names() -> Vec<String> {
+    PREFERRED_KEY_STEMS
+        .iter()
+        .map(|stem| format!("{stem}.pub"))
+        .collect()
 }
 
 /// Build the argument vector for `ssh-keygen` when generating a new
@@ -111,6 +134,8 @@ mod tests {
 
     #[test]
     fn test_is_known_key_name_private() {
+        assert!(is_known_key_name("azlin_key"));
+        assert!(is_known_key_name("id_ed25519_azlin"));
         assert!(is_known_key_name("id_rsa"));
         assert!(is_known_key_name("id_ed25519"));
     }
@@ -125,6 +150,8 @@ mod tests {
 
     #[test]
     fn test_is_key_backup_candidate_true() {
+        assert!(is_key_backup_candidate("azlin_key"));
+        assert!(is_key_backup_candidate("azlin_key.pub"));
         assert!(is_key_backup_candidate("id_rsa"));
         assert!(is_key_backup_candidate("id_ed25519.pub"));
         assert!(is_key_backup_candidate("id_ecdsa_custom"));
@@ -169,5 +196,29 @@ mod tests {
     fn test_build_vm_prefix_query_special_chars() {
         let q = build_vm_prefix_query("vm_test").unwrap();
         assert!(q.contains("vm_test"));
+    }
+
+    #[test]
+    fn test_find_preferred_pubkey_uses_priority_order() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("azlin_key.pub"), "k0").unwrap();
+        std::fs::write(temp.path().join("id_rsa.pub"), "k1").unwrap();
+        std::fs::write(temp.path().join("id_ed25519.pub"), "k2").unwrap();
+        std::fs::write(temp.path().join("id_ed25519_azlin.pub"), "k3").unwrap();
+
+        let p = find_preferred_pubkey(temp.path()).unwrap();
+        assert!(p.ends_with("azlin_key.pub"));
+    }
+
+    #[test]
+    fn test_find_preferred_private_key_uses_priority_order() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("azlin_key"), "k0").unwrap();
+        std::fs::write(temp.path().join("id_rsa"), "k1").unwrap();
+        std::fs::write(temp.path().join("id_ed25519"), "k2").unwrap();
+        std::fs::write(temp.path().join("id_ed25519_azlin"), "k3").unwrap();
+
+        let p = find_preferred_private_key(temp.path()).unwrap();
+        assert!(p.ends_with("azlin_key"));
     }
 }

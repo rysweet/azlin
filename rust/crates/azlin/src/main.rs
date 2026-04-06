@@ -47,11 +47,19 @@ struct HealthMetrics {
 }
 
 /// Run an SSH command on a remote host and return (exit_code, stdout, stderr).
-fn ssh_exec(ip: &str, user: &str, cmd: &str) -> Result<(i32, String, String)> {
+fn ssh_exec(
+    ip: &str,
+    user: &str,
+    cmd: &str,
+    key_override: Option<&std::path::Path>,
+    allow_preferred_key_fallback: bool,
+) -> Result<(i32, String, String)> {
     let config = azlin_core::AzlinConfig::load().unwrap_or_default();
     let mut args = ssh_arg_helpers::build_ssh_args(ip, user, cmd, config.ssh_connect_timeout);
-    if let Some(ref k) = resolve_ssh_key() {
-        ssh_arg_helpers::inject_identity_key(&mut args, k);
+    if let Some(k) =
+        resolve_target_ssh_key_path(key_override, None, allow_preferred_key_fallback)
+    {
+        ssh_arg_helpers::inject_identity_key(&mut args, &k);
     }
     let output = std::process::Command::new("ssh").args(&args).output()?;
     Ok((
@@ -226,6 +234,8 @@ struct VmSshTarget {
     vm_name: String,
     ip: String,
     user: String,
+    ssh_key_path: Option<std::path::PathBuf>,
+    allow_preferred_key_fallback: bool,
     bastion: Option<BastionRoute>,
 }
 
@@ -235,7 +245,11 @@ impl VmSshTarget {
 
         // Auto-sync SSH key on "Permission denied" — retry once after key push
         if result.0 == 255 && result.2.contains("Permission denied") {
-            if let Some(key_path) = resolve_ssh_key() {
+            if let Some(key_path) = resolve_target_ssh_key_path(
+                None,
+                self.ssh_key_path.as_deref(),
+                self.allow_preferred_key_fallback,
+            ) {
                 let pub_key_path = key_path.with_extension("pub");
                 if pub_key_path.exists() {
                     let pub_key = std::fs::read_to_string(&pub_key_path).unwrap_or_default();
@@ -300,19 +314,27 @@ impl VmSshTarget {
                 cmd,
             )
         } else {
-            // Try native russh first for direct SSH (lower latency, connection reuse).
-            // Fall back to subprocess SSH on any failure.
-            match try_native_ssh(&self.ip, &self.user, cmd) {
-                Ok(result) => Ok(result),
-                Err(e) => {
-                    tracing::debug!(
-                        "native SSH to {} failed ({}), falling back to subprocess",
-                        self.ip,
-                        e
-                    );
-                    ssh_exec(&self.ip, &self.user, cmd)
+            if self.ssh_key_path.is_none() && self.allow_preferred_key_fallback {
+                // Try native russh first for direct SSH (lower latency, connection reuse).
+                // Fall back to subprocess SSH on any failure.
+                match try_native_ssh(&self.ip, &self.user, cmd) {
+                    Ok(result) => return Ok(result),
+                    Err(e) => {
+                        tracing::debug!(
+                            "native SSH to {} failed ({}), falling back to subprocess",
+                            self.ip,
+                            e
+                        );
+                    }
                 }
             }
+            ssh_exec(
+                &self.ip,
+                &self.user,
+                cmd,
+                self.ssh_key_path.as_deref(),
+                self.allow_preferred_key_fallback,
+            )
         }
     }
 
@@ -362,22 +384,34 @@ fn build_ssh_target(
         vm_name: vm.name.clone(),
         ip,
         user,
+        ssh_key_path: ssh_key.clone(),
+        allow_preferred_key_fallback: true,
         bastion,
     }
 }
 
-/// Resolve an SSH key for bastion tunnelling: prefer ~/.ssh/azlin_key, fall back to ~/.ssh/id_rsa.
+/// Resolve an SSH key for direct and bastion SSH: prefer azlin_key, then
+/// id_ed25519_azlin, id_ed25519, then id_rsa.
 fn resolve_ssh_key() -> Option<std::path::PathBuf> {
-    let h = dirs::home_dir()?;
-    let azlin_key = h.join(".ssh").join("azlin_key");
-    if azlin_key.exists() {
-        return Some(azlin_key);
-    }
-    let id_rsa = h.join(".ssh").join("id_rsa");
-    if id_rsa.exists() {
-        return Some(id_rsa);
-    }
-    None
+    let ssh_dir = dirs::home_dir()?.join(".ssh");
+    crate::key_helpers::find_preferred_private_key(&ssh_dir)
+}
+
+pub(crate) fn resolve_target_ssh_key_path(
+    key_override: Option<&std::path::Path>,
+    target_ssh_key: Option<&std::path::Path>,
+    allow_preferred_key_fallback: bool,
+) -> Option<std::path::PathBuf> {
+    key_override
+        .map(std::path::Path::to_path_buf)
+        .or_else(|| target_ssh_key.map(std::path::Path::to_path_buf))
+        .or_else(|| {
+            if allow_preferred_key_fallback {
+                resolve_ssh_key()
+            } else {
+                None
+            }
+        })
 }
 
 /// Collect health metrics from a single VM via SSH (direct or through Bastion).
@@ -398,7 +432,7 @@ fn collect_health_metrics(
         if let Some((bastion_name, rg, vm_rid, ssh_key)) = bastion_info {
             bastion_ssh_exec(bastion_name, rg, vm_rid, user, ssh_key, cmd)
         } else {
-            ssh_exec(ip, user, cmd)
+            ssh_exec(ip, user, cmd, None, true)
         }
     };
 

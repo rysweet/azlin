@@ -104,6 +104,8 @@ async fn test_resolve_vm_targets_with_ip_flag() {
     assert_eq!(targets[0].vm_name, "my-vm");
     assert_eq!(targets[0].ip, "192.168.1.1");
     assert_eq!(targets[0].user, "azureuser");
+    assert!(targets[0].ssh_key_path.is_none());
+    assert!(!targets[0].allow_preferred_key_fallback);
     assert!(targets[0].bastion.is_none());
 }
 
@@ -115,6 +117,8 @@ async fn test_resolve_vm_targets_ip_only_no_vm_name() {
     assert_eq!(targets.len(), 1);
     assert_eq!(targets[0].vm_name, "10.0.0.1"); // uses IP as display name
     assert_eq!(targets[0].ip, "10.0.0.1");
+    assert!(targets[0].ssh_key_path.is_none());
+    assert!(!targets[0].allow_preferred_key_fallback);
     assert!(targets[0].bastion.is_none());
 }
 

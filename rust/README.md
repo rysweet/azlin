@@ -120,7 +120,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full details.
 
 - **Pure `az` CLI** for all Azure operations -- no Azure Rust SDK. The `az` CLI is stable, already authenticated, and avoids the `azure_core` version incompatibility between `azure_identity` 0.22 and `azure_mgmt_*` 0.2.
 - **`AzureOps` trait** on `VmManager` for testability without live Azure calls.
-- **`VmSshTarget` + `BastionRoute`** -- public IP VMs get direct SSH, private IP VMs route through `az network bastion ssh`. Permission denied triggers automatic key sync via `az vm user update`.
+- **`VmSshTarget` + `BastionRoute`** -- public IP VMs get direct SSH, private IP VMs route through `az network bastion ssh`. Bastion-routed permission failures can retry after re-pushing the local public key with `az vm user update`.
 - **60-minute in-memory cache** for VM lists and per-region VM sizes. Bypass with `--no-cache`.
 - **`handlers.rs`** and extracted helper modules keep `main.rs` manageable.
 

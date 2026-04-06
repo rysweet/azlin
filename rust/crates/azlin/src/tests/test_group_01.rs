@@ -179,7 +179,7 @@ fn test_health_metrics_non_running_vm() {
 #[test]
 fn test_ssh_exec_unreachable_host() {
     // ssh_exec to a non-routable address should either error or return non-zero
-    let result = crate::ssh_exec("192.0.2.1", "user", "echo hello");
+    let result = crate::ssh_exec("192.0.2.1", "user", "echo hello", None, true);
     if let Ok((code, _, _)) = result {
         assert_ne!(code, 0, "should fail for unreachable host");
     }

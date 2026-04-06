@@ -652,6 +652,7 @@ mod tests {
     fn test_direct_ssh_prefix_with_key() {
         let key_path = std::path::Path::new("/home/user/.ssh/id_rsa");
         let prefix = build_direct_ssh_prefix("10.0.0.1", "testuser", Some(key_path));
+        assert!(prefix.contains(&"IdentitiesOnly=yes".to_string()));
         assert!(prefix.contains(&"-i".to_string()));
         assert!(prefix.contains(&"/home/user/.ssh/id_rsa".to_string()));
         assert_eq!(prefix.last().unwrap(), "testuser@10.0.0.1");
@@ -663,6 +664,8 @@ mod tests {
             vm_name: "simard".to_string(),
             ip: "1.2.3.4".to_string(),
             user: "azureuser".to_string(),
+            ssh_key_path: None,
+            allow_preferred_key_fallback: false,
             bastion: None,
         };
 
