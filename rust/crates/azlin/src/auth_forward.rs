@@ -30,23 +30,6 @@ pub fn forward_auth_credentials(
     key_override: Option<&std::path::Path>,
     interactive_ssh: bool,
 ) -> Result<()> {
-    // Wait for SSH to be ready before attempting any forwarding
-    let ssh_port = bastion_port.unwrap_or(22);
-    let ssh_host = if bastion_port.is_some() {
-        "127.0.0.1"
-    } else {
-        ip
-    };
-    wait_for_ssh(
-        ssh_host,
-        ssh_port,
-        user,
-        Duration::from_secs(300),
-        key_override,
-        interactive_ssh,
-    )?;
-    wait_for_cloud_init(ip, user, bastion_port, key_override, interactive_ssh);
-
     let sources = detect_credentials();
     if sources.is_empty() {
         return Ok(());
@@ -68,6 +51,30 @@ pub fn forward_auth_credentials(
     }
 
     Ok(())
+}
+
+pub(crate) fn wait_for_post_create_readiness(
+    ip: &str,
+    user: &str,
+    bastion_port: Option<u16>,
+    key_override: Option<&std::path::Path>,
+    interactive_ssh: bool,
+) -> Result<()> {
+    let ssh_port = bastion_port.unwrap_or(22);
+    let ssh_host = if bastion_port.is_some() {
+        "127.0.0.1"
+    } else {
+        ip
+    };
+    wait_for_ssh(
+        ssh_host,
+        ssh_port,
+        user,
+        Duration::from_secs(300),
+        key_override,
+        interactive_ssh,
+    )?;
+    wait_for_cloud_init(ip, user, bastion_port, key_override, interactive_ssh)
 }
 
 // ---------------------------------------------------------------------------
@@ -130,8 +137,8 @@ fn wait_for_cloud_init(
     bastion_port: Option<u16>,
     key_override: Option<&std::path::Path>,
     interactive_ssh: bool,
-) {
-    let timeout = Duration::from_secs(600);
+) -> Result<()> {
+    let timeout = Duration::from_secs(900);
     let interval = Duration::from_secs(10);
     let start = Instant::now();
 
@@ -139,39 +146,39 @@ fn wait_for_cloud_init(
 
     loop {
         if start.elapsed() >= timeout {
-            eprintln!(
-                "Warning: cloud-init did not complete within {}s. \
-                 Continuing — some tools may not be installed yet.",
+            anyhow::bail!(
+                "cloud-init did not complete within {}s; guest provisioning is not ready",
                 timeout.as_secs()
             );
-            return;
         }
 
         match ssh_output(
             ip,
             user,
             bastion_port,
-            "cloud-init status 2>/dev/null || echo 'status: done'",
+            "if [ -f /var/lib/azlin/provisioning-complete ]; then echo 'status: azlin-ready'; elif command -v cloud-init >/dev/null 2>&1; then cloud-init status --long 2>/dev/null || true; else echo 'status: not-installed'; fi",
             key_override,
             interactive_ssh,
         ) {
             Ok(out) => {
-                if out.contains("status: done") {
-                    println!("Cloud-init provisioning complete.");
-                    return;
+                match parse_cloud_init_status(&out) {
+                    CloudInitStatus::Done => {
+                        println!("Cloud-init provisioning complete.");
+                        return Ok(());
+                    }
+                    CloudInitStatus::Disabled | CloudInitStatus::NotInstalled => {
+                        println!("Cloud-init is unavailable on this VM. Proceeding.");
+                        return Ok(());
+                    }
+                    CloudInitStatus::Error => {
+                        anyhow::bail!(
+                            "cloud-init finished with errors; guest provisioning is incomplete"
+                        );
+                    }
+                    CloudInitStatus::Running | CloudInitStatus::Unknown => {
+                        // Still running or reporting something unexpected — keep polling.
+                    }
                 }
-                if out.contains("status: disabled") {
-                    println!("Cloud-init is disabled on this VM. Proceeding.");
-                    return;
-                }
-                if out.contains("status: error") {
-                    eprintln!(
-                        "Warning: cloud-init finished with errors. \
-                         Some tools may not be installed."
-                    );
-                    return;
-                }
-                // Still running — continue polling
             }
             Err(_) => {
                 // SSH hiccup during cloud-init — keep trying
@@ -179,6 +186,45 @@ fn wait_for_cloud_init(
         }
 
         std::thread::sleep(interval);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CloudInitStatus {
+    Done,
+    Disabled,
+    Error,
+    Running,
+    NotInstalled,
+    Unknown,
+}
+
+fn parse_cloud_init_status(output: &str) -> CloudInitStatus {
+    let status = output
+        .lines()
+        .map(str::trim)
+        .find_map(|line| line.strip_prefix("status:").map(str::trim));
+    let extended_status = output
+        .lines()
+        .map(str::trim)
+        .find_map(|line| line.strip_prefix("extended_status:").map(str::trim));
+
+    match status {
+        Some("azlin-ready") => CloudInitStatus::Done,
+        Some("done") => {
+            if extended_status
+                .is_some_and(|value| value.contains("degraded") || value.contains("error"))
+            {
+                CloudInitStatus::Error
+            } else {
+                CloudInitStatus::Running
+            }
+        }
+        Some("disabled") => CloudInitStatus::Disabled,
+        Some("error") => CloudInitStatus::Error,
+        Some("running") => CloudInitStatus::Running,
+        Some("not-installed") => CloudInitStatus::NotInstalled,
+        _ => CloudInitStatus::Unknown,
     }
 }
 
@@ -1155,35 +1201,62 @@ mod tests {
     // =======================================================================
 
     #[test]
-    fn test_cloud_init_status_done_detected() {
-        let output = "status: done\n";
-        assert!(output.contains("status: done"));
+    fn test_parse_cloud_init_status_azlin_ready_detected() {
+        let output = "status: azlin-ready\n";
+        assert_eq!(parse_cloud_init_status(output), CloudInitStatus::Done);
     }
 
     #[test]
-    fn test_cloud_init_status_error_detected() {
+    fn test_parse_cloud_init_status_error_detected() {
         let output = "status: error\n";
-        assert!(output.contains("status: error"));
+        assert_eq!(parse_cloud_init_status(output), CloudInitStatus::Error);
     }
 
     #[test]
-    fn test_cloud_init_status_running_is_not_terminal() {
+    fn test_parse_cloud_init_status_running_is_not_terminal() {
         let output = "status: running\n";
-        assert!(!output.contains("status: done"));
-        assert!(!output.contains("status: error"));
+        assert_eq!(parse_cloud_init_status(output), CloudInitStatus::Running);
     }
 
     #[test]
-    fn test_cloud_init_fallback_output_is_done() {
-        // When cloud-init is not installed, fallback echoes "status: done"
-        let output = "status: done";
-        assert!(output.contains("status: done"));
+    fn test_parse_cloud_init_status_not_installed_is_terminal() {
+        let output = "status: not-installed\n";
+        assert_eq!(parse_cloud_init_status(output), CloudInitStatus::NotInstalled);
     }
 
     #[test]
-    fn test_cloud_init_status_disabled_is_terminal() {
-        // Disabled cloud-init should be treated as done, not poll for 600s
+    fn test_parse_cloud_init_status_done_without_sentinel_keeps_waiting() {
+        let output = "status: done\n";
+        assert_eq!(parse_cloud_init_status(output), CloudInitStatus::Running);
+    }
+
+    #[test]
+    fn test_parse_cloud_init_status_disabled_is_terminal() {
         let output = "status: disabled\n";
-        assert!(output.contains("status: disabled"));
+        assert_eq!(parse_cloud_init_status(output), CloudInitStatus::Disabled);
+    }
+
+    #[test]
+    fn test_parse_cloud_init_status_keeps_running_when_extended_status_is_present() {
+        let output = "extended_status: done\nstatus: running\n";
+        assert_eq!(parse_cloud_init_status(output), CloudInitStatus::Running);
+    }
+
+    #[test]
+    fn test_parse_cloud_init_status_treats_degraded_done_as_error() {
+        let output = "status: done\nextended_status: degraded done\n";
+        assert_eq!(parse_cloud_init_status(output), CloudInitStatus::Error);
+    }
+
+    #[test]
+    fn test_parse_cloud_init_status_treats_error_done_as_error() {
+        let output = "status: done\nextended_status: error - done\n";
+        assert_eq!(parse_cloud_init_status(output), CloudInitStatus::Error);
+    }
+
+    #[test]
+    fn test_parse_cloud_init_status_unknown_when_missing_status_line() {
+        let output = "cloud-init says hello\n";
+        assert_eq!(parse_cloud_init_status(output), CloudInitStatus::Unknown);
     }
 }
