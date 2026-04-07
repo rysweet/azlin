@@ -32,27 +32,29 @@ Both must succeed before forwarding begins. If the timeout elapses, forwarding i
 
 ## Cloud-Init Completion Check
 
-After SSH is reachable, azlin waits for cloud-init provisioning to complete before forwarding credentials or connecting the user. This ensures all tools (gh, az, node, rustc, go, dotnet, claude) are installed.
+After SSH is reachable, azlin waits for cloud-init provisioning to complete before forwarding credentials or connecting the user. This ensures all tools (gh, az, node, rustc, go, dotnet, claude, chromium wrappers) are installed.
 
 | Parameter | Value |
 |-----------|-------|
-| Timeout | 600 seconds |
+| Timeout | 900 seconds |
 | Poll interval | 10 seconds |
-| Remote command | `cloud-init status` |
-| Terminal states | `status: done`, `status: error` |
+| Remote command | `status: azlin-ready` sentinel, otherwise `cloud-init status --long` (or `status: not-installed`) |
+| Clean success | `/var/lib/azlin/provisioning-complete` exists and emits `status: azlin-ready` |
 
 Behavior by cloud-init state:
 
 | State | Action |
 |-------|--------|
-| `status: done` | Print success message, proceed |
+| `status: azlin-ready` | Print success message, proceed |
+| `status: done` without sentinel | Keep polling |
 | `status: disabled` | Print info message, proceed (cloud-init not active) |
-| `status: error` | Print warning, proceed (best-effort) |
+| `status: done` + degraded/error `extended_status` | Treat as provisioning failure |
+| `status: error` | Treat as provisioning failure |
 | `status: running` | Continue polling |
-| Command not found | Treat as done (non-cloud-init VM) |
-| Timeout (600s) | Print warning, proceed anyway |
+| Command not found | Print info message, proceed (non-cloud-init VM) |
+| Timeout (900s) | Fail readiness check |
 
-Cloud-init issues never block VM creation or user connection. All failure paths produce warnings and continue.
+Cloud-init readiness now blocks post-create credential forwarding and auto-connect. If provisioning ends in `error`, `degraded done`, or timeout, `azlin new` surfaces that failure instead of silently continuing.
 
 ## Credential Detection
 
@@ -102,7 +104,6 @@ Files **excluded** from forwarding:
 
 - `accessTokens.json` — legacy token store
 - `servicePrincipalProfile/` — service principal credentials
-- `clouds.config` — custom cloud definitions
 - Any other file not on the allow-list
 
 ## SSH/SCP Configuration
@@ -149,14 +150,14 @@ Credential forwarding is **best-effort**. The error handling model:
 
 | Scenario | Behavior |
 |----------|----------|
-| SSH never becomes ready | Warning printed, forwarding skipped, VM creation succeeds |
+| SSH never becomes ready during guest-readiness wait | `azlin new` returns an error after resource creation |
 | SCP fails for one credential | Warning printed, remaining credentials still attempted |
 | All SCP operations fail | Warning printed, VM creation succeeds |
 | User declines all prompts | No forwarding, VM creation succeeds |
 | Non-TTY environment | All confirmations default to "no" (use `--yes` to override) |
-| Bastion tunnel not ready | Falls back to direct connection |
+| Bastion tunnel not ready during guest-readiness wait | `azlin new` returns an error if readiness cannot be established |
 
-No forwarding failure ever causes `azlin new` to return a non-zero exit code.
+Forwarding itself remains best-effort. `azlin new` only returns non-zero here when the pre-forwarding guest-readiness gate fails.
 
 ## IPv6 Handling
 
@@ -170,10 +171,10 @@ In practice, Azure VMs use IPv4 addresses. The fallback exists as a safety net f
 
 ## Module API
 
-The public entry point is a single function:
+The public credential-forwarding entry point is:
 
 ```
-forward_auth_credentials(ip, user, force, bastion_port)
+forward_auth_credentials(ip, user, force, bastion_port, key_override, interactive_ssh)
 ```
 
 | Parameter | Type | Description |
@@ -182,6 +183,8 @@ forward_auth_credentials(ip, user, force, bastion_port)
 | `user` | `&str` | SSH username (typically `azureuser`) |
 | `force` | `bool` | Skip confirmation prompts (`--yes`) |
 | `bastion_port` | `Option<u16>` | Bastion tunnel port, or `None` for direct |
+| `key_override` | `Option<&Path>` | Explicit SSH private key for the VM |
+| `interactive_ssh` | `bool` | Whether SSH should inherit the caller's TTY behavior |
 
 Internal helpers (not public API):
 
@@ -194,3 +197,5 @@ Internal helpers (not public API):
 | `ssh_target()` | Returns `user@host` with bastion routing |
 | `scp_target()` | Returns `user@host:path` with bastion routing |
 | `confirm()` | Interactive y/N prompt (defaults no, respects `--force`) |
+
+Azure CLI allow-list note: `clouds.config` is forwarded. It is **not** excluded.

@@ -13,6 +13,7 @@ use tracing::debug;
 
 use azlin_core::models::{CreateVmParams, OsType, PowerState, VmInfo};
 
+use crate::cloud_init::render_dev_cloud_init_script;
 use crate::AzureAuth;
 
 // ── VM list cache ─────────────────────────────────────────────────────
@@ -638,7 +639,7 @@ fn create_cloud_init_file(admin_username: &str) -> Result<tempfile::NamedTempFil
         .suffix(".sh")
         .tempfile()
         .context("Failed to create cloud-init temp file")?;
-    let script = cloud_init_script(admin_username);
+    let script = render_dev_cloud_init_script(admin_username);
     tmp.write_all(script.as_bytes())
         .context("Failed to write cloud-init temp file")?;
     tmp.flush()
@@ -646,131 +647,9 @@ fn create_cloud_init_file(admin_username: &str) -> Result<tempfile::NamedTempFil
     Ok(tmp)
 }
 
-/// Generate the cloud-init script with the given admin username.
-///
-/// Uses the admin_username for docker group membership instead of
-/// hardcoding "azureuser".
+#[cfg(test)]
 fn cloud_init_script(admin_username: &str) -> String {
-    // Validate username to prevent injection into the shell script
-    let safe_username = if admin_username
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-        && !admin_username.is_empty()
-    {
-        admin_username
-    } else {
-        "azureuser"
-    };
-    format!(
-        r##"#!/bin/bash
-set -euo pipefail
-
-apt-get update -qq
-apt-get upgrade -y -qq
-
-apt-get install -y -qq \
-    git curl wget jq unzip \
-    build-essential make \
-    tmux ripgrep fd-find \
-    docker.io software-properties-common \
-    python3-pip pipx htop tree vim
-
-systemctl enable docker
-systemctl start docker
-usermod -aG docker {username}
-
-# Python 3.14 - install via deadsnakes but do NOT change system python3
-# (changing system python3 breaks apt tools that depend on apt_pkg)
-if python3.14 --version 2>/dev/null; then
-    echo "Python 3.14 already available"
-else
-    add-apt-repository -y ppa:deadsnakes/ppa && apt-get update && apt-get install -y python3.14 python3.14-venv python3.14-dev || echo "WARNING: Python 3.14 install failed"
-fi
-
-# GitHub CLI
-mkdir -p -m 755 /etc/apt/keyrings
-wget -nv -O /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg
-chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-apt-get update && apt-get install -y gh
-
-# Azure CLI
-curl -sL https://aka.ms/InstallAzureCLIDeb | bash
-
-# astral-uv
-snap install astral-uv --classic || true
-
-# Node.js 22 LTS
-curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-apt-get install -y nodejs
-mkdir -p /home/{username}/.npm-packages
-echo 'prefix=${{HOME}}/.npm-packages' > /home/{username}/.npmrc
-chown {username}:{username} /home/{username}/.npmrc /home/{username}/.npm-packages
-
-# Tmux configuration
-cat > /home/{username}/.tmux.conf << 'TMUXEOF'
-set -g status-left-length 50
-set -g status-left "#[fg=cyan][#h]#[fg=green] #S #[fg=yellow]| "
-set -g status-right "#[fg=cyan]%Y-%m-%d %H:%M"
-set -g status-interval 60
-set -g status-bg black
-set -g status-fg white
-TMUXEOF
-chown {username}:{username} /home/{username}/.tmux.conf
-
-# Fix tmux socket dir permissions (Ubuntu 25.10+)
-chmod 1777 /tmp
-TMUX_UID=$(id -u {username})
-mkdir -p /tmp/tmux-$TMUX_UID
-chmod 700 /tmp/tmux-$TMUX_UID
-chown {username}:{username} /tmp/tmux-$TMUX_UID
-
-# Claude Code AI Assistant
-su - {username} -c 'curl -fsSL https://claude.ai/install.sh | bash' || echo "WARNING: Claude Code install failed"
-
-# Rust and Cargo
-su - {username} -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
-
-# Go
-wget -q https://go.dev/dl/go1.26.1.linux-amd64.tar.gz -O /tmp/go.tar.gz
-tar -C /usr/local -xzf /tmp/go.tar.gz
-rm -f /tmp/go.tar.gz
-
-# .NET 10 SDK (GA LTS)
-curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
-chmod +x /tmp/dotnet-install.sh
-/tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet \
-    || echo "WARNING: .NET 10 SDK install failed"
-ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet 2>/dev/null || true
-rm -f /tmp/dotnet-install.sh
-
-# bashrc additions
-cat >> /home/{username}/.bashrc << 'BASHEOF'
-
-# npm user-local configuration
-NPM_PACKAGES="${{HOME}}/.npm-packages"
-PATH="$NPM_PACKAGES/bin:$PATH"
-MANPATH="$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)"
-
-# Go
-export PATH=$PATH:/usr/local/go/bin
-
-# Cargo
-source $HOME/.cargo/env 2>/dev/null
-BASHEOF
-
-# Version verification
-echo "[AZLIN] Verifying installed tools..."
-which gh && gh --version || echo "WARNING: gh not found"
-which az && az --version | head -2 || echo "WARNING: az not found"
-which node && node --version || echo "WARNING: node not found"
-su - {username} -c 'which rustc && rustc --version' || echo "WARNING: rustc not found"
-which dotnet && dotnet --version || echo "WARNING: dotnet not found"
-
-echo "cloud-init provisioning complete"
-"##,
-        username = safe_username
-    )
+    render_dev_cloud_init_script(admin_username)
 }
 
 // ── Resource naming helpers ────────────────────────────────────────────
@@ -1069,7 +948,7 @@ mod tests {
     #[test]
     fn test_cloud_init_script_installs_essential_tools() {
         let script = cloud_init_script("testuser");
-        for tool in &["git", "curl", "tmux", "docker.io", "make"] {
+        for tool in &["git", "curl", "tmux", "docker.io", "make", "fd-find"] {
             assert!(script.contains(tool), "Missing tool: {tool}");
         }
     }
@@ -1094,7 +973,7 @@ mod tests {
     fn test_cloud_init_script_installs_gh_and_az() {
         let script = cloud_init_script("testuser");
         assert!(
-            script.contains("apt-get install -y gh"),
+            script.contains("apt update && apt install -y gh"),
             "Missing GitHub CLI install"
         );
         assert!(
@@ -1126,6 +1005,36 @@ mod tests {
     fn test_cloud_init_script_completion_marker() {
         let script = cloud_init_script("user");
         assert!(script.contains("cloud-init provisioning complete"));
+    }
+
+    #[test]
+    fn test_cloud_init_script_installs_chromium_and_wrappers() {
+        let script = cloud_init_script("user");
+        assert!(script.contains("apt-get install -y chromium-browser"));
+        assert!(script.contains("xdg-utils"));
+        assert!(script.contains("cat > /usr/local/bin/chromium-browser << 'CHROMIUMWRAP'"));
+        assert!(
+            script.contains("exec systemd-run --user --scope --quiet -- \"$REAL_COMMAND\" \"$@\"")
+        );
+        assert!(script.contains("cat > /usr/local/bin/chromium << 'CHROMIUMALIAS'"));
+        assert!(script.contains("exec /usr/local/bin/chromium-browser \"$@\""));
+    }
+
+    #[test]
+    fn test_cloud_init_script_chromium_wrapper_repairs_user_session_env() {
+        let script = cloud_init_script("user");
+        assert!(script.contains("export XDG_RUNTIME_DIR=\"/run/user/$(id -u)\""));
+        assert!(
+            script.contains("export DBUS_SESSION_BUS_ADDRESS=\"unix:path=$XDG_RUNTIME_DIR/bus\"")
+        );
+        assert!(script.contains("systemctl --user show-environment >/dev/null 2>&1"));
+    }
+
+    #[test]
+    fn test_cloud_init_script_chromium_wrapper_fails_loudly_when_scope_unavailable() {
+        let script = cloud_init_script("user");
+        assert!(script.contains("Chromium requires systemd user scope support on this VM, but systemd tooling is unavailable."));
+        assert!(script.contains("Chromium requires an active systemd user environment on this VM. Check linger/user-systemd setup."));
     }
 
     #[test]
@@ -1496,6 +1405,24 @@ mod tests {
     fn test_cloud_init_script_underscore_username_allowed() {
         let script = cloud_init_script("my_user");
         assert!(script.contains("usermod -aG docker my_user"));
+    }
+
+    #[test]
+    fn test_cloud_init_script_enables_systemd_linger() {
+        let script = cloud_init_script("testuser");
+        assert!(
+            script.contains("loginctl enable-linger testuser"),
+            "cloud-init script must enable systemd user linger for snap Chromium cgroup support"
+        );
+    }
+
+    #[test]
+    fn test_cloud_init_script_linger_uses_custom_username() {
+        let script = cloud_init_script("devuser");
+        assert!(
+            script.contains("loginctl enable-linger devuser"),
+            "linger command must use the provisioned admin username"
+        );
     }
 
     #[test]

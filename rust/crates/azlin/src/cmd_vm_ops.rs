@@ -335,8 +335,6 @@ pub(crate) async fn handle_vm_new(
         let vm = vm_manager.create_vm(&params)?;
         pb.finish_and_clear();
 
-        println!("VM '{}' created successfully!", vm.name);
-
         if let Some(ref nfs) = nfs_storage {
             eprintln!(
                 "Warning: --nfs-storage '{}' accepted but NFS mounting is not yet implemented in the Rust CLI.",
@@ -361,8 +359,9 @@ pub(crate) async fn handle_vm_new(
         let created_private_key = match created_private_key.as_ref() {
             Some(key) => key,
             None => {
+                println!("VM '{}' created successfully!", vm.name);
                 println!(
-                    "Provisioning used '{}' but matching private key '{}' is unavailable locally; skipping post-create SSH actions.",
+                    "Provisioning used '{}' but matching private key '{}' is unavailable locally; skipping guest-readiness checks and post-create SSH actions.",
                     ssh_key_path.display(),
                     ssh_key_path.with_extension("").display()
                 );
@@ -443,6 +442,17 @@ pub(crate) async fn handle_vm_new(
         } else {
             &target.ip
         };
+
+        crate::auth_forward::wait_for_post_create_readiness(
+            effective_ip,
+            &admin_user,
+            bastion_port,
+            Some(created_private_key.as_path()),
+            interactive_post_create_ssh,
+        )
+        .with_context(|| format!("VM '{}' was created but is not yet guest-ready", vm.name))?;
+
+        println!("VM '{}' created successfully!", vm.name);
 
         // Forward auth credentials to the new VM (best-effort)
         if let Err(e) = crate::auth_forward::forward_auth_credentials(

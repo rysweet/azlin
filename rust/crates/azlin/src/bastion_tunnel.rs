@@ -15,13 +15,12 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::io::ErrorKind;
+use std::net::TcpListener;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::{debug, warn};
-
-/// Global port counter to avoid collisions across concurrent tunnels.
-static NEXT_PORT: AtomicU16 = AtomicU16::new(50200);
 
 /// Whether the keepalive watchdog has been started.
 static WATCHDOG_STARTED: AtomicBool = AtomicBool::new(false);
@@ -169,6 +168,182 @@ fn kill_process(pid: u32) {
         .status();
 }
 
+fn pick_unused_local_port() -> Result<u16> {
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .context("Failed to allocate a local port for bastion tunnel")?;
+    let port = listener
+        .local_addr()
+        .context("Failed to inspect allocated bastion tunnel port")?
+        .port();
+    Ok(port)
+}
+
+fn process_tree_pids(root_pid: u32) -> Result<HashSet<u32>> {
+    let output = std::process::Command::new("ps")
+        .args(["-eo", "pid=,ppid="])
+        .output()
+        .context("Failed to inspect process tree for bastion tunnel ownership")?;
+    if !output.status.success() {
+        anyhow::bail!("ps failed while inspecting bastion tunnel ownership");
+    }
+
+    let mut children_by_parent: HashMap<u32, Vec<u32>> = HashMap::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let mut parts = line.split_whitespace();
+        let Some(pid) = parts.next().and_then(|value| value.parse::<u32>().ok()) else {
+            continue;
+        };
+        let Some(ppid) = parts.next().and_then(|value| value.parse::<u32>().ok()) else {
+            continue;
+        };
+        children_by_parent.entry(ppid).or_default().push(pid);
+    }
+
+    let mut tree = HashSet::from([root_pid]);
+    let mut stack = vec![root_pid];
+    while let Some(pid) = stack.pop() {
+        if let Some(children) = children_by_parent.get(&pid) {
+            for &child in children {
+                if tree.insert(child) {
+                    stack.push(child);
+                }
+            }
+        }
+    }
+
+    Ok(tree)
+}
+
+fn listener_owner_pids_with_ss(port: u16) -> Result<Option<HashSet<u32>>> {
+    let output = match std::process::Command::new("ss").args(["-lntpH"]).output() {
+        Ok(output) => output,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).context("Failed to run ss for bastion tunnel ownership"),
+    };
+    if !output.status.success() {
+        anyhow::bail!("ss failed while inspecting bastion tunnel ownership");
+    }
+
+    let port_suffix = format!(":{port}");
+    let mut pids = HashSet::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() < 5 || !fields[3].ends_with(&port_suffix) {
+            continue;
+        }
+        for segment in line.split("pid=").skip(1) {
+            let digits: String = segment
+                .chars()
+                .take_while(|character| character.is_ascii_digit())
+                .collect();
+            if let Ok(pid) = digits.parse::<u32>() {
+                pids.insert(pid);
+            }
+        }
+    }
+
+    Ok(Some(pids))
+}
+
+fn listener_owner_pids_with_lsof(port: u16) -> Result<Option<HashSet<u32>>> {
+    let output = match std::process::Command::new("lsof")
+        .args(["-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-Fp"])
+        .output()
+    {
+        Ok(output) => output,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).context("Failed to run lsof for bastion tunnel ownership"),
+    };
+    if !output.status.success() {
+        anyhow::bail!("lsof failed while inspecting bastion tunnel ownership");
+    }
+
+    let mut pids = HashSet::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if let Some(pid_text) = line.strip_prefix('p') {
+            if let Ok(pid) = pid_text.parse::<u32>() {
+                pids.insert(pid);
+            }
+        }
+    }
+
+    Ok(Some(pids))
+}
+
+fn listener_owner_pids(port: u16) -> Result<HashSet<u32>> {
+    if let Some(pids) = listener_owner_pids_with_ss(port)? {
+        return Ok(pids);
+    }
+    if let Some(pids) = listener_owner_pids_with_lsof(port)? {
+        return Ok(pids);
+    }
+    anyhow::bail!(
+        "Neither ss nor lsof is available to inspect ownership for bastion tunnel port {}",
+        port
+    );
+}
+
+fn local_port_owned_by_process_tree(port: u16, root_pid: u32) -> Result<bool> {
+    let listener_pids = listener_owner_pids(port)?;
+    if listener_pids.is_empty() {
+        return Ok(false);
+    }
+
+    let process_tree = process_tree_pids(root_pid)?;
+    Ok(listener_pids
+        .iter()
+        .any(|listener_pid| process_tree.contains(listener_pid)))
+}
+
+fn wait_for_local_port_listener(
+    port: u16,
+    root_pid: u32,
+    timeout: std::time::Duration,
+) -> Result<()> {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        let listener_pids = listener_owner_pids(port)?;
+        if !listener_pids.is_empty() {
+            if local_port_owned_by_process_tree(port, root_pid)? {
+                return Ok(());
+            }
+            anyhow::bail!(
+                "Bastion tunnel port 127.0.0.1:{} is owned by unrelated process(es): {:?}",
+                port,
+                listener_pids
+            );
+        }
+        if !process_is_running(root_pid) {
+            anyhow::bail!(
+                "Bastion tunnel process {} exited before listening on 127.0.0.1:{}",
+                root_pid,
+                port
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    anyhow::bail!(
+        "Timed out waiting for bastion tunnel process {} to listen on 127.0.0.1:{}",
+        root_pid,
+        port
+    );
+}
+
+fn purge_registry_entries_for_port(registry: &mut TunnelRegistry, port: u16) -> Vec<String> {
+    let claimants: Vec<String> = registry
+        .tunnels
+        .iter()
+        .filter_map(|(vm_resource_id, entry)| {
+            (entry.local_port == port).then_some(vm_resource_id.clone())
+        })
+        .collect();
+    for claimant in &claimants {
+        registry.tunnels.remove(claimant);
+    }
+    claimants
+}
+
 // ---- Keepalive watchdog ----
 
 /// Start the background keepalive watchdog (idempotent).
@@ -218,20 +393,38 @@ pub fn get_or_create_tunnel(
     let mut registry = TunnelRegistry::load();
     registry.prune();
 
-    // Reuse existing tunnel if alive
-    if let Some(entry) = registry.get(vm_resource_id) {
-        if process_is_running(entry.pid) {
+    // Reuse existing tunnel if it is alive, uniquely mapped, and still listening.
+    if let Some(entry) = registry.get(vm_resource_id).cloned() {
+        let duplicate_port = registry.tunnels.iter().any(|(other_id, other)| {
+            other_id != vm_resource_id && other.local_port == entry.local_port
+        });
+        if process_is_running(entry.pid)
+            && local_port_owned_by_process_tree(entry.local_port, entry.pid)?
+            && !duplicate_port
+        {
             debug!(
                 "reusing existing bastion tunnel for {} on port {}",
                 vm_resource_id, entry.local_port
             );
             return Ok(entry.local_port);
         }
+
+        if duplicate_port {
+            let claimants = purge_registry_entries_for_port(&mut registry, entry.local_port);
+            warn!(
+                "bastion tunnel registry entry for {} is ambiguous: local port {} is claimed by {:?}; creating a fresh tunnel",
+                vm_resource_id,
+                entry.local_port,
+                claimants
+            );
+        } else {
+            registry.tunnels.remove(vm_resource_id);
+        }
     }
 
     // Spawn a new tunnel
-    let port = NEXT_PORT.fetch_add(1, Ordering::SeqCst);
-    let child = std::process::Command::new("az")
+    let port = pick_unused_local_port()?;
+    let mut child = std::process::Command::new("az")
         .args([
             "network",
             "bastion",
@@ -253,17 +446,16 @@ pub fn get_or_create_tunnel(
         .context("Failed to spawn az bastion tunnel")?;
 
     let pid = child.id();
-    std::mem::forget(child);
-
-    // Wait for tunnel to establish
-    std::thread::sleep(std::time::Duration::from_secs(2));
-
-    if !process_is_running(pid) {
-        anyhow::bail!(
-            "Bastion tunnel for {} failed to start (process exited immediately)",
-            vm_resource_id
-        );
+    if let Err(error) = wait_for_local_port_listener(port, pid, std::time::Duration::from_secs(10))
+    {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error).context(format!(
+            "Bastion tunnel for {} failed to listen on 127.0.0.1:{}",
+            vm_resource_id, port
+        ));
     }
+    std::mem::forget(child);
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -406,6 +598,7 @@ pub fn bastion_scp_download_args(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::TcpListener;
 
     #[test]
     fn test_bastion_ssh_args_format() {
@@ -477,5 +670,154 @@ mod tests {
         });
         r.prune();
         assert!(r.tunnels.is_empty(), "dead PID should be pruned");
+    }
+
+    #[test]
+    fn test_pick_unused_local_port_returns_bindable_port() {
+        let port = pick_unused_local_port().unwrap();
+        let bind_ok = TcpListener::bind(("127.0.0.1", port)).is_ok();
+        assert!(
+            bind_ok,
+            "pick_unused_local_port returned port {port} which could not be bound"
+        );
+    }
+
+    #[test]
+    fn test_pick_unused_local_port_skips_occupied_listener() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let occupied = listener.local_addr().unwrap().port();
+
+        for _ in 0..8 {
+            let candidate = pick_unused_local_port().unwrap();
+            assert_ne!(candidate, occupied);
+        }
+    }
+
+    #[test]
+    fn test_wait_for_local_port_listener_detects_ready_socket() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        wait_for_local_port_listener(
+            port,
+            std::process::id(),
+            std::time::Duration::from_millis(100),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_wait_for_local_port_listener_bails_on_dead_process() {
+        let port = {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            listener.local_addr().unwrap().port()
+        };
+
+        let mut child = std::process::Command::new("true")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("failed to spawn 'true'");
+        let dead_pid = child.id();
+        child.wait().expect("wait failed");
+
+        let result =
+            wait_for_local_port_listener(port, dead_pid, std::time::Duration::from_secs(5));
+        assert!(
+            result.is_err(),
+            "expected an error for dead process but got Ok(())"
+        );
+        let message = format!("{}", result.unwrap_err());
+        assert!(
+            message.contains("exited before listening"),
+            "expected 'exited before listening' in error message, got: {message}"
+        );
+    }
+
+    #[test]
+    fn test_wait_for_local_port_listener_bails_on_foreign_listener() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let mut child = std::process::Command::new("sleep")
+            .arg("5")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("failed to spawn 'sleep'");
+        let foreign_pid = child.id();
+
+        let result =
+            wait_for_local_port_listener(port, foreign_pid, std::time::Duration::from_secs(1));
+        let _ = child.kill();
+        let _ = child.wait();
+
+        assert!(
+            result.is_err(),
+            "expected an error for a foreign listener but got Ok(())"
+        );
+        let message = format!("{}", result.unwrap_err());
+        assert!(
+            message.contains("owned by unrelated process"),
+            "expected unrelated-listener error message, got: {message}"
+        );
+    }
+
+    #[test]
+    fn test_wait_for_local_port_listener_times_out_when_no_listener() {
+        let port = {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            listener.local_addr().unwrap().port()
+        };
+
+        let result = wait_for_local_port_listener(
+            port,
+            std::process::id(),
+            std::time::Duration::from_millis(50),
+        );
+        assert!(result.is_err(), "expected a timeout error but got Ok(())");
+        let message = format!("{}", result.unwrap_err());
+        assert!(
+            message.contains("Timed out"),
+            "expected 'Timed out' in error message, got: {message}"
+        );
+    }
+
+    #[test]
+    fn test_purge_registry_entries_for_port_removes_all_claimants() {
+        let mut registry = TunnelRegistry::default();
+        registry.insert(TunnelRegistryEntry {
+            vm_resource_id: "/vm/a".to_string(),
+            bastion_name: "bastion".to_string(),
+            resource_group: "rg".to_string(),
+            local_port: 50200,
+            pid: 1,
+            created_at: 1,
+        });
+        registry.insert(TunnelRegistryEntry {
+            vm_resource_id: "/vm/b".to_string(),
+            bastion_name: "bastion".to_string(),
+            resource_group: "rg".to_string(),
+            local_port: 50200,
+            pid: 2,
+            created_at: 2,
+        });
+        registry.insert(TunnelRegistryEntry {
+            vm_resource_id: "/vm/c".to_string(),
+            bastion_name: "bastion".to_string(),
+            resource_group: "rg".to_string(),
+            local_port: 50201,
+            pid: 3,
+            created_at: 3,
+        });
+
+        let removed = purge_registry_entries_for_port(&mut registry, 50200);
+
+        assert_eq!(removed.len(), 2);
+        assert!(removed.contains(&"/vm/a".to_string()));
+        assert!(removed.contains(&"/vm/b".to_string()));
+        assert!(!registry.tunnels.contains_key("/vm/a"));
+        assert!(!registry.tunnels.contains_key("/vm/b"));
+        assert!(registry.tunnels.contains_key("/vm/c"));
     }
 }
