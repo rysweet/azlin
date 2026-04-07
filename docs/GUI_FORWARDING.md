@@ -223,7 +223,7 @@ azlin connect my-vm --x11 --no-tmux -- meld file1.py file2.py
 
 The `--no-tmux` flag avoids wrapping in tmux, and `--` separates azlin args from the remote command. The app renders locally and the connection closes when the app exits.
 
-If you open an interactive X11 shell with `azlin connect --x11 my-vm` and then launch Chromium manually, use `systemd-run --user --scope chromium-browser --no-sandbox` inside that shell. The automatic snap wrapper only applies when azlin launches Chromium directly.
+If you open an interactive X11 shell with `azlin connect --x11 my-vm` and then launch Chromium manually on an older VM, use `systemd-run --user --scope chromium-browser --no-sandbox` inside that shell. Newly provisioned azlin VMs install `/usr/local/bin/chromium-browser` and `/usr/local/bin/chromium` wrappers that add the required user-systemd scope automatically.
 
 ### Common GUI Applications
 

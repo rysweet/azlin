@@ -679,6 +679,10 @@ systemctl enable docker
 systemctl start docker
 usermod -aG docker {username}
 
+# Enable systemd user linger so SSH sessions get a systemd user instance
+# (required for snap Chromium cgroup scoping via systemd-run --user)
+loginctl enable-linger {username}
+
 # Python 3.14 - install via deadsnakes but do NOT change system python3
 # (changing system python3 breaks apt tools that depend on apt_pkg)
 if python3.14 --version 2>/dev/null; then
@@ -696,6 +700,9 @@ apt-get update && apt-get install -y gh
 
 # Azure CLI
 curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+
+# Chromium (Ubuntu ships this as a snap-backed launcher)
+apt-get install -y chromium-browser || echo "WARNING: Chromium install failed"
 
 # astral-uv
 snap install astral-uv --classic || true
@@ -717,6 +724,43 @@ set -g status-bg black
 set -g status-fg white
 TMUXEOF
 chown {username}:{username} /home/{username}/.tmux.conf
+
+# Chromium wrappers so SSH/X11 launches use a scoped user session instead of
+# failing with the snap cgroup error.
+cat > /usr/local/bin/chromium-browser << 'CHROMIUMWRAP'
+#!/bin/sh
+set -eu
+
+REAL_COMMAND=/usr/bin/chromium-browser
+if [ ! -x "$REAL_COMMAND" ]; then
+    REAL_COMMAND=/snap/bin/chromium
+fi
+
+if [ -z "${{XDG_RUNTIME_DIR:-}}" ] && [ -d "/run/user/$(id -u)" ]; then
+    export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+fi
+
+if [ -z "${{DBUS_SESSION_BUS_ADDRESS:-}}" ] && [ -n "${{XDG_RUNTIME_DIR:-}}" ] && [ -S "$XDG_RUNTIME_DIR/bus" ]; then
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+fi
+
+if command -v snap >/dev/null 2>&1 \
+    && snap list chromium >/dev/null 2>&1 \
+    && command -v systemd-run >/dev/null 2>&1 \
+    && command -v systemctl >/dev/null 2>&1 \
+    && systemctl --user show-environment >/dev/null 2>&1; then
+    exec systemd-run --user --scope --quiet -- "$REAL_COMMAND" "$@"
+fi
+
+exec "$REAL_COMMAND" "$@"
+CHROMIUMWRAP
+chmod 755 /usr/local/bin/chromium-browser
+
+cat > /usr/local/bin/chromium << 'CHROMIUMALIAS'
+#!/bin/sh
+exec /usr/local/bin/chromium-browser "$@"
+CHROMIUMALIAS
+chmod 755 /usr/local/bin/chromium
 
 # Fix tmux socket dir permissions (Ubuntu 25.10+)
 chmod 1777 /tmp
@@ -1129,6 +1173,24 @@ mod tests {
     }
 
     #[test]
+    fn test_cloud_init_script_installs_chromium_and_wrappers() {
+        let script = cloud_init_script("user");
+        assert!(script.contains("apt-get install -y chromium-browser"));
+        assert!(script.contains("cat > /usr/local/bin/chromium-browser << 'CHROMIUMWRAP'"));
+        assert!(script.contains("exec systemd-run --user --scope --quiet -- \"$REAL_COMMAND\" \"$@\""));
+        assert!(script.contains("cat > /usr/local/bin/chromium << 'CHROMIUMALIAS'"));
+        assert!(script.contains("exec /usr/local/bin/chromium-browser \"$@\""));
+    }
+
+    #[test]
+    fn test_cloud_init_script_chromium_wrapper_repairs_user_session_env() {
+        let script = cloud_init_script("user");
+        assert!(script.contains("export XDG_RUNTIME_DIR=\"/run/user/$(id -u)\""));
+        assert!(script.contains("export DBUS_SESSION_BUS_ADDRESS=\"unix:path=$XDG_RUNTIME_DIR/bus\""));
+        assert!(script.contains("systemctl --user show-environment >/dev/null 2>&1"));
+    }
+
+    #[test]
     fn test_create_cloud_init_file_creates_file() {
         let file = create_cloud_init_file("testuser").unwrap();
         assert!(file.path().exists());
@@ -1496,6 +1558,24 @@ mod tests {
     fn test_cloud_init_script_underscore_username_allowed() {
         let script = cloud_init_script("my_user");
         assert!(script.contains("usermod -aG docker my_user"));
+    }
+
+    #[test]
+    fn test_cloud_init_script_enables_systemd_linger() {
+        let script = cloud_init_script("testuser");
+        assert!(
+            script.contains("loginctl enable-linger testuser"),
+            "cloud-init script must enable systemd user linger for snap Chromium cgroup support"
+        );
+    }
+
+    #[test]
+    fn test_cloud_init_script_linger_uses_custom_username() {
+        let script = cloud_init_script("devuser");
+        assert!(
+            script.contains("loginctl enable-linger devuser"),
+            "linger command must use the provisioned admin username"
+        );
     }
 
     #[test]

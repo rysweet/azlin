@@ -117,6 +117,9 @@ pub fn default_dev_setup_commands(username: &str) -> Vec<String> {
         "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && chmod +x /tmp/dotnet-install.sh && (/tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet || echo 'WARNING: .NET 10 SDK install failed') && ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet; rm -f /tmp/dotnet-install.sh".to_string(),
         // Docker post-install
         format!("usermod -aG docker {u} && systemctl enable docker && systemctl start docker", u = username),
+        // Enable systemd user linger so SSH sessions get a systemd user instance
+        // (required for snap Chromium cgroup scoping via systemd-run --user)
+        format!("loginctl enable-linger {u}", u = username),
         // bashrc additions (npm path, go path, cargo env, azlin alias)
         format!("cat >> /home/{u}/.bashrc << 'BASHEOF'\n\n# npm user-local configuration\nNPM_PACKAGES=\"${{HOME}}/.npm-packages\"\nPATH=\"$NPM_PACKAGES/bin:$PATH\"\nMANPATH=\"$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)\"\n\n# Go\nexport PATH=$PATH:/usr/local/go/bin\n\n# Cargo\nsource $HOME/.cargo/env 2>/dev/null\nBASHEOF", u = username),
         // Version verification (rustc is in user homedir, must check as user)
@@ -250,6 +253,26 @@ mod tests {
         assert!(
             cmds.iter().any(|c| c.contains("usermod -aG docker")),
             "Missing Docker post-install command"
+        );
+    }
+
+    #[test]
+    fn test_default_dev_setup_commands_enables_systemd_linger() {
+        let cmds = default_dev_setup_commands("azureuser");
+        assert!(
+            cmds.iter()
+                .any(|c| c.contains("loginctl enable-linger azureuser")),
+            "default_dev_setup_commands must enable systemd user linger for snap Chromium cgroup support"
+        );
+    }
+
+    #[test]
+    fn test_default_dev_setup_commands_linger_uses_custom_username() {
+        let cmds = default_dev_setup_commands("devuser");
+        assert!(
+            cmds.iter()
+                .any(|c| c.contains("loginctl enable-linger devuser")),
+            "linger command must use the provisioned admin username"
         );
     }
 
