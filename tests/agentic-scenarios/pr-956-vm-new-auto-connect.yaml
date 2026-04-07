@@ -1,0 +1,231 @@
+name: "PR 956 VM create auto-connect regression"
+description: |
+  Validates the azlin new SSH key propagation fix by building the Rust CLI,
+  running the focused regression tests for the new helper paths, and executing
+  a live throwaway VM create that must reach the final auto-connect shell
+  without Permission denied (publickey).
+version: "1.0.0"
+
+config:
+  timeout: 1800000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 1800000
+
+steps:
+  - name: "build azlin test binary"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo build -q -p azlin --bin azlin 2>&1 && echo BUILD_OK"
+    expect:
+      exit_code: 0
+      stdout_contains: "BUILD_OK"
+    timeout: 180000
+
+  - name: "auto-connect ssh arg tests pass"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo test -q -p azlin --bin azlin test_build_auto_connect_ssh_args_ -- --nocapture 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok."
+    timeout: 180000
+
+  - name: "public key to private key matching tests pass"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo test -q -p azlin --bin azlin test_matching_private_key_for_public_key_ -- --nocapture 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok."
+    timeout: 180000
+
+  - name: "missing matching private key fails fast"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo test -q -p azlin --bin azlin test_require_matching_private_key_for_public_key_errors_when_missing -- --nocapture 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok."
+    timeout: 180000
+
+  - name: "shared key priority tests pass"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo test -q -p azlin --bin azlin test_find_preferred_ -- --nocapture 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok."
+    timeout: 180000
+
+  - name: "azlin key backup candidacy tests pass"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo test -q -p azlin --bin azlin test_is_key_backup_candidate_ -- --nocapture 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok."
+    timeout: 180000
+
+  - name: "raw ip targets stay key-neutral through execution builders"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo test -q -p azlin --bin azlin test_resolve_vm_targets_with_ip_flag -- --nocapture 2>&1 && cargo test -q -p azlin --bin azlin test_resolve_vm_targets_ip_only_no_vm_name -- --nocapture 2>&1 && cargo test -q -p azlin --bin azlin build_routed_ssh_transport_direct_without_fallback_omits_identity_key -- --nocapture 2>&1 && cargo test -q -p azlin --bin azlin build_routed_ssh_prefix_direct_without_fallback_omits_identity_key -- --nocapture 2>&1 && cargo test -q -p azlin --bin azlin test_resolve_target_ssh_key_path_skips_fallback_when_disabled -- --nocapture 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok."
+    timeout: 180000
+
+  - name: "routed ssh transport override tests pass"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo test -q -p azlin --bin azlin build_routed_ssh_transport_ -- --nocapture 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok."
+    timeout: 180000
+
+  - name: "bastion override routing tests pass"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo test -q -p azlin --bin azlin test_apply_bastion_name_override_ -- --nocapture 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok."
+    timeout: 180000
+
+  - name: "post-create bastion override prep tests pass"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo test -q -p azlin --bin azlin test_prepare_post_create_target_ -- --nocapture 2>&1"
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok."
+    timeout: 180000
+
+  - name: "live azlin new auto-connect smoke succeeds"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        set -euo pipefail
+        cd rust
+        : "${AZURE_CONFIG_DIR:?Set AZURE_CONFIG_DIR to an Azure CLI profile with access to rysweet-linux-vm-pool}"
+        AZURE_PROFILE_DIR="$AZURE_CONFIG_DIR"
+        VM_NAME="qa-vmfix-$(date +%s)"
+        HOME_SEED_DIR="$HOME/.azlin/home"
+        HOME_SEED_BACKUP="$HOME/.azlin/home.pr956-backup.$$"
+        MARKER_FILE="$HOME_SEED_DIR/.qa-pr-956-marker"
+        RAW_OUTPUT_FILE="$(mktemp)"
+        NORMALIZED_OUTPUT_FILE="$(mktemp)"
+        SCRIPT_PID=""
+        rm -rf "$HOME_SEED_BACKUP"
+        if [ -d "$HOME_SEED_DIR" ]; then
+          mv "$HOME_SEED_DIR" "$HOME_SEED_BACKUP"
+        fi
+        mkdir -p "$HOME_SEED_DIR"
+        printf '%s\n' "qa-pr-956-marker" > "$MARKER_FILE"
+        cleanup() {
+          rm -rf "$HOME_SEED_DIR"
+          if [ -d "$HOME_SEED_BACKUP" ]; then
+            mv "$HOME_SEED_BACKUP" "$HOME_SEED_DIR"
+          fi
+          rm -f "$RAW_OUTPUT_FILE" "$NORMALIZED_OUTPUT_FILE"
+          if [ -n "$SCRIPT_PID" ]; then
+            kill "$SCRIPT_PID" >/dev/null 2>&1 || true
+            wait "$SCRIPT_PID" >/dev/null 2>&1 || true
+          fi
+          env AZLIN_NO_UPDATE_CHECK=1 \
+            AZURE_CONFIG_DIR="$AZURE_PROFILE_DIR" \
+            ./target/debug/azlin destroy --force "$VM_NAME" >/dev/null 2>&1 || true
+        }
+        trap cleanup EXIT
+
+        timeout 1800 script -q -c \
+          "env AZLIN_NO_UPDATE_CHECK=1 AZURE_CONFIG_DIR=$AZURE_PROFILE_DIR ./target/debug/azlin new --yes --no-tmux --size s --region westus2 --name $VM_NAME --no-nfs --no-bastion" \
+          "$RAW_OUTPUT_FILE" >/dev/null 2>&1 &
+        SCRIPT_PID=$!
+
+        PUBLIC_IP=""
+        for _ in $(seq 1 120); do
+          PUBLIC_IP=$(
+            env AZURE_CONFIG_DIR="$AZURE_PROFILE_DIR" \
+              az vm show -d -g rysweet-linux-vm-pool -n "$VM_NAME" --query publicIps -o tsv 2>/dev/null || true
+          )
+          if [ -n "$PUBLIC_IP" ] && [ "$PUBLIC_IP" != "None" ]; then
+            break
+          fi
+          if ! kill -0 "$SCRIPT_PID" 2>/dev/null; then
+            break
+          fi
+          sleep 5
+        done
+
+        if [ -z "$PUBLIC_IP" ] || [ "$PUBLIC_IP" = "None" ]; then
+          tr '\r' '\n' < "$RAW_OUTPUT_FILE" > "$NORMALIZED_OUTPUT_FILE" || true
+          cat "$NORMALIZED_OUTPUT_FILE"
+          echo "VM_IP_NOT_FOUND"
+          exit 1
+        fi
+
+        AUTO_CONNECT_OK=0
+        for _ in $(seq 1 240); do
+          REMOTE_STATE=$(
+            ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -i "$HOME/.ssh/azlin_key" "azureuser@$PUBLIC_IP" \
+              'printf "MARKER:%s\n" "$(test -f ~/.qa-pr-956-marker && echo present || echo missing)"; ps -o tty=,args= -u azureuser | grep "pts/" | grep -- "-bash" || true' \
+              2>/dev/null || true
+          )
+          if printf '%s\n' "$REMOTE_STATE" | grep -Fq "MARKER:present" &&
+             printf '%s\n' "$REMOTE_STATE" | grep -Fq -- "-bash"; then
+            AUTO_CONNECT_OK=1
+            break
+          fi
+          if ! kill -0 "$SCRIPT_PID" 2>/dev/null; then
+            break
+          fi
+          sleep 5
+        done
+
+        tr '\r' '\n' < "$RAW_OUTPUT_FILE" > "$NORMALIZED_OUTPUT_FILE"
+        cat "$NORMALIZED_OUTPUT_FILE"
+        grep -F "Connecting to '$VM_NAME'..." "$NORMALIZED_OUTPUT_FILE"
+        if grep -Fq "Permission denied (publickey)" "$NORMALIZED_OUTPUT_FILE"; then
+          echo "FOUND_UNEXPECTED_PUBLICKEY_ERROR"
+          exit 1
+        fi
+        if [ "$AUTO_CONNECT_OK" -ne 1 ]; then
+          echo "AUTO_CONNECT_SESSION_NOT_OBSERVED"
+          exit 1
+        fi
+        kill "$SCRIPT_PID" >/dev/null 2>&1 || true
+        wait "$SCRIPT_PID" >/dev/null 2>&1 || true
+        SCRIPT_PID=""
+        echo QA_AUTO_CONNECTED
+        echo LIVE_AUTO_CONNECT_OK
+    expect:
+      exit_code: 0
+      stdout_contains: "LIVE_AUTO_CONNECT_OK"
+    timeout: 1800000
+
+metadata:
+  tags:
+    - "regression"
+    - "merge-ready"
+    - "ssh"
+    - "vm-create"
+  priority: "critical"

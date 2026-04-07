@@ -11,11 +11,13 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+type ForwardFn = fn(&str, &str, Option<u16>, Option<&std::path::Path>, bool) -> Result<()>;
+
 /// A detected local credential source.
 struct CredentialSource {
     name: &'static str,
     description: &'static str,
-    forward_fn: fn(&str, &str, Option<u16>) -> Result<()>,
+    forward_fn: ForwardFn,
 }
 
 /// Entry point: detect credentials and offer to forward each one.
@@ -25,12 +27,25 @@ pub fn forward_auth_credentials(
     user: &str,
     force: bool,
     bastion_port: Option<u16>,
+    key_override: Option<&std::path::Path>,
+    interactive_ssh: bool,
 ) -> Result<()> {
     // Wait for SSH to be ready before attempting any forwarding
     let ssh_port = bastion_port.unwrap_or(22);
-    let ssh_host = if bastion_port.is_some() { "127.0.0.1" } else { ip };
-    wait_for_ssh(ssh_host, ssh_port, user, Duration::from_secs(300))?;
-    wait_for_cloud_init(ip, user, bastion_port);
+    let ssh_host = if bastion_port.is_some() {
+        "127.0.0.1"
+    } else {
+        ip
+    };
+    wait_for_ssh(
+        ssh_host,
+        ssh_port,
+        user,
+        Duration::from_secs(300),
+        key_override,
+        interactive_ssh,
+    )?;
+    wait_for_cloud_init(ip, user, bastion_port, key_override, interactive_ssh);
 
     let sources = detect_credentials();
     if sources.is_empty() {
@@ -47,7 +62,7 @@ pub fn forward_auth_credentials(
         if !confirm(&format!("Forward {} credentials to VM?", src.name), force) {
             continue;
         }
-        if let Err(e) = (src.forward_fn)(ip, user, bastion_port) {
+        if let Err(e) = (src.forward_fn)(ip, user, bastion_port, key_override, interactive_ssh) {
             eprintln!("  Warning: failed to forward {}: {}", src.name, e);
         }
     }
@@ -61,7 +76,14 @@ pub fn forward_auth_credentials(
 
 /// Wait for SSH to become available on the target. Polls the TCP port first,
 /// then verifies actual SSH authentication works (key accepted).
-fn wait_for_ssh(host: &str, port: u16, user: &str, timeout: Duration) -> Result<()> {
+fn wait_for_ssh(
+    host: &str,
+    port: u16,
+    user: &str,
+    timeout: Duration,
+    key_override: Option<&std::path::Path>,
+    interactive_ssh: bool,
+) -> Result<()> {
     let start = Instant::now();
     let interval = Duration::from_secs(5);
 
@@ -90,7 +112,7 @@ fn wait_for_ssh(host: &str, port: u16, user: &str, timeout: Duration) -> Result<
 
         if TcpStream::connect_timeout(&addr, Duration::from_secs(3)).is_ok() {
             // Step 2: actual SSH auth test
-            if test_ssh_auth(host, port, user) {
+            if test_ssh_auth(host, port, user, key_override, interactive_ssh) {
                 println!("SSH ready.");
                 return Ok(());
             }
@@ -102,7 +124,13 @@ fn wait_for_ssh(host: &str, port: u16, user: &str, timeout: Duration) -> Result<
 
 /// Wait for cloud-init to finish provisioning. Best-effort: issues warn but
 /// never block VM usage. Called after SSH is confirmed ready.
-fn wait_for_cloud_init(ip: &str, user: &str, bastion_port: Option<u16>) {
+fn wait_for_cloud_init(
+    ip: &str,
+    user: &str,
+    bastion_port: Option<u16>,
+    key_override: Option<&std::path::Path>,
+    interactive_ssh: bool,
+) {
     let timeout = Duration::from_secs(600);
     let interval = Duration::from_secs(10);
     let start = Instant::now();
@@ -124,6 +152,8 @@ fn wait_for_cloud_init(ip: &str, user: &str, bastion_port: Option<u16>) {
             user,
             bastion_port,
             "cloud-init status 2>/dev/null || echo 'status: done'",
+            key_override,
+            interactive_ssh,
         ) {
             Ok(out) => {
                 if out.contains("status: done") {
@@ -153,12 +183,21 @@ fn wait_for_cloud_init(ip: &str, user: &str, bastion_port: Option<u16>) {
 }
 
 /// Test SSH authentication by running `exit 0` on the remote.
-fn test_ssh_auth(host: &str, port: u16, user: &str) -> bool {
-    let mut args = base_ssh_args();
+fn test_ssh_auth(
+    host: &str,
+    port: u16,
+    user: &str,
+    key_override: Option<&std::path::Path>,
+    interactive_ssh: bool,
+) -> bool {
+    let mut args = base_ssh_args(key_override, !interactive_ssh);
     args.extend([
-        "-o".to_string(), "ConnectTimeout=5".to_string(),
-        "-o".to_string(), "LogLevel=ERROR".to_string(),
-        "-p".to_string(), port.to_string(),
+        "-o".to_string(),
+        "ConnectTimeout=5".to_string(),
+        "-o".to_string(),
+        "LogLevel=ERROR".to_string(),
+        "-p".to_string(),
+        port.to_string(),
         format!("{}@{}", user, host),
         "exit 0".to_string(),
     ]);
@@ -271,40 +310,85 @@ fn az_config_dir() -> Option<PathBuf> {
 // ---------------------------------------------------------------------------
 
 /// Forward gh CLI config by copying ~/.config/gh/ directory via SCP.
-fn forward_gh(ip: &str, user: &str, bastion_port: Option<u16>) -> Result<()> {
+fn forward_gh(
+    ip: &str,
+    user: &str,
+    bastion_port: Option<u16>,
+    key_override: Option<&std::path::Path>,
+    interactive_ssh: bool,
+) -> Result<()> {
     let src = gh_config_dir().ok_or_else(|| anyhow::anyhow!("gh config not found"))?;
 
     // Ensure remote directory exists
-    ssh_run(ip, user, bastion_port, "mkdir -p ~/.config/gh")?;
+    ssh_run(
+        ip,
+        user,
+        bastion_port,
+        "mkdir -p ~/.config/gh",
+        key_override,
+        interactive_ssh,
+    )?;
 
-    scp_recursive(&src, ip, user, "~/.config/gh/", bastion_port)?;
+    scp_recursive(&src, ip, user, "~/.config/gh/", bastion_port, key_override)?;
     println!("  gh credentials forwarded.");
     Ok(())
 }
 
 /// Forward GitHub Copilot config via scp.
-fn forward_copilot(ip: &str, user: &str, bastion_port: Option<u16>) -> Result<()> {
+fn forward_copilot(
+    ip: &str,
+    user: &str,
+    bastion_port: Option<u16>,
+    key_override: Option<&std::path::Path>,
+    interactive_ssh: bool,
+) -> Result<()> {
     let src = copilot_config_dir().ok_or_else(|| anyhow::anyhow!("copilot config not found"))?;
 
-    ssh_run(ip, user, bastion_port, "mkdir -p ~/.config/github-copilot")?;
+    ssh_run(
+        ip,
+        user,
+        bastion_port,
+        "mkdir -p ~/.config/github-copilot",
+        key_override,
+        interactive_ssh,
+    )?;
 
-    scp_recursive(&src, ip, user, "~/.config/github-copilot/", bastion_port)?;
+    scp_recursive(
+        &src,
+        ip,
+        user,
+        "~/.config/github-copilot/",
+        bastion_port,
+        key_override,
+    )?;
     println!("  Copilot config forwarded.");
     Ok(())
 }
 
 /// Forward Claude Code config via scp.
-fn forward_claude(ip: &str, user: &str, bastion_port: Option<u16>) -> Result<()> {
+fn forward_claude(
+    ip: &str,
+    user: &str,
+    bastion_port: Option<u16>,
+    key_override: Option<&std::path::Path>,
+    _interactive_ssh: bool,
+) -> Result<()> {
     let src = claude_config_path().ok_or_else(|| anyhow::anyhow!("claude config not found"))?;
 
-    scp_file(&src, ip, user, "~/.claude.json", bastion_port)?;
+    scp_file(&src, ip, user, "~/.claude.json", bastion_port, key_override)?;
     println!("  Claude Code config forwarded.");
     Ok(())
 }
 
 /// Forward Azure CLI tokens by copying allowed files from ~/.azure/ via SCP.
 /// Copies token caches and config but NOT service principal credentials.
-fn forward_az(ip: &str, user: &str, bastion_port: Option<u16>) -> Result<()> {
+fn forward_az(
+    ip: &str,
+    user: &str,
+    bastion_port: Option<u16>,
+    key_override: Option<&std::path::Path>,
+    interactive_ssh: bool,
+) -> Result<()> {
     let az_dir = az_config_dir().ok_or_else(|| anyhow::anyhow!("az config not found"))?;
 
     // Only copy safe files — token caches and config, never service principals
@@ -326,12 +410,19 @@ fn forward_az(ip: &str, user: &str, bastion_port: Option<u16>) -> Result<()> {
         anyhow::bail!("no Azure CLI token files found to copy");
     }
 
-    ssh_run(ip, user, bastion_port, "mkdir -p ~/.azure")?;
+    ssh_run(
+        ip,
+        user,
+        bastion_port,
+        "mkdir -p ~/.azure",
+        key_override,
+        interactive_ssh,
+    )?;
 
     for file in &files_to_copy {
         let remote_name = file.file_name().unwrap().to_string_lossy();
         let remote_path = format!("~/.azure/{}", remote_name);
-        scp_file(file, ip, user, &remote_path, bastion_port)?;
+        scp_file(file, ip, user, &remote_path, bastion_port, key_override)?;
     }
     println!("  Azure CLI tokens forwarded.");
     Ok(())
@@ -344,26 +435,24 @@ fn forward_az(ip: &str, user: &str, bastion_port: Option<u16>) -> Result<()> {
 /// Resolve the preferred SSH private key for azlin VMs.
 /// Checks for azlin_key, id_ed25519_azlin, id_ed25519, id_rsa in ~/.ssh/.
 fn resolve_ssh_key() -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
-    let ssh_dir = home.join(".ssh");
-    for name in &["azlin_key", "id_ed25519_azlin", "id_ed25519", "id_rsa"] {
-        let path = ssh_dir.join(name);
-        if path.exists() {
-            return Some(path);
-        }
-    }
-    None
+    let ssh_dir = dirs::home_dir()?.join(".ssh");
+    crate::key_helpers::find_preferred_private_key(&ssh_dir)
 }
 
-/// Build common SSH args: StrictHostKeyChecking, BatchMode, identity key.
-fn base_ssh_args() -> Vec<String> {
+/// Build common SSH args: StrictHostKeyChecking, optional BatchMode, identity key.
+fn base_ssh_args(key_override: Option<&std::path::Path>, batch_mode: bool) -> Vec<String> {
     let mut args = vec![
         "-o".to_string(),
         "StrictHostKeyChecking=accept-new".to_string(),
-        "-o".to_string(),
-        "BatchMode=yes".to_string(),
     ];
-    if let Some(key) = resolve_ssh_key() {
+    if batch_mode {
+        args.push("-o".to_string());
+        args.push("BatchMode=yes".to_string());
+    }
+    let resolved_key = resolve_ssh_key();
+    if let Some(key) = key_override.or(resolved_key.as_deref()) {
+        args.push("-o".to_string());
+        args.push("IdentitiesOnly=yes".to_string());
         args.push("-i".to_string());
         args.push(key.to_string_lossy().to_string());
     }
@@ -371,39 +460,78 @@ fn base_ssh_args() -> Vec<String> {
 }
 
 /// Run a command on the remote via SSH. Returns Ok(()) on success.
-fn ssh_run(ip: &str, user: &str, bastion_port: Option<u16>, command: &str) -> Result<()> {
+fn ssh_run(
+    ip: &str,
+    user: &str,
+    bastion_port: Option<u16>,
+    command: &str,
+    key_override: Option<&std::path::Path>,
+    interactive_ssh: bool,
+) -> Result<()> {
     let (ssh_host, port_args) = ssh_target(ip, user, bastion_port);
-    let mut args = base_ssh_args();
+    let mut args = base_ssh_args(key_override, !interactive_ssh);
     args.extend(port_args);
     args.push(ssh_host);
     args.push(command.to_string());
 
-    let output = std::process::Command::new("ssh")
-        .args(&args)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .output()?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("ssh command failed: {}", stderr.trim());
+    if interactive_ssh {
+        let status = std::process::Command::new("ssh")
+            .args(&args)
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status()?;
+        if !status.success() {
+            anyhow::bail!(
+                "ssh command failed with exit code {}",
+                status.code().unwrap_or(-1)
+            );
+        }
+    } else {
+        let output = std::process::Command::new("ssh")
+            .args(&args)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .output()?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("ssh command failed: {}", stderr.trim());
+        }
     }
     Ok(())
 }
 
 /// Run a command on the remote via SSH and capture its stdout.
-fn ssh_output(ip: &str, user: &str, bastion_port: Option<u16>, command: &str) -> Result<String> {
+fn ssh_output(
+    ip: &str,
+    user: &str,
+    bastion_port: Option<u16>,
+    command: &str,
+    key_override: Option<&std::path::Path>,
+    interactive_ssh: bool,
+) -> Result<String> {
     let (ssh_host, port_args) = ssh_target(ip, user, bastion_port);
-    let mut args = base_ssh_args();
+    let mut args = base_ssh_args(key_override, !interactive_ssh);
     args.extend(["-o".to_string(), "ConnectTimeout=10".to_string()]);
     args.extend(port_args);
     args.push(ssh_host);
     args.push(command.to_string());
 
-    let output = std::process::Command::new("ssh")
-        .args(&args)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()?;
+    let output = if interactive_ssh {
+        std::process::Command::new("ssh")
+            .args(&args)
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()?
+            .wait_with_output()?
+    } else {
+        std::process::Command::new("ssh")
+            .args(&args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()?
+    };
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("ssh command failed: {}", stderr.trim());
@@ -418,13 +546,17 @@ fn scp_file(
     user: &str,
     remote_path: &str,
     bastion_port: Option<u16>,
+    key_override: Option<&std::path::Path>,
 ) -> Result<()> {
     let (scp_dest, scp_port_args) = scp_target(ip, user, remote_path, bastion_port);
     let mut args = vec![
         "-o".to_string(),
         "StrictHostKeyChecking=accept-new".to_string(),
     ];
-    if let Some(key) = resolve_ssh_key() {
+    let resolved_key = resolve_ssh_key();
+    if let Some(key) = key_override.or(resolved_key.as_deref()) {
+        args.push("-o".to_string());
+        args.push("IdentitiesOnly=yes".to_string());
         args.push("-i".to_string());
         args.push(key.to_string_lossy().to_string());
     }
@@ -446,6 +578,7 @@ fn scp_recursive(
     user: &str,
     remote_path: &str,
     bastion_port: Option<u16>,
+    key_override: Option<&std::path::Path>,
 ) -> Result<()> {
     let (scp_dest, scp_port_args) = scp_target(ip, user, remote_path, bastion_port);
     let mut args = vec![
@@ -453,7 +586,10 @@ fn scp_recursive(
         "-o".to_string(),
         "StrictHostKeyChecking=accept-new".to_string(),
     ];
-    if let Some(key) = resolve_ssh_key() {
+    let resolved_key = resolve_ssh_key();
+    if let Some(key) = key_override.or(resolved_key.as_deref()) {
+        args.push("-o".to_string());
+        args.push("IdentitiesOnly=yes".to_string());
         args.push("-i".to_string());
         args.push(key.to_string_lossy().to_string());
     }
@@ -557,13 +693,19 @@ mod tests {
     fn test_ssh_target_direct_connection() {
         let (host, port_args) = ssh_target("10.0.0.5", "azureuser", None);
         assert_eq!(host, "azureuser@10.0.0.5");
-        assert!(port_args.is_empty(), "direct connection should have no port args");
+        assert!(
+            port_args.is_empty(),
+            "direct connection should have no port args"
+        );
     }
 
     #[test]
     fn test_ssh_target_bastion_tunnel() {
         let (host, port_args) = ssh_target("10.0.0.5", "azureuser", Some(50200));
-        assert_eq!(host, "azureuser@127.0.0.1", "bastion routes through localhost");
+        assert_eq!(
+            host, "azureuser@127.0.0.1",
+            "bastion routes through localhost"
+        );
         assert_eq!(port_args, vec!["-p", "50200"]);
     }
 
@@ -576,10 +718,13 @@ mod tests {
 
     #[test]
     fn test_scp_target_bastion_tunnel() {
-        let (dest, port_args) =
-            scp_target("10.0.0.5", "azureuser", "~/.config/gh/", Some(50200));
+        let (dest, port_args) = scp_target("10.0.0.5", "azureuser", "~/.config/gh/", Some(50200));
         assert_eq!(dest, "azureuser@127.0.0.1:~/.config/gh/");
-        assert_eq!(port_args, vec!["-P", "50200"], "SCP uses -P (uppercase) for port");
+        assert_eq!(
+            port_args,
+            vec!["-P", "50200"],
+            "SCP uses -P (uppercase) for port"
+        );
     }
 
     #[test]
@@ -622,7 +767,10 @@ mod tests {
         // The code detects IPv6 via host.contains(':')
         assert!("fd00::1".contains(':'), "IPv6 triggers bracket path");
         assert!("::1".contains(':'));
-        assert!(!"10.0.0.5".contains(':'), "IPv4 must not trigger bracket path");
+        assert!(
+            !"10.0.0.5".contains(':'),
+            "IPv4 must not trigger bracket path"
+        );
     }
 
     #[test]
@@ -678,7 +826,11 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let gh_dir = tmp.path().join(".config").join("gh");
         std::fs::create_dir_all(&gh_dir).unwrap();
-        std::fs::write(gh_dir.join("hosts.yml"), "github.com:\n  oauth_token: gho_xxx\n").unwrap();
+        std::fs::write(
+            gh_dir.join("hosts.yml"),
+            "github.com:\n  oauth_token: gho_xxx\n",
+        )
+        .unwrap();
 
         let result = with_home(tmp.path(), gh_config_dir);
         assert!(result.is_some(), "should detect gh when hosts.yml exists");
@@ -830,7 +982,10 @@ mod tests {
         std::fs::write(az.join("random_file.txt"), "").unwrap();
 
         let result = with_home(tmp.path(), az_config_dir);
-        assert!(result.is_none(), "only allowed files should trigger detection");
+        assert!(
+            result.is_none(),
+            "only allowed files should trigger detection"
+        );
     }
 
     // =======================================================================
@@ -862,7 +1017,10 @@ mod tests {
         std::fs::write(az.join("servicePrincipal.json"), "secret").unwrap();
 
         let result = with_home(tmp.path(), az_config_dir);
-        assert!(result.is_some(), "should detect with all allowed files present");
+        assert!(
+            result.is_some(),
+            "should detect with all allowed files present"
+        );
     }
 
     // =======================================================================
@@ -889,7 +1047,11 @@ mod tests {
         std::fs::write(az.join("azureProfile.json"), "{}").unwrap();
 
         let sources = with_home(tmp.path(), detect_credentials);
-        assert_eq!(sources.len(), 4, "should detect all four credential sources");
+        assert_eq!(
+            sources.len(),
+            4,
+            "should detect all four credential sources"
+        );
 
         let names: Vec<&str> = sources.iter().map(|s| s.name).collect();
         assert!(names.contains(&"gh"));
@@ -931,7 +1093,11 @@ mod tests {
         assert!(tag_name.len() <= 512);
         let forbidden = ['<', '>', '*', '%', '&', ':', '\\', '?', '/', '+'];
         for ch in &forbidden {
-            assert!(!tag_name.contains(*ch), "tag name contains forbidden char: {}", ch);
+            assert!(
+                !tag_name.contains(*ch),
+                "tag name contains forbidden char: {}",
+                ch
+            );
         }
     }
 
@@ -940,7 +1106,10 @@ mod tests {
         // Azure tag values: max 256 chars
         // VM names generated by azlin: "azlin-vm-YYYYMMDD-HHMMSSffffff" = 31 chars
         let generated_name = format!("azlin-vm-{}", "20260327-170900123456");
-        assert!(generated_name.len() <= 256, "auto-generated VM name must fit Azure tag value limit");
+        assert!(
+            generated_name.len() <= 256,
+            "auto-generated VM name must fit Azure tag value limit"
+        );
 
         // User-provided names are validated by validate_vm_name (max 64 chars)
         let user_name = "a".repeat(64);

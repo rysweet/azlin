@@ -50,6 +50,81 @@ pub fn build_ssh_connect_args(user: &str, ip: &str) -> Vec<String> {
     ]
 }
 
+/// Resolve the matching private key path for a public key used during VM
+/// creation, returning `None` when the derived private key is missing.
+pub fn matching_private_key_for_public_key(
+    public_key_path: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    if public_key_path.extension().and_then(|ext| ext.to_str()) != Some("pub") {
+        return public_key_path
+            .exists()
+            .then(|| public_key_path.to_path_buf());
+    }
+
+    let private_key_path = public_key_path.with_extension("");
+    private_key_path.exists().then_some(private_key_path)
+}
+
+/// Require that a provisioning public key also has its matching private key.
+pub fn require_matching_private_key_for_public_key(
+    public_key_path: &std::path::Path,
+) -> Result<std::path::PathBuf> {
+    matching_private_key_for_public_key(public_key_path).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Selected provisioning public key '{}' but matching private key '{}' is missing",
+            public_key_path.display(),
+            public_key_path.with_extension("").display()
+        )
+    })
+}
+
+/// Build SSH args for post-create direct or tunneled SSH, preserving the same
+/// routed key selection that provisioning and seeding already use.
+pub fn build_post_create_ssh_args(
+    user: &str,
+    ip: &str,
+    bastion_port: Option<u16>,
+    connect_timeout: u64,
+    identity_key: Option<&std::path::Path>,
+    batch_mode: bool,
+) -> Vec<String> {
+    let mut args = vec![
+        "-o".to_string(),
+        "StrictHostKeyChecking=accept-new".to_string(),
+        "-o".to_string(),
+        format!("ConnectTimeout={connect_timeout}"),
+    ];
+    if batch_mode {
+        args.push("-o".to_string());
+        args.push("BatchMode=yes".to_string());
+    }
+    if let Some(port) = bastion_port {
+        args.push("-p".to_string());
+        args.push(port.to_string());
+        args.push(format!("{user}@127.0.0.1"));
+    } else {
+        args.push(format!("{user}@{ip}"));
+    };
+
+    if let Some(key_path) = identity_key {
+        crate::ssh_arg_helpers::inject_identity_key_before_destination(&mut args, key_path);
+    }
+
+    args
+}
+
+/// Build SSH args for post-create auto-connect, keeping the final shell
+/// interactive for passphrase prompts.
+pub fn build_auto_connect_ssh_args(
+    user: &str,
+    ip: &str,
+    bastion_port: Option<u16>,
+    connect_timeout: u64,
+    identity_key: Option<&std::path::Path>,
+) -> Vec<String> {
+    build_post_create_ssh_args(user, ip, bastion_port, connect_timeout, identity_key, false)
+}
+
 /// Generate a snapshot name for VM cloning.
 pub fn build_snapshot_name(source_vm: &str, timestamp: &str) -> String {
     format!("{}_clone_snap_{}", source_vm, timestamp)
@@ -215,6 +290,67 @@ mod tests {
         assert!(args.contains(&"-o".to_string()));
         assert!(args.contains(&"StrictHostKeyChecking=accept-new".to_string()));
         assert!(args.contains(&"azureuser@1.2.3.4".to_string()));
+    }
+
+    #[test]
+    fn test_matching_private_key_for_public_key_strips_pub_extension() {
+        let temp_dir = TempDir::new().unwrap();
+        let public_key = temp_dir.path().join("id_ed25519_azlin.pub");
+        let private_key = temp_dir.path().join("id_ed25519_azlin");
+        std::fs::write(&public_key, "pub").unwrap();
+        std::fs::write(&private_key, "priv").unwrap();
+
+        let resolved = matching_private_key_for_public_key(&public_key);
+        assert_eq!(resolved.as_deref(), Some(private_key.as_path()));
+    }
+
+    #[test]
+    fn test_matching_private_key_for_public_key_returns_none_when_missing() {
+        let temp_dir = TempDir::new().unwrap();
+        let public_key = temp_dir.path().join("azlin_key.pub");
+        std::fs::write(&public_key, "pub").unwrap();
+
+        assert!(matching_private_key_for_public_key(&public_key).is_none());
+    }
+
+    #[test]
+    fn test_require_matching_private_key_for_public_key_errors_when_missing() {
+        let temp_dir = TempDir::new().unwrap();
+        let public_key = temp_dir.path().join("azlin_key.pub");
+        std::fs::write(&public_key, "pub").unwrap();
+
+        let err = require_matching_private_key_for_public_key(&public_key).unwrap_err();
+        assert!(err.to_string().contains("Selected provisioning public key"));
+        assert!(err.to_string().contains("azlin_key.pub"));
+        assert!(err.to_string().contains("azlin_key"));
+    }
+
+    #[test]
+    fn test_build_auto_connect_ssh_args_direct_includes_identity_and_timeout() {
+        let key = std::path::Path::new("/home/user/.ssh/azlin_key");
+        let args = build_auto_connect_ssh_args("azureuser", "1.2.3.4", None, 45, Some(key));
+        assert!(args.contains(&"StrictHostKeyChecking=accept-new".to_string()));
+        assert!(args.contains(&"ConnectTimeout=45".to_string()));
+        assert!(!args.contains(&"BatchMode=yes".to_string()));
+        assert!(args.contains(&"IdentitiesOnly=yes".to_string()));
+        assert!(args.contains(&"-i".to_string()));
+        assert!(args.contains(&"/home/user/.ssh/azlin_key".to_string()));
+        assert!(args.contains(&"azureuser@1.2.3.4".to_string()));
+    }
+
+    #[test]
+    fn test_build_auto_connect_ssh_args_bastion_uses_local_port_and_key() {
+        let key = std::path::Path::new("/tmp/bastion-key");
+        let args =
+            build_auto_connect_ssh_args("azureuser", "127.0.0.1", Some(50210), 30, Some(key));
+        assert!(args.contains(&"ConnectTimeout=30".to_string()));
+        assert!(!args.contains(&"BatchMode=yes".to_string()));
+        assert!(args.contains(&"IdentitiesOnly=yes".to_string()));
+        assert!(args.contains(&"-p".to_string()));
+        assert!(args.contains(&"50210".to_string()));
+        assert!(args.contains(&"-i".to_string()));
+        assert!(args.contains(&"/tmp/bastion-key".to_string()));
+        assert!(args.contains(&"azureuser@127.0.0.1".to_string()));
     }
 
     #[test]

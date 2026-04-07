@@ -1,24 +1,48 @@
-fn common_ssh_options(connect_timeout: u64) -> Vec<String> {
-    vec![
+fn common_ssh_options(connect_timeout: u64, batch_mode: bool) -> Vec<String> {
+    let mut args = vec![
         "-o".to_string(),
         "StrictHostKeyChecking=accept-new".to_string(),
         "-o".to_string(),
         format!("ConnectTimeout={}", connect_timeout),
-        "-o".to_string(),
-        "BatchMode=yes".to_string(),
-    ]
+    ];
+    if batch_mode {
+        args.push("-o".to_string());
+        args.push("BatchMode=yes".to_string());
+    }
+    args
 }
 
 /// Build SSH args without a remote command, ending at `user@host`.
 pub fn build_ssh_prefix(ip: &str, user: &str, connect_timeout: u64) -> Vec<String> {
-    let mut args = common_ssh_options(connect_timeout);
+    build_ssh_prefix_with_mode(ip, user, connect_timeout, true)
+}
+
+/// Build SSH args without a remote command, with optional BatchMode, ending at `user@host`.
+pub fn build_ssh_prefix_with_mode(
+    ip: &str,
+    user: &str,
+    connect_timeout: u64,
+    batch_mode: bool,
+) -> Vec<String> {
+    let mut args = common_ssh_options(connect_timeout, batch_mode);
     args.push(format!("{}@{}", user, ip));
     args
 }
 
 /// Build SSH args for a local tunneled target, ending at `user@127.0.0.1`.
+#[cfg(test)]
 pub fn build_tunneled_ssh_prefix(user: &str, local_port: u16, connect_timeout: u64) -> Vec<String> {
-    let mut args = common_ssh_options(connect_timeout);
+    build_tunneled_ssh_prefix_with_mode(user, local_port, connect_timeout, true)
+}
+
+/// Build SSH args for a local tunneled target with optional BatchMode.
+pub fn build_tunneled_ssh_prefix_with_mode(
+    user: &str,
+    local_port: u16,
+    connect_timeout: u64,
+    batch_mode: bool,
+) -> Vec<String> {
+    let mut args = common_ssh_options(connect_timeout, batch_mode);
     args.push("-p".to_string());
     args.push(local_port.to_string());
     args.push(format!("{}@127.0.0.1", user));
@@ -51,6 +75,8 @@ pub fn inject_identity_key(args: &mut Vec<String>, key_path: &std::path::Path) {
     let insert_pos = args.len().saturating_sub(2);
     args.insert(insert_pos, key_path.display().to_string());
     args.insert(insert_pos, "-i".to_string());
+    args.insert(insert_pos, "IdentitiesOnly=yes".to_string());
+    args.insert(insert_pos, "-o".to_string());
 }
 
 /// Inject `-i <key_path>` into an SSH prefix vector before the destination
@@ -63,6 +89,8 @@ pub fn inject_identity_key_before_destination(args: &mut Vec<String>, key_path: 
     let insert_pos = args.len().saturating_sub(1);
     args.insert(insert_pos, key_path.display().to_string());
     args.insert(insert_pos, "-i".to_string());
+    args.insert(insert_pos, "IdentitiesOnly=yes".to_string());
+    args.insert(insert_pos, "-o".to_string());
 }
 
 /// Build the argument list for an `az network bastion ssh` command.
@@ -309,6 +337,8 @@ mod tests {
         inject_identity_key(&mut args, key);
         // -i and key should appear just before user@host and command
         let i_pos = args.iter().position(|a| a == "-i").unwrap();
+        assert_eq!(args[i_pos - 2], "-o");
+        assert_eq!(args[i_pos - 1], "IdentitiesOnly=yes");
         assert_eq!(args[i_pos + 1], "/home/u/.ssh/azlin_key");
         assert_eq!(args[i_pos + 2], "azureuser@10.0.0.1");
         assert_eq!(args.last().unwrap(), "uptime");
@@ -321,11 +351,12 @@ mod tests {
         inject_identity_key(&mut args, std::path::Path::new("/tmp/key"));
         assert_eq!(
             args.len(),
-            original_len + 2,
-            "should add exactly -i and key path"
+            original_len + 4,
+            "should add IdentitiesOnly=yes plus -i and key path"
         );
         assert!(args.contains(&"StrictHostKeyChecking=accept-new".to_string()));
         assert!(args.contains(&"BatchMode=yes".to_string()));
+        assert!(args.contains(&"IdentitiesOnly=yes".to_string()));
     }
 
     #[test]
@@ -339,6 +370,8 @@ mod tests {
         let key = std::path::Path::new("/home/u/.ssh/azlin_key");
         inject_identity_key(&mut args, key);
         let i_pos = args.iter().position(|a| a == "-i").unwrap();
+        assert_eq!(args[i_pos - 2], "-o");
+        assert_eq!(args[i_pos - 1], "IdentitiesOnly=yes");
         assert_eq!(args[i_pos + 1], "/home/u/.ssh/azlin_key");
         assert_eq!(args[i_pos + 2], "azureuser@10.0.0.1");
     }
@@ -347,6 +380,9 @@ mod tests {
     fn inject_key_with_minimal_args() {
         let mut args = vec!["user@host".to_string(), "cmd".to_string()];
         inject_identity_key(&mut args, std::path::Path::new("/key"));
-        assert_eq!(args, vec!["-i", "/key", "user@host", "cmd"]);
+        assert_eq!(
+            args,
+            vec!["-o", "IdentitiesOnly=yes", "-i", "/key", "user@host", "cmd",]
+        );
     }
 }

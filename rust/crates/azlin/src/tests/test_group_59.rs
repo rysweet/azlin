@@ -94,6 +94,10 @@ fn test_build_ssh_target_private_ip_with_bastion_and_key() {
     let target = crate::build_ssh_target(&vm, "sub-123", &bastion_map, &ssh_key);
     assert_eq!(target.ip, "10.0.0.5");
     assert!(target.bastion.is_some());
+    assert_eq!(
+        target.ssh_key_path,
+        Some(std::path::PathBuf::from("/tmp/test_key"))
+    );
     let b = target.bastion.unwrap();
     assert_eq!(b.bastion_name, "my-bastion");
     assert_eq!(b.resource_group, "rg1");

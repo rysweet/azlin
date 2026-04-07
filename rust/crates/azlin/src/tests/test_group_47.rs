@@ -21,6 +21,7 @@ fn test_build_ssh_target_public_ip_no_bastion() {
     let target = crate::build_ssh_target(&vm, "sub-123", &bastion_map, &None);
     assert_eq!(target.ip, "52.1.2.3");
     assert_eq!(target.user, "testuser");
+    assert!(target.ssh_key_path.is_none());
     assert!(
         target.bastion.is_none(),
         "Public IP VMs should not route through bastion"
@@ -48,6 +49,7 @@ fn test_build_ssh_target_private_ip_with_bastion() {
     bastion_map.insert("eastus".to_string(), "my-bastion".to_string());
     let target = crate::build_ssh_target(&vm, "sub-123", &bastion_map, &None);
     assert_eq!(target.ip, "10.0.0.4");
+    assert!(target.ssh_key_path.is_none());
     assert!(
         target.bastion.is_some(),
         "Private-IP-only VM should route through bastion"

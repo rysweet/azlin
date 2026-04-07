@@ -20,15 +20,8 @@ fn global_pool() -> &'static SshPool {
 
 /// Resolve the preferred SSH private key path.
 fn resolve_key_path() -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
-    let ssh_dir = home.join(".ssh");
-    for name in &["azlin_key", "id_ed25519_azlin", "id_ed25519", "id_rsa"] {
-        let path = ssh_dir.join(name);
-        if path.exists() {
-            return Some(path);
-        }
-    }
-    None
+    let ssh_dir = dirs::home_dir()?.join(".ssh");
+    crate::key_helpers::find_preferred_private_key(&ssh_dir)
 }
 
 /// Execute a command on a remote host using native russh.

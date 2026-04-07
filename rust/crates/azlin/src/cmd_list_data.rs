@@ -8,18 +8,10 @@ use std::collections::HashMap;
 /// Maximum number of tmux sessions to restore per VM to prevent resource exhaustion.
 const MAX_SESSIONS_PER_VM: usize = 20;
 
-/// Resolve SSH key path, preferring azlin_key over id_rsa.
+/// Resolve SSH key path from the shared azlin private-key priority list.
 fn resolve_ssh_key() -> Option<std::path::PathBuf> {
-    home_dir()
-        .ok()
-        .map(|h| h.join(".ssh").join("azlin_key"))
-        .filter(|p| p.exists())
-        .or_else(|| {
-            home_dir()
-                .ok()
-                .map(|h| h.join(".ssh").join("id_rsa"))
-                .filter(|p| p.exists())
-        })
+    let ssh_dir = dirs::home_dir()?.join(".ssh");
+    crate::key_helpers::find_preferred_private_key(&ssh_dir)
 }
 
 /// Collect tmux sessions for all running VMs via SSH (direct or bastion).
@@ -323,7 +315,9 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
             if sessions.len() > MAX_SESSIONS_PER_VM {
                 eprintln!(
                     "  Warning: limiting {} to {} sessions (found {})",
-                    vm_name, MAX_SESSIONS_PER_VM, sessions.len()
+                    vm_name,
+                    MAX_SESSIONS_PER_VM,
+                    sessions.len()
                 );
             }
             for raw_session in sessions.iter().take(MAX_SESSIONS_PER_VM) {
@@ -368,7 +362,9 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
         if sessions.len() > MAX_SESSIONS_PER_VM {
             eprintln!(
                 "  Warning: limiting {} to {} sessions (found {})",
-                vm_name, MAX_SESSIONS_PER_VM, sessions.len()
+                vm_name,
+                MAX_SESSIONS_PER_VM,
+                sessions.len()
             );
         }
 

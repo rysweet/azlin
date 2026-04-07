@@ -67,6 +67,16 @@ azlin new --repo https://github.com/owner/repo
 azlin health
 ```
 
+`azlin new` selects the first available public key from
+`~/.ssh/azlin_key.pub`, `~/.ssh/id_ed25519_azlin.pub`,
+`~/.ssh/id_ed25519.pub`, then `~/.ssh/id_rsa.pub`. When create-time home
+seeding, repo clone, or first auto-connect shell run, azlin reuses the
+matching private key for those phases too. If one of those post-create SSH
+phases is enabled and the matching private key is missing, `azlin new` now
+errors instead of silently falling back to a different identity. If the create
+flow routes through bastion, `azlin new --bastion-name <name>` is reused for
+the later auth-forward, home seeding, and first auto-connect phases too.
+
 ## What is azlin?
 
 azlin automates the tedious process of setting up Azure Ubuntu VMs for development. In one command, it:
@@ -349,31 +359,32 @@ azlin automatically handles connection complexities so you can focus on your wor
 
 ### Auto-Sync SSH Keys
 
-azlin automatically synchronizes SSH keys from Azure Key Vault to your VMs before connecting. No more "Permission denied" errors from key mismatches.
+For bastion-routed VM targets, azlin can re-push your local public key to the
+VM with `az vm user update` after a permission error, then retry the
+connection.
 
 ```bash
 # Just connect - azlin handles the rest
 azlin connect my-vm
 
 # Output:
-# Fetching SSH key from Key Vault... ✓
-# Auto-syncing key to VM... ✓
-# SSH key synchronized to VM
+# SSH auth failed for my-vm, syncing key via az vm user update...
+# Key synced, retrying SSH...
 # Connecting to my-vm...
 # Connected!
 ```
 
 **What it does:**
-- Fetches the correct SSH key from Key Vault (source of truth)
-- Checks if the key exists in the VM's authorized_keys
-- Appends the key if missing (never replaces existing keys)
-- Proceeds with connection
+- Reuses your local public key
+- Pushes that key with `az vm user update`
+- Retries the SSH command after the VM accepts the key
+- Preserves existing keys on the VM
 
 **Benefits:**
 - Eliminates key mismatch connection failures
-- Automatic key synchronization on first connection
+- Automatic retry on supported routes
 - Safe append-only operations (preserves existing keys)
-- Works automatically - no manual intervention
+- No manual recovery step when the VM rejects the current key
 
 ### Auto-Detect Resource Group
 

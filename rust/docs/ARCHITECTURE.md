@@ -127,7 +127,10 @@ struct VmSshTarget {
 
 - **Public IP VMs** -- direct `ssh` subprocess
 - **Private IP VMs** -- `az network bastion ssh` with SSH key auth
-- **Permission denied** -- auto-retries after `az vm user update` to sync SSH keys
+- **`azlin new --bastion-name`** -- when create-time SSH is bastion-routed, the
+  same override is reused for post-create auth forwarding, home seeding, and
+  the first auto-connect shell
+- **Permission denied on bastion-routed targets** -- can retry after `az vm user update` re-pushes the local public key
 
 **Commands using SSH:** `w`, `ps`, `top`, `health`, `env`, `logs`, `connect`
 
