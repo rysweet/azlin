@@ -311,7 +311,7 @@ pub(crate) async fn dispatch(
                     "Bastion tunnel active: 127.0.0.1:{} → {} ({})",
                     local_port, name, vm.location
                 );
-                (format!("ssh-remote+{}", host_alias), Some(tunnel))
+                (format!("ssh-remote+{}@{}", user, host_alias), Some(tunnel))
             } else {
                 let ip = vm.public_ip.as_deref().unwrap();
                 (format!("ssh-remote+{}@{}", user, ip), None)
