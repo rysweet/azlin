@@ -430,9 +430,12 @@ fn open_vnc_tunnel(ssh_cmd_prefix: &[String]) -> Result<(u16, Vec<u32>)> {
         .context("Failed to spawn SSH port-forward for VNC")?;
 
     let pid = child.id();
-    if let Err(error) =
-        crate::wait_for_local_port_listener(local_port, pid, std::time::Duration::from_secs(10))
-    {
+    if let Err(error) = crate::bastion_tunnel::wait_for_process_tree_listener(
+        local_port,
+        pid,
+        std::time::Duration::from_secs(10),
+        "VNC tunnel",
+    ) {
         let _ = child.kill();
         let _ = child.wait();
         return Err(error).context(format!(
