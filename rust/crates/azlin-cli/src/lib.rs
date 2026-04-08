@@ -968,7 +968,7 @@ pub enum Commands {
         no_extensions: bool,
 
         /// Remote workspace directory to open
-        #[arg(long, default_value = "/home/user")]
+        #[arg(long, default_value = "/home/azureuser")]
         workspace: String,
     },
 

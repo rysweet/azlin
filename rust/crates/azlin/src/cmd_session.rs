@@ -277,7 +277,7 @@ pub(crate) async fn dispatch(
                 .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
             let use_bastion = vm.public_ip.is_none();
 
-            let (remote_uri, _tunnel) = if use_bastion {
+            let (ssh_host, _tunnel) = if use_bastion {
                 // Route through Azure Bastion — create/reuse a persistent tunnel
                 let bastion_map: std::collections::HashMap<String, String> =
                     crate::list_helpers::detect_bastion_hosts(&rg)
@@ -311,25 +311,22 @@ pub(crate) async fn dispatch(
                     "Bastion tunnel active: 127.0.0.1:{} → {} ({})",
                     local_port, name, vm.location
                 );
-                (format!("ssh-remote+{}@{}", user, host_alias), Some(tunnel))
+                (host_alias, Some(tunnel))
             } else {
                 let ip = vm.public_ip.as_deref().unwrap();
-                (format!("ssh-remote+{}@{}", user, ip), None)
+                (ip.to_string(), None)
             };
 
-            let mut code_args = vec!["--remote".to_string(), remote_uri.clone()];
-            if !workspace.is_empty() {
-                code_args.push("--folder-uri".to_string());
-                code_args.push(format!(
-                    "vscode-remote://{}/{}",
-                    remote_uri.strip_prefix("ssh-remote+").unwrap_or(&remote_uri),
-                    workspace.trim_start_matches('/')
-                ));
-            }
-
-            println!("Opening VS Code: code {}", code_args.join(" "));
+            // VS Code Remote-SSH URI: vscode-remote://ssh-remote+<host>/<folder>
+            // The <host> must match an SSH config Host entry (bastion) or be an IP (direct).
+            let folder_uri = format!(
+                "vscode-remote://ssh-remote+{}/{}",
+                ssh_host,
+                workspace.trim_start_matches('/')
+            );
+            println!("Opening VS Code: code --folder-uri {}", folder_uri);
             let status = std::process::Command::new("code")
-                .args(&code_args)
+                .args(["--folder-uri", &folder_uri])
                 .status();
 
             match status {
