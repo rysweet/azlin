@@ -202,6 +202,8 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         format!("su - {u} -c 'curl -fsSL https://claude.ai/install.sh | bash' || echo 'WARNING: Claude Code installation failed'", u = username),
         // Rust
         format!("su - {u} -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'", u = username),
+        // amplihack-rs (requires Rust + cmake)
+        format!("su - {u} -c 'source $HOME/.cargo/env && cargo install --git https://github.com/rysweet/amplihack-rs amplihack --locked && ~/.cargo/bin/amplihack install' || echo 'WARNING: amplihack-rs installation failed'", u = username),
         // Go
         "wget -q https://go.dev/dl/go1.26.1.linux-amd64.tar.gz -O /tmp/go.tar.gz && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz".to_string(),
         // .NET 10 SDK
@@ -214,7 +216,7 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         // bashrc additions (npm path, go path, cargo env, azlin alias)
         format!("cat >> /home/{u}/.bashrc << 'BASHEOF'\n\n# npm user-local configuration\nNPM_PACKAGES=\"${{HOME}}/.npm-packages\"\nPATH=\"$NPM_PACKAGES/bin:$PATH\"\nMANPATH=\"$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)\"\n\n# Go\nexport PATH=$PATH:/usr/local/go/bin\n\n# Cargo\nsource $HOME/.cargo/env 2>/dev/null\nBASHEOF", u = username),
         // Version verification (rustc is in user homedir, must check as user)
-        format!("echo '[AZLIN] Provisioning complete' && which gh && gh --version && which az && az --version | head -2 && which node && node --version && su - {u} -c 'which rustc && rustc --version' && which dotnet && dotnet --version || true", u = username),
+        format!("echo '[AZLIN] Provisioning complete' && which gh && gh --version && which az && az --version | head -2 && which node && node --version && su - {u} -c 'which rustc && rustc --version && which amplihack && amplihack --version' && which dotnet && dotnet --version || true", u = username),
         // Explicit provisioning sentinel for azlin's post-create readiness checks.
         "mkdir -p /var/lib/azlin && touch /var/lib/azlin/provisioning-complete && echo 'cloud-init provisioning complete'".to_string(),
     ]
