@@ -21,6 +21,7 @@ pub fn run_with_timeout(
 ) -> Result<(i32, String, String)> {
     let mut child = std::process::Command::new(cmd)
         .args(args)
+        .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()

@@ -89,8 +89,6 @@ pub(crate) async fn dispatch(
                 show_output,
                 ..
             } => {
-                let auth = create_auth()?;
-                let _vm_manager = azlin_azure::VmManager::new(&auth);
                 let rg = resolve_resource_group(resource_group)?;
                 let pb =
                     penguin_spinner(&format!("Running '{}' on all VMs in '{}'...", command, rg));
@@ -114,8 +112,6 @@ pub(crate) async fn dispatch(
                 dry_run,
                 ..
             } => {
-                let auth = create_auth()?;
-                let _vm_manager = azlin_azure::VmManager::new(&auth);
                 let rg = resolve_resource_group(resource_group)?;
                 let vms = get_running_vm_targets(Some(rg.clone())).await?;
                 if vms.is_empty() {
@@ -178,8 +174,6 @@ pub(crate) async fn dispatch(
                 if dry_run {
                     println!("Would run '{}' across fleet in '{}'", command, rg);
                 } else {
-                    let auth = create_auth()?;
-                    let _vm_manager = azlin_azure::VmManager::new(&auth);
                     let pb = penguin_spinner(&format!("Gathering fleet VMs in '{}'...", rg));
                     let vms = get_running_vm_targets(Some(rg.clone())).await?;
                     pb.finish_and_clear();
@@ -212,8 +206,6 @@ pub(crate) async fn dispatch(
                         rg
                     );
                 } else {
-                    let auth = create_auth()?;
-                    let _vm_manager = azlin_azure::VmManager::new(&auth);
                     let content = std::fs::read_to_string(&workflow_file).map_err(|e| {
                         anyhow::anyhow!(
                             "Failed to read workflow file '{}': {}",
