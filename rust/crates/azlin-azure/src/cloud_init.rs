@@ -230,6 +230,7 @@ pub fn default_dev_packages() -> Vec<&'static str> {
         "wget",
         "build-essential",
         "make",
+        "cmake",
         "software-properties-common",
         "ripgrep",
         "fd-find",
