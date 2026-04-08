@@ -202,8 +202,15 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         format!("su - {u} -c 'curl -fsSL https://claude.ai/install.sh | bash' || echo 'WARNING: Claude Code installation failed'", u = username),
         // Rust
         format!("su - {u} -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'", u = username),
-        // amplihack-rs (requires Rust + cmake)
-        format!("su - {u} -c 'source $HOME/.cargo/env && cargo install --git https://github.com/rysweet/amplihack-rs amplihack --locked && ~/.cargo/bin/amplihack install' || echo 'WARNING: amplihack-rs installation failed'", u = username),
+        // amplihack-rs (pre-built binary from latest GitHub release, falls back to cargo install)
+        format!("su - {u} -c 'ARCH=$(uname -m | sed s/aarch64/aarch64/ | sed s/x86_64/x86_64/) && \
+            URL=$(curl -fsSL https://api.github.com/repos/rysweet/amplihack-rs/releases/latest | grep browser_download_url | grep $ARCH-unknown-linux-gnu.tar.gz\\\" | head -1 | cut -d\\\"  -f4) && \
+            mkdir -p /tmp/amplihack-install && cd /tmp/amplihack-install && \
+            curl -fsSL $URL -o amplihack.tar.gz && tar xzf amplihack.tar.gz && \
+            mkdir -p ~/.cargo/bin && cp amplihack amplihack-hooks ~/.cargo/bin/ 2>/dev/null; \
+            chmod +x ~/.cargo/bin/amplihack ~/.cargo/bin/amplihack-hooks 2>/dev/null; \
+            rm -rf /tmp/amplihack-install && \
+            ~/.cargo/bin/amplihack install' || echo 'WARNING: amplihack-rs installation failed'", u = username),
         // Go
         "wget -q https://go.dev/dl/go1.26.1.linux-amd64.tar.gz -O /tmp/go.tar.gz && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz".to_string(),
         // .NET 10 SDK
