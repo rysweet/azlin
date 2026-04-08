@@ -255,6 +255,9 @@ fn listener_owner_pids_with_lsof(port: u16) -> Result<Option<HashSet<u32>>> {
         Err(error) => return Err(error).context("Failed to run lsof for bastion tunnel ownership"),
     };
     if !output.status.success() {
+        if output.status.code() == Some(1) {
+            return Ok(Some(HashSet::new()));
+        }
         anyhow::bail!("lsof failed while inspecting bastion tunnel ownership");
     }
 
@@ -270,6 +273,94 @@ fn listener_owner_pids_with_lsof(port: u16) -> Result<Option<HashSet<u32>>> {
     Ok(Some(pids))
 }
 
+#[cfg(target_os = "linux")]
+fn collect_listener_inodes(port: u16, proc_net: &str, inodes: &mut HashSet<String>) {
+    for line in proc_net.lines().skip(1) {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() <= 9 || fields[3] != "0A" {
+            continue;
+        }
+        let Some((_, port_hex)) = fields[1].rsplit_once(':') else {
+            continue;
+        };
+        let Ok(listener_port) = u16::from_str_radix(port_hex, 16) else {
+            continue;
+        };
+        if listener_port == port {
+            inodes.insert(fields[9].to_string());
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn listener_owner_pids_with_proc(port: u16) -> Result<Option<HashSet<u32>>> {
+    let mut inodes = HashSet::new();
+    let mut proc_net_available = false;
+    for path in ["/proc/net/tcp", "/proc/net/tcp6"] {
+        match std::fs::read_to_string(path) {
+            Ok(content) => {
+                proc_net_available = true;
+                collect_listener_inodes(port, &content, &mut inodes);
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error)
+                    .context("Failed to inspect /proc/net/tcp for bastion tunnel ownership");
+            }
+        }
+    }
+
+    if !proc_net_available {
+        return Ok(None);
+    }
+
+    let mut pids = HashSet::new();
+    for entry in std::fs::read_dir("/proc")
+        .context("Failed to inspect /proc for bastion tunnel ownership")?
+    {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        let pid_text = entry.file_name();
+        let Ok(pid) = pid_text.to_string_lossy().parse::<u32>() else {
+            continue;
+        };
+
+        let fd_dir = entry.path().join("fd");
+        let read_dir = match std::fs::read_dir(&fd_dir) {
+            Ok(read_dir) => read_dir,
+            Err(_) => continue,
+        };
+        for fd_entry in read_dir {
+            let Ok(fd_entry) = fd_entry else {
+                continue;
+            };
+            let Ok(target) = std::fs::read_link(fd_entry.path()) else {
+                continue;
+            };
+            let target = target.to_string_lossy();
+            let Some(inode) = target
+                .strip_prefix("socket:[")
+                .and_then(|value| value.strip_suffix(']'))
+            else {
+                continue;
+            };
+            if inodes.contains(inode) {
+                pids.insert(pid);
+                break;
+            }
+        }
+    }
+
+    Ok(Some(pids))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn listener_owner_pids_with_proc(_port: u16) -> Result<Option<HashSet<u32>>> {
+    Ok(None)
+}
+
 fn listener_owner_pids(port: u16) -> Result<HashSet<u32>> {
     if let Some(pids) = listener_owner_pids_with_ss(port)? {
         return Ok(pids);
@@ -277,8 +368,11 @@ fn listener_owner_pids(port: u16) -> Result<HashSet<u32>> {
     if let Some(pids) = listener_owner_pids_with_lsof(port)? {
         return Ok(pids);
     }
+    if let Some(pids) = listener_owner_pids_with_proc(port)? {
+        return Ok(pids);
+    }
     anyhow::bail!(
-        "Neither ss nor lsof is available to inspect ownership for bastion tunnel port {}",
+        "No supported listener-ownership inspection mechanism is available for bastion tunnel port {}",
         port
     );
 }
@@ -295,10 +389,11 @@ fn local_port_owned_by_process_tree(port: u16, root_pid: u32) -> Result<bool> {
         .any(|listener_pid| process_tree.contains(listener_pid)))
 }
 
-fn wait_for_local_port_listener(
+fn wait_for_named_local_port_listener(
     port: u16,
     root_pid: u32,
     timeout: std::time::Duration,
+    listener_name: &str,
 ) -> Result<()> {
     let deadline = std::time::Instant::now() + timeout;
     while std::time::Instant::now() < deadline {
@@ -308,14 +403,16 @@ fn wait_for_local_port_listener(
                 return Ok(());
             }
             anyhow::bail!(
-                "Bastion tunnel port 127.0.0.1:{} is owned by unrelated process(es): {:?}",
+                "{} port 127.0.0.1:{} is owned by unrelated process(es): {:?}",
+                listener_name,
                 port,
                 listener_pids
             );
         }
         if !process_is_running(root_pid) {
             anyhow::bail!(
-                "Bastion tunnel process {} exited before listening on 127.0.0.1:{}",
+                "{} process {} exited before listening on 127.0.0.1:{}",
+                listener_name,
                 root_pid,
                 port
             );
@@ -324,10 +421,28 @@ fn wait_for_local_port_listener(
     }
 
     anyhow::bail!(
-        "Timed out waiting for bastion tunnel process {} to listen on 127.0.0.1:{}",
+        "Timed out waiting for {} process {} to listen on 127.0.0.1:{}",
+        listener_name,
         root_pid,
         port
     );
+}
+
+pub(crate) fn wait_for_process_tree_listener(
+    port: u16,
+    root_pid: u32,
+    timeout: std::time::Duration,
+    listener_name: &str,
+) -> Result<()> {
+    wait_for_named_local_port_listener(port, root_pid, timeout, listener_name)
+}
+
+fn wait_for_local_port_listener(
+    port: u16,
+    root_pid: u32,
+    timeout: std::time::Duration,
+) -> Result<()> {
+    wait_for_named_local_port_listener(port, root_pid, timeout, "Bastion tunnel")
 }
 
 fn purge_registry_entries_for_port(registry: &mut TunnelRegistry, port: u16) -> Vec<String> {
@@ -413,9 +528,7 @@ pub fn get_or_create_tunnel(
             let claimants = purge_registry_entries_for_port(&mut registry, entry.local_port);
             warn!(
                 "bastion tunnel registry entry for {} is ambiguous: local port {} is claimed by {:?}; creating a fresh tunnel",
-                vm_resource_id,
-                entry.local_port,
-                claimants
+                vm_resource_id, entry.local_port, claimants
             );
         } else {
             registry.tunnels.remove(vm_resource_id);

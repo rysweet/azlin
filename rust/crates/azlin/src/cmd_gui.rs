@@ -143,17 +143,17 @@ pub(crate) async fn dispatch(
 
     // Step 5: Open SSH port-forward for VNC
     let pb = penguin_spinner("Opening VNC tunnel...");
-    let tunnel_pids = open_vnc_tunnel(&ssh_cmd_prefix)?;
+    let (local_vnc_port, tunnel_pids) = open_vnc_tunnel(&ssh_cmd_prefix)?;
     pb.finish_and_clear();
 
     let all_pids: Vec<u32> = tunnel_pids.to_vec();
 
     // Step 6: Launch local VNC viewer
-    println!("Launching VNC viewer (127.0.0.1:{})...", VNC_PORT);
+    println!("Launching VNC viewer (127.0.0.1:{})...", local_vnc_port);
     eprintln!("(VNC password set on remote — not displayed for security)");
     println!("Press Ctrl+C to stop the GUI session.\n");
 
-    let viewer_result = launch_viewer(&ssh_cmd_prefix, &vnc_password);
+    let viewer_result = launch_viewer(&ssh_cmd_prefix, &vnc_password, local_vnc_port);
 
     // Step 7: Cleanup on exit
     cleanup(&all_pids, &ssh_cmd_prefix);
@@ -394,15 +394,15 @@ fn start_vnc_server(
 // VNC tunnel (SSH -L port forwarding)
 // ---------------------------------------------------------------------------
 
-fn open_vnc_tunnel(ssh_cmd_prefix: &[String]) -> Result<Vec<u32>> {
+fn build_vnc_tunnel_args(ssh_cmd_prefix: &[String], local_port: u16) -> Result<Vec<String>> {
     // Build ssh -N -L 5901:localhost:5901 using the same SSH prefix
     // (which already includes -p <port> for bastion, or user@ip for direct)
     let mut args: Vec<String> = Vec::new();
 
     // Extract the ssh binary and connection args from prefix
     // prefix[0] = "ssh", prefix[1..] = options + user@host
-    if ssh_cmd_prefix.is_empty() {
-        anyhow::bail!("Empty SSH command prefix");
+    if ssh_cmd_prefix.len() < 2 {
+        anyhow::bail!("SSH command prefix must include a destination");
     }
 
     // Copy all args except the first ("ssh"), add -N -L before the user@host
@@ -411,11 +411,18 @@ fn open_vnc_tunnel(ssh_cmd_prefix: &[String]) -> Result<Vec<u32>> {
     }
     args.push("-N".to_string());
     args.push("-L".to_string());
-    args.push(format!("{}:localhost:{}", VNC_PORT, VNC_PORT));
+    args.push(format!("{}:localhost:{}", local_port, VNC_PORT));
     // user@host is the last element
     args.push(ssh_cmd_prefix.last().unwrap().clone());
 
-    let child = std::process::Command::new("ssh")
+    Ok(args)
+}
+
+fn open_vnc_tunnel(ssh_cmd_prefix: &[String]) -> Result<(u16, Vec<u32>)> {
+    let local_port = crate::pick_unused_local_port()?;
+    let args = build_vnc_tunnel_args(ssh_cmd_prefix, local_port)?;
+
+    let mut child = std::process::Command::new("ssh")
         .args(&args)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -423,19 +430,39 @@ fn open_vnc_tunnel(ssh_cmd_prefix: &[String]) -> Result<Vec<u32>> {
         .context("Failed to spawn SSH port-forward for VNC")?;
 
     let pid = child.id();
+    if let Err(error) = crate::bastion_tunnel::wait_for_process_tree_listener(
+        local_port,
+        pid,
+        std::time::Duration::from_secs(10),
+        "VNC tunnel",
+    ) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error).context(format!(
+            "VNC tunnel failed to listen on 127.0.0.1:{}",
+            local_port
+        ));
+    }
     std::mem::forget(child);
 
-    // Wait for tunnel to establish
-    std::thread::sleep(std::time::Duration::from_secs(2));
-
-    Ok(vec![pid])
+    Ok((local_port, vec![pid]))
 }
 
 // ---------------------------------------------------------------------------
 // VNC viewer launch
 // ---------------------------------------------------------------------------
 
-fn launch_viewer(ssh_cmd_prefix: &[String], password: &str) -> Result<()> {
+fn build_vnc_viewer_args(passwd_file: &std::path::Path, local_port: u16) -> Vec<String> {
+    vec![
+        "-SecurityTypes".to_string(),
+        "VncAuth".to_string(),
+        "-passwd".to_string(),
+        passwd_file.display().to_string(),
+        format!("127.0.0.1:{}", local_port),
+    ]
+}
+
+fn launch_viewer(ssh_cmd_prefix: &[String], password: &str, local_port: u16) -> Result<()> {
     // Retrieve the VNC passwd file from the remote VM
     let passwd_b64 = run_ssh_command(ssh_cmd_prefix, "base64 < ~/.vnc/passwd")?;
     let passwd_bytes = base64_decode(passwd_b64.trim())?;
@@ -480,11 +507,7 @@ fn launch_viewer(ssh_cmd_prefix: &[String], password: &str) -> Result<()> {
     };
 
     let mut cmd = std::process::Command::new("vncviewer");
-    cmd.arg("-SecurityTypes")
-        .arg("VncAuth")
-        .arg("-passwd")
-        .arg(&passwd_file)
-        .arg(format!("127.0.0.1:{}", VNC_PORT));
+    cmd.args(build_vnc_viewer_args(&passwd_file, local_port));
 
     if !effective_display.is_empty() {
         cmd.env("DISPLAY", &effective_display);
@@ -762,6 +785,46 @@ mod tests {
 
         assert!(!body.contains("systemd-run --user --scope --quiet --"));
         assert!(body.contains("\ngimp\nvncserver -kill :1 2>/dev/null"));
+    }
+
+    #[test]
+    fn test_build_vnc_tunnel_args_use_requested_local_port() {
+        let args = build_vnc_tunnel_args(
+            &[
+                "ssh".to_string(),
+                "-i".to_string(),
+                "/tmp/test-key".to_string(),
+                "azureuser@10.0.0.5".to_string(),
+            ],
+            41234,
+        )
+        .unwrap();
+
+        assert!(args.contains(&"-N".to_string()));
+        assert!(args.contains(&"-L".to_string()));
+        assert!(args.contains(&"41234:localhost:5901".to_string()));
+        assert_eq!(args.last().map(String::as_str), Some("azureuser@10.0.0.5"));
+    }
+
+    #[test]
+    fn test_build_vnc_tunnel_args_require_destination() {
+        let err = build_vnc_tunnel_args(&["ssh".to_string()], 41234).unwrap_err();
+        assert!(err.to_string().contains("must include a destination"));
+    }
+
+    #[test]
+    fn test_build_vnc_viewer_args_use_requested_local_port() {
+        let args = build_vnc_viewer_args(std::path::Path::new("/tmp/passwd"), 41234);
+        assert_eq!(
+            args,
+            vec![
+                "-SecurityTypes".to_string(),
+                "VncAuth".to_string(),
+                "-passwd".to_string(),
+                "/tmp/passwd".to_string(),
+                "127.0.0.1:41234".to_string(),
+            ]
+        );
     }
 
     #[test]
