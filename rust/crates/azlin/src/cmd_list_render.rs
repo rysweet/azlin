@@ -202,9 +202,18 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
         });
     }
     if cfg.wide {
+        // Size VM Name to fit the widest entry so names are never truncated
+        // (this is the main reason users pass -w).
+        let vm_name_w = data
+            .vms
+            .iter()
+            .map(|vm| vm.name.len())
+            .max()
+            .unwrap_or(7)
+            .max(7); // minimum = header width
         cols.push(ColDef {
             header: "VM Name",
-            width: 20,
+            width: vm_name_w,
             right_align: false,
         });
     }
@@ -313,9 +322,9 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
                 excess -= give;
             }
         }
-        // Priority 2: shrink other columns (OS, IP, VM Name, SKU, etc.)
-        // but NOT Session or Tmux — those must stay fully visible.
-        let protected = ["Session", "Tmux"];
+        // Priority 2: shrink other columns (OS, IP, SKU, etc.)
+        // but NOT Session, Tmux, or VM Name — those must stay fully visible.
+        let protected = ["Session", "Tmux", "VM Name"];
         if excess > 0 {
             let shrinkable: usize = cols
                 .iter()
@@ -340,11 +349,19 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
             }
         }
         // Priority 3 (last resort): shrink Session and Tmux proportionally
+        // VM Name stays protected — it is the primary reason users pass -w.
         if excess > 0 {
-            let remaining_total: usize = cols.iter().map(|c| c.width.saturating_sub(3)).sum();
+            let remaining_total: usize = cols
+                .iter()
+                .filter(|c| c.header != "VM Name")
+                .map(|c| c.width.saturating_sub(3))
+                .sum();
             if remaining_total > 0 {
                 let ratio = excess.min(remaining_total) as f64 / remaining_total as f64;
                 for col in &mut cols {
+                    if col.header == "VM Name" {
+                        continue;
+                    }
                     let can_give = col.width.saturating_sub(3);
                     let give = (can_give as f64 * ratio).ceil() as usize;
                     let give = give.min(can_give).min(excess);
@@ -856,7 +873,7 @@ mod tests {
         }
 
         // Priority 2: shrink non-protected columns
-        let protected = ["Session", "Tmux"];
+        let protected = ["Session", "Tmux", "VM Name"];
         if excess > 0 {
             let shrinkable: usize = cols
                 .iter()
