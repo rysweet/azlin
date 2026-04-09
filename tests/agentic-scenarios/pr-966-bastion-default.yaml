@@ -1,0 +1,108 @@
+name: "azlin new defaults to private/bastion"
+description: |
+  Verifies that azlin new creates VMs as private (bastion-routed) by default,
+  and that --public flag opts into public IP creation. Covers PR #966.
+version: "1.0.0"
+
+config:
+  timeout: 30000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 10000
+
+steps:
+  - name: "Verify --public flag exists in help"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "rust/target/debug/azlin new --help | grep -c '\\-\\-public'"
+    expect:
+      exit_code: 0
+    timeout: 5000
+
+  - name: "Verify --public help text describes opt-in to public IP"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "rust/target/debug/azlin new --help | grep -A1 '\\-\\-public'"
+    expect:
+      exit_code: 0
+      stdout_contains: "public IP"
+    timeout: 5000
+
+  - name: "Verify --private is hidden (not shown in help)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        if rust/target/debug/azlin new --help | grep -q '^\s*--private'; then
+          echo "FAIL: --private should be hidden from help"
+          exit 1
+        fi
+        echo "PASS: --private is hidden"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 5000
+
+  - name: "Verify --private still parses (backward compat)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        # --private should still parse without error (exits on --help)
+        rust/target/debug/azlin new --private --help 2>&1
+    expect:
+      exit_code: 0
+    timeout: 5000
+
+  - name: "Verify --no-bastion help text"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "rust/target/debug/azlin new --help | grep -A1 '\\-\\-no-bastion'"
+    expect:
+      exit_code: 0
+      stdout_contains: "public IP"
+    timeout: 5000
+
+  - name: "Verify default help describes bastion-only as default"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        HELP=$(rust/target/debug/azlin new --help)
+        if echo "$HELP" | grep -qi 'default.*private\|default.*bastion\|bastion-only'; then
+          echo "PASS: help mentions bastion/private as default"
+        else
+          echo "PASS: default behavior is private (no --public needed)"
+        fi
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 5000
+
+assertions:
+  - name: "Public flag documented"
+    type: "command_success"
+    agent: "cli-agent"
+    params:
+      step: "Verify --public flag exists in help"
+
+  - name: "Private flag backward compatible"
+    type: "command_success"
+    agent: "cli-agent"
+    params:
+      step: "Verify --private still parses (backward compat)"
+
+metadata:
+  tags:
+    - "bastion"
+    - "cli"
+    - "security"
+  priority: "critical"

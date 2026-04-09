@@ -7,8 +7,8 @@ Technical reference for azlin's credential forwarding system (`auth_forward` mod
 | Flag | Effect on Credential Forwarding |
 |------|-------------------------------|
 | `--yes` | Forwards all detected credentials without prompting |
-| `--private` | Routes SCP through bastion tunnel automatically |
-| `--no-bastion` | Forces direct SCP even when bastion is available |
+| `--public` | Creates VM with public IP; SCP goes direct instead of bastion |
+| `--no-bastion` | Same as `--public`: forces direct SCP, skips bastion |
 
 Credential forwarding is triggered by `azlin new`. There is no standalone forwarding command.
 

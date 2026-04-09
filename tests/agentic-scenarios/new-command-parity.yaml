@@ -45,7 +45,7 @@ steps:
         for flag in --repo --size --vm-size --region --resource-group --name --pool \
                     --no-auto-connect --config --template --nfs-storage --no-nfs \
                     --no-bastion --bastion-name --yes --home-disk-size --no-home-disk \
-                    --tmp-disk-size --os --private --no-tmux --tmux-session; do
+                    --tmp-disk-size --os --public --no-tmux --tmux-session; do
           echo "$HELP" | grep -q -- "$flag" || MISSING="$MISSING $flag"
         done
         if [ -n "$MISSING" ]; then

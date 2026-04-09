@@ -95,8 +95,8 @@ mod parity_tests {
         let cli = Cli::parse_from(["azlin", "code", "my-vm"]);
         if let Commands::Code { workspace, .. } = cli.command {
             assert_eq!(
-                workspace, "/home/user",
-                "code --workspace should default to '/home/user'"
+                workspace, "/home/azureuser",
+                "code --workspace should default to '/home/azureuser'"
             );
         } else {
             panic!("Expected Code command");

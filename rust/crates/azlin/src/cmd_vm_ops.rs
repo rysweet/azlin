@@ -158,16 +158,21 @@ pub(crate) async fn handle_vm_new(
     _tmux_session: Option<String>,
     bastion_name: Option<String>,
     private: bool,
+    public: bool,
     yes: bool,
     _home_disk_size: Option<u32>,
     _no_home_disk: bool,
     _tmp_disk_size: Option<u32>,
     _os: Option<String>,
 ) -> Result<()> {
-    // Validate flag combinations early, before creating any resources
-    if private && no_bastion {
+    // Resolve public IP intent: default is private (bastion-routed).
+    // --public or --no-bastion opts in to a public IP.
+    // --private is now the default and kept for backward compat.
+    let want_public_ip = public || no_bastion;
+
+    if private && want_public_ip {
         anyhow::bail!(
-            "--private and --no-bastion cannot be used together: \
+            "--private and --public/--no-bastion cannot be used together: \
              a private VM has no public IP and requires bastion for SSH access"
         );
     }
@@ -323,7 +328,7 @@ pub(crate) async fn handle_vm_new(
             ssh_key_path: ssh_key_path.clone(),
             image: azlin_core::models::VmImage::default(),
             tags,
-            public_ip_enabled: !private,
+            public_ip_enabled: want_public_ip,
             disk_ids: vec![],
         };
 

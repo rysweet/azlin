@@ -199,7 +199,7 @@ pub enum Commands {
         #[arg(long)]
         no_nfs: bool,
 
-        /// Skip bastion auto-detection and always create public IP
+        /// Skip bastion auto-detection and create with public IP
         #[arg(long)]
         no_bastion: bool,
 
@@ -215,9 +215,13 @@ pub enum Commands {
         #[arg(long)]
         bastion_name: Option<String>,
 
-        /// Create VM without public IP (Bastion-only)
-        #[arg(long)]
+        /// Create VM without public IP (Bastion-only) [default behavior]
+        #[arg(long, hide = true)]
         private: bool,
+
+        /// Create VM with a public IP instead of bastion-only (default: private/bastion)
+        #[arg(long, conflicts_with = "private")]
+        public: bool,
 
         /// Skip confirmation prompts (auto-accept auth forwarding)
         #[arg(short = 'y', long)]
@@ -4448,7 +4452,7 @@ mod tests {
             "--repo",
             "https://github.com/user/repo",
             "--no-auto-connect",
-            "--private",
+            "--public",
             "--bastion-name",
             "mybastion",
         ]);
@@ -4459,7 +4463,7 @@ mod tests {
             resource_group,
             repo,
             no_auto_connect,
-            private,
+            public,
             bastion_name,
             ..
         } = cli.command
@@ -4470,8 +4474,32 @@ mod tests {
             assert_eq!(resource_group, Some("rg".to_string()));
             assert_eq!(repo, Some("https://github.com/user/repo".to_string()));
             assert!(no_auto_connect);
-            assert!(private);
+            assert!(public);
             assert_eq!(bastion_name, Some("mybastion".to_string()));
+        } else {
+            panic!("Expected New command");
+        }
+    }
+
+    #[test]
+    fn test_new_defaults_to_private() {
+        let cli = Cli::parse_from(["azlin", "new", "--name", "test-vm"]);
+        if let Commands::New {
+            public, private, ..
+        } = cli.command
+        {
+            assert!(!public, "VMs should default to private (no --public)");
+            assert!(!private, "--private is hidden compat flag, not set by default");
+        } else {
+            panic!("Expected New command");
+        }
+    }
+
+    #[test]
+    fn test_new_private_flag_still_parses() {
+        let cli = Cli::parse_from(["azlin", "new", "--name", "test-vm", "--private"]);
+        if let Commands::New { private, .. } = cli.command {
+            assert!(private);
         } else {
             panic!("Expected New command");
         }

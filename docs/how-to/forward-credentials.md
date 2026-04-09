@@ -49,13 +49,13 @@ All detected credentials are forwarded automatically. This is useful for scripte
 
 ## Forward Credentials Through a Bastion
 
-When creating a private VM behind an Azure Bastion, credential forwarding routes SCP through the bastion tunnel automatically:
+VMs are private (bastion-routed) by default. Credential forwarding automatically routes SCP through the bastion tunnel:
 
 ```bash
-azlin new --name private-vm --private
+azlin new --name private-vm
 ```
 
-No extra flags needed. azlin detects the bastion tunnel and routes SCP through `127.0.0.1` on the tunneled port.
+No extra flags needed. azlin detects the bastion tunnel and routes SCP through `127.0.0.1` on the tunneled port. Use `--public` or `--no-bastion` to create a VM with a public IP instead.
 
 ## Verify Credentials on the VM
 
