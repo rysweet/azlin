@@ -1,13 +1,15 @@
-//! `azlin tunnel` — SSH local port-forwarding to remote VMs.
+//! `azlin tunnel` — port-forwarding to remote VMs via Azure Bastion or SSH.
 //!
-//! Spawns `ssh -N -L` subprocesses, records their PIDs in
-//! `~/.azlin/tunnels.json`, and provides `list` / `close` subcommands.
+//! For non-SSH ports, uses direct `az bastion tunnel` (single hop).
+//! For SSH (port 22), layers `ssh -N -L` on top of a bastion tunnel.
+//! Records PIDs in `~/.azlin/tunnels.json` and provides `list`/`close`.
 
 #[allow(unused_imports)]
 use super::*;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 
 // ---------------------------------------------------------------------------
@@ -63,6 +65,33 @@ fn process_is_running(pid: u32) -> bool {
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
+}
+
+/// Kill a process and its entire process group.
+/// `az` spawns bash→python3, so killing just the parent leaves orphans.
+fn kill_process_tree(pid: u32) {
+    let _ = std::process::Command::new("kill")
+        .args(["--", &format!("-{}", pid)])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    let _ = std::process::Command::new("kill")
+        .arg(pid.to_string())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
+/// Spawn a command as a new process group leader so we can kill the
+/// entire tree (e.g. az → bash → python3) with a single signal.
+fn spawn_as_group_leader(cmd: &mut std::process::Command) -> Result<std::process::Child> {
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    cmd.spawn().map_err(Into::into)
 }
 
 // ---------------------------------------------------------------------------
@@ -158,9 +187,7 @@ async fn cmd_tunnel_open(
             _ = tokio::signal::ctrl_c() => {
                 println!("\nShutting down tunnels...");
                 for e in &entries {
-                    let _ = std::process::Command::new("kill")
-                        .arg(e.pid.to_string())
-                        .status();
+                    kill_process_tree(e.pid);
                 }
                 let remaining = prune_tunnels(load_tunnels().unwrap_or_default());
                 let _ = save_tunnels(&remaining);
@@ -270,10 +297,9 @@ fn open_bastion_tunnels(
         vm.name
     );
 
-    // For bastion-routed VMs we open one bastion tunnel per app port.
-    // Each bastion tunnel maps a local SSH port → VM port 22 (Azure Bastion handles the
-    // inner jump). We then layer an SSH -L on top to forward the desired app port.
-    let base_local_port: u16 = 50200;
+    // For non-SSH ports, use a direct `az bastion tunnel` with
+    // `--resource-port <app_port>` — single hop, no fragile SSH layer.
+    // Only use the two-hop approach (bastion→22 + SSH -L) for port 22.
 
     for (i, &remote_port) in ports.iter().enumerate() {
         let lport = if ports.len() == 1 {
@@ -282,83 +308,188 @@ fn open_bastion_tunnels(
             remote_port
         };
 
-        let bastion_local_port = base_local_port + i as u16;
-
-        // Step 1: open az bastion tunnel → bastion_local_port
-        let bastion_child = std::process::Command::new("az")
-            .args([
-                "network",
-                "bastion",
-                "tunnel",
-                "--name",
-                bastion_name,
-                "--resource-group",
-                rg,
-                "--target-resource-id",
-                &vm_rid,
-                "--resource-port",
-                "22",
-                "--port",
-                &bastion_local_port.to_string(),
-            ])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .context("Failed to spawn az bastion tunnel")?;
-
-        let bastion_pid = bastion_child.id();
-        std::mem::forget(bastion_child);
-
-        // Wait for bastion tunnel to establish
-        std::thread::sleep(std::time::Duration::from_secs(3));
-
-        // Step 2: ssh -N -L lport:localhost:remote_port -p bastion_local_port user@127.0.0.1
-        let mut ssh_args = vec![
-            "-N".to_string(),
-            "-o".to_string(),
-            "StrictHostKeyChecking=accept-new".to_string(),
-            "-p".to_string(),
-            bastion_local_port.to_string(),
-            "-L".to_string(),
-            format!("{}:localhost:{}", lport, remote_port),
-        ];
-        if let Some(k) = key {
-            ssh_args.push("-i".to_string());
-            ssh_args.push(k.display().to_string());
+        if remote_port == 22 {
+            open_bastion_ssh_tunnel(
+                bastion_name, rg, &vm_rid, vm, user, lport, key, entries, i,
+            )?;
+        } else {
+            open_bastion_direct_tunnel(
+                bastion_name, rg, &vm_rid, vm, lport, remote_port, entries,
+            )?;
         }
-        ssh_args.push(format!("{}@127.0.0.1", user));
-
-        let ssh_child = std::process::Command::new("ssh")
-            .args(&ssh_args)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .with_context(|| format!("Failed to spawn ssh -L for port {}", remote_port))?;
-
-        let ssh_pid = ssh_child.id();
-        std::mem::forget(ssh_child);
-
-        println!(
-            "Forwarding localhost:{} → {}:{} (via bastion)",
-            lport, vm.name, remote_port
-        );
-
-        // Record both pids — we store the SSH -L pid as the primary; also record bastion pid
-        entries.push(TunnelEntry {
-            vm_name: vm.name.clone(),
-            local_port: lport,
-            remote_port,
-            pid: ssh_pid,
-        });
-        // Store bastion tunnel pid as a synthetic entry (remote_port=0 signals bastion helper)
-        entries.push(TunnelEntry {
-            vm_name: format!("{}__bastion__{}", vm.name, i),
-            local_port: bastion_local_port,
-            remote_port: 0,
-            pid: bastion_pid,
-        });
     }
     Ok(())
+}
+
+/// Direct bastion tunnel for application (non-SSH) ports.
+///
+/// `az bastion tunnel --resource-port <app_port> --port <local_port>`
+/// maps localhost:<local_port> straight to VM:<app_port> through the bastion.
+fn open_bastion_direct_tunnel(
+    bastion_name: &str,
+    rg: &str,
+    vm_rid: &str,
+    vm: &azlin_core::models::VmInfo,
+    local_port: u16,
+    remote_port: u16,
+    entries: &mut Vec<TunnelEntry>,
+) -> Result<()> {
+    let mut cmd = std::process::Command::new("az");
+    cmd.args([
+            "network",
+            "bastion",
+            "tunnel",
+            "--name",
+            bastion_name,
+            "--resource-group",
+            rg,
+            "--target-resource-id",
+            vm_rid,
+            "--resource-port",
+            &remote_port.to_string(),
+            "--port",
+            &local_port.to_string(),
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let bastion_child = spawn_as_group_leader(&mut cmd)
+        .context("Failed to spawn az bastion tunnel")?;
+
+    let pid = bastion_child.id();
+    std::mem::forget(bastion_child);
+
+    wait_for_listener(local_port, std::time::Duration::from_secs(15))?;
+
+    println!(
+        "Forwarding localhost:{} → {}:{} (via bastion)",
+        local_port, vm.name, remote_port
+    );
+
+    entries.push(TunnelEntry {
+        vm_name: vm.name.clone(),
+        local_port,
+        remote_port,
+        pid,
+    });
+
+    Ok(())
+}
+
+/// Two-hop bastion tunnel for SSH (port 22) forwarding.
+///
+/// Step 1: `az bastion tunnel --resource-port 22 --port <ephemeral>`
+/// Step 2: `ssh -N -L <lport>:localhost:22 -p <ephemeral> user@127.0.0.1`
+#[allow(clippy::too_many_arguments)]
+fn open_bastion_ssh_tunnel(
+    bastion_name: &str,
+    rg: &str,
+    vm_rid: &str,
+    vm: &azlin_core::models::VmInfo,
+    user: &str,
+    local_port: u16,
+    key: Option<&std::path::Path>,
+    entries: &mut Vec<TunnelEntry>,
+    index: usize,
+) -> Result<()> {
+    let bastion_local_port: u16 = 50200 + index as u16;
+
+    let mut cmd = std::process::Command::new("az");
+    cmd.args([
+            "network",
+            "bastion",
+            "tunnel",
+            "--name",
+            bastion_name,
+            "--resource-group",
+            rg,
+            "--target-resource-id",
+            vm_rid,
+            "--resource-port",
+            "22",
+            "--port",
+            &bastion_local_port.to_string(),
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let bastion_child = spawn_as_group_leader(&mut cmd)
+        .context("Failed to spawn az bastion tunnel")?;
+
+    let bastion_pid = bastion_child.id();
+    std::mem::forget(bastion_child);
+
+    wait_for_listener(bastion_local_port, std::time::Duration::from_secs(15))?;
+
+    let mut ssh_args = vec![
+        "-N".to_string(),
+        "-o".to_string(),
+        "StrictHostKeyChecking=accept-new".to_string(),
+        "-o".to_string(),
+        "ServerAliveInterval=15".to_string(),
+        "-o".to_string(),
+        "ServerAliveCountMax=3".to_string(),
+        "-o".to_string(),
+        "ExitOnForwardFailure=yes".to_string(),
+        "-p".to_string(),
+        bastion_local_port.to_string(),
+        "-L".to_string(),
+        format!("{}:localhost:22", local_port),
+    ];
+    if let Some(k) = key {
+        ssh_args.push("-i".to_string());
+        ssh_args.push(k.display().to_string());
+    }
+    ssh_args.push(format!("{}@127.0.0.1", user));
+
+    let ssh_child = std::process::Command::new("ssh")
+        .args(&ssh_args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .with_context(|| "Failed to spawn ssh -L for port 22".to_string())?;
+
+    let ssh_pid = ssh_child.id();
+    std::mem::forget(ssh_child);
+
+    wait_for_listener(local_port, std::time::Duration::from_secs(10))?;
+
+    println!(
+        "Forwarding localhost:{} → {}:22 (via bastion + SSH)",
+        local_port, vm.name
+    );
+
+    entries.push(TunnelEntry {
+        vm_name: vm.name.clone(),
+        local_port,
+        remote_port: 22,
+        pid: ssh_pid,
+    });
+    entries.push(TunnelEntry {
+        vm_name: format!("{}__bastion__{}", vm.name, index),
+        local_port: bastion_local_port,
+        remote_port: 0,
+        pid: bastion_pid,
+    });
+
+    Ok(())
+}
+
+/// Poll until a TCP listener appears on 127.0.0.1:<port>, or timeout.
+fn wait_for_listener(port: u16, timeout: std::time::Duration) -> Result<()> {
+    let start = std::time::Instant::now();
+    let addr: std::net::SocketAddr = ([127, 0, 0, 1], port).into();
+    while start.elapsed() < timeout {
+        if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(200))
+            .is_ok()
+        {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+    anyhow::bail!(
+        "Timed out waiting for listener on localhost:{} (waited {:?})",
+        port,
+        timeout
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -414,9 +545,7 @@ fn cmd_tunnel_close(vm_identifier: Option<String>, all: bool) -> Result<()> {
                 .unwrap_or(false);
 
         if should_close {
-            let _ = std::process::Command::new("kill")
-                .arg(e.pid.to_string())
-                .status();
+            kill_process_tree(e.pid);
             if e.remote_port != 0 {
                 println!(
                     "Closed tunnel: localhost:{} → {}:{}",
