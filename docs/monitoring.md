@@ -539,4 +539,4 @@ azlin monitor dashboard
 
 - [Azure Monitor Metrics](https://docs.microsoft.com/azure/azure-monitor/platform/data-platform-metrics)
 - [azlin distributed top](./distributed_top.md) - Live process monitoring
-- [azlin cost tracking](./cost_tracking.md) - Cost estimation and tracking
+- [azlin cost tracking](.cost-optimization-intelligence.md) - Cost estimation and tracking
