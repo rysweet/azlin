@@ -926,7 +926,7 @@ azlin defaults to safer options. Use `async` only fer specific write-heavy workl
 - [Storage Management Basics](./storage-basics.md) - Core storage concepts and commands
 - [VM Management](./vm-management.md) - VM creation and configuration
 - [Snapshot Management](./snapshot-management.md) - Automated backup and retention
-- [Cost Optimization Guide](docs/cost-optimization-intelligence.md) - Comprehensive cost management strategies
+- [Cost Optimization Guide](https://github.com/monapdx/azlin/blob/36534a38ec7e558d046f87a245cc3cdc5b8d015e/docs/cost-optimization-intelligence.md) - Comprehensive cost management strategies
 
 ## Support
 
