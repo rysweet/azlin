@@ -146,12 +146,6 @@ dev-vm      3000        3000         12346
 db-server   15432       5432         12347
 ```
 
-JSON output for scripting:
-
-```bash
-azlin tunnel list -o json
-```
-
 ### Close Tunnels
 
 ```bash
@@ -211,5 +205,4 @@ Options:
   --key <KEY>                 SSH private key path
   --resource-group <RG>       Resource group
   -v, --verbose               Enable verbose output
-  -o, --output <FORMAT>       Output format [default: table]
 ```
