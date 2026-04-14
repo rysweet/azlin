@@ -618,10 +618,20 @@ pub fn az_cli_with_timeout(args: &[&str], timeout_secs: u64) -> Result<String> {
     if code == 0 {
         Ok(stdout)
     } else {
-        Err(anyhow::anyhow!(
-            "az CLI failed: {}",
-            azlin_core::sanitizer::sanitize(stderr.trim())
-        ))
+        let sanitized_stderr = azlin_core::sanitizer::sanitize(stderr.trim());
+
+        // Try to parse structured Azure errors from the stderr text.
+        // The az CLI sometimes crashes while formatting errors (e.g.,
+        // QuotaExceeded triggers an internal AttributeError), so we
+        // extract the real error from the traceback.
+        if let Some(parsed) =
+            crate::error_handler::parse_azure_error_from_stderr(&sanitized_stderr)
+        {
+            let friendly = crate::error_handler::format_user_friendly_error(&parsed);
+            Err(anyhow::anyhow!("{}", friendly.trim()))
+        } else {
+            Err(anyhow::anyhow!("az CLI failed: {}", sanitized_stderr))
+        }
     }
 }
 

@@ -553,6 +553,7 @@ azlin destroy ci-test
 ## See Also
 
 - [Architecture Documentation](../vm-lifecycle-architecture.md)
+- [SSH Readiness Wait Behavior](ssh-readiness-wait.md) — adaptive SSH timeouts during `azlin new`
 - [Configuration Reference](../reference/lifecycle-config.md)
 - [Hook Examples](../examples/lifecycle-hooks/)
 - [azlin status command](../commands/status.md)

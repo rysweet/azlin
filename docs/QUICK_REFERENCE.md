@@ -83,6 +83,17 @@ azlin <command> --help             # Command-specific help
 --region westus2                   # Azure region
 ```
 
+### Network / Bastion
+```bash
+--public                           # Create VM with public IP (no bastion)
+--no-bastion                       # Same as --public
+--yes                              # Auto-accept prompts (incl. bastion creation)
+```
+
+> **Note:** Private VMs (default) require Azure Bastion. If no bastion exists
+> in the target region, `azlin new` offers to create one automatically.
+> See [Bastion Pre-Check](docs/features/bastion-pre-check.md).
+
 ### Advanced
 ```bash
 --pool 5                           # Create 5 VMs in parallel
