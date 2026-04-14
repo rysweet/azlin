@@ -130,12 +130,15 @@ pub(crate) fn wait_for_post_create_readiness(
             wait_for_cloud_init(ip, user, bastion_port, key_override, interactive_ssh)?;
             Ok(SshReadiness::Ready)
         }
-        Err(_) => Ok(SshReadiness::TimedOut {
-            elapsed_secs: ssh_timeout.as_secs(),
-            host: ssh_host.to_string(),
-            port: ssh_port,
-            user: user.to_string(),
-        }),
+        Err(e) => {
+            eprintln!("SSH readiness failed: {e:#}");
+            Ok(SshReadiness::TimedOut {
+                elapsed_secs: ssh_timeout.as_secs(),
+                host: ssh_host.to_string(),
+                port: ssh_port,
+                user: user.to_string(),
+            })
+        }
     }
 }
 
