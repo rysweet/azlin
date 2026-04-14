@@ -1110,9 +1110,9 @@ pub enum Commands {
     /// Supports direct SSH and Azure Bastion-routed VMs.
     ///
     /// Examples:
-    ///   azlin tunnel myvm 8080              # forward remote 8080 → localhost:8080
-    ///   azlin tunnel myvm 5432 --local-port 15432
-    ///   azlin tunnel myvm 8080 3000 5432    # forward multiple ports
+    ///   azlin tunnel open myvm 8080              # forward remote 8080 → localhost:8080
+    ///   azlin tunnel open myvm 5432 --local-port 15432
+    ///   azlin tunnel open myvm 8080 3000 5432    # forward multiple ports
     ///   azlin tunnel list                   # show active tunnels
     ///   azlin tunnel close myvm             # close tunnels for a VM
     ///   azlin tunnel close --all            # close all tunnels
