@@ -1,0 +1,62 @@
+scenario:
+  name: "Bastion Pre-Check - Help Text and Flag Validation"
+  description: >
+    Verify that azlin new exposes bastion-related CLI options and
+    properly rejects conflicting flag combinations (--private + --public).
+  type: cli
+  tags: [smoke, bastion, flags]
+
+  prerequisites:
+    - "azlin binary exists at ./rust/target/debug/azlin"
+
+  steps:
+    - action: launch
+      target: "./rust/target/debug/azlin"
+      args: ["new", "--help"]
+
+    - action: verify_output
+      contains: "--no-bastion"
+      description: "Help should mention --no-bastion flag"
+
+    - action: verify_output
+      contains: "--bastion-name"
+      description: "Help should mention --bastion-name option"
+
+    - action: verify_output
+      contains: "--public"
+      description: "Help should mention --public flag"
+
+    - action: verify_output
+      contains: "--private"
+      description: "Help should mention --private flag (backward compat)"
+
+    - action: verify_output
+      contains: "--yes"
+      description: "Help should mention --yes flag for auto-accept"
+
+    - action: verify_exit_code
+      expected: 0
+
+    # Test conflicting flags: --private + --public
+    - action: launch
+      target: "./rust/target/debug/azlin"
+      args: ["new", "--private", "--public", "--name", "conflict-test"]
+
+    - action: verify_output
+      contains: "cannot be used with"
+      description: "Should reject --private + --public combination"
+
+    - action: verify_exit_code
+      expected: 2
+
+    # Test conflicting flags: --private + --no-bastion
+    - action: launch
+      target: "./rust/target/debug/azlin"
+      args: ["new", "--private", "--no-bastion", "--name", "conflict-test2"]
+
+    - action: verify_output
+      contains: "cannot be used together"
+      description: "Should reject --private + --no-bastion"
+
+    - action: verify_exit_code
+      expected: 1

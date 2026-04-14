@@ -872,18 +872,17 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires non-TTY stdin; hangs in interactive terminals because dialoguer blocks"]
     fn test_prompt_bastion_action_non_tty_returns_create_bastion() {
-        // In CI/non-interactive mode (piped stdin), should auto-create
-        // Note: in test harness, stdin is typically not a TTY
+        // In CI/non-interactive mode (piped stdin), should auto-create.
+        // This test only works when stdin is NOT a terminal (e.g. CI piped
+        // stdin). In an interactive TTY session, dialoguer::Select blocks
+        // forever waiting for user input, so we #[ignore] by default and
+        // run explicitly in CI with: cargo test -- --ignored
         let result = super::prompt_bastion_action("westus", false);
-        // In test environment, stdin is not a terminal, so this should
-        // either return CreateBastion (non-TTY path) or fail with dialoguer error
-        // The non-TTY path returns CreateBastion
         match result {
             Ok(action) => assert_eq!(action, super::BastionMissingAction::CreateBastion),
             Err(e) => {
-                // If somehow we hit the interactive path, dialoguer will fail
-                // because there's no real terminal — that's also acceptable
                 assert!(
                     e.to_string().contains("io error")
                         || e.to_string().contains("not a terminal"),
