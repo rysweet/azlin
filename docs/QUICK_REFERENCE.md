@@ -92,7 +92,7 @@ azlin <command> --help             # Command-specific help
 
 > **Note:** Private VMs (default) require Azure Bastion. If no bastion exists
 > in the target region, `azlin new` offers to create one automatically.
-> See [Bastion Pre-Check](docs/features/bastion-pre-check.md).
+> See [Bastion Pre-Check](features/bastion-pre-check.md).
 
 ### Advanced
 ```bash

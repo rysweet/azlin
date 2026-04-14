@@ -386,7 +386,17 @@ pub(crate) async fn handle_vm_new(
     // ── Bastion pre-check: ensure bastion infrastructure exists before
     //    creating private VMs that depend on it for SSH access ──────────
     if !want_public_ip {
-        let bastions = crate::list_helpers::detect_bastion_hosts(&rg).unwrap_or_default();
+        let bastions = match crate::list_helpers::detect_bastion_hosts(&rg) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!(
+                    "Warning: failed to detect bastion hosts ({}). \
+                     Assuming none exist in {final_loc}.",
+                    e
+                );
+                vec![]
+            }
+        };
         if !crate::bastion_helpers::bastion_exists_in_region(&bastions, &final_loc) {
             match prompt_bastion_action(&final_loc, yes)? {
                 BastionMissingAction::CreateBastion => {

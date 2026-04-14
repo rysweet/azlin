@@ -144,7 +144,7 @@ fn format_quota_error_from_message(message: &str) -> String {
     let new_limit_required = extract_field(message, "(Minimum) New Limit Required: ");
 
     if current_limit.is_some() || current_usage.is_some() {
-        msg.push_str("\n");
+        msg.push('\n');
         if let Some(loc) = &location {
             msg.push_str(&format!("   Region:     {}\n", loc));
         }
@@ -185,7 +185,7 @@ fn extract_field(message: &str, prefix: &str) -> Option<String> {
     let rest = &message[start..];
     // Value ends at comma, period, or end of string
     let end = rest
-        .find(|c: char| c == ',' || c == '.' || c == '\n')
+        .find([',', '.', '\n'])
         .unwrap_or(rest.len());
     let value = rest[..end].trim();
     if value.is_empty() {

@@ -171,8 +171,10 @@ pub(crate) enum SshReadiness {
     /// SSH did not become available within the timeout.
     /// The VM was created but sshd is not yet responding.
     TimedOut {
-        elapsed: Duration,
-        timeout: Duration,
+        elapsed_secs: u64,
+        host: String,
+        port: u16,
+        user: String,
     },
 }
 ```
