@@ -2,6 +2,60 @@
 use super::*;
 use anyhow::Result;
 
+/// Action to take when no bastion host exists in the target region.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BastionMissingAction {
+    /// Create bastion infrastructure, then proceed with private VM.
+    CreateBastion,
+    /// Switch to public IP instead of bastion-routed.
+    SwitchToPublicIp,
+    /// Abort VM creation.
+    Abort,
+}
+
+/// Decide what to do when bastion is missing in the target region.
+///
+/// - `yes` flag → auto-select CreateBastion
+/// - non-TTY stdin → auto-select CreateBastion with warning
+/// - TTY stdin → show interactive prompt with 3 options
+pub(crate) fn prompt_bastion_action(region: &str, yes: bool) -> Result<BastionMissingAction> {
+    use std::io::IsTerminal;
+
+    eprintln!(
+        "No Azure Bastion found in {region}. A bastion is required to SSH into private VMs."
+    );
+
+    if yes {
+        eprintln!("--yes flag set: auto-creating bastion infrastructure...");
+        return Ok(BastionMissingAction::CreateBastion);
+    }
+
+    if !std::io::stdin().is_terminal() {
+        eprintln!(
+            "Warning: non-interactive session detected. Auto-creating bastion infrastructure \
+             in {region}. Use --public or --no-bastion to skip bastion for CI pipelines."
+        );
+        return Ok(BastionMissingAction::CreateBastion);
+    }
+
+    let items = &[
+        "Create bastion now (takes ~5-10 min)",
+        "Switch to public IP instead",
+        "Abort",
+    ];
+    let selection = dialoguer::Select::new()
+        .with_prompt("How would you like to proceed?")
+        .items(items)
+        .default(0)
+        .interact()?;
+
+    Ok(match selection {
+        0 => BastionMissingAction::CreateBastion,
+        1 => BastionMissingAction::SwitchToPublicIp,
+        _ => BastionMissingAction::Abort,
+    })
+}
+
 fn requires_post_create_ssh(
     repo_requested: bool,
     has_home_seed_sources: bool,
@@ -168,7 +222,7 @@ pub(crate) async fn handle_vm_new(
     // Resolve public IP intent: default is private (bastion-routed).
     // --public or --no-bastion opts in to a public IP.
     // --private is now the default and kept for backward compat.
-    let want_public_ip = public || no_bastion;
+    let mut want_public_ip = public || no_bastion;
 
     if private && want_public_ip {
         anyhow::bail!(
@@ -295,6 +349,35 @@ pub(crate) async fn handle_vm_new(
     } else {
         loc
     };
+
+    // ── Bastion pre-check: ensure bastion infrastructure exists before
+    //    creating private VMs that depend on it for SSH access ──────────
+    if !want_public_ip {
+        let bastions = crate::list_helpers::detect_bastion_hosts(&rg).unwrap_or_default();
+        if !crate::bastion_helpers::bastion_exists_in_region(&bastions, &final_loc) {
+            match prompt_bastion_action(&final_loc, yes)? {
+                BastionMissingAction::CreateBastion => {
+                    let pb = penguin_spinner(&format!(
+                        "Provisioning bastion infrastructure in {}...",
+                        final_loc
+                    ));
+                    let result =
+                        crate::bastion_helpers::ensure_bastion_infrastructure(&rg, &final_loc);
+                    pb.finish_and_clear();
+                    result?;
+                }
+                BastionMissingAction::SwitchToPublicIp => {
+                    eprintln!("Switching to public IP for this VM.");
+                    want_public_ip = true;
+                }
+                BastionMissingAction::Abort => {
+                    anyhow::bail!(
+                        "Aborted: no bastion host in {final_loc} and user chose not to create one"
+                    );
+                }
+            }
+        }
+    }
 
     for i in 0..vm_count {
         let vm_name = if let Some(ref n) = name {
@@ -757,5 +840,56 @@ mod tests {
         assert!(super::requires_post_create_ssh(true, false, false));
         assert!(super::requires_post_create_ssh(false, true, false));
         assert!(super::requires_post_create_ssh(false, false, true));
+    }
+
+    // ── BastionMissingAction enum tests ──────────────────────────────
+
+    #[test]
+    fn test_bastion_missing_action_enum_variants() {
+        // Verify all three variants exist and are distinguishable
+        let create = super::BastionMissingAction::CreateBastion;
+        let switch = super::BastionMissingAction::SwitchToPublicIp;
+        let abort = super::BastionMissingAction::Abort;
+        assert_ne!(create, switch);
+        assert_ne!(create, abort);
+        assert_ne!(switch, abort);
+    }
+
+    #[test]
+    fn test_bastion_missing_action_is_copy() {
+        let action = super::BastionMissingAction::CreateBastion;
+        let copy = action; // Copy
+        assert_eq!(action, copy);
+    }
+
+    // ── prompt_bastion_action tests ──────────────────────────────────
+
+    #[test]
+    fn test_prompt_bastion_action_yes_flag_returns_create_bastion() {
+        // When --yes is set, should always auto-create without prompting
+        let result = super::prompt_bastion_action("eastus2", true).unwrap();
+        assert_eq!(result, super::BastionMissingAction::CreateBastion);
+    }
+
+    #[test]
+    fn test_prompt_bastion_action_non_tty_returns_create_bastion() {
+        // In CI/non-interactive mode (piped stdin), should auto-create
+        // Note: in test harness, stdin is typically not a TTY
+        let result = super::prompt_bastion_action("westus", false);
+        // In test environment, stdin is not a terminal, so this should
+        // either return CreateBastion (non-TTY path) or fail with dialoguer error
+        // The non-TTY path returns CreateBastion
+        match result {
+            Ok(action) => assert_eq!(action, super::BastionMissingAction::CreateBastion),
+            Err(e) => {
+                // If somehow we hit the interactive path, dialoguer will fail
+                // because there's no real terminal — that's also acceptable
+                assert!(
+                    e.to_string().contains("io error")
+                        || e.to_string().contains("not a terminal"),
+                    "Unexpected error: {e}"
+                );
+            }
+        }
     }
 }

@@ -47,7 +47,33 @@ pub fn parse_azure_error(body: &str) -> Option<AzureError> {
 pub fn format_user_friendly_error(error: &AzureError) -> String {
     let mut msg = String::new();
 
+    // Check for quota errors in details first (e.g. InvalidTemplateDeployment wrapping QuotaExceeded)
+    if let Some(quota_detail) = error
+        .details
+        .iter()
+        .find(|d| d.code == "QuotaExceeded" || d.code == "QuotaExceededError")
+    {
+        return format_quota_error_from_message(&quota_detail.message);
+    }
+
     match error.code.as_str() {
+        "QuotaExceeded" | "QuotaExceededError" => {
+            return format_quota_error_from_message(&error.message);
+        }
+        "InvalidTemplateDeployment" => {
+            msg.push_str("❌ Azure deployment validation failed.\n");
+            if !error.details.is_empty() {
+                for detail in &error.details {
+                    msg.push_str(&format!(
+                        "\n{}",
+                        format_user_friendly_error(detail)
+                    ));
+                }
+            } else {
+                msg.push_str(&format!("   {}\n", error.message));
+            }
+            return msg;
+        }
         "ResourceGroupNotFound" => {
             msg.push_str(&format!("❌ Resource group not found: {}\n", error.message));
             msg.push_str(
@@ -103,6 +129,153 @@ pub fn format_user_friendly_error(error: &AzureError) -> String {
     }
 
     msg
+}
+
+/// Format a quota exceeded error message with parsed limits and actionable suggestions.
+fn format_quota_error_from_message(message: &str) -> String {
+    let mut msg = String::new();
+    msg.push_str("❌ Quota exceeded: not enough vCPU cores available.\n");
+
+    // Extract quota details from the message
+    let location = extract_field(message, "Location: ");
+    let current_limit = extract_field(message, "Current Limit: ");
+    let current_usage = extract_field(message, "Current Usage: ");
+    let additional_required = extract_field(message, "Additional Required: ");
+    let new_limit_required = extract_field(message, "(Minimum) New Limit Required: ");
+
+    if current_limit.is_some() || current_usage.is_some() {
+        msg.push_str("\n");
+        if let Some(loc) = &location {
+            msg.push_str(&format!("   Region:     {}\n", loc));
+        }
+        if let Some(limit) = &current_limit {
+            msg.push_str(&format!("   Limit:      {} cores\n", limit));
+        }
+        if let Some(usage) = &current_usage {
+            msg.push_str(&format!("   In use:     {} cores\n", usage));
+        }
+        if let Some(required) = &additional_required {
+            msg.push_str(&format!("   Requested:  {} cores\n", required));
+        }
+        if let (Some(usage), Some(limit)) = (&current_usage, &current_limit) {
+            if let (Ok(u), Ok(l)) = (usage.parse::<u64>(), limit.parse::<u64>()) {
+                msg.push_str(&format!("   Available:  {} cores\n", l.saturating_sub(u)));
+            }
+        }
+        if let Some(new_limit) = &new_limit_required {
+            msg.push_str(&format!("   Need limit: {} cores\n", new_limit));
+        }
+    }
+
+    msg.push_str("\n💡 Options:\n");
+    msg.push_str("   • Use a smaller VM size (--size s or --size m)\n");
+    msg.push_str("   • Try a different region (--region eastus2)\n");
+    msg.push_str("   • Delete unused VMs to free cores (azlin list, azlin delete <name>)\n");
+    msg.push_str(
+        "   • Request a quota increase: https://aka.ms/ProdportalCRP\n",
+    );
+
+    msg
+}
+
+/// Extract a field value from an Azure error message like "Current Limit: 100, Current Usage: 88".
+fn extract_field(message: &str, prefix: &str) -> Option<String> {
+    let idx = message.find(prefix)?;
+    let start = idx + prefix.len();
+    let rest = &message[start..];
+    // Value ends at comma, period, or end of string
+    let end = rest
+        .find(|c: char| c == ',' || c == '.' || c == '\n')
+        .unwrap_or(rest.len());
+    let value = rest[..end].trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+/// Parse structured Azure error information from raw `az` CLI stderr output.
+///
+/// The `az` CLI sometimes crashes while formatting errors (e.g., the
+/// `InvalidTemplateDeployment` → `QuotaExceeded` chain triggers an internal
+/// `AttributeError` in the CLI's error handler). When this happens, the actual
+/// error details are still present in the stderr traceback text. This function
+/// extracts them.
+pub fn parse_azure_error_from_stderr(stderr: &str) -> Option<AzureError> {
+    // Look for parenthesized error codes like "(QuotaExceeded) message..."
+    // These appear in az CLI stderr even when the JSON parsing fails internally.
+    let mut top_code = None;
+    let mut top_message = None;
+    let mut details = Vec::new();
+
+    for line in stderr.lines() {
+        let trimmed = line.trim();
+
+        // Match lines like "(ErrorCode) Error message text"
+        // or "Code: ErrorCode"
+        if let Some(parsed) = parse_parenthesized_error(trimmed) {
+            if top_code.is_none() {
+                top_code = Some(parsed.0.clone());
+                top_message = Some(parsed.1.clone());
+            }
+            // Collect known detail codes separately
+            if parsed.0 == "QuotaExceeded"
+                || parsed.0 == "QuotaExceededError"
+                || parsed.0 == "SkuNotAvailable"
+                || parsed.0 == "OverconstrainedAllocationRequest"
+            {
+                details.push(AzureError {
+                    code: parsed.0,
+                    message: parsed.1,
+                    target: None,
+                    details: vec![],
+                });
+            }
+        }
+    }
+
+    let code = top_code?;
+    let message = top_message.unwrap_or_default();
+
+    Some(AzureError {
+        code,
+        message,
+        target: None,
+        details,
+    })
+}
+
+/// Parse a line like "(ErrorCode) Error message text" into (code, message).
+fn parse_parenthesized_error(line: &str) -> Option<(String, String)> {
+    // Skip Python traceback lines and noise
+    if line.starts_with("File ")
+        || line.starts_with("Traceback ")
+        || line.starts_with("During handling")
+        || line.contains("site-packages/")
+    {
+        return None;
+    }
+
+    // Strip common prefixes like "ERROR: " or "Message: "
+    let stripped = line
+        .strip_prefix("ERROR: ")
+        .or_else(|| line.strip_prefix("Exception Details:"))
+        .unwrap_or(line)
+        .trim();
+
+    if stripped.starts_with('(') {
+        let close = stripped.find(')')?;
+        let code = &stripped[1..close];
+        // Sanity: codes are PascalCase identifiers, no spaces
+        if code.contains(' ') || code.is_empty() {
+            return None;
+        }
+        let message = stripped[close + 1..].trim().to_string();
+        Some((code.to_string(), message))
+    } else {
+        None
+    }
 }
 
 /// Sanitize sensitive data from Azure CLI command strings for logging.
@@ -502,5 +675,120 @@ mod tests {
         };
         let msg = format_user_friendly_error(&err);
         assert!(msg.contains("quota limit"));
+    }
+
+    #[test]
+    fn test_format_quota_exceeded_code_directly() {
+        let err = AzureError {
+            code: "QuotaExceeded".to_string(),
+            message: "Operation could not be completed as it results in exceeding approved Total Regional Cores quota. Additional details - Deployment Model: Resource Manager, Location: westus, Current Limit: 100, Current Usage: 88, Additional Required: 64, (Minimum) New Limit Required: 152.".to_string(),
+            target: None,
+            details: vec![],
+        };
+        let msg = format_user_friendly_error(&err);
+        assert!(msg.contains("Quota exceeded"));
+        assert!(msg.contains("100 cores"));
+        assert!(msg.contains("88 cores"));
+        assert!(msg.contains("64 cores"));
+        assert!(msg.contains("12 cores")); // available = 100 - 88
+        assert!(msg.contains("westus"));
+        assert!(msg.contains("smaller VM size"));
+    }
+
+    #[test]
+    fn test_format_invalid_template_with_quota_detail() {
+        let err = AzureError {
+            code: "InvalidTemplateDeployment".to_string(),
+            message: "The template deployment is not valid".to_string(),
+            target: None,
+            details: vec![AzureError {
+                code: "QuotaExceeded".to_string(),
+                message: "Operation could not be completed as it results in exceeding approved Total Regional Cores quota. Additional details - Deployment Model: Resource Manager, Location: westus, Current Limit: 100, Current Usage: 88, Additional Required: 64, (Minimum) New Limit Required: 152.".to_string(),
+                target: None,
+                details: vec![],
+            }],
+        };
+        let msg = format_user_friendly_error(&err);
+        // Should surface the quota error directly, not the template wrapper
+        assert!(msg.contains("Quota exceeded"));
+        assert!(msg.contains("100 cores"));
+        assert!(msg.contains("smaller VM size"));
+    }
+
+    #[test]
+    fn test_parse_azure_error_from_stderr_quota() {
+        let stderr = r#"WARNING: The default value of '--size' will be changed to 'Standard_D2s_v5'
+ERROR: The command failed with an unexpected error.
+(InvalidTemplateDeployment) The template deployment 'vm_deploy_xxx' is not valid.
+Code: InvalidTemplateDeployment
+Message: The template deployment is not valid.
+Exception Details:      (QuotaExceeded) Operation could not be completed as it results in exceeding approved Total Regional Cores quota. Additional details - Deployment Model: Resource Manager, Location: westus, Current Limit: 100, Current Usage: 88, Additional Required: 64, (Minimum) New Limit Required: 152.
+        Code: QuotaExceeded
+        Message: Operation could not be completed
+Traceback (most recent call last):
+  File "/opt/az/lib/python3.13/site-packages/azure/cli/core/commands/__init__.py", line 706
+    result = cmd_copy(params)
+RuntimeError: The content for this response was already consumed"#;
+
+        let err = parse_azure_error_from_stderr(stderr).unwrap();
+        assert_eq!(err.code, "InvalidTemplateDeployment");
+        assert!(!err.details.is_empty());
+        assert_eq!(err.details[0].code, "QuotaExceeded");
+
+        // Format should produce clean output
+        let msg = format_user_friendly_error(&err);
+        assert!(msg.contains("Quota exceeded"));
+        assert!(msg.contains("westus"));
+        assert!(msg.contains("100 cores"));
+    }
+
+    #[test]
+    fn test_parse_azure_error_from_stderr_no_errors() {
+        let stderr = "WARNING: some random warning\nnothing useful here";
+        assert!(parse_azure_error_from_stderr(stderr).is_none());
+    }
+
+    #[test]
+    fn test_parse_azure_error_from_stderr_skips_traceback() {
+        let stderr = r#"Traceback (most recent call last):
+  File "/opt/az/lib/python3.13/site-packages/azure/cli/core/commands/__init__.py", line 706
+During handling of the above exception, another exception occurred:
+(AuthorizationFailed) The client does not have authorization"#;
+
+        let err = parse_azure_error_from_stderr(stderr).unwrap();
+        assert_eq!(err.code, "AuthorizationFailed");
+    }
+
+    #[test]
+    fn test_extract_field_basic() {
+        let msg = "Location: westus, Current Limit: 100, Current Usage: 88";
+        assert_eq!(extract_field(msg, "Location: "), Some("westus".to_string()));
+        assert_eq!(
+            extract_field(msg, "Current Limit: "),
+            Some("100".to_string())
+        );
+        assert_eq!(
+            extract_field(msg, "Current Usage: "),
+            Some("88".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_field_missing() {
+        let msg = "Location: westus";
+        assert_eq!(extract_field(msg, "Current Limit: "), None);
+    }
+
+    #[test]
+    fn test_format_invalid_template_no_details() {
+        let err = AzureError {
+            code: "InvalidTemplateDeployment".to_string(),
+            message: "The template deployment is not valid".to_string(),
+            target: None,
+            details: vec![],
+        };
+        let msg = format_user_friendly_error(&err);
+        assert!(msg.contains("deployment validation failed"));
+        assert!(msg.contains("not valid"));
     }
 }
