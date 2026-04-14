@@ -1,4 +1,3 @@
-use super::common::*;
 use std::path::PathBuf;
 
 // ── Tunnel auth bug-fix regression tests (test_group_69) ───────────
