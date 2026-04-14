@@ -55,14 +55,22 @@ fn prune_tunnels(entries: Vec<TunnelEntry>) -> Vec<TunnelEntry> {
 }
 
 fn process_is_running(pid: u32) -> bool {
-    // On Linux/macOS: kill -0 returns success if the process exists
-    std::process::Command::new("kill")
-        .args(["-0", &pid.to_string()])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    // Check /proc/{pid} on Linux — zero-cost vs spawning a subprocess per check.
+    // Falls back to `kill -0` on other platforms.
+    #[cfg(target_os = "linux")]
+    {
+        std::path::Path::new(&format!("/proc/{}", pid)).exists()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -164,16 +172,17 @@ async fn cmd_tunnel_open(
                         .arg(e.pid.to_string())
                         .status();
                 }
-                let remaining = prune_tunnels(load_tunnels().unwrap_or_default());
-                let _ = save_tunnels(&remaining);
+                // Prune our in-memory entries — no need to re-read disk
+                entries.retain(|e| process_is_running(e.pid));
+                let _ = save_tunnels(&entries);
                 break;
             }
-            _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+            _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {
                 let still_running = entries.iter().any(|e| process_is_running(e.pid));
                 if !still_running {
                     println!("All tunnels have closed.");
-                    let remaining = prune_tunnels(load_tunnels().unwrap_or_default());
-                    let _ = save_tunnels(&remaining);
+                    entries.clear();
+                    let _ = save_tunnels(&entries);
                     break;
                 }
             }
