@@ -55,14 +55,22 @@ fn prune_tunnels(entries: Vec<TunnelEntry>) -> Vec<TunnelEntry> {
 }
 
 fn process_is_running(pid: u32) -> bool {
-    // On Linux/macOS: kill -0 returns success if the process exists
-    std::process::Command::new("kill")
-        .args(["-0", &pid.to_string()])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    // Check /proc/{pid} on Linux — zero-cost vs spawning a subprocess per check.
+    // Falls back to `kill -0` on other platforms.
+    #[cfg(target_os = "linux")]
+    {
+        std::path::Path::new(&format!("/proc/{}", pid)).exists()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +131,8 @@ async fn cmd_tunnel_open(
 
     let mut entries = prune_tunnels(load_tunnels()?);
 
+    let resolved_key = key.or_else(resolve_ssh_key);
+
     if use_bastion {
         open_bastion_tunnels(
             &vm,
@@ -131,9 +141,10 @@ async fn cmd_tunnel_open(
             username,
             &ports,
             local_port,
-            key.as_deref(),
+            resolved_key.as_deref(),
             &mut entries,
-        )?;
+        )
+        .await?;
     } else {
         let ip = vm.public_ip.as_deref().unwrap();
         open_direct_tunnels(
@@ -141,7 +152,7 @@ async fn cmd_tunnel_open(
             username,
             &ports,
             local_port,
-            key.as_deref(),
+            resolved_key.as_deref(),
             &mut entries,
             &vm_identifier,
         )?;
@@ -162,16 +173,17 @@ async fn cmd_tunnel_open(
                         .arg(e.pid.to_string())
                         .status();
                 }
-                let remaining = prune_tunnels(load_tunnels().unwrap_or_default());
-                let _ = save_tunnels(&remaining);
+                // Prune our in-memory entries — no need to re-read disk
+                entries.retain(|e| process_is_running(e.pid));
+                let _ = save_tunnels(&entries);
                 break;
             }
-            _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+            _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {
                 let still_running = entries.iter().any(|e| process_is_running(e.pid));
                 if !still_running {
                     println!("All tunnels have closed.");
-                    let remaining = prune_tunnels(load_tunnels().unwrap_or_default());
-                    let _ = save_tunnels(&remaining);
+                    entries.clear();
+                    let _ = save_tunnels(&entries);
                     break;
                 }
             }
@@ -197,18 +209,7 @@ fn open_direct_tunnels(
             remote_port
         };
 
-        let mut args = vec![
-            "-N".to_string(),
-            "-o".to_string(),
-            "StrictHostKeyChecking=accept-new".to_string(),
-            "-L".to_string(),
-            format!("{}:localhost:{}", lport, remote_port),
-        ];
-        if let Some(k) = key {
-            args.push("-i".to_string());
-            args.push(k.display().to_string());
-        }
-        args.push(format!("{}@{}", user, ip));
+        let args = build_direct_ssh_args(lport, remote_port, user, ip, key);
 
         let child = std::process::Command::new("ssh")
             .args(&args)
@@ -242,7 +243,7 @@ fn open_direct_tunnels(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn open_bastion_tunnels(
+async fn open_bastion_tunnels(
     vm: &azlin_core::models::VmInfo,
     vm_manager: &azlin_azure::VmManager,
     rg: &str,
@@ -309,24 +310,12 @@ fn open_bastion_tunnels(
         let bastion_pid = bastion_child.id();
         std::mem::forget(bastion_child);
 
-        // Wait for bastion tunnel to establish
-        std::thread::sleep(std::time::Duration::from_secs(3));
+        // Wait for bastion tunnel to establish — use async sleep to avoid
+        // blocking the tokio runtime thread.
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
         // Step 2: ssh -N -L lport:localhost:remote_port -p bastion_local_port user@127.0.0.1
-        let mut ssh_args = vec![
-            "-N".to_string(),
-            "-o".to_string(),
-            "StrictHostKeyChecking=accept-new".to_string(),
-            "-p".to_string(),
-            bastion_local_port.to_string(),
-            "-L".to_string(),
-            format!("{}:localhost:{}", lport, remote_port),
-        ];
-        if let Some(k) = key {
-            ssh_args.push("-i".to_string());
-            ssh_args.push(k.display().to_string());
-        }
-        ssh_args.push(format!("{}@127.0.0.1", user));
+        let ssh_args = build_bastion_ssh_args(lport, remote_port, bastion_local_port, user, key);
 
         let ssh_child = std::process::Command::new("ssh")
             .args(&ssh_args)
@@ -366,7 +355,10 @@ fn open_bastion_tunnels(
 // ---------------------------------------------------------------------------
 
 fn cmd_tunnel_list() -> Result<()> {
-    let entries = prune_tunnels(load_tunnels()?);
+    let raw = load_tunnels()?;
+    let entries = prune_tunnels(raw);
+    // Persist pruned list so subsequent calls skip dead-PID checks
+    let _ = save_tunnels(&entries);
     if entries.is_empty() {
         println!("No active tunnels.");
         return Ok(());
@@ -391,6 +383,62 @@ fn cmd_tunnel_list() -> Result<()> {
         );
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// SSH arg builders (used by production code and tests)
+// ---------------------------------------------------------------------------
+
+/// Build SSH args for a bastion tunnel (loopback via bastion port).
+/// Uses `StrictHostKeyChecking=no` because 127.0.0.1 ports are reused across VMs.
+pub(crate) fn build_bastion_ssh_args(
+    lport: u16,
+    remote_port: u16,
+    bastion_local_port: u16,
+    user: &str,
+    key: Option<&std::path::Path>,
+) -> Vec<String> {
+    let mut args = vec![
+        "-N".to_string(),
+        "-o".to_string(),
+        "StrictHostKeyChecking=no".to_string(),
+        "-o".to_string(),
+        "UserKnownHostsFile=/dev/null".to_string(),
+        "-p".to_string(),
+        bastion_local_port.to_string(),
+        "-L".to_string(),
+        format!("{}:localhost:{}", lport, remote_port),
+    ];
+    if let Some(k) = key {
+        args.push("-i".to_string());
+        args.push(k.display().to_string());
+    }
+    args.push(format!("{}@127.0.0.1", user));
+    args
+}
+
+/// Build SSH args for a direct tunnel (real public IP).
+/// Uses `StrictHostKeyChecking=accept-new` for genuine host-key verification.
+pub(crate) fn build_direct_ssh_args(
+    lport: u16,
+    remote_port: u16,
+    user: &str,
+    ip: &str,
+    key: Option<&std::path::Path>,
+) -> Vec<String> {
+    let mut args = vec![
+        "-N".to_string(),
+        "-o".to_string(),
+        "StrictHostKeyChecking=accept-new".to_string(),
+        "-L".to_string(),
+        format!("{}:localhost:{}", lport, remote_port),
+    ];
+    if let Some(k) = key {
+        args.push("-i".to_string());
+        args.push(k.display().to_string());
+    }
+    args.push(format!("{}@{}", user, ip));
+    args
 }
 
 // ---------------------------------------------------------------------------
