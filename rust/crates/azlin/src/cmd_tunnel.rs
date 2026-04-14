@@ -123,6 +123,8 @@ async fn cmd_tunnel_open(
 
     let mut entries = prune_tunnels(load_tunnels()?);
 
+    let resolved_key = key.or_else(resolve_ssh_key);
+
     if use_bastion {
         open_bastion_tunnels(
             &vm,
@@ -131,7 +133,7 @@ async fn cmd_tunnel_open(
             username,
             &ports,
             local_port,
-            key.as_deref(),
+            resolved_key.as_deref(),
             &mut entries,
         )?;
     } else {
@@ -141,7 +143,7 @@ async fn cmd_tunnel_open(
             username,
             &ports,
             local_port,
-            key.as_deref(),
+            resolved_key.as_deref(),
             &mut entries,
             &vm_identifier,
         )?;
@@ -316,7 +318,9 @@ fn open_bastion_tunnels(
         let mut ssh_args = vec![
             "-N".to_string(),
             "-o".to_string(),
-            "StrictHostKeyChecking=accept-new".to_string(),
+            "StrictHostKeyChecking=no".to_string(),
+            "-o".to_string(),
+            "UserKnownHostsFile=/dev/null".to_string(),
             "-p".to_string(),
             bastion_local_port.to_string(),
             "-L".to_string(),
@@ -391,6 +395,64 @@ fn cmd_tunnel_list() -> Result<()> {
         );
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Testable SSH arg builders
+// ---------------------------------------------------------------------------
+
+/// Build SSH args for a bastion tunnel connection (loopback via bastion).
+/// Exposed for testing to verify Bug 3 fix: StrictHostKeyChecking=no for bastion.
+#[cfg(test)]
+pub(crate) fn build_bastion_ssh_args(
+    lport: u16,
+    remote_port: u16,
+    bastion_local_port: u16,
+    user: &str,
+    key: Option<&std::path::Path>,
+) -> Vec<String> {
+    let mut args = vec![
+        "-N".to_string(),
+        "-o".to_string(),
+        "StrictHostKeyChecking=no".to_string(),
+        "-o".to_string(),
+        "UserKnownHostsFile=/dev/null".to_string(),
+        "-p".to_string(),
+        bastion_local_port.to_string(),
+        "-L".to_string(),
+        format!("{}:localhost:{}", lport, remote_port),
+    ];
+    if let Some(k) = key {
+        args.push("-i".to_string());
+        args.push(k.display().to_string());
+    }
+    args.push(format!("{}@127.0.0.1", user));
+    args
+}
+
+/// Build SSH args for a direct tunnel connection (public IP).
+/// Exposed for testing to verify direct tunnels retain accept-new.
+#[cfg(test)]
+pub(crate) fn build_direct_ssh_args(
+    lport: u16,
+    remote_port: u16,
+    user: &str,
+    ip: &str,
+    key: Option<&std::path::Path>,
+) -> Vec<String> {
+    let mut args = vec![
+        "-N".to_string(),
+        "-o".to_string(),
+        "StrictHostKeyChecking=accept-new".to_string(),
+        "-L".to_string(),
+        format!("{}:localhost:{}", lport, remote_port),
+    ];
+    if let Some(k) = key {
+        args.push("-i".to_string());
+        args.push(k.display().to_string());
+    }
+    args.push(format!("{}@{}", user, ip));
+    args
 }
 
 // ---------------------------------------------------------------------------
