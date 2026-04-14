@@ -1,6 +1,39 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::Result;
+use std::time::Duration;
+
+// ── SSH timeout scaling by VM size ──────────────────────────────────
+
+/// Returns a scaled SSH readiness timeout based on VM SKU core count.
+/// Larger VMs may take longer to boot; smaller/unknown SKUs default to 300s.
+pub(crate) fn ssh_timeout_for_vm_size(sku: &str) -> Duration {
+    match extract_core_count(sku) {
+        Some(n) if n > 48 => Duration::from_secs(600),
+        Some(n) if n > 16 => Duration::from_secs(450),
+        _ => Duration::from_secs(300),
+    }
+}
+
+/// Extract core count from known Azure VM series (D, E, F).
+fn extract_core_count(sku: &str) -> Option<u32> {
+    let lower = sku.to_lowercase();
+    for part in lower.split('_') {
+        if let Some(rest) = part
+            .strip_prefix('d')
+            .or_else(|| part.strip_prefix('e'))
+            .or_else(|| part.strip_prefix('f'))
+        {
+            let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(n) = digits.parse::<u32>() {
+                if n > 0 {
+                    return Some(n);
+                }
+            }
+        }
+    }
+    None
+}
 
 /// Action to take when no bastion host exists in the target region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -531,14 +564,21 @@ pub(crate) async fn handle_vm_new(
             &target.ip
         };
 
-        crate::auth_forward::wait_for_post_create_readiness(
+        let ssh_timeout = ssh_timeout_for_vm_size(&final_size);
+        let readiness = crate::auth_forward::wait_for_post_create_readiness(
             effective_ip,
             &admin_user,
             bastion_port,
             Some(created_private_key.as_path()),
             interactive_post_create_ssh,
+            ssh_timeout,
+            None,
         )
         .with_context(|| format!("VM '{}' was created but is not yet guest-ready", vm.name))?;
+
+        if !readiness.is_ready() {
+            eprintln!("⚠ {}", readiness.recovery_message());
+        }
 
         println!("VM '{}' created successfully!", vm.name);
 

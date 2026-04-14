@@ -118,9 +118,9 @@ fn test_ssh_readiness_is_ready_helper() {
 fn test_ssh_readiness_timed_out_recovery_message() {
     let timed_out = crate::auth_forward::SshReadiness::TimedOut {
         elapsed_secs: 600,
-        host: "127.0.0.1",
+        host: "127.0.0.1".to_string(),
         port: 50200,
-        user: "azureuser",
+        user: "azureuser".to_string(),
     };
     let msg = timed_out.recovery_message();
     assert!(
