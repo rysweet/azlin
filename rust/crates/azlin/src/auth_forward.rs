@@ -11,6 +11,56 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+// ── SSH readiness types and constants ────────────────────────────────
+
+#[allow(dead_code)]
+pub(crate) const SSH_PROGRESS_INTERVAL: Duration = Duration::from_secs(30);
+#[allow(dead_code)]
+pub(crate) const PROVISIONING_CHECK_INTERVAL: Duration = Duration::from_secs(60);
+
+/// Outcome of waiting for SSH after VM creation.
+#[derive(Debug)]
+pub(crate) enum SshReadiness {
+    Ready,
+    TimedOut {
+        elapsed_secs: u64,
+        host: String,
+        port: u16,
+        user: String,
+    },
+}
+
+impl SshReadiness {
+    pub fn is_ready(&self) -> bool {
+        matches!(self, SshReadiness::Ready)
+    }
+
+    pub fn recovery_message(&self) -> String {
+        match self {
+            SshReadiness::Ready => String::new(),
+            SshReadiness::TimedOut {
+                elapsed_secs,
+                host,
+                port,
+                user,
+            } => {
+                format!(
+                    "SSH readiness timed out after {elapsed_secs}s. Try manually:\n  \
+                     ssh {user}@{host} -p {port}\n  \
+                     azlin ssh <vm-name>\n\
+                     Check cloud-init logs: /var/log/cloud-init-output.log"
+                )
+            }
+        }
+    }
+}
+
+/// Returns true if the Azure provisioning state indicates a terminal failure.
+#[allow(dead_code)]
+pub(crate) fn is_provisioning_terminal_failure(state: &str) -> bool {
+    matches!(state, "Failed" | "Canceled" | "Deleting")
+}
+
 type ForwardFn = fn(&str, &str, Option<u16>, Option<&std::path::Path>, bool) -> Result<()>;
 
 /// A detected local credential source.
@@ -59,22 +109,34 @@ pub(crate) fn wait_for_post_create_readiness(
     bastion_port: Option<u16>,
     key_override: Option<&std::path::Path>,
     interactive_ssh: bool,
-) -> Result<()> {
+    ssh_timeout: Duration,
+    _provisioning_check: Option<Box<dyn Fn() -> Option<String>>>,
+) -> Result<SshReadiness> {
     let ssh_port = bastion_port.unwrap_or(22);
     let ssh_host = if bastion_port.is_some() {
         "127.0.0.1"
     } else {
         ip
     };
-    wait_for_ssh(
+    match wait_for_ssh(
         ssh_host,
         ssh_port,
         user,
-        Duration::from_secs(300),
+        ssh_timeout,
         key_override,
         interactive_ssh,
-    )?;
-    wait_for_cloud_init(ip, user, bastion_port, key_override, interactive_ssh)
+    ) {
+        Ok(()) => {
+            wait_for_cloud_init(ip, user, bastion_port, key_override, interactive_ssh)?;
+            Ok(SshReadiness::Ready)
+        }
+        Err(_) => Ok(SshReadiness::TimedOut {
+            elapsed_secs: ssh_timeout.as_secs(),
+            host: ssh_host.to_string(),
+            port: ssh_port,
+            user: user.to_string(),
+        }),
+    }
 }
 
 // ---------------------------------------------------------------------------
