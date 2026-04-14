@@ -143,7 +143,8 @@ async fn cmd_tunnel_open(
             local_port,
             resolved_key.as_deref(),
             &mut entries,
-        )?;
+        )
+        .await?;
     } else {
         let ip = vm.public_ip.as_deref().unwrap();
         open_direct_tunnels(
@@ -242,7 +243,7 @@ fn open_direct_tunnels(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn open_bastion_tunnels(
+async fn open_bastion_tunnels(
     vm: &azlin_core::models::VmInfo,
     vm_manager: &azlin_azure::VmManager,
     rg: &str,
@@ -309,8 +310,9 @@ fn open_bastion_tunnels(
         let bastion_pid = bastion_child.id();
         std::mem::forget(bastion_child);
 
-        // Wait for bastion tunnel to establish
-        std::thread::sleep(std::time::Duration::from_secs(3));
+        // Wait for bastion tunnel to establish — use async sleep to avoid
+        // blocking the tokio runtime thread.
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
         // Step 2: ssh -N -L lport:localhost:remote_port -p bastion_local_port user@127.0.0.1
         let ssh_args = build_bastion_ssh_args(lport, remote_port, bastion_local_port, user, key);
@@ -353,7 +355,10 @@ fn open_bastion_tunnels(
 // ---------------------------------------------------------------------------
 
 fn cmd_tunnel_list() -> Result<()> {
-    let entries = prune_tunnels(load_tunnels()?);
+    let raw = load_tunnels()?;
+    let entries = prune_tunnels(raw);
+    // Persist pruned list so subsequent calls skip dead-PID checks
+    let _ = save_tunnels(&entries);
     if entries.is_empty() {
         println!("No active tunnels.");
         return Ok(());
