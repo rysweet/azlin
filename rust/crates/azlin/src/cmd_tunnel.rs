@@ -199,18 +199,7 @@ fn open_direct_tunnels(
             remote_port
         };
 
-        let mut args = vec![
-            "-N".to_string(),
-            "-o".to_string(),
-            "StrictHostKeyChecking=accept-new".to_string(),
-            "-L".to_string(),
-            format!("{}:localhost:{}", lport, remote_port),
-        ];
-        if let Some(k) = key {
-            args.push("-i".to_string());
-            args.push(k.display().to_string());
-        }
-        args.push(format!("{}@{}", user, ip));
+        let args = build_direct_ssh_args(lport, remote_port, user, ip, key);
 
         let child = std::process::Command::new("ssh")
             .args(&args)
@@ -315,22 +304,7 @@ fn open_bastion_tunnels(
         std::thread::sleep(std::time::Duration::from_secs(3));
 
         // Step 2: ssh -N -L lport:localhost:remote_port -p bastion_local_port user@127.0.0.1
-        let mut ssh_args = vec![
-            "-N".to_string(),
-            "-o".to_string(),
-            "StrictHostKeyChecking=no".to_string(),
-            "-o".to_string(),
-            "UserKnownHostsFile=/dev/null".to_string(),
-            "-p".to_string(),
-            bastion_local_port.to_string(),
-            "-L".to_string(),
-            format!("{}:localhost:{}", lport, remote_port),
-        ];
-        if let Some(k) = key {
-            ssh_args.push("-i".to_string());
-            ssh_args.push(k.display().to_string());
-        }
-        ssh_args.push(format!("{}@127.0.0.1", user));
+        let ssh_args = build_bastion_ssh_args(lport, remote_port, bastion_local_port, user, key);
 
         let ssh_child = std::process::Command::new("ssh")
             .args(&ssh_args)
@@ -398,12 +372,11 @@ fn cmd_tunnel_list() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Testable SSH arg builders
+// SSH arg builders (used by production code and tests)
 // ---------------------------------------------------------------------------
 
-/// Build SSH args for a bastion tunnel connection (loopback via bastion).
-/// Exposed for testing to verify Bug 3 fix: StrictHostKeyChecking=no for bastion.
-#[cfg(test)]
+/// Build SSH args for a bastion tunnel (loopback via bastion port).
+/// Uses `StrictHostKeyChecking=no` because 127.0.0.1 ports are reused across VMs.
 pub(crate) fn build_bastion_ssh_args(
     lport: u16,
     remote_port: u16,
@@ -430,9 +403,8 @@ pub(crate) fn build_bastion_ssh_args(
     args
 }
 
-/// Build SSH args for a direct tunnel connection (public IP).
-/// Exposed for testing to verify direct tunnels retain accept-new.
-#[cfg(test)]
+/// Build SSH args for a direct tunnel (real public IP).
+/// Uses `StrictHostKeyChecking=accept-new` for genuine host-key verification.
 pub(crate) fn build_direct_ssh_args(
     lport: u16,
     remote_port: u16,
