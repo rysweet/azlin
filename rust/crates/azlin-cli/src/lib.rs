@@ -65,16 +65,29 @@ pub enum LogType {
 // ---------------------------------------------------------------------------
 
 /// VM size tier for quick selection (maps to Azure VM sizes).
-#[derive(ValueEnum, Debug, Clone, Copy)]
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VmSizeTier {
-    /// Small (~8 GB RAM)
+    /// Extra-small (2 cores, ~8 GB RAM)
+    Xs,
+    /// Small (4 cores, ~16 GB RAM)
     S,
-    /// Medium (~64 GB RAM)
+    /// Medium (8 cores, ~32 GB RAM)
     M,
-    /// Large (~128 GB RAM)
+    /// Large (16 cores, ~64 GB RAM)
     L,
-    /// Extra-large (~256 GB RAM)
+    /// Extra-large (32 cores, ~128 GB RAM)
     Xl,
+    /// Double extra-large (64 cores, ~256 GB RAM)
+    Xxl,
+}
+
+/// VM family for selecting between general-purpose and memory-optimized SKUs.
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VmFamily {
+    /// D-series v5: general purpose (default)
+    D,
+    /// E-series v5: memory-optimized
+    E,
 }
 
 // ---------------------------------------------------------------------------
@@ -155,13 +168,21 @@ pub enum Commands {
         #[arg(long)]
         repo: Option<String>,
 
-        /// VM size tier: s(mall), m(edium), l(arge), xl (default: l)
+        /// VM size tier: xs, s, m, l, xl, xxl (default: l)
         #[arg(long, value_enum, ignore_case = true)]
         size: Option<VmSizeTier>,
 
         /// Azure VM size (overrides --size)
         #[arg(long)]
         vm_size: Option<String>,
+
+        /// VM family: d (general purpose) or e (memory-optimized) (default: d)
+        #[arg(long, value_enum, ignore_case = true)]
+        vm_family: Option<VmFamily>,
+
+        /// Auto-find a region with available quota and SKU capacity
+        #[arg(long)]
+        region_fit: bool,
 
         /// Azure region
         #[arg(long)]

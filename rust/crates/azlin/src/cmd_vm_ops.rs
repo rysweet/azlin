@@ -16,23 +16,107 @@ pub(crate) fn ssh_timeout_for_vm_size(sku: &str) -> Duration {
 }
 
 /// Extract core count from known Azure VM series (D, E, F).
-fn extract_core_count(sku: &str) -> Option<u32> {
-    let lower = sku.to_lowercase();
-    for part in lower.split('_') {
-        if let Some(rest) = part
-            .strip_prefix('d')
-            .or_else(|| part.strip_prefix('e'))
-            .or_else(|| part.strip_prefix('f'))
-        {
-            let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-            if let Ok(n) = digits.parse::<u32>() {
-                if n > 0 {
-                    return Some(n);
+pub(crate) fn extract_core_count(sku: &str) -> Option<u32> {
+    for part in sku.split('_') {
+        let bytes = part.as_bytes();
+        if bytes.is_empty() {
+            continue;
+        }
+        // Check if first char (case-insensitive) is d, e, or f
+        let first = bytes[0] | 0x20; // ASCII lowercase
+        if first == b'd' || first == b'e' || first == b'f' {
+            let mut n: u32 = 0;
+            for &b in &bytes[1..] {
+                if b.is_ascii_digit() {
+                    n = n.saturating_mul(10).saturating_add((b - b'0') as u32);
+                } else {
+                    break;
                 }
+            }
+            if n > 0 && n <= 1024 {
+                return Some(n);
             }
         }
     }
     None
+}
+
+/// Check a single region's quota and SKU availability via `az` CLI.
+///
+/// Uses `az_cli_with_timeout` for timeout protection, pipe-deadlock prevention,
+/// and stderr sanitization. Parse failures are surfaced as errors (not silent
+/// false-negatives) so broken CLI output doesn't masquerade as "region unavailable".
+fn check_region_availability(
+    region: &str,
+    sku: &str,
+    required_cores: u32,
+) -> azlin_azure::region_fit::RegionCheckResult {
+    let make_error = |msg: String| azlin_azure::region_fit::RegionCheckResult {
+        region: region.to_string(),
+        sku_available: false,
+        quota_available: 0,
+        quota_limit: 0,
+        has_capacity: false,
+        error: Some(msg),
+    };
+
+    // Check quota via `az vm list-usage` (timeout + sanitization via az_cli_with_timeout)
+    let quota_json = match azlin_azure::az_cli_with_timeout(
+        &["vm", "list-usage", "--location", region],
+        120,
+    ) {
+        Ok(json) => json,
+        Err(e) => return make_error(format!("Failed to query quota: {e}")),
+    };
+
+    let (quota_available, quota_limit, has_capacity) =
+        match azlin_azure::region_fit::parse_quota_json(&quota_json) {
+            Ok(q) => {
+                let avail = q.available_cores();
+                let limit = q.total_regional_limit;
+                let cap = q.has_capacity_for(required_cores);
+                (avail, limit, cap)
+            }
+            Err(e) => return make_error(format!("Failed to parse quota response: {e}")),
+        };
+
+    // Check SKU availability via `az vm list-skus` (timeout + sanitization)
+    let sku_available = match azlin_azure::az_cli_with_timeout(
+        &["vm", "list-skus", "--location", region, "--size", sku],
+        120,
+    ) {
+        Ok(json) => azlin_azure::region_fit::parse_sku_availability_json(&json, sku),
+        Err(e) => return make_error(format!("Failed to query SKU availability: {e}")),
+    };
+
+    azlin_azure::region_fit::RegionCheckResult {
+        region: region.to_string(),
+        sku_available,
+        quota_available,
+        quota_limit,
+        has_capacity,
+        error: None,
+    }
+}
+
+/// Map a VM size tier + family to an Azure SKU string.
+pub(crate) fn tier_to_sku(tier: azlin_cli::VmSizeTier, family: azlin_cli::VmFamily) -> String {
+    match (tier, family) {
+        // D-series v5 (general purpose)
+        (azlin_cli::VmSizeTier::Xs, azlin_cli::VmFamily::D) => "Standard_D2s_v5".to_string(),
+        (azlin_cli::VmSizeTier::S, azlin_cli::VmFamily::D) => "Standard_D4s_v5".to_string(),
+        (azlin_cli::VmSizeTier::M, azlin_cli::VmFamily::D) => "Standard_D8s_v5".to_string(),
+        (azlin_cli::VmSizeTier::L, azlin_cli::VmFamily::D) => "Standard_D16s_v5".to_string(),
+        (azlin_cli::VmSizeTier::Xl, azlin_cli::VmFamily::D) => "Standard_D32s_v5".to_string(),
+        (azlin_cli::VmSizeTier::Xxl, azlin_cli::VmFamily::D) => "Standard_D64s_v5".to_string(),
+        // E-series v5 (memory-optimized)
+        (azlin_cli::VmSizeTier::Xs, azlin_cli::VmFamily::E) => "Standard_E2as_v5".to_string(),
+        (azlin_cli::VmSizeTier::S, azlin_cli::VmFamily::E) => "Standard_E4as_v5".to_string(),
+        (azlin_cli::VmSizeTier::M, azlin_cli::VmFamily::E) => "Standard_E8as_v5".to_string(),
+        (azlin_cli::VmSizeTier::L, azlin_cli::VmFamily::E) => "Standard_E16as_v5".to_string(),
+        (azlin_cli::VmSizeTier::Xl, azlin_cli::VmFamily::E) => "Standard_E32as_v5".to_string(),
+        (azlin_cli::VmSizeTier::Xxl, azlin_cli::VmFamily::E) => "Standard_E64as_v5".to_string(),
+    }
 }
 
 /// Action to take when no bastion host exists in the target region.
@@ -231,6 +315,8 @@ pub(crate) async fn handle_vm_new(
     repo: Option<String>,
     size: Option<azlin_cli::VmSizeTier>,
     vm_size: Option<String>,
+    vm_family: Option<azlin_cli::VmFamily>,
+    region_fit: bool,
     region: Option<String>,
     resource_group: Option<String>,
     name: Option<String>,
@@ -293,20 +379,57 @@ pub(crate) async fn handle_vm_new(
     let user_specified_size = vm_size.is_some() || size.is_some();
     let user_specified_region = region.is_some();
 
-    // --vm-size takes priority, then --size tier mapping, then config default
+    // --vm-size takes priority, then --size tier mapping, then config default.
+    // If --vm-family is set without --size, apply the family to the default tier (L).
+    let family = vm_family.unwrap_or(azlin_cli::VmFamily::D);
     let size = if let Some(explicit) = vm_size {
         explicit
     } else if let Some(tier) = size {
-        match tier {
-            azlin_cli::VmSizeTier::S => "Standard_D2s_v3".to_string(),
-            azlin_cli::VmSizeTier::M => "Standard_D16s_v3".to_string(),
-            azlin_cli::VmSizeTier::L => "Standard_D32s_v3".to_string(),
-            azlin_cli::VmSizeTier::Xl => "Standard_D64s_v3".to_string(),
-        }
+        tier_to_sku(tier, family)
+    } else if vm_family.is_some() {
+        tier_to_sku(azlin_cli::VmSizeTier::L, family)
     } else {
         config_defaults.default_vm_size.clone()
     };
     let loc = region.unwrap_or_else(|| config_defaults.default_region.clone());
+
+    // ── Region-fit: auto-find a region with available quota + SKU ──────
+    let loc = if region_fit {
+        // Estimate cores from SKU name for capacity checking
+        let estimated_cores = extract_core_count(&size).unwrap_or(8) * vm_count;
+        let candidates = azlin_azure::region_fit::candidate_regions_with_preferred(&loc);
+        let mut results = Vec::new();
+        let mut found_region: Option<String> = None;
+
+        eprintln!("🔍 Scanning {} regions for available quota and SKU...", candidates.len());
+
+        for candidate in &candidates {
+            let check = check_region_availability(candidate, &size, estimated_cores);
+            let usable = check.is_usable();
+            let avail = check.quota_available;
+            results.push(check);
+            if usable {
+                found_region = Some(candidate.to_string());
+                eprintln!("✓ Selected region: {} (SKU available, {} cores free)", candidate, avail);
+                break;
+            }
+        }
+
+        if let Some(ref region) = found_region {
+            region.clone()
+        } else {
+            eprintln!("✗ No region found with available quota and SKU.\n");
+            eprintln!("{}", azlin_azure::region_fit::format_region_table(&results));
+            anyhow::bail!(
+                "No region found with available quota for {} (needs {} cores). \
+                 Try a smaller VM size or request a quota increase.",
+                size,
+                estimated_cores,
+            );
+        }
+    } else {
+        loc
+    };
     let admin_user = DEFAULT_ADMIN_USERNAME.to_string();
     let ssh_key_path = {
         let ssh_dir = dirs::home_dir().unwrap_or_default().join(".ssh");
