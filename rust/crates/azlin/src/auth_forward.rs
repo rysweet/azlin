@@ -5,7 +5,7 @@
 //! All forwarding is done via SCP file copy — no remote login commands.
 //! Best-effort: failures never block VM creation.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::io::IsTerminal;
 use std::net::TcpStream;
 use std::path::PathBuf;
@@ -550,11 +550,18 @@ fn resolve_ssh_key() -> Option<PathBuf> {
     crate::key_helpers::find_preferred_private_key(&ssh_dir)
 }
 
-/// Build common SSH args: StrictHostKeyChecking, optional BatchMode, identity key.
+/// Build common SSH args: StrictHostKeyChecking, optional BatchMode, identity key,
+/// ConnectTimeout, and keepalive settings to prevent hangs through bastion tunnels.
 fn base_ssh_args(key_override: Option<&std::path::Path>, batch_mode: bool) -> Vec<String> {
     let mut args = vec![
         "-o".to_string(),
         "StrictHostKeyChecking=accept-new".to_string(),
+        "-o".to_string(),
+        "ConnectTimeout=30".to_string(),
+        "-o".to_string(),
+        "ServerAliveInterval=15".to_string(),
+        "-o".to_string(),
+        "ServerAliveCountMax=3".to_string(),
     ];
     if batch_mode {
         args.push("-o".to_string());
@@ -569,6 +576,9 @@ fn base_ssh_args(key_override: Option<&std::path::Path>, batch_mode: bool) -> Ve
     }
     args
 }
+
+/// Default timeout for SCP/SSH transfer operations (seconds).
+const TRANSFER_TIMEOUT_SECS: u64 = 120;
 
 /// Run a command on the remote via SSH. Returns Ok(()) on success.
 fn ssh_run(
@@ -650,7 +660,7 @@ fn ssh_output(
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-/// SCP a single file to the remote.
+/// SCP a single file to the remote (with process-level timeout).
 fn scp_file(
     local: &std::path::Path,
     ip: &str,
@@ -663,6 +673,12 @@ fn scp_file(
     let mut args = vec![
         "-o".to_string(),
         "StrictHostKeyChecking=accept-new".to_string(),
+        "-o".to_string(),
+        "ConnectTimeout=30".to_string(),
+        "-o".to_string(),
+        "ServerAliveInterval=15".to_string(),
+        "-o".to_string(),
+        "ServerAliveCountMax=3".to_string(),
     ];
     let resolved_key = resolve_ssh_key();
     if let Some(key) = key_override.or(resolved_key.as_deref()) {
@@ -675,14 +691,41 @@ fn scp_file(
     args.push(local.to_string_lossy().to_string());
     args.push(scp_dest);
 
-    let status = std::process::Command::new("scp").args(&args).status()?;
-    if !status.success() {
-        anyhow::bail!("scp failed for {}", local.display());
+    let mut child = std::process::Command::new("scp")
+        .args(&args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("failed to start scp")?;
+
+    let timeout = Duration::from_secs(TRANSFER_TIMEOUT_SECS);
+    let start = Instant::now();
+    loop {
+        match child.try_wait()? {
+            Some(status) if status.success() => return Ok(()),
+            Some(status) => {
+                let stderr = child.stderr.take().map(|mut s| {
+                    let mut buf = String::new();
+                    use std::io::Read;
+                    let _ = s.read_to_string(&mut buf);
+                    buf
+                }).unwrap_or_default();
+                anyhow::bail!("scp failed for {} (exit {}): {}", local.display(), status.code().unwrap_or(-1), stderr.trim());
+            }
+            None if start.elapsed() >= timeout => {
+                let _ = child.kill();
+                anyhow::bail!(
+                    "scp timed out after {}s copying {} — bastion tunnel may be unresponsive",
+                    TRANSFER_TIMEOUT_SECS,
+                    local.display()
+                );
+            }
+            None => std::thread::sleep(Duration::from_millis(500)),
+        }
     }
-    Ok(())
 }
 
-/// SCP a directory recursively to the remote.
+/// SCP a directory recursively to the remote (with process-level timeout).
 fn scp_recursive(
     local_dir: &std::path::Path,
     ip: &str,
@@ -696,6 +739,12 @@ fn scp_recursive(
         "-r".to_string(),
         "-o".to_string(),
         "StrictHostKeyChecking=accept-new".to_string(),
+        "-o".to_string(),
+        "ConnectTimeout=30".to_string(),
+        "-o".to_string(),
+        "ServerAliveInterval=15".to_string(),
+        "-o".to_string(),
+        "ServerAliveCountMax=3".to_string(),
     ];
     let resolved_key = resolve_ssh_key();
     if let Some(key) = key_override.or(resolved_key.as_deref()) {
@@ -708,11 +757,38 @@ fn scp_recursive(
     args.push(local_dir.to_string_lossy().to_string());
     args.push(scp_dest);
 
-    let status = std::process::Command::new("scp").args(&args).status()?;
-    if !status.success() {
-        anyhow::bail!("scp failed for {}", local_dir.display());
+    let mut child = std::process::Command::new("scp")
+        .args(&args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("failed to start scp")?;
+
+    let timeout = Duration::from_secs(TRANSFER_TIMEOUT_SECS);
+    let start = Instant::now();
+    loop {
+        match child.try_wait()? {
+            Some(status) if status.success() => return Ok(()),
+            Some(status) => {
+                let stderr = child.stderr.take().map(|mut s| {
+                    let mut buf = String::new();
+                    use std::io::Read;
+                    let _ = s.read_to_string(&mut buf);
+                    buf
+                }).unwrap_or_default();
+                anyhow::bail!("scp failed for {} (exit {}): {}", local_dir.display(), status.code().unwrap_or(-1), stderr.trim());
+            }
+            None if start.elapsed() >= timeout => {
+                let _ = child.kill();
+                anyhow::bail!(
+                    "scp timed out after {}s copying {} — bastion tunnel may be unresponsive",
+                    TRANSFER_TIMEOUT_SECS,
+                    local_dir.display()
+                );
+            }
+            None => std::thread::sleep(Duration::from_millis(500)),
+        }
     }
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
