@@ -97,6 +97,9 @@ pub struct AzlinConfig {
     /// Timeout in seconds for SSH/SCP connect operations.
     /// Default: 30 seconds.
     pub ssh_connect_timeout: u64,
+    /// Timeout in seconds for SCP file transfer operations.
+    /// Default: 120 seconds. Covers the full transfer, not just the connection.
+    pub scp_transfer_timeout: u64,
     /// Timeout in seconds for `az` CLI subprocess calls.
     /// Default: 120 seconds. Increase on Windows/WSL where Azure CLI is slower.
     pub az_cli_timeout: u64,
@@ -124,6 +127,7 @@ impl Default for AzlinConfig {
             resource_group_query_timeout: 30,
             bastion_detection_timeout: 60,
             ssh_connect_timeout: 30,
+            scp_transfer_timeout: 120,
             az_cli_timeout: 120,
         }
     }
@@ -308,6 +312,7 @@ impl AzlinConfig {
         "resource_group_query_timeout",
         "bastion_detection_timeout",
         "ssh_connect_timeout",
+        "scp_transfer_timeout",
         "az_cli_timeout",
     ];
 

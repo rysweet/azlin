@@ -552,12 +552,14 @@ fn resolve_ssh_key() -> Option<PathBuf> {
 
 /// Build common SSH args: StrictHostKeyChecking, optional BatchMode, identity key,
 /// ConnectTimeout, and keepalive settings to prevent hangs through bastion tunnels.
+/// Reads `ssh_connect_timeout` from config (default: 30s).
 fn base_ssh_args(key_override: Option<&std::path::Path>, batch_mode: bool) -> Vec<String> {
+    let connect_timeout = load_ssh_connect_timeout();
     let mut args = vec![
         "-o".to_string(),
         "StrictHostKeyChecking=accept-new".to_string(),
         "-o".to_string(),
-        "ConnectTimeout=30".to_string(),
+        format!("ConnectTimeout={}", connect_timeout),
         "-o".to_string(),
         "ServerAliveInterval=15".to_string(),
         "-o".to_string(),
@@ -577,8 +579,19 @@ fn base_ssh_args(key_override: Option<&std::path::Path>, batch_mode: bool) -> Ve
     args
 }
 
-/// Default timeout for SCP/SSH transfer operations (seconds).
-const TRANSFER_TIMEOUT_SECS: u64 = 120;
+/// Load ssh_connect_timeout from config, falling back to 30s.
+fn load_ssh_connect_timeout() -> u64 {
+    azlin_core::AzlinConfig::load()
+        .map(|c| c.ssh_connect_timeout)
+        .unwrap_or(30)
+}
+
+/// Load scp_transfer_timeout from config, falling back to 120s.
+fn load_scp_transfer_timeout() -> u64 {
+    azlin_core::AzlinConfig::load()
+        .map(|c| c.scp_transfer_timeout)
+        .unwrap_or(120)
+}
 
 /// Run a command on the remote via SSH. Returns Ok(()) on success.
 fn ssh_run(
@@ -660,7 +673,7 @@ fn ssh_output(
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-/// SCP a single file to the remote (with process-level timeout).
+/// SCP a single file to the remote (with configurable process-level timeout).
 fn scp_file(
     local: &std::path::Path,
     ip: &str,
@@ -669,12 +682,14 @@ fn scp_file(
     bastion_port: Option<u16>,
     key_override: Option<&std::path::Path>,
 ) -> Result<()> {
+    let connect_timeout = load_ssh_connect_timeout();
+    let transfer_timeout = load_scp_transfer_timeout();
     let (scp_dest, scp_port_args) = scp_target(ip, user, remote_path, bastion_port);
     let mut args = vec![
         "-o".to_string(),
         "StrictHostKeyChecking=accept-new".to_string(),
         "-o".to_string(),
-        "ConnectTimeout=30".to_string(),
+        format!("ConnectTimeout={}", connect_timeout),
         "-o".to_string(),
         "ServerAliveInterval=15".to_string(),
         "-o".to_string(),
@@ -698,7 +713,7 @@ fn scp_file(
         .spawn()
         .context("failed to start scp")?;
 
-    let timeout = Duration::from_secs(TRANSFER_TIMEOUT_SECS);
+    let timeout = Duration::from_secs(transfer_timeout);
     let start = Instant::now();
     loop {
         match child.try_wait()? {
@@ -715,8 +730,8 @@ fn scp_file(
             None if start.elapsed() >= timeout => {
                 let _ = child.kill();
                 anyhow::bail!(
-                    "scp timed out after {}s copying {} — bastion tunnel may be unresponsive",
-                    TRANSFER_TIMEOUT_SECS,
+                    "scp timed out after {}s copying {} — bastion tunnel may be unresponsive (configurable: azlin config set scp_transfer_timeout <secs>)",
+                    transfer_timeout,
                     local.display()
                 );
             }
@@ -725,7 +740,7 @@ fn scp_file(
     }
 }
 
-/// SCP a directory recursively to the remote (with process-level timeout).
+/// SCP a directory recursively to the remote (with configurable process-level timeout).
 fn scp_recursive(
     local_dir: &std::path::Path,
     ip: &str,
@@ -734,13 +749,15 @@ fn scp_recursive(
     bastion_port: Option<u16>,
     key_override: Option<&std::path::Path>,
 ) -> Result<()> {
+    let connect_timeout = load_ssh_connect_timeout();
+    let transfer_timeout = load_scp_transfer_timeout();
     let (scp_dest, scp_port_args) = scp_target(ip, user, remote_path, bastion_port);
     let mut args = vec![
         "-r".to_string(),
         "-o".to_string(),
         "StrictHostKeyChecking=accept-new".to_string(),
         "-o".to_string(),
-        "ConnectTimeout=30".to_string(),
+        format!("ConnectTimeout={}", connect_timeout),
         "-o".to_string(),
         "ServerAliveInterval=15".to_string(),
         "-o".to_string(),
@@ -764,7 +781,7 @@ fn scp_recursive(
         .spawn()
         .context("failed to start scp")?;
 
-    let timeout = Duration::from_secs(TRANSFER_TIMEOUT_SECS);
+    let timeout = Duration::from_secs(transfer_timeout);
     let start = Instant::now();
     loop {
         match child.try_wait()? {
@@ -781,8 +798,8 @@ fn scp_recursive(
             None if start.elapsed() >= timeout => {
                 let _ = child.kill();
                 anyhow::bail!(
-                    "scp timed out after {}s copying {} — bastion tunnel may be unresponsive",
-                    TRANSFER_TIMEOUT_SECS,
+                    "scp timed out after {}s copying {} — bastion tunnel may be unresponsive (configurable: azlin config set scp_transfer_timeout <secs>)",
+                    transfer_timeout,
                     local_dir.display()
                 );
             }

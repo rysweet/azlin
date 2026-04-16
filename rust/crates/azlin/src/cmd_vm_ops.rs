@@ -381,12 +381,26 @@ pub(crate) async fn handle_vm_new(
 
     // --vm-size takes priority, then --size tier mapping, then config default.
     // If --vm-family is set without --size, apply the family to the default tier (L).
-    let family = vm_family.unwrap_or(azlin_cli::VmFamily::D);
+    // For xl/2xl tiers, default to E-series (memory-optimized, better availability)
+    // unless user explicitly requested D-series.
+    let explicit_family = vm_family;
+    let resolve_family = |tier: azlin_cli::VmSizeTier| -> azlin_cli::VmFamily {
+        match explicit_family {
+            Some(f) => f,
+            None => match tier {
+                azlin_cli::VmSizeTier::Xl | azlin_cli::VmSizeTier::Xxl => {
+                    azlin_cli::VmFamily::E
+                }
+                _ => azlin_cli::VmFamily::D,
+            },
+        }
+    };
     let size = if let Some(explicit) = vm_size {
         explicit
     } else if let Some(tier) = size {
-        tier_to_sku(tier, family)
-    } else if vm_family.is_some() {
+        tier_to_sku(tier, resolve_family(tier))
+    } else if explicit_family.is_some() {
+        let family = explicit_family.unwrap();
         tier_to_sku(azlin_cli::VmSizeTier::L, family)
     } else {
         config_defaults.default_vm_size.clone()
