@@ -9,6 +9,7 @@ pub mod error_handler;
 pub mod ops;
 pub mod orphan_detector;
 pub mod rate_limiter;
+pub mod region_fit;
 pub mod retry;
 pub mod subprocess;
 pub mod vm;

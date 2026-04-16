@@ -60,6 +60,14 @@ pub fn format_user_friendly_error(error: &AzureError) -> String {
         "QuotaExceeded" | "QuotaExceededError" => {
             return format_quota_error_from_message(&error.message);
         }
+        "SkuNotAvailable" => {
+            msg.push_str(&format!("❌ VM size not available: {}\n", error.message));
+            msg.push_str("💡 Options:\n");
+            msg.push_str("   • Try a different region (--region eastus2)\n");
+            msg.push_str("   • Use --region-fit to auto-find a region with this SKU available\n");
+            msg.push_str("   • Use a different VM size (--size m or --vm-size <sku>)\n");
+            return msg;
+        }
         "InvalidTemplateDeployment" => {
             msg.push_str("❌ Azure deployment validation failed.\n");
             if !error.details.is_empty() {
@@ -170,6 +178,7 @@ fn format_quota_error_from_message(message: &str) -> String {
     msg.push_str("\n💡 Options:\n");
     msg.push_str("   • Use a smaller VM size (--size s or --size m)\n");
     msg.push_str("   • Try a different region (--region eastus2)\n");
+    msg.push_str("   • Use --region-fit to auto-find a region with enough quota\n");
     msg.push_str("   • Delete unused VMs to free cores (azlin list, azlin delete <name>)\n");
     msg.push_str(
         "   • Request a quota increase: https://aka.ms/ProdportalCRP\n",
