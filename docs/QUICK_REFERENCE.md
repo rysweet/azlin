@@ -79,8 +79,21 @@ azlin <command> --help             # Command-specific help
 ### VM Configuration
 ```bash
 --name my-vm                       # Custom VM name
---vm-size Standard_D4s_v3          # VM size
+--size m                           # Size tier: xs/s/m/l/xl/xxl
+--vm-size Standard_D8s_v5          # Exact Azure VM SKU (overrides --size)
+--vm-family e                      # VM family: d (general) or e (memory-optimized)
 --region westus2                   # Azure region
+--region-fit                       # Auto-find region with available quota/SKU
+```
+
+#### Size Tiers (D-series default / E-series with `--vm-family e`)
+```
+xs = D2s_v5  (2c/8GB)   / E2as_v5  (2c/16GB)
+s  = D4s_v5  (4c/16GB)  / E4as_v5  (4c/32GB)
+m  = D8s_v5  (8c/32GB)  / E8as_v5  (8c/64GB)
+l  = D16s_v5 (16c/64GB) / E16as_v5 (16c/128GB)
+xl = D32s_v5 (32c/128GB)/ E32as_v5 (32c/256GB)
+xxl= D64s_v5 (64c/256GB)/ E64as_v5 (64c/512GB)
 ```
 
 ### Network / Bastion
@@ -295,7 +308,7 @@ azlin new --pool 3
 
 **Pool with custom configuration:**
 ```bash
-azlin new --pool 5 --vm-size Standard_D4s_v3 --rg batch-jobs
+azlin new --pool 5 --vm-size Standard_D4s_v5 --rg batch-jobs
 ```
 
 **Warning for large pools (>10):**
@@ -469,7 +482,7 @@ azlin --version
 ```toml
 default_resource_group = "my-rg"
 default_region = "eastus"
-default_vm_size = "Standard_D2s_v3"
+default_vm_size = "Standard_D2s_v5"
 last_vm_name = "azlin-20241009-120000"
 ```
 

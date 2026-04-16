@@ -397,15 +397,32 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
                     "--tmux-session",
                     &session,
                 ]);
-                if let Err(e) = std::process::Command::new("wt.exe")
+                match std::process::Command::new("wt.exe")
                     .args(&wt_args)
                     .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
                     .spawn()
+                    .and_then(|child| child.wait_with_output())
                 {
-                    eprintln!("  Warning: failed to open tab for {}: {}", vm_name, e);
+                    Ok(output) if !output.status.success() => {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        eprintln!(
+                            "  Warning: wt.exe failed for {} (exit {}): {}",
+                            vm_name,
+                            output.status.code().unwrap_or(-1),
+                            stderr.trim()
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("  Warning: failed to open tab for {}: {}", vm_name, e);
+                    }
+                    _ => {}
                 }
+                // Windows Terminal silently drops new-tab commands when
+                // many are issued simultaneously. A small delay between
+                // spawns prevents lost tabs.
+                std::thread::sleep(std::time::Duration::from_millis(500));
             } else if use_macos {
                 println!("  Opening window: {} (session: {})", vm_name, session);
                 let connect_cmd = escape_for_applescript(&format!(
