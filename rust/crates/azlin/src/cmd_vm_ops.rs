@@ -655,7 +655,7 @@ pub(crate) async fn handle_vm_new(
         if want_home_disk {
             let disk_name = format!("{}_home", vm_name);
             println!("Creating home disk '{}' ({}GB)...", disk_name, home_size);
-            let disk_id = create_managed_disk(
+            match create_managed_disk(
                 &disk_name,
                 home_size,
                 &rg,
@@ -663,8 +663,14 @@ pub(crate) async fn handle_vm_new(
                 &session_tag,
                 "home",
                 vm_manager.az_cli_timeout(),
-            )?;
-            disk_ids.push(disk_id);
+            ) {
+                Ok(disk_id) => disk_ids.push(disk_id),
+                Err(e) => {
+                    // Clean up any partially created disks before propagating
+                    cleanup_orphaned_disks(&disk_ids, vm_manager.az_cli_timeout());
+                    return Err(e);
+                }
+            }
         }
 
         if let Some(tmp_size) = tmp_disk_size {
