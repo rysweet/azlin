@@ -40,6 +40,9 @@ azlin new [OPTIONS]
 | `--no-nfs` | Flag | Skip NFS storage mounting; use only local home directory |
 | `--no-bastion` | Flag | Force public IP creation; skip Azure Bastion auto-detection |
 | `--bastion-name TEXT` | Name | Explicit bastion host name for private VM connections |
+| `--home-disk-size INTEGER` | Size | Size of separate /home disk in GB (16–4096). See [Disk Configuration](#disk-configuration) | `100` |
+| `--no-home-disk` | Flag | Disable separate /home disk; use OS disk | Enabled |
+| `--tmp-disk-size INTEGER` | Size | Size of separate /tmp disk in GB (16–4096). See [Disk Configuration](#disk-configuration) | None (no tmp disk) |
 | `-y, --yes` | Flag | Non-interactive mode: accept all defaults and skip confirmations |
 | `-h, --help` | Flag | Show command help and exit |
 
@@ -500,6 +503,39 @@ azlin new --name temp-vm --no-auto-connect
 # Then in another terminal:
 # azlin stop temp-vm --deallocate
 ```
+
+### Disk Configuration
+
+```bash
+# Default: 100GB home disk, no tmp disk
+azlin new --name dev-vm
+
+# Custom home disk size
+azlin new --name data-vm --home-disk-size 200
+
+# Add /tmp disk for build artifacts
+azlin new --name build-vm --tmp-disk-size 64
+
+# Both disks
+azlin new --name ml-vm --home-disk-size 500 --tmp-disk-size 128
+
+# No home disk (use OS disk), with /tmp disk
+azlin new --name scratch-vm --no-home-disk --tmp-disk-size 64
+
+# Disable home disk entirely
+azlin new --name simple-vm --no-home-disk
+```
+
+**Disk details:**
+- **SKU**: Premium_LRS (Premium SSD)
+- **Size bounds**: 16–4096 GB (validated before creation)
+- **LUN assignment**: Home → LUN 0, Tmp → LUN 1
+- **Tags**: `azlin-session`, `azlin-role` for auditing
+- **Orphan cleanup**: Disks auto-deleted if VM creation fails
+- **NFS precedence**: `--nfs-storage` disables home disk (planned; NFS not yet in Rust CLI)
+- **Graceful degradation**: Disk setup failure does not abort cloud-init
+
+**Full documentation:** [Separate Home & Tmp Disk Guide](../../../docs/how-to/separate-home-disk.md)
 
 ## Related Commands
 

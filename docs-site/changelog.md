@@ -49,7 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`azlin logs`** - VM log viewer with real-time streaming
 - **VM Health Dashboard** with Four Golden Signals (latency, traffic, errors, saturation)
 - **`--os` option** for Ubuntu version selection (e.g., `--os 25.10`)
-- **Separate /tmp disk support** for new or existing VMs
+- **Separate /tmp disk support** via `--tmp-disk-size` with hardened cloud-init (retry loop, subshell isolation, orphan cleanup)
 - **Compound VM:Session naming** - address VMs with `hostname:session_name` syntax
 - **OS icon and distro column** in `azlin list`
 - **Session save/load** and active process monitoring
