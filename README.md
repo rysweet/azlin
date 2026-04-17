@@ -84,7 +84,7 @@ azlin automates the tedious process of setting up Azure Ubuntu VMs for developme
 1. Authenticates with Azure
 2. Provisions an Ubuntu 24.04 VM
 3. Installs 12 essential development tools
-4. Creates a separate 100GB disk for /home (persistent storage)
+4. Creates a separate 100GB Premium SSD for /home (persistent storage), with optional /tmp disk
 5. Sets up SSH with key-based authentication
 6. Starts a persistent tmux session
 7. Optionally clones a GitHub repository
@@ -136,7 +136,12 @@ azlin new --os 25.10         # Ubuntu 25.10
 ```
 
 ### Separate /tmp Disk Support
-Add dedicated /tmp disks to new or existing VMs.
+Add dedicated `/tmp` disks to new VMs with `--tmp-disk-size`:
+```bash
+azlin new --name build-vm --tmp-disk-size 64          # 64GB /tmp disk
+azlin new --name ml-vm --home-disk-size 500 --tmp-disk-size 128  # Both disks
+```
+Disks are Premium SSD, tagged with `azlin-session`/`azlin-role`, and set up via hardened cloud-init with retry logic and graceful degradation. See [Disk Guide](docs/how-to/separate-home-disk.md).
 
 ### Compound VM:Session Naming
 Address VMs with `hostname:session_name` syntax across all commands.

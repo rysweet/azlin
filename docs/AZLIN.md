@@ -153,6 +153,10 @@ azlin new --name gpu-trainer --vm-size Standard_NC6
 # Separate home disk configuration
 azlin new --home-disk-size 200         # 200GB home disk
 azlin new --no-home-disk               # Disable home disk (use OS disk)
+
+# Separate /tmp disk
+azlin new --tmp-disk-size 64           # 64GB /tmp disk
+azlin new --home-disk-size 200 --tmp-disk-size 128  # Both disks
 ```
 
 **Options**:
@@ -166,8 +170,9 @@ azlin new --no-home-disk               # Disable home disk (use OS disk)
 - `--pool N` - Create N VMs in parallel
 - `--no-auto-connect` - Don't connect after creation
 - `--no-update` - Skip tool updates
-- `--home-disk-size GB` - Size of separate /home disk in GB (default: 100)
+- `--home-disk-size GB` - Size of separate /home disk in GB (default: 100, range: 16–4096)
 - `--no-home-disk` - Disable separate /home disk (use OS disk)
+- `--tmp-disk-size GB` - Size of separate /tmp disk in GB (range: 16–4096, not created by default)
 
 **What gets installed**:
 - Docker, Azure CLI, GitHub CLI, Git
@@ -188,13 +193,15 @@ azlin new --no-home-disk               # Disable home disk (use OS disk)
 
 **Time**: 4-7 minutes
 
-**Separate Home Disk**: By default, azlin creates a 100GB managed disk mounted as `/home` (unless using NFS storage). This provides persistent storage isolated from the OS disk. See [Separate Home Disk Guide](how-to/separate-home-disk.md) for details.
+**Separate Home & Tmp Disks**: By default, azlin creates a 100GB Premium SSD mounted as `/home/{user}` (unless using NFS storage). You can optionally add a dedicated `/tmp` disk. See [Separate Home & Tmp Disk Guide](how-to/separate-home-disk.md) for details.
 
-- Use `--home-disk-size` to customize (e.g., `--home-disk-size 200` for 200GB)
+- Use `--home-disk-size` to customize (e.g., `--home-disk-size 200` for 200GB, range: 16–4096)
+- Use `--tmp-disk-size` for a dedicated `/tmp` disk (e.g., `--tmp-disk-size 64`)
 - Use `--no-home-disk` to disable and use OS disk `/home` instead
-- NFS storage (`--nfs-storage`) automatically disables home disk
-- **Cost**: ~$4.80/month for default 100GB Standard HDD
-- **Graceful degradation**: If disk mount fails, falls back to OS disk `/home`
+- NFS storage (`--nfs-storage`) automatically disables home disk (but not tmp disk) — *NFS not yet implemented in Rust CLI*
+- **Disk tags**: `azlin-session` and `azlin-role` for auditing
+- **Orphan cleanup**: Disks auto-deleted if VM creation fails
+- **Graceful degradation**: Disk setup failure does not abort cloud-init
 
 ### `azlin clone` - Clone a VM with home directory
 
