@@ -466,8 +466,7 @@ pub(crate) async fn handle_vm_new(
         explicit
     } else if let Some(tier) = size {
         tier_to_sku(tier, resolve_family(tier))
-    } else if explicit_family.is_some() {
-        let family = explicit_family.unwrap();
+    } else if let Some(family) = explicit_family {
         tier_to_sku(azlin_cli::VmSizeTier::L, family)
     } else {
         config_defaults.default_vm_size.clone()
