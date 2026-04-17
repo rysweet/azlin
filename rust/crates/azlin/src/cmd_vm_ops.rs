@@ -157,10 +157,12 @@ fn create_managed_disk(
 fn cleanup_orphaned_disks(disk_ids: &[String], timeout: u64) {
     for disk_id in disk_ids {
         eprintln!("Cleaning up orphaned disk: {}", disk_id);
-        let _ = azlin_azure::vm::az_cli_with_timeout(
+        if let Err(e) = azlin_azure::vm::az_cli_with_timeout(
             &["disk", "delete", "--ids", disk_id, "--yes", "--no-wait"],
             timeout,
-        );
+        ) {
+            eprintln!("WARNING: Failed to delete orphaned disk {}: {}", disk_id, e);
+        }
     }
 }
 
@@ -669,7 +671,7 @@ pub(crate) async fn handle_vm_new(
         if let Some(tmp_size) = tmp_disk_size {
             let disk_name = format!("{}_tmp", vm_name);
             println!("Creating tmp disk '{}' ({}GB)...", disk_name, tmp_size);
-            let disk_id = create_managed_disk(
+            match create_managed_disk(
                 &disk_name,
                 tmp_size,
                 &rg,
@@ -677,8 +679,14 @@ pub(crate) async fn handle_vm_new(
                 &session_tag,
                 "tmp",
                 vm_manager.az_cli_timeout(),
-            )?;
-            disk_ids.push(disk_id);
+            ) {
+                Ok(disk_id) => disk_ids.push(disk_id),
+                Err(e) => {
+                    // Clean up any previously created disks before propagating
+                    cleanup_orphaned_disks(&disk_ids, vm_manager.az_cli_timeout());
+                    return Err(e);
+                }
+            }
         }
 
         let params = azlin_core::models::CreateVmParams {
