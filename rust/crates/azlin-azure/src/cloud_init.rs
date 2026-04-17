@@ -115,6 +115,34 @@ pub struct DiskConfig {
     pub tmp_disk: bool,
 }
 
+/// Shell snippet: wait for an Azure LUN device to appear (udevadm + retry loop).
+/// Returns a script fragment that sets `$DEV_VAR` to the resolved block device path.
+fn lun_wait_snippet(lun: u32, dev_var: &str, label: &str) -> String {
+    format!(
+        r#"  # Wait for udev to finish processing device events
+  udevadm settle --timeout=30 || true
+
+  # Retry loop: poll for LUN device availability (12 retries x 5s = 60s max)
+  {dev_var}=""
+  for retry in $(seq 1 12); do
+    {dev_var}=$(readlink -f /dev/disk/azure/scsi1/lun{lun} 2>/dev/null) || true
+    if [ -n "${dev_var}" ] && [ -b "${dev_var}" ]; then
+      break
+    fi
+    echo "[AZLIN] Waiting for {label} disk LUN {lun} (attempt $retry/12)..."
+    sleep 5
+  done
+
+  if [ -z "${dev_var}" ] || [ ! -b "${dev_var}" ]; then
+    echo "WARNING: {label} disk at LUN {lun} not found after 60s"
+    exit 1
+  fi"#,
+        lun = lun,
+        dev_var = dev_var,
+        label = label,
+    )
+}
+
 pub fn render_dev_cloud_init_script(admin_username: &str) -> String {
     render_dev_cloud_init_script_with_disks(admin_username, &DiskConfig::default())
 }
@@ -155,24 +183,7 @@ pub fn render_dev_cloud_init_script_with_disks(
         script.push_str(&format!(
             r#"# Home disk (LUN {lun})
 (
-  # Wait for udev to finish processing device events
-  udevadm settle --timeout=30 || true
-
-  # Retry loop: poll for LUN device availability (12 retries x 5s = 60s max)
-  HOME_DEV=""
-  for retry in $(seq 1 12); do
-    HOME_DEV=$(readlink -f /dev/disk/azure/scsi1/lun{lun} 2>/dev/null) || true
-    if [ -n "$HOME_DEV" ] && [ -b "$HOME_DEV" ]; then
-      break
-    fi
-    echo "[AZLIN] Waiting for home disk LUN {lun} (attempt $retry/12)..."
-    sleep 5
-  done
-
-  if [ -z "$HOME_DEV" ] || [ ! -b "$HOME_DEV" ]; then
-    echo "WARNING: Home disk at LUN {lun} not found after 60s"
-    exit 1
-  fi
+{wait}
 
   mkfs.ext4 -F -L azlin-home "$HOME_DEV"
   mkdir -p /mnt/home-data
@@ -196,6 +207,7 @@ pub fn render_dev_cloud_init_script_with_disks(
 
 "#,
             lun = next_lun,
+            wait = lun_wait_snippet(next_lun, "HOME_DEV", "home"),
             u = safe_username,
         ));
         next_lun += 1;
@@ -205,24 +217,7 @@ pub fn render_dev_cloud_init_script_with_disks(
         script.push_str(&format!(
             r#"# Tmp disk (LUN {lun})
 (
-  # Wait for udev to finish processing device events
-  udevadm settle --timeout=30 || true
-
-  # Retry loop: poll for LUN device availability (12 retries x 5s = 60s max)
-  TMP_DEV=""
-  for retry in $(seq 1 12); do
-    TMP_DEV=$(readlink -f /dev/disk/azure/scsi1/lun{lun} 2>/dev/null) || true
-    if [ -n "$TMP_DEV" ] && [ -b "$TMP_DEV" ]; then
-      break
-    fi
-    echo "[AZLIN] Waiting for tmp disk LUN {lun} (attempt $retry/12)..."
-    sleep 5
-  done
-
-  if [ -z "$TMP_DEV" ] || [ ! -b "$TMP_DEV" ]; then
-    echo "WARNING: Tmp disk at LUN {lun} not found after 60s"
-    exit 1
-  fi
+{wait}
 
   mkfs.ext4 -F -L azlin-tmp "$TMP_DEV"
   mkdir -p /mnt/tmp-data
@@ -242,6 +237,7 @@ pub fn render_dev_cloud_init_script_with_disks(
 
 "#,
             lun = next_lun,
+            wait = lun_wait_snippet(next_lun, "TMP_DEV", "tmp"),
         ));
     }
 
