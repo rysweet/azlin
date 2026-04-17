@@ -74,7 +74,7 @@ az disk create \
   --tags azlin-session=dev-vm azlin-role=home
 ```
 
-**Orphan cleanup:** If VM creation fails after disks are created, azlin automatically deletes the orphaned disks (`az disk delete --ids <id> --yes --no-wait`) so they don't accumulate cost.
+**Orphan cleanup:** If VM creation fails after disks are created (or if the second disk fails after the first succeeds), azlin automatically deletes the orphaned disks (`az disk delete --ids <id> --yes --no-wait`) and logs any cleanup failures so they don't accumulate cost silently.
 
 ### 2. Disk Attachment
 
@@ -96,6 +96,9 @@ The Azure SCSI device symlinks may not appear immediately. Cloud-init polls for 
 **Subshell isolation:**
 Each disk block runs inside a subshell `( ... ) || echo "WARN: disk setup failed"`. This means a failure in one disk block (e.g., `mkfs.ext4` error) does not abort the entire cloud-init script. The rest of provisioning (tool installation, etc.) continues normally.
 
+**Rollback trap:**
+If the bind mount fails after `/home/{user}` has been renamed, a shell `trap` automatically restores the original home directory. This prevents the VM from booting with an empty `/home/{user}`.
+
 **Home disk script flow:**
 ```bash
 (
@@ -105,41 +108,49 @@ Each disk block runs inside a subshell `( ... ) || echo "WARN: disk setup failed
     [ -e /dev/disk/azure/scsi1/lun0 ] && break
     sleep 5
   done
+  HOME_DEV=$(readlink -f /dev/disk/azure/scsi1/lun0)
 
   # 2. Format with ext4
-  mkfs.ext4 -F /dev/disk/azure/scsi1/lun0
+  mkfs.ext4 -F -L azlin-home "$HOME_DEV"
 
-  # 3. Temp-mount and rsync existing /home/{user}
-  mkdir -p /mnt/newhome
-  mount /dev/disk/azure/scsi1/lun0 /mnt/newhome
-  rsync -aAX /home/{user}/ /mnt/newhome/{user}/
-  umount /mnt/newhome
+  # 3. Mount disk and rsync existing home data
+  mkdir -p /mnt/home-data
+  mount "$HOME_DEV" /mnt/home-data
+  rsync -aAX /home/{user}/ /mnt/home-data/{user}/
 
-  # 4. Bind-mount as /home/{user}
+  # 4. Bind-mount with rollback trap
   mv /home/{user} /home/{user}.old
+  trap 'if [ -d /home/{user}.old ] && ! mountpoint -q /home/{user}; then
+    rm -rf /home/{user}; mv /home/{user}.old /home/{user}
+    echo "[AZLIN] Rolled back /home/{user} after disk setup failure"
+  fi' EXIT
   mkdir -p /home/{user}
-  mount /dev/disk/azure/scsi1/lun0 /home/{user}
+  mount --bind /mnt/home-data/{user} /home/{user}
 
-  # 5. Add idempotent fstab entry
-  grep -q 'lun0.*/home/{user}' /etc/fstab || \
-    echo '/dev/disk/azure/scsi1/lun0 /home/{user} ext4 defaults,nofail 0 2' >> /etc/fstab
+  # 5. Verify bind mount and clean up
+  if mountpoint -q /home/{user}; then
+    rm -rf /home/{user}.old
+  fi
 
-  # 6. Verify and clean up
-  mountpoint -q /home/{user}
-  rm -rf /home/{user}.old
-  chown -R {user}:{user} /home/{user}
-) || echo "WARN: home disk setup failed, using OS disk"
+  # 6. Add idempotent UUID-based fstab entries
+  HOME_UUID=$(blkid -s UUID -o value "$HOME_DEV")
+  grep -q "UUID=$HOME_UUID" /etc/fstab || \
+    echo "UUID=$HOME_UUID /mnt/home-data ext4 defaults,nofail 0 2" >> /etc/fstab
+  grep -q "/mnt/home-data/{user} /home/{user}" /etc/fstab || \
+    echo "/mnt/home-data/{user} /home/{user} none bind 0 0" >> /etc/fstab
+) || echo "WARN: home disk setup failed, continuing without separate home disk"
 ```
 
 **Tmp disk script flow** follows the same pattern, mounting at `/tmp` with `mode=1777`.
 
 ### 4. Persistent Configuration
 
-The mount is added to `/etc/fstab` idempotently (only if not already present) for persistence across reboots:
+The mount is added to `/etc/fstab` idempotently (only if not already present) for persistence across reboots. UUID-based entries are used for the disk mount, with a bind mount entry for `/home/{user}`:
 
 ```
-/dev/disk/azure/scsi1/lun0 /home/azureuser ext4 defaults,nofail 0 2
-/dev/disk/azure/scsi1/lun1 /tmp ext4 defaults,nofail,mode=1777 0 2
+UUID=<home-disk-uuid> /mnt/home-data ext4 defaults,nofail 0 2
+/mnt/home-data/{user} /home/{user} none bind 0 0
+UUID=<tmp-disk-uuid> /tmp ext4 defaults,nofail,mode=1777 0 2
 ```
 
 ## Configuration Options
