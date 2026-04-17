@@ -193,8 +193,9 @@ pub fn render_dev_cloud_init_script_with_disks(
   mount "$HOME_DEV" /mnt/home-data
   # Copy existing home to the new disk
   rsync -aAX /home/{u}/ /mnt/home-data/{u}/
-  # Bind mount over /home/{u}
+  # Bind mount over /home/{u} — with rollback trap to restore original on failure
   mv /home/{u} /home/{u}.old
+  trap 'if [ -d /home/{u}.old ] && ! mountpoint -q /home/{u} 2>/dev/null; then rm -rf /home/{u} 2>/dev/null; mv /home/{u}.old /home/{u}; echo "[AZLIN] Rolled back /home/{u} after disk setup failure"; fi' EXIT
   mkdir -p /home/{u}
   mount --bind /mnt/home-data/{u} /home/{u}
   # Verify bind mount succeeded before cleaning up
@@ -773,6 +774,22 @@ mod tests {
             script.contains("rm -rf /home/azureuser.old")
                 || script.contains("rm -rf \"/home/azureuser.old\""),
             "Home disk block must clean up /home/azureuser.old after bind mount"
+        );
+    }
+
+    #[test]
+    fn test_disk_home_block_has_rollback_trap() {
+        let script = render_dev_cloud_init_script_with_disks(
+            "azureuser",
+            &DiskConfig {
+                home_disk: true,
+                tmp_disk: false,
+            },
+        );
+        // Must have a trap to restore /home/azureuser.old on failure
+        assert!(
+            script.contains("trap") && script.contains("azureuser.old"),
+            "Home disk block must include rollback trap to restore /home/user.old on failure"
         );
     }
 
