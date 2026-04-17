@@ -1,6 +1,6 @@
 #[allow(unused_imports)]
 use super::*;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::time::Duration;
 
 // ── SSH timeout scaling by VM size ──────────────────────────────────
@@ -97,6 +97,45 @@ fn check_region_availability(
         has_capacity,
         error: None,
     }
+}
+
+/// Create a managed disk via az CLI and return its resource ID.
+fn create_managed_disk(
+    name: &str,
+    size_gb: u32,
+    resource_group: &str,
+    location: &str,
+    timeout: u64,
+) -> Result<String> {
+    let size_str = size_gb.to_string();
+    let json = azlin_azure::vm::az_cli_with_timeout(
+        &[
+            "disk",
+            "create",
+            "--resource-group",
+            resource_group,
+            "--name",
+            name,
+            "--location",
+            location,
+            "--size-gb",
+            &size_str,
+            "--sku",
+            "Premium_LRS",
+        ],
+        timeout,
+    )
+    .context(format!("Failed to create managed disk '{}'", name))?;
+
+    // Extract the disk resource ID from the JSON response
+    let parsed: serde_json::Value =
+        serde_json::from_str(&json).context("Failed to parse disk creation response")?;
+    let disk_id = parsed["id"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("Disk creation response missing 'id' field"))?
+        .to_string();
+
+    Ok(disk_id)
 }
 
 /// Map a VM size tier + family to an Azure SKU string.
@@ -333,9 +372,9 @@ pub(crate) async fn handle_vm_new(
     private: bool,
     public: bool,
     yes: bool,
-    _home_disk_size: Option<u32>,
-    _no_home_disk: bool,
-    _tmp_disk_size: Option<u32>,
+    home_disk_size: Option<u32>,
+    no_home_disk: bool,
+    tmp_disk_size: Option<u32>,
     _os: Option<String>,
 ) -> Result<()> {
     // Resolve public IP intent: default is private (bastion-routed).
@@ -582,6 +621,38 @@ pub(crate) async fn handle_vm_new(
             ),
         );
 
+        // Create managed data disks if requested (home disk at LUN 0, tmp disk at LUN 1)
+        let default_home_size = 100;
+        let want_home_disk = !no_home_disk;
+        let home_size = home_disk_size.unwrap_or(default_home_size);
+        let mut disk_ids = Vec::new();
+
+        if want_home_disk {
+            let disk_name = format!("{}_home", vm_name);
+            println!("Creating home disk '{}' ({}GB)...", disk_name, home_size);
+            let disk_id = create_managed_disk(
+                &disk_name,
+                home_size,
+                &rg,
+                &final_loc,
+                vm_manager.az_cli_timeout(),
+            )?;
+            disk_ids.push(disk_id);
+        }
+
+        if let Some(tmp_size) = tmp_disk_size {
+            let disk_name = format!("{}_tmp", vm_name);
+            println!("Creating tmp disk '{}' ({}GB)...", disk_name, tmp_size);
+            let disk_id = create_managed_disk(
+                &disk_name,
+                tmp_size,
+                &rg,
+                &final_loc,
+                vm_manager.az_cli_timeout(),
+            )?;
+            disk_ids.push(disk_id);
+        }
+
         let params = azlin_core::models::CreateVmParams {
             name: vm_name.clone(),
             resource_group: rg.clone(),
@@ -592,7 +663,7 @@ pub(crate) async fn handle_vm_new(
             image: azlin_core::models::VmImage::default(),
             tags,
             public_ip_enabled: want_public_ip,
-            disk_ids: vec![],
+            disk_ids,
         };
 
         if let Err(e) = params.validate() {

@@ -106,7 +106,23 @@ pub fn generate_cloud_init(
     yaml
 }
 
+/// Disk configuration for cloud-init provisioning.
+#[derive(Debug, Clone, Default)]
+pub struct DiskConfig {
+    /// If true, LUN 0 is a home disk to be mounted at /home/{user}.
+    pub home_disk: bool,
+    /// If true, LUN 1 (or LUN 0 if no home disk) is a tmp disk to be mounted at /tmp.
+    pub tmp_disk: bool,
+}
+
 pub fn render_dev_cloud_init_script(admin_username: &str) -> String {
+    render_dev_cloud_init_script_with_disks(admin_username, &DiskConfig::default())
+}
+
+pub fn render_dev_cloud_init_script_with_disks(
+    admin_username: &str,
+    disk_config: &DiskConfig,
+) -> String {
     let safe_username = sanitize_admin_username(admin_username);
     let packages = default_dev_packages();
     let mut script = String::from("#!/bin/bash\nset -euo pipefail\n\n");
@@ -125,6 +141,74 @@ pub fn render_dev_cloud_init_script(admin_username: &str) -> String {
     }
 
     script.push('\n');
+
+    // Disk formatting and mounting (must happen before user setup so home dir is on the right disk)
+    if disk_config.home_disk || disk_config.tmp_disk {
+        script.push_str("# ── Data disk setup ──\n");
+        script.push_str("echo '[AZLIN] Formatting and mounting data disks...'\n\n");
+    }
+
+    let mut next_lun = 0u32;
+
+    if disk_config.home_disk {
+        // LUN 0 = home disk
+        script.push_str(&format!(
+            r#"# Home disk (LUN {lun})
+HOME_DEV=$(readlink -f /dev/disk/azure/scsi1/lun{lun})
+if [ -n "$HOME_DEV" ] && [ -b "$HOME_DEV" ]; then
+  mkfs.ext4 -F -L azlin-home "$HOME_DEV"
+  mkdir -p /mnt/home-data
+  mount "$HOME_DEV" /mnt/home-data
+  # Copy existing home to the new disk
+  rsync -aAX /home/{u}/ /mnt/home-data/{u}/ 2>/dev/null || true
+  # Bind mount over /home/{u}
+  mv /home/{u} /home/{u}.old
+  mkdir /home/{u}
+  mount --bind /mnt/home-data/{u} /home/{u}
+  # Persist in fstab
+  HOME_UUID=$(blkid -s UUID -o value "$HOME_DEV")
+  echo "UUID=$HOME_UUID /mnt/home-data ext4 defaults,nofail 0 2" >> /etc/fstab
+  echo "/mnt/home-data/{u} /home/{u} none bind 0 0" >> /etc/fstab
+  echo "[AZLIN] Home disk mounted at /home/{u} ($(lsblk -no SIZE "$HOME_DEV" | tr -d ' '))"
+else
+  echo "WARNING: Home disk at LUN {lun} not found"
+fi
+
+"#,
+            lun = next_lun,
+            u = safe_username,
+        ));
+        next_lun += 1;
+    }
+
+    if disk_config.tmp_disk {
+        script.push_str(&format!(
+            r#"# Tmp disk (LUN {lun})
+TMP_DEV=$(readlink -f /dev/disk/azure/scsi1/lun{lun})
+if [ -n "$TMP_DEV" ] && [ -b "$TMP_DEV" ]; then
+  mkfs.ext4 -F -L azlin-tmp "$TMP_DEV"
+  mkdir -p /mnt/tmp-data/tmp
+  mount "$TMP_DEV" /mnt/tmp-data
+  mkdir -p /mnt/tmp-data/tmp
+  chmod 1777 /mnt/tmp-data/tmp
+  # Copy existing /tmp contents
+  rsync -aAX /tmp/ /mnt/tmp-data/tmp/ 2>/dev/null || true
+  mount --bind /mnt/tmp-data/tmp /tmp
+  chmod 1777 /tmp
+  # Persist in fstab
+  TMP_UUID=$(blkid -s UUID -o value "$TMP_DEV")
+  echo "UUID=$TMP_UUID /mnt/tmp-data ext4 defaults,nofail 0 2" >> /etc/fstab
+  echo "/mnt/tmp-data/tmp /tmp none bind 0 0" >> /etc/fstab
+  echo "[AZLIN] Tmp disk mounted at /tmp ($(lsblk -no SIZE "$TMP_DEV" | tr -d ' '))"
+else
+  echo "WARNING: Tmp disk at LUN {lun} not found"
+fi
+
+"#,
+            lun = next_lun,
+        ));
+    }
+
     for command in default_dev_setup_commands(safe_username) {
         script.push_str(&command);
         script.push_str("\n\n");

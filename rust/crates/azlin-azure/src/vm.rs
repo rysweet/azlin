@@ -67,6 +67,11 @@ impl VmManager {
         &self.subscription_id
     }
 
+    /// Return the az CLI timeout in seconds.
+    pub fn az_cli_timeout(&self) -> u64 {
+        self.az_cli_timeout
+    }
+
     // ── List operations ────────────────────────────────────────────────
 
     /// List VMs in a specific resource group, returning cached data if fresh.
@@ -412,7 +417,12 @@ impl VmManager {
         debug!(%vm_name, "Creating VM (Azure-managed networking)");
         let image_urn = params.image.to_string();
 
-        let cloud_init_file = create_cloud_init_file(&params.admin_username)?;
+        let disk_config = crate::cloud_init::DiskConfig {
+            home_disk: !params.disk_ids.is_empty(),
+            tmp_disk: params.disk_ids.len() >= 2,
+        };
+        let cloud_init_file =
+            create_cloud_init_file(&params.admin_username, &disk_config)?;
         let cloud_init_path = cloud_init_file.path().to_string_lossy().to_string();
         let mut az_args: Vec<String> = vec![
             "vm".into(),
@@ -642,14 +652,18 @@ pub fn az_cli_with_timeout(args: &[&str], timeout_secs: u64) -> Result<String> {
 /// The caller must keep the returned `NamedTempFile` alive until the file is no
 /// longer needed (e.g. until the `az vm create` command has finished). Dropping
 /// the handle deletes the file automatically.
-fn create_cloud_init_file(admin_username: &str) -> Result<tempfile::NamedTempFile> {
+fn create_cloud_init_file(
+    admin_username: &str,
+    disk_config: &crate::cloud_init::DiskConfig,
+) -> Result<tempfile::NamedTempFile> {
     use std::io::Write;
     let mut tmp = tempfile::Builder::new()
         .prefix("azlin-cloud-init-")
         .suffix(".sh")
         .tempfile()
         .context("Failed to create cloud-init temp file")?;
-    let script = render_dev_cloud_init_script(admin_username);
+    let script =
+        crate::cloud_init::render_dev_cloud_init_script_with_disks(admin_username, disk_config);
     tmp.write_all(script.as_bytes())
         .context("Failed to write cloud-init temp file")?;
     tmp.flush()
@@ -1049,7 +1063,7 @@ mod tests {
 
     #[test]
     fn test_create_cloud_init_file_creates_file() {
-        let file = create_cloud_init_file("testuser").unwrap();
+        let file = create_cloud_init_file("testuser", &crate::cloud_init::DiskConfig::default()).unwrap();
         assert!(file.path().exists());
         let contents = std::fs::read_to_string(file.path()).unwrap();
         assert!(contents.contains("#!/bin/bash"));
@@ -1057,7 +1071,7 @@ mod tests {
 
     #[test]
     fn test_create_cloud_init_file_path_is_in_temp() {
-        let file = create_cloud_init_file("testuser").unwrap();
+        let file = create_cloud_init_file("testuser", &crate::cloud_init::DiskConfig::default()).unwrap();
         let path = file.path().to_string_lossy();
         assert!(
             path.contains("azlin-cloud-init-"),
@@ -1067,8 +1081,8 @@ mod tests {
 
     #[test]
     fn test_create_cloud_init_file_unique_paths() {
-        let f1 = create_cloud_init_file("u").unwrap();
-        let f2 = create_cloud_init_file("u").unwrap();
+        let f1 = create_cloud_init_file("u", &crate::cloud_init::DiskConfig::default()).unwrap();
+        let f2 = create_cloud_init_file("u", &crate::cloud_init::DiskConfig::default()).unwrap();
         assert_ne!(
             f1.path(),
             f2.path(),
