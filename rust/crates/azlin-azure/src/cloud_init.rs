@@ -75,7 +75,8 @@ pub fn generate_cloud_init(
         );
     }
 
-    let mut yaml = String::from("#cloud-config\n");
+    let mut yaml = String::with_capacity(512);
+    yaml.push_str("#cloud-config\n");
     yaml.push_str(&format!("users:\n  - name: {}\n", username));
     yaml.push_str("    groups: sudo, docker\n");
     yaml.push_str("    shell: /bin/bash\n");
@@ -153,7 +154,9 @@ pub fn render_dev_cloud_init_script_with_disks(
 ) -> String {
     let safe_username = sanitize_admin_username(admin_username);
     let packages = default_dev_packages();
-    let mut script = String::from("#!/bin/bash\nset -euo pipefail\n\n");
+    // Pre-allocate ~10KB for the generated script to avoid repeated reallocations
+    let mut script = String::with_capacity(10 * 1024);
+    script.push_str("#!/bin/bash\nset -euo pipefail\n\n");
     script.push_str("apt-get update -qq\n");
     script.push_str("apt-get upgrade -y -qq\n\n");
     script.push_str("apt-get install -y -qq \\\n");
@@ -353,9 +356,10 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
     ]
 }
 
-/// Default packages for development VMs (installed via apt)
-pub fn default_dev_packages() -> Vec<&'static str> {
-    vec![
+/// Default packages for development VMs (installed via apt).
+/// Returns a static slice to avoid heap allocation on each call.
+pub fn default_dev_packages() -> &'static [&'static str] {
+    &[
         "docker.io",
         "git",
         "tmux",
