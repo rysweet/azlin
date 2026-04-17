@@ -211,6 +211,14 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
             chmod +x ~/.cargo/bin/amplihack ~/.cargo/bin/amplihack-hooks 2>/dev/null; \
             rm -rf /tmp/amplihack-install && \
             ~/.cargo/bin/amplihack install' || echo 'WARNING: amplihack-rs installation failed'", u = username),
+        // azlin CLI (pre-built binary from latest GitHub release)
+        format!("su - {u} -c 'ARCH=$(uname -m | sed s/aarch64/aarch64/ | sed s/x86_64/x86_64/) && \
+            URL=$(curl -fsSL https://api.github.com/repos/rysweet/azlin/releases/latest | grep browser_download_url | grep linux-$ARCH.tar.gz\\\" | head -1 | cut -d\\\"  -f4) && \
+            mkdir -p /tmp/azlin-install && cd /tmp/azlin-install && \
+            curl -fsSL $URL -o azlin.tar.gz && tar xzf azlin.tar.gz && \
+            mkdir -p ~/.cargo/bin && cp azlin ~/.cargo/bin/ 2>/dev/null; \
+            chmod +x ~/.cargo/bin/azlin 2>/dev/null; \
+            rm -rf /tmp/azlin-install' || echo 'WARNING: azlin installation failed'", u = username),
         // Go
         "wget -q https://go.dev/dl/go1.26.1.linux-amd64.tar.gz -O /tmp/go.tar.gz && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz".to_string(),
         // .NET 10 SDK
@@ -223,7 +231,7 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         // bashrc additions (npm path, go path, cargo env, azlin alias)
         format!("cat >> /home/{u}/.bashrc << 'BASHEOF'\n\n# npm user-local configuration\nNPM_PACKAGES=\"${{HOME}}/.npm-packages\"\nPATH=\"$NPM_PACKAGES/bin:$PATH\"\nMANPATH=\"$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)\"\n\n# Go\nexport PATH=$PATH:/usr/local/go/bin\n\n# Cargo\nsource $HOME/.cargo/env 2>/dev/null\nBASHEOF", u = username),
         // Version verification (rustc is in user homedir, must check as user)
-        format!("echo '[AZLIN] Provisioning complete' && which gh && gh --version && which az && az --version | head -2 && which node && node --version && su - {u} -c 'which rustc && rustc --version && which amplihack && amplihack --version' && which dotnet && dotnet --version || true", u = username),
+        format!("echo '[AZLIN] Provisioning complete' && which gh && gh --version && which az && az --version | head -2 && which node && node --version && su - {u} -c 'which rustc && rustc --version && which amplihack && amplihack --version && which azlin && azlin --version' && which dotnet && dotnet --version || true", u = username),
         // Explicit provisioning sentinel for azlin's post-create readiness checks.
         "mkdir -p /var/lib/azlin && touch /var/lib/azlin/provisioning-complete && echo 'cloud-init provisioning complete'".to_string(),
     ]
