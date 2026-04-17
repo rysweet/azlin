@@ -13,8 +13,9 @@ use tracing::debug;
 
 use azlin_core::models::{CreateVmParams, OsType, PowerState, VmInfo};
 
-use crate::cloud_init::render_dev_cloud_init_script;
 use crate::AzureAuth;
+#[cfg(test)]
+use crate::cloud_init::render_dev_cloud_init_script;
 
 // ── VM list cache ─────────────────────────────────────────────────────
 

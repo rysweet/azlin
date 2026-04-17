@@ -100,14 +100,27 @@ fn check_region_availability(
 }
 
 /// Create a managed disk via az CLI and return its resource ID.
+///
+/// `session_name` and `role` are used to tag the disk for orphan auditing.
+/// `size_gb` must be between 16 and 4096 (Azure Premium SSD bounds).
 fn create_managed_disk(
     name: &str,
     size_gb: u32,
     resource_group: &str,
     location: &str,
+    session_name: &str,
+    role: &str,
     timeout: u64,
 ) -> Result<String> {
+    if !(16..=4096).contains(&size_gb) {
+        anyhow::bail!(
+            "Disk size must be between 16 and 4096 GB, got {} GB",
+            size_gb
+        );
+    }
+
     let size_str = size_gb.to_string();
+    let tags = format!("azlin-session={} azlin-role={}", session_name, role);
     let json = azlin_azure::vm::az_cli_with_timeout(
         &[
             "disk",
@@ -122,6 +135,8 @@ fn create_managed_disk(
             &size_str,
             "--sku",
             "Premium_LRS",
+            "--tags",
+            &tags,
         ],
         timeout,
     )
@@ -136,6 +151,17 @@ fn create_managed_disk(
         .to_string();
 
     Ok(disk_id)
+}
+
+/// Best-effort cleanup of orphaned managed disks (e.g., when VM creation fails).
+fn cleanup_orphaned_disks(disk_ids: &[String], timeout: u64) {
+    for disk_id in disk_ids {
+        eprintln!("Cleaning up orphaned disk: {}", disk_id);
+        let _ = azlin_azure::vm::az_cli_with_timeout(
+            &["disk", "delete", "--ids", disk_id, "--yes", "--no-wait"],
+            timeout,
+        );
+    }
 }
 
 /// Map a VM size tier + family to an Azure SKU string.
@@ -612,14 +638,12 @@ pub(crate) async fn handle_vm_new(
         azlin_core::models::validate_vm_name(&vm_name).map_err(|e| anyhow::anyhow!(e))?;
 
         let mut tags = std::collections::HashMap::new();
-        tags.insert(
-            "azlin-session".to_string(),
-            crate::create_helpers::resolve_session_identity(
-                name.as_deref(),
-                &vm_name,
-                vm_count as usize,
-            ),
+        let session_tag = crate::create_helpers::resolve_session_identity(
+            name.as_deref(),
+            &vm_name,
+            vm_count as usize,
         );
+        tags.insert("azlin-session".to_string(), session_tag.clone());
 
         // Create managed data disks if requested (home disk at LUN 0, tmp disk at LUN 1)
         let default_home_size = 100;
@@ -635,6 +659,8 @@ pub(crate) async fn handle_vm_new(
                 home_size,
                 &rg,
                 &final_loc,
+                &session_tag,
+                "home",
                 vm_manager.az_cli_timeout(),
             )?;
             disk_ids.push(disk_id);
@@ -648,6 +674,8 @@ pub(crate) async fn handle_vm_new(
                 tmp_size,
                 &rg,
                 &final_loc,
+                &session_tag,
+                "tmp",
                 vm_manager.az_cli_timeout(),
             )?;
             disk_ids.push(disk_id);
@@ -663,16 +691,27 @@ pub(crate) async fn handle_vm_new(
             image: azlin_core::models::VmImage::default(),
             tags,
             public_ip_enabled: want_public_ip,
-            disk_ids,
+            disk_ids: disk_ids.clone(),
         };
 
         if let Err(e) = params.validate() {
+            // Clean up orphaned disks before bailing
+            cleanup_orphaned_disks(&disk_ids, vm_manager.az_cli_timeout());
             anyhow::bail!("Invalid VM parameters: {}", e);
         }
 
         let pb = penguin_spinner(&format!("Creating VM '{}'...", vm_name));
-        let vm = vm_manager.create_vm(&params)?;
+        let vm_result = vm_manager.create_vm(&params);
         pb.finish_and_clear();
+
+        let vm = match vm_result {
+            Ok(vm) => vm,
+            Err(e) => {
+                // Clean up orphaned disks on VM creation failure
+                cleanup_orphaned_disks(&disk_ids, vm_manager.az_cli_timeout());
+                return Err(e);
+            }
+        };
 
         if let Some(ref nfs) = nfs_storage {
             eprintln!(
@@ -1148,5 +1187,46 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ── tier_to_sku tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_tier_to_sku_d_series_all_tiers() {
+        use azlin_cli::{VmFamily, VmSizeTier};
+        assert_eq!(super::tier_to_sku(VmSizeTier::Xs, VmFamily::D), "Standard_D2s_v5");
+        assert_eq!(super::tier_to_sku(VmSizeTier::S, VmFamily::D), "Standard_D4s_v5");
+        assert_eq!(super::tier_to_sku(VmSizeTier::M, VmFamily::D), "Standard_D8s_v5");
+        assert_eq!(super::tier_to_sku(VmSizeTier::L, VmFamily::D), "Standard_D16s_v5");
+        assert_eq!(super::tier_to_sku(VmSizeTier::Xl, VmFamily::D), "Standard_D32s_v5");
+        assert_eq!(super::tier_to_sku(VmSizeTier::Xxl, VmFamily::D), "Standard_D64s_v5");
+    }
+
+    #[test]
+    fn test_tier_to_sku_e_series_all_tiers() {
+        use azlin_cli::{VmFamily, VmSizeTier};
+        assert_eq!(super::tier_to_sku(VmSizeTier::Xs, VmFamily::E), "Standard_E2as_v5");
+        assert_eq!(super::tier_to_sku(VmSizeTier::S, VmFamily::E), "Standard_E4as_v5");
+        assert_eq!(super::tier_to_sku(VmSizeTier::M, VmFamily::E), "Standard_E8as_v5");
+        assert_eq!(super::tier_to_sku(VmSizeTier::L, VmFamily::E), "Standard_E16as_v5");
+        assert_eq!(super::tier_to_sku(VmSizeTier::Xl, VmFamily::E), "Standard_E32as_v5");
+        assert_eq!(super::tier_to_sku(VmSizeTier::Xxl, VmFamily::E), "Standard_E64as_v5");
+    }
+
+    #[test]
+    fn test_tier_to_sku_e_series_xl_is_memory_optimized() {
+        use azlin_cli::{VmFamily, VmSizeTier};
+        let sku = super::tier_to_sku(VmSizeTier::Xl, VmFamily::E);
+        // E-series SKUs should contain "E" and "as" (AMD memory-optimized)
+        assert!(sku.contains("_E"), "E-series SKU must contain _E prefix");
+        assert!(sku.contains("as_v5"), "E-series SKU must be AMD-based (as_v5)");
+    }
+
+    #[test]
+    fn test_tier_to_sku_d_series_uses_ds_v5() {
+        use azlin_cli::{VmFamily, VmSizeTier};
+        let sku = super::tier_to_sku(VmSizeTier::M, VmFamily::D);
+        assert!(sku.contains("_D"), "D-series SKU must contain _D prefix");
+        assert!(sku.contains("s_v5"), "D-series SKU must be v5 with premium storage (s_v5)");
     }
 }

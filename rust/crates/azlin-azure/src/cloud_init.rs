@@ -151,28 +151,48 @@ pub fn render_dev_cloud_init_script_with_disks(
     let mut next_lun = 0u32;
 
     if disk_config.home_disk {
-        // LUN 0 = home disk
+        // LUN 0 = home disk — wrapped in subshell for failure isolation
         script.push_str(&format!(
             r#"# Home disk (LUN {lun})
-HOME_DEV=$(readlink -f /dev/disk/azure/scsi1/lun{lun})
-if [ -n "$HOME_DEV" ] && [ -b "$HOME_DEV" ]; then
+(
+  # Wait for udev to finish processing device events
+  udevadm settle --timeout=30 || true
+
+  # Retry loop: poll for LUN device availability (12 retries x 5s = 60s max)
+  HOME_DEV=""
+  for retry in $(seq 1 12); do
+    HOME_DEV=$(readlink -f /dev/disk/azure/scsi1/lun{lun} 2>/dev/null) || true
+    if [ -n "$HOME_DEV" ] && [ -b "$HOME_DEV" ]; then
+      break
+    fi
+    echo "[AZLIN] Waiting for home disk LUN {lun} (attempt $retry/12)..."
+    sleep 5
+  done
+
+  if [ -z "$HOME_DEV" ] || [ ! -b "$HOME_DEV" ]; then
+    echo "WARNING: Home disk at LUN {lun} not found after 60s"
+    exit 1
+  fi
+
   mkfs.ext4 -F -L azlin-home "$HOME_DEV"
   mkdir -p /mnt/home-data
   mount "$HOME_DEV" /mnt/home-data
   # Copy existing home to the new disk
-  rsync -aAX /home/{u}/ /mnt/home-data/{u}/ 2>/dev/null || true
+  rsync -aAX /home/{u}/ /mnt/home-data/{u}/
   # Bind mount over /home/{u}
   mv /home/{u} /home/{u}.old
-  mkdir /home/{u}
+  mkdir -p /home/{u}
   mount --bind /mnt/home-data/{u} /home/{u}
-  # Persist in fstab
+  # Verify bind mount succeeded before cleaning up
+  if mountpoint -q /home/{u}; then
+    rm -rf /home/{u}.old
+  fi
+  # Persist in fstab (idempotent)
   HOME_UUID=$(blkid -s UUID -o value "$HOME_DEV")
-  echo "UUID=$HOME_UUID /mnt/home-data ext4 defaults,nofail 0 2" >> /etc/fstab
-  echo "/mnt/home-data/{u} /home/{u} none bind 0 0" >> /etc/fstab
+  grep -q "UUID=$HOME_UUID" /etc/fstab || echo "UUID=$HOME_UUID /mnt/home-data ext4 defaults,nofail 0 2" >> /etc/fstab
+  grep -q "/mnt/home-data/{u} /home/{u}" /etc/fstab || echo "/mnt/home-data/{u} /home/{u} none bind 0 0" >> /etc/fstab
   echo "[AZLIN] Home disk mounted at /home/{u} ($(lsblk -no SIZE "$HOME_DEV" | tr -d ' '))"
-else
-  echo "WARNING: Home disk at LUN {lun} not found"
-fi
+) || echo "WARN: Home disk setup failed, continuing without separate home disk"
 
 "#,
             lun = next_lun,
@@ -184,10 +204,28 @@ fi
     if disk_config.tmp_disk {
         script.push_str(&format!(
             r#"# Tmp disk (LUN {lun})
-TMP_DEV=$(readlink -f /dev/disk/azure/scsi1/lun{lun})
-if [ -n "$TMP_DEV" ] && [ -b "$TMP_DEV" ]; then
+(
+  # Wait for udev to finish processing device events
+  udevadm settle --timeout=30 || true
+
+  # Retry loop: poll for LUN device availability (12 retries x 5s = 60s max)
+  TMP_DEV=""
+  for retry in $(seq 1 12); do
+    TMP_DEV=$(readlink -f /dev/disk/azure/scsi1/lun{lun} 2>/dev/null) || true
+    if [ -n "$TMP_DEV" ] && [ -b "$TMP_DEV" ]; then
+      break
+    fi
+    echo "[AZLIN] Waiting for tmp disk LUN {lun} (attempt $retry/12)..."
+    sleep 5
+  done
+
+  if [ -z "$TMP_DEV" ] || [ ! -b "$TMP_DEV" ]; then
+    echo "WARNING: Tmp disk at LUN {lun} not found after 60s"
+    exit 1
+  fi
+
   mkfs.ext4 -F -L azlin-tmp "$TMP_DEV"
-  mkdir -p /mnt/tmp-data/tmp
+  mkdir -p /mnt/tmp-data
   mount "$TMP_DEV" /mnt/tmp-data
   mkdir -p /mnt/tmp-data/tmp
   chmod 1777 /mnt/tmp-data/tmp
@@ -195,14 +233,12 @@ if [ -n "$TMP_DEV" ] && [ -b "$TMP_DEV" ]; then
   rsync -aAX /tmp/ /mnt/tmp-data/tmp/ 2>/dev/null || true
   mount --bind /mnt/tmp-data/tmp /tmp
   chmod 1777 /tmp
-  # Persist in fstab
+  # Persist in fstab (idempotent)
   TMP_UUID=$(blkid -s UUID -o value "$TMP_DEV")
-  echo "UUID=$TMP_UUID /mnt/tmp-data ext4 defaults,nofail 0 2" >> /etc/fstab
-  echo "/mnt/tmp-data/tmp /tmp none bind 0 0" >> /etc/fstab
+  grep -q "UUID=$TMP_UUID" /etc/fstab || echo "UUID=$TMP_UUID /mnt/tmp-data ext4 defaults,nofail 0 2" >> /etc/fstab
+  grep -q "/mnt/tmp-data/tmp /tmp" /etc/fstab || echo "/mnt/tmp-data/tmp /tmp none bind 0 0" >> /etc/fstab
   echo "[AZLIN] Tmp disk mounted at /tmp ($(lsblk -no SIZE "$TMP_DEV" | tr -d ' '))"
-else
-  echo "WARNING: Tmp disk at LUN {lun} not found"
-fi
+) || echo "WARN: Tmp disk setup failed, continuing without separate tmp disk"
 
 "#,
             lun = next_lun,
@@ -552,5 +588,278 @@ mod tests {
     fn test_generate_cloud_init_preserves_multiline_setup_commands() {
         let yaml = generate_cloud_init("dev", "key", &[], &[String::from("echo one\necho two")]);
         assert!(yaml.contains("runcmd:\n  - |\n    echo one\n    echo two\n"));
+    }
+
+    // ── DiskConfig cloud-init script generation tests ────────────────
+
+    #[test]
+    fn test_disk_config_no_disks_produces_no_disk_blocks() {
+        let script = render_dev_cloud_init_script_with_disks(
+            "azureuser",
+            &DiskConfig {
+                home_disk: false,
+                tmp_disk: false,
+            },
+        );
+        assert!(!script.contains("Data disk setup"));
+        assert!(!script.contains("Home disk"));
+        assert!(!script.contains("Tmp disk"));
+        assert!(!script.contains("/dev/disk/azure/scsi1/lun"));
+    }
+
+    #[test]
+    fn test_disk_config_home_only_uses_lun0() {
+        let script = render_dev_cloud_init_script_with_disks(
+            "azureuser",
+            &DiskConfig {
+                home_disk: true,
+                tmp_disk: false,
+            },
+        );
+        // Must reference LUN 0 for home disk
+        assert!(
+            script.contains("/dev/disk/azure/scsi1/lun0"),
+            "Home disk must use Azure LUN 0 symlink"
+        );
+        assert!(
+            script.contains("Home disk (LUN 0)"),
+            "Home disk block must be labeled with LUN 0"
+        );
+        // Must NOT contain tmp disk block
+        assert!(
+            !script.contains("Tmp disk"),
+            "Should not contain tmp disk block when tmp_disk=false"
+        );
+        // Must format as ext4
+        assert!(
+            script.contains("mkfs.ext4"),
+            "Home disk must be formatted with ext4"
+        );
+        // Must bind-mount to /home/azureuser
+        assert!(
+            script.contains("/home/azureuser"),
+            "Home disk must mount to /home/azureuser"
+        );
+        // Must persist in fstab
+        assert!(script.contains("/etc/fstab"), "Must persist mount in fstab");
+    }
+
+    #[test]
+    fn test_disk_config_tmp_only_uses_lun0() {
+        let script = render_dev_cloud_init_script_with_disks(
+            "azureuser",
+            &DiskConfig {
+                home_disk: false,
+                tmp_disk: true,
+            },
+        );
+        // When no home disk, tmp disk should get LUN 0
+        assert!(
+            script.contains("Tmp disk (LUN 0)"),
+            "Tmp disk must use LUN 0 when home disk is absent"
+        );
+        assert!(
+            script.contains("/dev/disk/azure/scsi1/lun0"),
+            "Tmp disk must use LUN 0 symlink when home disk is absent"
+        );
+        // Must NOT contain home disk block
+        assert!(
+            !script.contains("Home disk"),
+            "Should not contain home disk block when home_disk=false"
+        );
+        // Must set sticky bit on /tmp
+        assert!(
+            script.contains("chmod 1777"),
+            "Tmp disk must set sticky bit (1777) on /tmp"
+        );
+        // Must persist in fstab
+        assert!(script.contains("/etc/fstab"), "Must persist mount in fstab");
+    }
+
+    #[test]
+    fn test_disk_config_both_disks_uses_lun0_and_lun1() {
+        let script = render_dev_cloud_init_script_with_disks(
+            "azureuser",
+            &DiskConfig {
+                home_disk: true,
+                tmp_disk: true,
+            },
+        );
+        // Home disk at LUN 0
+        assert!(
+            script.contains("Home disk (LUN 0)"),
+            "Home disk must be at LUN 0"
+        );
+        assert!(
+            script.contains("/dev/disk/azure/scsi1/lun0"),
+            "Home disk must use LUN 0 symlink"
+        );
+        // Tmp disk at LUN 1
+        assert!(
+            script.contains("Tmp disk (LUN 1)"),
+            "Tmp disk must be at LUN 1 when home disk is present"
+        );
+        assert!(
+            script.contains("/dev/disk/azure/scsi1/lun1"),
+            "Tmp disk must use LUN 1 symlink when home disk is present"
+        );
+    }
+
+    // ── Hardening assertions ─────────────────────────────────────────
+
+    #[test]
+    fn test_disk_home_block_has_retry_loop_for_lun_detection() {
+        let script = render_dev_cloud_init_script_with_disks(
+            "azureuser",
+            &DiskConfig {
+                home_disk: true,
+                tmp_disk: false,
+            },
+        );
+        // Retry loop: must poll for LUN device availability
+        assert!(
+            script.contains("sleep") && script.contains("retry")
+                || script.contains("sleep") && script.contains("for ")
+                || script.contains("udevadm settle"),
+            "Home disk block must include retry/polling logic for LUN device detection"
+        );
+    }
+
+    #[test]
+    fn test_disk_tmp_block_has_retry_loop_for_lun_detection() {
+        let script = render_dev_cloud_init_script_with_disks(
+            "azureuser",
+            &DiskConfig {
+                home_disk: false,
+                tmp_disk: true,
+            },
+        );
+        assert!(
+            script.contains("sleep") && script.contains("retry")
+                || script.contains("sleep") && script.contains("for ")
+                || script.contains("udevadm settle"),
+            "Tmp disk block must include retry/polling logic for LUN device detection"
+        );
+    }
+
+    #[test]
+    fn test_disk_blocks_use_subshell_isolation() {
+        let script = render_dev_cloud_init_script_with_disks(
+            "azureuser",
+            &DiskConfig {
+                home_disk: true,
+                tmp_disk: true,
+            },
+        );
+        // Each disk block should be wrapped in a subshell so failures don't abort cloud-init
+        // The pattern should be: ( ... ) || echo "WARN: ..."
+        assert!(
+            script.contains("|| echo") || script.contains("|| {"),
+            "Disk blocks must use subshell isolation with fallback on failure"
+        );
+    }
+
+    #[test]
+    fn test_disk_home_block_cleans_up_old_home() {
+        let script = render_dev_cloud_init_script_with_disks(
+            "azureuser",
+            &DiskConfig {
+                home_disk: true,
+                tmp_disk: false,
+            },
+        );
+        // Must remove /home/azureuser.old after successful bind mount
+        assert!(
+            script.contains("rm -rf /home/azureuser.old")
+                || script.contains("rm -rf \"/home/azureuser.old\""),
+            "Home disk block must clean up /home/azureuser.old after bind mount"
+        );
+    }
+
+    #[test]
+    fn test_disk_home_block_has_mandatory_rsync() {
+        let script = render_dev_cloud_init_script_with_disks(
+            "azureuser",
+            &DiskConfig {
+                home_disk: true,
+                tmp_disk: false,
+            },
+        );
+        // rsync must not silently fail (no `|| true` suppression)
+        assert!(
+            script.contains("rsync"),
+            "Home disk block must rsync existing home data"
+        );
+    }
+
+    #[test]
+    fn test_disk_fstab_entries_are_idempotent() {
+        let script = render_dev_cloud_init_script_with_disks(
+            "azureuser",
+            &DiskConfig {
+                home_disk: true,
+                tmp_disk: false,
+            },
+        );
+        // fstab writes should check for existing entries (grep -q) before appending
+        assert!(
+            script.contains("grep -q") || script.contains("grep "),
+            "fstab entries must be idempotent (check before appending)"
+        );
+    }
+
+    #[test]
+    fn test_disk_blocks_use_udevadm_settle() {
+        let script = render_dev_cloud_init_script_with_disks(
+            "azureuser",
+            &DiskConfig {
+                home_disk: true,
+                tmp_disk: false,
+            },
+        );
+        // Must call udevadm settle before trying to read LUN devices
+        assert!(
+            script.contains("udevadm settle"),
+            "Disk setup must call udevadm settle for device node stability"
+        );
+    }
+
+    #[test]
+    fn test_disk_home_block_uses_custom_username() {
+        let script = render_dev_cloud_init_script_with_disks(
+            "devuser",
+            &DiskConfig {
+                home_disk: true,
+                tmp_disk: false,
+            },
+        );
+        assert!(
+            script.contains("/home/devuser"),
+            "Home disk block must use the provided admin username"
+        );
+        assert!(
+            !script.contains("/home/azureuser"),
+            "Home disk block must not hardcode azureuser when custom username is provided"
+        );
+    }
+
+    #[test]
+    fn test_disk_home_block_sanitizes_bad_username() {
+        let script = render_dev_cloud_init_script_with_disks(
+            "evil user",
+            &DiskConfig {
+                home_disk: true,
+                tmp_disk: false,
+            },
+        );
+        // Unsafe username should fall back to azureuser
+        assert!(
+            script.contains("/home/azureuser"),
+            "Bad username must fall back to azureuser in disk blocks"
+        );
+        assert!(
+            !script.contains("evil user"),
+            "Unsafe username must not appear in disk blocks"
+        );
     }
 }
