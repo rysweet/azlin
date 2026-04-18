@@ -245,6 +245,128 @@ impl std::fmt::Display for VmImage {
     }
 }
 
+impl VmImage {
+    /// Parse an image specification into a `VmImage`.
+    ///
+    /// Accepts:
+    /// - Full URN: `Canonical:ubuntu-25_10:server:latest` (must be Canonical publisher)
+    /// - Shorthands: `25.10`, `24.04-lts`, `ubuntu-25.10`, `ubuntu-24.04-lts`
+    ///
+    /// Returns an error for empty/whitespace input, shell metacharacters, non-Canonical
+    /// publishers, malformed URNs, or unrecognized shorthands.
+    pub fn from_image_spec(spec: &str) -> Result<Self, String> {
+        let spec = spec.trim();
+        if spec.is_empty() {
+            return Err("Image spec cannot be empty".to_string());
+        }
+
+        // Reject dangerous characters (defense-in-depth).
+        // All forbidden chars are ASCII, so byte comparison avoids UTF-8 decoding.
+        const FORBIDDEN: &[u8] = b"\0\t\n\r;|&$`(){}<>!\\\"' #~?*[]%";
+        if spec.as_bytes().iter().any(|b| FORBIDDEN.contains(b)) {
+            return Err(format!(
+                "Image spec contains invalid characters: {:?}. Use a URN like \
+                 'Canonical:ubuntu-25_10:server:latest' or shorthand like '25.10'",
+                spec
+            ));
+        }
+
+        // If it contains colons, treat as a full URN
+        if spec.contains(':') {
+            return Self::parse_urn(spec);
+        }
+
+        // Try shorthand resolution
+        Self::resolve_shorthand(spec)
+    }
+
+    /// Parse a 4-part colon-delimited URN, restricted to Canonical publisher.
+    fn parse_urn(urn: &str) -> Result<Self, String> {
+        // Use splitn(5) to detect >4 parts without allocating a Vec.
+        let mut it = urn.splitn(5, ':');
+        let parts: [&str; 4] = match (it.next(), it.next(), it.next(), it.next()) {
+            (Some(a), Some(b), Some(c), Some(d)) if it.next().is_none() => [a, b, c, d],
+            _ => {
+                let count = urn.split(':').count();
+                return Err(format!(
+                    "Image URN must have exactly 4 colon-separated parts \
+                     (publisher:offer:sku:version), got {} parts in {:?}",
+                    count, urn
+                ));
+            }
+        };
+
+        // Validate each segment: only ASCII [a-zA-Z0-9._-]
+        for (i, part) in parts.iter().enumerate() {
+            if part.is_empty() {
+                return Err(format!("Image URN segment {} is empty in {:?}", i, urn));
+            }
+            if !part
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'_' || b == b'-')
+            {
+                return Err(format!(
+                    "Image URN segment {:?} contains invalid characters \
+                     (only alphanumeric, '.', '_', '-' allowed)",
+                    part
+                ));
+            }
+        }
+
+        // Restrict to Canonical publisher
+        if parts[0] != "Canonical" {
+            return Err(format!(
+                "Only Canonical publisher is supported for VM images, got {:?}. \
+                 Use a URN like 'Canonical:ubuntu-25_10:server:latest'",
+                parts[0]
+            ));
+        }
+
+        Ok(Self {
+            publisher: parts[0].to_string(),
+            offer: parts[1].to_string(),
+            sku: parts[2].to_string(),
+            version: parts[3].to_string(),
+        })
+    }
+
+    /// Resolve a shorthand like "25.10" or "ubuntu-24.04-lts" to a full VmImage.
+    fn resolve_shorthand(spec: &str) -> Result<Self, String> {
+        // Normalize to lowercase for case-insensitive prefix matching
+        let lower = spec.to_ascii_lowercase();
+        let version_part = lower
+            .strip_prefix("ubuntu-")
+            .or_else(|| lower.strip_prefix("ubuntu"))
+            .unwrap_or(&lower);
+
+        // Map version shorthands to offer names.
+        // Accepts dotted (25.10) and dotless (2510) forms; bare versions
+        // (24.04, 2204) resolve to LTS when available.
+        let offer = match version_part {
+            "25.10" | "2510" => "ubuntu-25_10",
+            "24.10" | "2410" => "ubuntu-24_10",
+            "24.04-lts" | "24.04" | "2404" => "ubuntu-24_04-lts",
+            "22.04-lts" | "22.04" | "2204" => "ubuntu-22_04-lts",
+            "20.04-lts" | "20.04" | "2004" => "ubuntu-20_04-lts",
+            _ => {
+                return Err(format!(
+                    "Unknown image shorthand {:?}. Supported shorthands: \
+                     25.10, 24.10, 24.04-lts, 24.04, 22.04-lts, 22.04, 20.04-lts, 20.04. \
+                     Or use a full URN like 'Canonical:ubuntu-25_10:server:latest'",
+                    spec
+                ));
+            }
+        };
+
+        Ok(Self {
+            publisher: "Canonical".to_string(),
+            offer: offer.to_string(),
+            sku: "server".to_string(),
+            version: "latest".to_string(),
+        })
+    }
+}
+
 /// Validate Azure VM name according to Azure rules.
 ///
 /// # Examples
@@ -275,28 +397,29 @@ pub fn validate_vm_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("VM name cannot be empty".to_string());
     }
-    if name.len() > 64 {
+    let bytes = name.as_bytes();
+    if bytes.len() > 64 {
         return Err(format!(
             "VM name '{}' exceeds 64 character limit ({})",
             name,
-            name.len()
+            bytes.len()
         ));
     }
-    if name.starts_with('-') || name.starts_with('.') {
+    if matches!(bytes[0], b'-' | b'.') {
         return Err(format!(
             "VM name '{}' cannot start with hyphen or period",
             name
         ));
     }
-    if name.ends_with('-') || name.ends_with('.') {
+    if matches!(bytes[bytes.len() - 1], b'-' | b'.') {
         return Err(format!(
             "VM name '{}' cannot end with hyphen or period",
             name
         ));
     }
-    if !name
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
+    if !bytes
+        .iter()
+        .all(|b| b.is_ascii_alphanumeric() || *b == b'-' || *b == b'.')
     {
         return Err(format!(
             "VM name '{}' can only contain alphanumeric characters, hyphens, and periods",
@@ -450,6 +573,144 @@ mod tests {
     fn test_vm_image_display() {
         let img = VmImage::default();
         assert_eq!(img.to_string(), "Canonical:ubuntu-25_10:server:latest");
+    }
+
+    // ── from_image_spec tests (TDD — will fail until implementation) ──
+
+    #[test]
+    fn test_from_image_spec_full_urn() {
+        let img = VmImage::from_image_spec("Canonical:ubuntu-25_10:server:latest").unwrap();
+        assert_eq!(img.publisher, "Canonical");
+        assert_eq!(img.offer, "ubuntu-25_10");
+        assert_eq!(img.sku, "server");
+        assert_eq!(img.version, "latest");
+    }
+
+    #[test]
+    fn test_from_image_spec_shorthand_25_10() {
+        let img = VmImage::from_image_spec("25.10").unwrap();
+        assert_eq!(img.publisher, "Canonical");
+        assert_eq!(img.offer, "ubuntu-25_10");
+        assert_eq!(img.sku, "server");
+        assert_eq!(img.version, "latest");
+    }
+
+    #[test]
+    fn test_from_image_spec_shorthand_24_04_lts() {
+        let img = VmImage::from_image_spec("24.04-lts").unwrap();
+        assert_eq!(img.publisher, "Canonical");
+        assert_eq!(img.offer, "ubuntu-24_04-lts");
+        assert_eq!(img.sku, "server");
+        assert_eq!(img.version, "latest");
+    }
+
+    #[test]
+    fn test_from_image_spec_shorthand_ubuntu_prefix() {
+        // "ubuntu-25.10" should also resolve
+        let img = VmImage::from_image_spec("ubuntu-25.10").unwrap();
+        assert_eq!(img.publisher, "Canonical");
+        assert_eq!(img.offer, "ubuntu-25_10");
+    }
+
+    #[test]
+    fn test_from_image_spec_shorthand_dotless_ubuntu2510() {
+        // "Ubuntu2510" as documented in --os help text
+        let img = VmImage::from_image_spec("Ubuntu2510").unwrap();
+        assert_eq!(img.offer, "ubuntu-25_10");
+    }
+
+    #[test]
+    fn test_from_image_spec_shorthand_dotless_2404() {
+        let img = VmImage::from_image_spec("2404").unwrap();
+        assert_eq!(img.offer, "ubuntu-24_04-lts");
+    }
+
+    #[test]
+    fn test_from_image_spec_case_insensitive_uppercase() {
+        let img = VmImage::from_image_spec("UBUNTU-25.10").unwrap();
+        assert_eq!(img.offer, "ubuntu-25_10");
+    }
+
+    #[test]
+    fn test_from_image_spec_case_insensitive_title_dash() {
+        // "Ubuntu-25.10" — title case with dash
+        let img = VmImage::from_image_spec("Ubuntu-25.10").unwrap();
+        assert_eq!(img.offer, "ubuntu-25_10");
+    }
+
+    #[test]
+    fn test_from_image_spec_case_insensitive_no_dash() {
+        // "Ubuntu24.04" — title case, no dash
+        let img = VmImage::from_image_spec("Ubuntu24.04").unwrap();
+        assert_eq!(img.offer, "ubuntu-24_04-lts");
+    }
+
+    #[test]
+    fn test_from_image_spec_rejects_non_canonical_publisher() {
+        let result = VmImage::from_image_spec("MicrosoftWindowsServer:WindowsServer:2022:latest");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("Canonical"),
+            "error should mention Canonical restriction, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_from_image_spec_rejects_malformed_urn_3_parts() {
+        let result = VmImage::from_image_spec("Canonical:ubuntu-25_10:server");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_image_spec_rejects_malformed_urn_5_parts() {
+        let result = VmImage::from_image_spec("Canonical:ubuntu-25_10:server:latest:extra");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_image_spec_rejects_empty() {
+        let result = VmImage::from_image_spec("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_image_spec_rejects_whitespace_only() {
+        let result = VmImage::from_image_spec("   ");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_image_spec_rejects_shell_metacharacters() {
+        let result = VmImage::from_image_spec("Canonical:ubuntu-25_10;rm -rf /:server:latest");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_image_spec_rejects_newlines() {
+        let result = VmImage::from_image_spec("Canonical:ubuntu-25_10\n:server:latest");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_image_spec_rejects_null_bytes() {
+        let result = VmImage::from_image_spec("Canonical:ubuntu-25_10\0:server:latest");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_image_spec_rejects_unknown_shorthand() {
+        let result = VmImage::from_image_spec("windows-11");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_image_spec_roundtrip_via_display() {
+        // Parse a full URN, display it, re-parse — should be identical
+        let original = VmImage::from_image_spec("Canonical:ubuntu-24_04-lts:server:latest").unwrap();
+        let displayed = original.to_string();
+        let reparsed = VmImage::from_image_spec(&displayed).unwrap();
+        assert_eq!(original, reparsed);
     }
 
     #[test]

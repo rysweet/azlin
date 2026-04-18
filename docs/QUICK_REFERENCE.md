@@ -1,6 +1,6 @@
 # azlin - Quick Reference Guide
 
-**Version:** 2.6.17
+**Version:** 2.11.0
 **Last Updated:** 2026-03-12
 
 ---
@@ -82,6 +82,7 @@ azlin <command> --help             # Command-specific help
 --size m                           # Size tier: xs/s/m/l/xl/xxl
 --vm-size Standard_D8s_v5          # Exact Azure VM SKU (overrides --size)
 --vm-family e                      # VM family: d (general) or e (memory-optimized)
+--os 24.04-lts                     # OS image (shorthand or full URN)
 --region westus2                   # Azure region
 --region-fit                       # Auto-find region with available quota/SKU
 ```
