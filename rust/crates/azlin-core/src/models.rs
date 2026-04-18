@@ -41,7 +41,7 @@ pub struct VmInfo {
     pub power_state: PowerState,
     pub provisioning_state: ProvisioningState,
     pub os_type: OsType,
-    /// Image offer string from Azure (e.g., "ubuntu-24_04-lts", "WindowsServer").
+    /// Image offer string from Azure (e.g., "ubuntu-25_10", "WindowsServer").
     /// Used for OS distro display in list output.
     pub os_offer: Option<String>,
     pub public_ip: Option<String>,
@@ -228,7 +228,7 @@ impl Default for VmImage {
     fn default() -> Self {
         Self {
             publisher: "Canonical".into(),
-            offer: "ubuntu-24_04-lts".into(),
+            offer: "ubuntu-25_10".into(),
             sku: "server".into(),
             version: "latest".into(),
         }
@@ -441,7 +441,7 @@ mod tests {
     fn test_vm_image_default() {
         let img = VmImage::default();
         assert_eq!(img.publisher, "Canonical");
-        assert_eq!(img.offer, "ubuntu-24_04-lts");
+        assert_eq!(img.offer, "ubuntu-25_10");
         assert_eq!(img.sku, "server");
         assert_eq!(img.version, "latest");
     }
@@ -449,7 +449,7 @@ mod tests {
     #[test]
     fn test_vm_image_display() {
         let img = VmImage::default();
-        assert_eq!(img.to_string(), "Canonical:ubuntu-24_04-lts:server:latest");
+        assert_eq!(img.to_string(), "Canonical:ubuntu-25_10:server:latest");
     }
 
     #[test]
