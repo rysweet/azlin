@@ -186,7 +186,7 @@ pub fn render_dev_cloud_init_script_with_disks(
     let mut next_lun = 0u32;
 
     if disk_config.home_disk {
-        // LUN 0 = home disk — wrapped in subshell for failure isolation
+        // LUN 0 = home disk -- wrapped in subshell for failure isolation
         script.push_str(&format!(
             r#"# Home disk (LUN {lun})
 (
@@ -197,7 +197,7 @@ pub fn render_dev_cloud_init_script_with_disks(
   mount "$HOME_DEV" /mnt/home-data
   # Copy existing home to the new disk
   rsync -aAX /home/{u}/ /mnt/home-data/{u}/
-  # Bind mount over /home/{u} — with rollback trap to restore original on failure
+  # Bind mount over /home/{u} -- with rollback trap to restore original on failure
   mv /home/{u} /home/{u}.old
   trap 'if [ -d /home/{u}.old ] && ! mountpoint -q /home/{u} 2>/dev/null; then rm -rf /home/{u} 2>/dev/null; mv /home/{u}.old /home/{u}; echo "[AZLIN] Rolled back /home/{u} after disk setup failure"; fi' EXIT
   mkdir -p /home/{u}
