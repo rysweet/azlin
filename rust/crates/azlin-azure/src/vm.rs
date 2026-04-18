@@ -419,8 +419,8 @@ impl VmManager {
         let image_urn = params.image.to_string();
 
         let disk_config = crate::cloud_init::DiskConfig {
-            home_disk: !params.disk_ids.is_empty(),
-            tmp_disk: params.disk_ids.len() >= 2,
+            home_disk: params.has_home_disk,
+            tmp_disk: params.has_tmp_disk,
         };
         let cloud_init_file =
             create_cloud_init_file(&params.admin_username, &disk_config)?;

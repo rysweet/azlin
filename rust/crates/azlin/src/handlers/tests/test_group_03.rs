@@ -169,6 +169,8 @@ fn test_create_vm_via_mock() {
         tags: HashMap::new(),
         public_ip_enabled: true,
         disk_ids: vec![],
+            has_home_disk: false,
+            has_tmp_disk: false,
     };
     let vm = mock.create_vm(&params).unwrap();
     assert_eq!(vm.name, "new-vm");

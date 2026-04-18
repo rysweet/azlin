@@ -148,6 +148,10 @@ pub fn render_dev_cloud_init_script(admin_username: &str) -> String {
     render_dev_cloud_init_script_with_disks(admin_username, &DiskConfig::default())
 }
 
+/// Render the dev cloud-init shell script with optional data disk setup.
+///
+/// When `disk_config` enables home or tmp disks, the script includes
+/// hardened formatting/mounting blocks with retry loops and subshell isolation.
 pub fn render_dev_cloud_init_script_with_disks(
     admin_username: &str,
     disk_config: &DiskConfig,

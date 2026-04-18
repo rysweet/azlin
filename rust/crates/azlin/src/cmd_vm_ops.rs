@@ -120,7 +120,8 @@ fn create_managed_disk(
     }
 
     let size_str = size_gb.to_string();
-    let tags = format!("azlin-session={} azlin-role={}", session_name, role);
+    let session_tag = format!("azlin-session={}", session_name);
+    let role_tag = format!("azlin-role={}", role);
     let json = azlin_azure::vm::az_cli_with_timeout(
         &[
             "disk",
@@ -136,7 +137,8 @@ fn create_managed_disk(
             "--sku",
             "Premium_LRS",
             "--tags",
-            &tags,
+            &session_tag,
+            &role_tag,
         ],
         timeout,
     )
@@ -705,6 +707,8 @@ pub(crate) async fn handle_vm_new(
             tags,
             public_ip_enabled: want_public_ip,
             disk_ids: disk_ids.clone(),
+            has_home_disk: want_home_disk,
+            has_tmp_disk: tmp_disk_size.is_some(),
         };
 
         if let Err(e) = params.validate() {

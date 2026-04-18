@@ -141,16 +141,17 @@ If the bind mount fails after `/home/{user}` has been renamed, a shell `trap` au
 ) || echo "WARN: home disk setup failed, continuing without separate home disk"
 ```
 
-**Tmp disk script flow** follows the same pattern, mounting at `/tmp` with `mode=1777`.
+**Tmp disk script flow** follows the same pattern, mounting at `/tmp` with `chmod 1777` (sticky bit).
 
 ### 4. Persistent Configuration
 
-The mount is added to `/etc/fstab` idempotently (only if not already present) for persistence across reboots. UUID-based entries are used for the disk mount, with a bind mount entry for `/home/{user}`:
+The mount is added to `/etc/fstab` idempotently (only if not already present) for persistence across reboots. UUID-based entries are used for the disk mount, with bind mount entries for the user-facing paths:
 
 ```
 UUID=<home-disk-uuid> /mnt/home-data ext4 defaults,nofail 0 2
 /mnt/home-data/{user} /home/{user} none bind 0 0
-UUID=<tmp-disk-uuid> /tmp ext4 defaults,nofail,mode=1777 0 2
+UUID=<tmp-disk-uuid> /mnt/tmp-data ext4 defaults,nofail 0 2
+/mnt/tmp-data/tmp /tmp none bind 0 0
 ```
 
 ## Configuration Options
@@ -226,16 +227,17 @@ NFS replaces the entire `/home/azureuser` directory with a network share.
 
 ## Graceful Degradation
 
-azlin is designed so disk failures never prevent a VM from being usable.
+azlin is designed so disk failures never prevent a VM from being usable at the cloud-init level. Host-side failures (Azure API errors) are reported as errors with automatic cleanup.
 
 ### Disk Creation Failure (Azure-side)
 
-If `az disk create` fails (quota exceeded, region capacity, permissions), azlin logs a warning and continues VM creation without the disk:
+If `az disk create` fails (quota exceeded, region capacity, permissions), azlin cleans up any previously created disks and reports the error. The VM is not created:
 
 ```
-Warning: Home disk creation failed (quota exceeded)
-Continuing with OS disk /home
+Error: Failed to create managed disk 'dev-vm_home': QuotaExceeded
 ```
+
+To proceed without a separate disk, use `--no-home-disk`.
 
 ### VM Creation Failure (orphan cleanup)
 
@@ -489,7 +491,7 @@ az disk list --query "[?tags.\"azlin-session\" && !managedBy]" -o table
 
 **Mount Options**:
 - Home: `defaults,nofail` on `/home/{user}`
-- Tmp: `defaults,nofail,mode=1777` on `/tmp`
+- Tmp: `defaults,nofail` on `/mnt/tmp-data`, bind-mounted to `/tmp` (sticky bit set via `chmod 1777`)
 
 ### Cloud-Init Implementation
 

@@ -172,6 +172,12 @@ pub struct CreateVmParams {
     /// Order matters: first disk = lun0, second = lun1, etc.
     #[serde(default)]
     pub disk_ids: Vec<String>,
+    /// Whether a home disk is attached (LUN 0).
+    #[serde(default)]
+    pub has_home_disk: bool,
+    /// Whether a tmp disk is attached (LUN 1 if home disk present, LUN 0 otherwise).
+    #[serde(default)]
+    pub has_tmp_disk: bool,
 }
 
 fn default_true() -> bool {
@@ -459,6 +465,8 @@ mod tests {
             tags: HashMap::new(),
             public_ip_enabled: true,
             disk_ids: vec![],
+            has_home_disk: false,
+            has_tmp_disk: false,
         };
         assert!(params.validate().is_err());
         assert!(params.validate().unwrap_err().contains("name"));
@@ -477,6 +485,8 @@ mod tests {
             tags: HashMap::new(),
             public_ip_enabled: true,
             disk_ids: vec![],
+            has_home_disk: false,
+            has_tmp_disk: false,
         };
         assert!(params.validate().is_err());
         assert!(params.validate().unwrap_err().contains("64 characters"));
@@ -495,6 +505,8 @@ mod tests {
             tags: HashMap::from([("env".into(), "dev".into())]),
             public_ip_enabled: true,
             disk_ids: vec![],
+            has_home_disk: false,
+            has_tmp_disk: false,
         };
         let json = serde_json::to_string(&params).unwrap();
         let deserialized: CreateVmParams = serde_json::from_str(&json).unwrap();
@@ -517,6 +529,8 @@ mod tests {
             tags: HashMap::new(),
             public_ip_enabled: true,
             disk_ids: vec![],
+            has_home_disk: false,
+            has_tmp_disk: false,
         };
         let err = params.validate().unwrap_err();
         assert!(err.contains("SSH public key not found"));
@@ -639,6 +653,8 @@ mod tests {
             tags: HashMap::new(),
             public_ip_enabled: true,
             disk_ids: vec![],
+            has_home_disk: false,
+            has_tmp_disk: false,
         };
         let err = params.validate().unwrap_err();
         assert!(err.contains("Resource group"));
@@ -657,6 +673,8 @@ mod tests {
             tags: HashMap::new(),
             public_ip_enabled: true,
             disk_ids: vec![],
+            has_home_disk: false,
+            has_tmp_disk: false,
         };
         let err = params.validate().unwrap_err();
         assert!(err.contains("Region"));
@@ -675,6 +693,8 @@ mod tests {
             tags: HashMap::new(),
             public_ip_enabled: true,
             disk_ids: vec![],
+            has_home_disk: false,
+            has_tmp_disk: false,
         };
         let err = params.validate().unwrap_err();
         assert!(err.contains("VM size"));
@@ -693,6 +713,8 @@ mod tests {
             tags: HashMap::new(),
             public_ip_enabled: true,
             disk_ids: vec![],
+            has_home_disk: false,
+            has_tmp_disk: false,
         };
         let err = params.validate().unwrap_err();
         assert!(err.contains("username"));
@@ -713,6 +735,8 @@ mod tests {
             tags: HashMap::new(),
             public_ip_enabled: true,
             disk_ids: vec![],
+            has_home_disk: false,
+            has_tmp_disk: false,
         };
         assert!(params.validate().is_ok());
     }
@@ -732,6 +756,8 @@ mod tests {
             tags: HashMap::new(),
             public_ip_enabled: true,
             disk_ids: vec![],
+            has_home_disk: false,
+            has_tmp_disk: false,
         };
         assert!(params.validate().is_ok());
     }
