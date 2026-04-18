@@ -179,7 +179,7 @@ pub fn render_dev_cloud_init_script_with_disks(
 
     // Disk formatting and mounting (must happen before user setup so home dir is on the right disk)
     if disk_config.home_disk || disk_config.tmp_disk {
-        script.push_str("# ── Data disk setup ──\n");
+        script.push_str("# -- Data disk setup --\n");
         script.push_str("echo '[AZLIN] Formatting and mounting data disks...'\n\n");
     }
 
@@ -595,7 +595,7 @@ mod tests {
         assert!(yaml.contains("runcmd:\n  - |\n    echo one\n    echo two\n"));
     }
 
-    // ── DiskConfig cloud-init script generation tests ────────────────
+    // -- DiskConfig cloud-init script generation tests ----------------
 
     #[test]
     fn test_disk_config_no_disks_produces_no_disk_blocks() {
@@ -710,7 +710,7 @@ mod tests {
         );
     }
 
-    // ── Hardening assertions ─────────────────────────────────────────
+    // -- Hardening assertions -----------------------------------------
 
     #[test]
     fn test_disk_home_block_has_retry_loop_for_lun_detection() {
