@@ -648,6 +648,18 @@ pub(crate) async fn handle_vm_new(
         );
         tags.insert("azlin-session".to_string(), session_tag.clone());
 
+        // Resolve OS image early (before creating billable resources like disks).
+        // Priority: --os flag > config default_vm_image > VmImage::default()
+        let image = if let Some(ref os_spec) = os_image {
+            azlin_core::models::VmImage::from_image_spec(os_spec)
+                .map_err(|e| anyhow::anyhow!("Invalid --os value: {}", e))?
+        } else if let Some(ref config_image) = config_defaults.default_vm_image {
+            azlin_core::models::VmImage::from_image_spec(config_image)
+                .map_err(|e| anyhow::anyhow!("Invalid default_vm_image in config: {}", e))?
+        } else {
+            azlin_core::models::VmImage::default()
+        };
+
         // Create managed data disks if requested (home disk at LUN 0, tmp disk at LUN 1)
         let default_home_size = 100;
         let want_home_disk = !no_home_disk;
@@ -695,17 +707,6 @@ pub(crate) async fn handle_vm_new(
                 }
             }
         }
-
-        // Resolve OS image: --os flag > config default_vm_image > VmImage::default()
-        let image = if let Some(ref os_spec) = os_image {
-            azlin_core::models::VmImage::from_image_spec(os_spec)
-                .map_err(|e| anyhow::anyhow!("Invalid --os value: {}", e))?
-        } else if let Some(ref config_image) = config_defaults.default_vm_image {
-            azlin_core::models::VmImage::from_image_spec(config_image)
-                .map_err(|e| anyhow::anyhow!("Invalid default_vm_image in config: {}", e))?
-        } else {
-            azlin_core::models::VmImage::default()
-        };
 
         let params = azlin_core::models::CreateVmParams {
             name: vm_name.clone(),

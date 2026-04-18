@@ -262,7 +262,7 @@ impl VmImage {
 
         // Reject dangerous characters (defense-in-depth).
         // All forbidden chars are ASCII, so byte comparison avoids UTF-8 decoding.
-        const FORBIDDEN: &[u8] = b"\0\n\r;|&$`(){}<>!\\\"' ";
+        const FORBIDDEN: &[u8] = b"\0\t\n\r;|&$`(){}<>!\\\"' #~?*[]%";
         if spec.as_bytes().iter().any(|b| FORBIDDEN.contains(b)) {
             return Err(format!(
                 "Image spec contains invalid characters: {:?}. Use a URN like \
@@ -332,24 +332,26 @@ impl VmImage {
 
     /// Resolve a shorthand like "25.10" or "ubuntu-24.04-lts" to a full VmImage.
     fn resolve_shorthand(spec: &str) -> Result<Self, String> {
-        // Strip optional "ubuntu-" prefix
-        let version_part = spec
+        // Normalize to lowercase for case-insensitive prefix matching
+        let lower = spec.to_ascii_lowercase();
+        let version_part = lower
             .strip_prefix("ubuntu-")
-            .or_else(|| spec.strip_prefix("Ubuntu"))
-            .unwrap_or(spec);
+            .or_else(|| lower.strip_prefix("ubuntu"))
+            .unwrap_or(&lower);
 
-        // Map version shorthands to offer names
-        // The offer name uses underscores where dots appear in the version
+        // Map version shorthands to offer names.
+        // Accepts dotted (25.10) and dotless (2510) forms; bare versions
+        // (24.04, 2204) resolve to LTS when available.
         let offer = match version_part {
-            "25.10" => "ubuntu-25_10",
-            "24.10" => "ubuntu-24_10",
-            "24.04-lts" | "24.04" => "ubuntu-24_04-lts",
-            "22.04-lts" | "22.04" => "ubuntu-22_04-lts",
-            "20.04-lts" | "20.04" => "ubuntu-20_04-lts",
+            "25.10" | "2510" => "ubuntu-25_10",
+            "24.10" | "2410" => "ubuntu-24_10",
+            "24.04-lts" | "24.04" | "2404" => "ubuntu-24_04-lts",
+            "22.04-lts" | "22.04" | "2204" => "ubuntu-22_04-lts",
+            "20.04-lts" | "20.04" | "2004" => "ubuntu-20_04-lts",
             _ => {
                 return Err(format!(
                     "Unknown image shorthand {:?}. Supported shorthands: \
-                     25.10, 24.10, 24.04-lts, 22.04-lts, 20.04-lts. \
+                     25.10, 24.10, 24.04-lts, 24.04, 22.04-lts, 22.04, 20.04-lts, 20.04. \
                      Or use a full URN like 'Canonical:ubuntu-25_10:server:latest'",
                     spec
                 ));
@@ -608,6 +610,39 @@ mod tests {
         let img = VmImage::from_image_spec("ubuntu-25.10").unwrap();
         assert_eq!(img.publisher, "Canonical");
         assert_eq!(img.offer, "ubuntu-25_10");
+    }
+
+    #[test]
+    fn test_from_image_spec_shorthand_dotless_ubuntu2510() {
+        // "Ubuntu2510" as documented in --os help text
+        let img = VmImage::from_image_spec("Ubuntu2510").unwrap();
+        assert_eq!(img.offer, "ubuntu-25_10");
+    }
+
+    #[test]
+    fn test_from_image_spec_shorthand_dotless_2404() {
+        let img = VmImage::from_image_spec("2404").unwrap();
+        assert_eq!(img.offer, "ubuntu-24_04-lts");
+    }
+
+    #[test]
+    fn test_from_image_spec_case_insensitive_uppercase() {
+        let img = VmImage::from_image_spec("UBUNTU-25.10").unwrap();
+        assert_eq!(img.offer, "ubuntu-25_10");
+    }
+
+    #[test]
+    fn test_from_image_spec_case_insensitive_title_dash() {
+        // "Ubuntu-25.10" — title case with dash
+        let img = VmImage::from_image_spec("Ubuntu-25.10").unwrap();
+        assert_eq!(img.offer, "ubuntu-25_10");
+    }
+
+    #[test]
+    fn test_from_image_spec_case_insensitive_no_dash() {
+        // "Ubuntu24.04" — title case, no dash
+        let img = VmImage::from_image_spec("Ubuntu24.04").unwrap();
+        assert_eq!(img.offer, "ubuntu-24_04-lts");
     }
 
     #[test]

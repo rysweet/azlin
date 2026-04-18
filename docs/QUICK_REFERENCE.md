@@ -1,6 +1,6 @@
 # azlin - Quick Reference Guide
 
-**Version:** 2.6.17
+**Version:** 2.11.0
 **Last Updated:** 2026-03-12
 
 ---

@@ -158,12 +158,13 @@ Invalid input produces a clear error:
 
 ```
 $ azlin new --os "NotAPublisher:image:sku:latest"
-Error: Only Canonical (Ubuntu) images are supported. Got publisher: NotAPublisher
+Error: Only Canonical publisher is supported for VM images, got "NotAPublisher".
+  Use a URN like 'Canonical:ubuntu-25_10:server:latest'
 
 $ azlin new --os "not-a-version"
-Error: Unknown OS image shorthand: "not-a-version"
-  Valid shorthands: 25.10, 24.04-lts, 24.04, 22.04-lts, 22.04
-  Or use a full URN: Canonical:offer:sku:version
+Error: Unknown image shorthand "not-a-version". Supported shorthands:
+  25.10, 24.10, 24.04-lts, 24.04, 22.04-lts, 22.04, 20.04-lts, 20.04.
+  Or use a full URN like 'Canonical:ubuntu-25_10:server:latest'
 ```
 
 ## Troubleshooting
