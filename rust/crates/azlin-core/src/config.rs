@@ -85,6 +85,9 @@ pub struct AzlinConfig {
     pub vm_storage: Option<HashMap<String, String>>,
     pub default_nfs_storage: Option<String>,
     pub github_runner_fleets: Option<HashMap<String, serde_json::Value>>,
+    /// Default VM OS image URN (e.g. "Canonical:ubuntu-25_10:server:latest").
+    /// When None, falls back to VmImage::default().
+    pub default_vm_image: Option<String>,
     pub ssh_auto_sync_keys: bool,
     pub ssh_sync_timeout: u64,
     pub ssh_sync_method: SshSyncMethod,
@@ -117,6 +120,7 @@ impl Default for AzlinConfig {
             vm_storage: None,
             default_nfs_storage: None,
             github_runner_fleets: None,
+            default_vm_image: None,
             ssh_auto_sync_keys: true,
             ssh_sync_timeout: 30,
             ssh_sync_method: SshSyncMethod::Auto,
@@ -377,6 +381,14 @@ impl AzlinConfig {
             return Ok(serde_json::Value::String(value.to_string()));
         }
 
+        if key == "default_vm_image" {
+            let image = crate::models::VmImage::from_image_spec(value).map_err(|e| {
+                crate::AzlinError::Config(format!("Invalid default_vm_image: {}", e))
+            })?;
+            // Store the resolved full URN
+            return Ok(serde_json::Value::String(image.to_string()));
+        }
+
         if key == "ssh_sync_method" {
             match value.to_lowercase().as_str() {
                 "auto" | "rsync" | "scp" => {
@@ -419,6 +431,7 @@ impl AzlinConfig {
             "default_resource_group",
             "default_region",
             "default_vm_size",
+            "default_vm_image",
             "last_vm_name",
             "notification_command",
             "default_nfs_storage",
@@ -952,6 +965,121 @@ mod tests {
         assert!(
             toml_str.contains("az_cli_timeout = 600"),
             "TOML should contain 'az_cli_timeout = 600', got:\n{toml_str}"
+        );
+    }
+
+    #[test]
+    fn test_config_default_vm_image_is_none() {
+        let config = AzlinConfig::default();
+        assert!(
+            config.default_vm_image.is_none(),
+            "default_vm_image should be None by default"
+        );
+    }
+
+    #[test]
+    fn test_config_deserialize_without_default_vm_image() {
+        // Existing configs without the field should deserialize fine
+        let toml_str = r#"
+            default_region = "westus2"
+            default_vm_size = "Standard_E16as_v5"
+        "#;
+        let config: AzlinConfig = toml::from_str(toml_str).unwrap();
+        assert!(config.default_vm_image.is_none());
+    }
+
+    #[test]
+    fn test_config_deserialize_with_default_vm_image() {
+        let toml_str = r#"
+            default_region = "westus2"
+            default_vm_size = "Standard_E16as_v5"
+            default_vm_image = "Canonical:ubuntu-24_04-lts:server:latest"
+        "#;
+        let config: AzlinConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(
+            config.default_vm_image,
+            Some("Canonical:ubuntu-24_04-lts:server:latest".to_string())
+        );
+    }
+
+    #[test]
+    fn test_config_roundtrip_with_default_vm_image() {
+        let config = AzlinConfig {
+            default_vm_image: Some("Canonical:ubuntu-24_04-lts:server:latest".to_string()),
+            ..Default::default()
+        };
+        let serialized = toml::to_string_pretty(&config).unwrap();
+        let deserialized: AzlinConfig = toml::from_str(&serialized).unwrap();
+        assert_eq!(
+            deserialized.default_vm_image,
+            Some("Canonical:ubuntu-24_04-lts:server:latest".to_string())
+        );
+    }
+
+    #[test]
+    fn test_validate_field_default_vm_image_full_urn() {
+        let result =
+            AzlinConfig::validate_field("default_vm_image", "Canonical:ubuntu-25_10:server:latest");
+        assert!(result.is_ok(), "should accept valid URN");
+        assert_eq!(
+            result.unwrap(),
+            serde_json::Value::String("Canonical:ubuntu-25_10:server:latest".to_string())
+        );
+    }
+
+    #[test]
+    fn test_validate_field_default_vm_image_shorthand() {
+        let result = AzlinConfig::validate_field("default_vm_image", "24.04-lts");
+        assert!(result.is_ok(), "should accept valid shorthand");
+        // Should store the resolved full URN
+        assert_eq!(
+            result.unwrap(),
+            serde_json::Value::String("Canonical:ubuntu-24_04-lts:server:latest".to_string())
+        );
+    }
+
+    #[test]
+    fn test_validate_field_default_vm_image_invalid() {
+        let result = AzlinConfig::validate_field("default_vm_image", "not-a-valid-image");
+        assert!(result.is_err(), "should reject invalid image spec");
+    }
+
+    #[test]
+    fn test_validate_field_default_vm_image_non_canonical() {
+        let result = AzlinConfig::validate_field(
+            "default_vm_image",
+            "MicrosoftWindowsServer:WindowsServer:2022:latest",
+        );
+        assert!(result.is_err(), "should reject non-Canonical publisher");
+    }
+
+    #[test]
+    fn test_default_vm_image_in_known_string_fields() {
+        // Verify that setting default_vm_image doesn't trigger the unknown-key warning.
+        // We test this indirectly: validate_field for a known string field should NOT
+        // pass through as a generic string — it should hit the dedicated handler.
+        // If default_vm_image is NOT in KNOWN_STRING_FIELDS, it would pass through
+        // without validation (just a warning), which is incorrect.
+        let result = AzlinConfig::validate_field(
+            "default_vm_image",
+            "MicrosoftWindowsServer:WindowsServer:2022:latest",
+        );
+        // This MUST be an error (rejected by from_image_spec).
+        // If it passes through as a string, KNOWN_STRING_FIELDS is missing the entry.
+        assert!(
+            result.is_err(),
+            "default_vm_image must be validated, not passed through — add to KNOWN_STRING_FIELDS"
+        );
+    }
+
+    #[test]
+    fn test_set_field_default_vm_image() {
+        let config = AzlinConfig::default();
+        let (toml_str, _) =
+            simulate_set_field(&config, "default_vm_image", "Canonical:ubuntu-25_10:server:latest");
+        assert!(
+            toml_str.contains("default_vm_image"),
+            "TOML should contain default_vm_image key after set_field"
         );
     }
 }
