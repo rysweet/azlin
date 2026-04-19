@@ -520,7 +520,7 @@ fn extract_hostname(stderr: &str) -> String {
                 .rfind(|c: char| !c.is_alphanumeric() && c != '.' && c != '-')
                 .map(|i| i + 1)
                 .unwrap_or(0);
-            let candidate = &stderr[start..end];
+            let candidate = &lower[start..end];
             // Basic validation: must contain at least one dot, no spaces
             if candidate.contains('.') && !candidate.contains(' ') && candidate.len() > 3 {
                 return candidate.to_string();
