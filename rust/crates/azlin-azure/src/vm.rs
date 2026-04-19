@@ -640,6 +640,11 @@ pub fn az_cli_with_timeout(args: &[&str], timeout_secs: u64) -> Result<String> {
         {
             let friendly = crate::error_handler::format_user_friendly_error(&parsed);
             Err(anyhow::anyhow!("{}", friendly.trim()))
+        } else if let Some(net_err) =
+            crate::error_handler::parse_network_error_from_stderr(&sanitized_stderr)
+        {
+            let friendly = crate::error_handler::format_user_friendly_error(&net_err);
+            Err(anyhow::anyhow!("{}", friendly.trim()))
         } else {
             Err(anyhow::anyhow!("az CLI failed: {}", sanitized_stderr))
         }

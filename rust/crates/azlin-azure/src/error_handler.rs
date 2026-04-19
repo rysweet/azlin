@@ -121,6 +121,38 @@ pub fn format_user_friendly_error(error: &AzureError) -> String {
             msg.push_str("💡 Run: az account list --output table\n");
             msg.push_str("💡 Then: azlin config set subscription_id <id>\n");
         }
+        "NetworkDnsError" => {
+            msg.push_str(&format!("🌐 {}\n", error.message));
+            msg.push_str("💡 Suggestions:\n");
+            msg.push_str("   • Check your internet connection\n");
+            msg.push_str("   • Verify DNS is working: nslookup management.azure.com\n");
+            msg.push_str("   • If behind a VPN/proxy, check it is connected\n");
+        }
+        "NetworkSslError" => {
+            msg.push_str(&format!("🔐 {}\n", error.message));
+            msg.push_str("💡 Suggestions:\n");
+            msg.push_str("   • Check if a corporate proxy/firewall is intercepting SSL\n");
+            msg.push_str("   • Verify system certificates are up to date\n");
+            msg.push_str("   • If using a proxy: az config set core.proxy=<url>\n");
+        }
+        "NetworkTimeoutError" => {
+            msg.push_str(&format!("⏱️ {}\n", error.message));
+            msg.push_str("💡 Suggestions:\n");
+            msg.push_str("   • Check your internet connection\n");
+            msg.push_str("   • Azure services may be experiencing issues — check https://status.azure.com\n");
+            msg.push_str("   • Try again in a few moments\n");
+        }
+        "AuthTokenError" => {
+            msg.push_str(&format!("🔑 {}\n", error.message));
+            msg.push_str("💡 Run: az login\n");
+        }
+        "NetworkConnectionError" => {
+            msg.push_str(&format!("🌐 {}\n", error.message));
+            msg.push_str("💡 Suggestions:\n");
+            msg.push_str("   • Check your internet connection\n");
+            msg.push_str("   • If behind a VPN/proxy, check it is connected\n");
+            msg.push_str("   • Try again in a few moments\n");
+        }
         _ => {
             msg.push_str(&format!(
                 "❌ Azure error [{}]: {}\n",
@@ -282,6 +314,239 @@ fn parse_parenthesized_error(line: &str) -> Option<(String, String)> {
         }
         let message = stripped[close + 1..].trim().to_string();
         Some((code.to_string(), message))
+    } else {
+        None
+    }
+}
+
+// ── Network error classification ───────────────────────────────────────
+
+/// Classification of network-level failures from `az` CLI stderr.
+///
+/// Priority order matters: DNS → SSL → Timeout → Auth → Connection.
+/// Connection is the fallback because `requests`/`urllib3` often wrap
+/// the real cause (DNS, SSL, timeout) inside a generic `ConnectionError`
+/// or `MaxRetryError`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NetworkErrorKind {
+    Dns,
+    Ssl,
+    Timeout,
+    Auth,
+    Connection,
+}
+
+/// Patterns checked in priority order for each [`NetworkErrorKind`].
+/// All matching is performed on the lowercased stderr text.
+const DNS_PATTERNS: &[&str] = &[
+    "nodename nor servname provided",
+    "name or service not known",
+    "name resolution",
+    "temporary failure in name resolution",
+    "no such host is known",
+    "getaddrinfo failed",
+    "socket.gaierror",
+];
+
+const SSL_PATTERNS: &[&str] = &[
+    "ssl: certificate_verify_failed",
+    "certificate verify failed",
+    "sslcertverificationerror",
+    "sslerror",
+    "tlsv1_alert",
+    "[ssl]",
+    "ssl handshake",
+    "ssl_error",
+];
+
+const TIMEOUT_PATTERNS: &[&str] = &[
+    "timed out",
+    "timeouterror",
+    "read timed out",
+    "connect timeout",
+    "connection timed out",
+    "sockettimeout",
+    "winerror 10060",
+];
+
+const AUTH_TOKEN_PATTERNS: &[&str] = &[
+    "aadsts700082",  // token expired
+    "aadsts50076",   // MFA required
+    "aadsts65001",   // consent required
+    "aadsts50078",   // MFA enrollment required
+    "aadsts700024",  // refresh token expired
+    "invalid_grant",
+];
+
+const CONNECTION_PATTERNS: &[&str] = &[
+    "connectionerror",
+    "connection refused",
+    "connection reset",
+    "connection aborted",
+    "newconnectionerror",
+    "maxretryerror",
+    "remotedisconnected",
+    "proxyerror",
+    "winerror 10061",
+    "winerror 11001",
+    "errno 111",
+    "errno 110",
+    "network is unreachable",
+    "no route to host",
+];
+
+/// Known Azure domain suffixes used for hostname extraction.
+const AZURE_DOMAIN_SUFFIXES: &[&str] = &[
+    ".microsoftonline.com",
+    ".azure.com",
+    ".microsoft.com",
+    ".windows.net",
+    ".azure-api.net",
+    ".azure.net",
+    ".azurecr.io",
+    ".blob.core.windows.net",
+    ".vault.azure.net",
+];
+
+/// Parse network-level errors from `az` CLI stderr output.
+///
+/// Returns an [`AzureError`] with a synthetic error code when the stderr
+/// text matches known network failure patterns. Returns `None` if the
+/// stderr does not look like a network error.
+///
+/// This function should be called *after* [`parse_azure_error_from_stderr`]
+/// so that structured Azure errors (QuotaExceeded, SkuNotAvailable, etc.)
+/// take precedence.
+pub fn parse_network_error_from_stderr(stderr: &str) -> Option<AzureError> {
+    let lower = stderr.to_ascii_lowercase();
+
+    let kind = classify_network_error(&lower)?;
+    let hostname = extract_hostname(stderr);
+
+    let (code, message) = match kind {
+        NetworkErrorKind::Dns => (
+            "NetworkDnsError",
+            format!(
+                "DNS resolution failed for {}. Check your network connection and DNS settings.",
+                hostname
+            ),
+        ),
+        NetworkErrorKind::Ssl => (
+            "NetworkSslError",
+            format!(
+                "SSL/TLS connection failed to {}. Check your certificates, proxy, or firewall settings.",
+                hostname
+            ),
+        ),
+        NetworkErrorKind::Timeout => (
+            "NetworkTimeoutError",
+            format!(
+                "Connection to {} timed out. The service may be unreachable or your network may be slow.",
+                hostname
+            ),
+        ),
+        NetworkErrorKind::Auth => (
+            "AuthTokenError",
+            "Your Azure authentication token has expired or requires renewal.".to_string(),
+        ),
+        NetworkErrorKind::Connection => (
+            "NetworkConnectionError",
+            format!(
+                "Could not connect to {}. Check your network connection, proxy, and firewall settings.",
+                hostname
+            ),
+        ),
+    };
+
+    Some(AzureError {
+        code: code.to_string(),
+        message,
+        target: None,
+        details: vec![],
+    })
+}
+
+/// Classify stderr text into a [`NetworkErrorKind`] by checking patterns
+/// in priority order.
+fn classify_network_error(lower: &str) -> Option<NetworkErrorKind> {
+    for pattern in DNS_PATTERNS {
+        if lower.contains(pattern) {
+            return Some(NetworkErrorKind::Dns);
+        }
+    }
+    for pattern in SSL_PATTERNS {
+        if lower.contains(pattern) {
+            return Some(NetworkErrorKind::Ssl);
+        }
+    }
+    for pattern in TIMEOUT_PATTERNS {
+        if lower.contains(pattern) {
+            return Some(NetworkErrorKind::Timeout);
+        }
+    }
+    for pattern in AUTH_TOKEN_PATTERNS {
+        if lower.contains(pattern) {
+            return Some(NetworkErrorKind::Auth);
+        }
+    }
+    for pattern in CONNECTION_PATTERNS {
+        if lower.contains(pattern) {
+            return Some(NetworkErrorKind::Connection);
+        }
+    }
+    None
+}
+
+/// Extract a hostname from stderr, preferring structured patterns over
+/// scanning for known Azure domain suffixes.
+///
+/// Returns `"Azure services"` when no hostname can be reliably identified.
+fn extract_hostname(stderr: &str) -> String {
+    // Pattern 1: Python urllib3 `host='...'` format
+    if let Some(host) = extract_quoted_host(stderr, "host='") {
+        return host;
+    }
+    if let Some(host) = extract_quoted_host(stderr, "host=\"") {
+        return host;
+    }
+
+    // Pattern 2: Scan for known Azure domain suffixes in the text
+    let lower = stderr.to_ascii_lowercase();
+    for suffix in AZURE_DOMAIN_SUFFIXES {
+        if let Some(suffix_pos) = lower.find(suffix) {
+            // Walk backwards to find the start of the hostname
+            let end = suffix_pos + suffix.len();
+            let start = lower[..suffix_pos]
+                .rfind(|c: char| !c.is_alphanumeric() && c != '.' && c != '-')
+                .map(|i| i + 1)
+                .unwrap_or(0);
+            let candidate = &stderr[start..end];
+            // Basic validation: must contain at least one dot, no spaces
+            if candidate.contains('.') && !candidate.contains(' ') && candidate.len() > 3 {
+                return candidate.to_string();
+            }
+        }
+    }
+
+    "Azure services".to_string()
+}
+
+/// Extract hostname from a `host='value'` or `host="value"` pattern.
+fn extract_quoted_host(stderr: &str, pattern: &str) -> Option<String> {
+    let idx = stderr.find(pattern)?;
+    let start = idx + pattern.len();
+    let rest = &stderr[start..];
+    let quote = pattern.as_bytes()[pattern.len() - 1] as char;
+    let end = rest.find(quote)?;
+    let host = &rest[..end];
+    // Sanity: must look like a hostname
+    if host.contains('.')
+        && !host.contains(' ')
+        && !host.contains('/')
+        && host.len() > 3
+        && host.len() < 256
+    {
+        Some(host.to_string())
     } else {
         None
     }
@@ -799,5 +1064,145 @@ During handling of the above exception, another exception occurred:
         let msg = format_user_friendly_error(&err);
         assert!(msg.contains("deployment validation failed"));
         assert!(msg.contains("not valid"));
+    }
+
+    // ── Network error parsing tests ────────────────────────────────────
+
+    #[test]
+    fn test_parse_network_dns_error() {
+        let stderr = "urllib3.exceptions.NewConnectionError: <urllib3.connection.HTTPSConnection object>: Failed to establish a new connection: [Errno -2] Name or service not known";
+        let err = parse_network_error_from_stderr(stderr).unwrap();
+        assert_eq!(err.code, "NetworkDnsError");
+        assert!(err.message.contains("DNS resolution failed"));
+    }
+
+    #[test]
+    fn test_parse_network_dns_gaierror() {
+        let stderr = "socket.gaierror: [Errno -2] Name or service not known\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='management.azure.com', port=443)";
+        let err = parse_network_error_from_stderr(stderr).unwrap();
+        assert_eq!(err.code, "NetworkDnsError");
+        assert!(err.message.contains("management.azure.com"));
+    }
+
+    #[test]
+    fn test_parse_network_ssl_error() {
+        let stderr = "requests.exceptions.SSLError: HTTPSConnectionPool(host='login.microsoftonline.com', port=443): Max retries exceeded (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED]')))";
+        let err = parse_network_error_from_stderr(stderr).unwrap();
+        assert_eq!(err.code, "NetworkSslError");
+        assert!(err.message.contains("SSL/TLS"));
+        assert!(err.message.contains("login.microsoftonline.com"));
+    }
+
+    #[test]
+    fn test_parse_network_timeout_error() {
+        let stderr = "requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='management.azure.com', port=443): Read timed out. (read timeout=30)";
+        let err = parse_network_error_from_stderr(stderr).unwrap();
+        assert_eq!(err.code, "NetworkTimeoutError");
+        assert!(err.message.contains("timed out"));
+        assert!(err.message.contains("management.azure.com"));
+    }
+
+    #[test]
+    fn test_parse_network_auth_token_error() {
+        let stderr = "AADSTS700082: The refresh token has expired due to inactivity.";
+        let err = parse_network_error_from_stderr(stderr).unwrap();
+        assert_eq!(err.code, "AuthTokenError");
+        assert!(err.message.contains("expired"));
+    }
+
+    #[test]
+    fn test_parse_network_connection_error() {
+        let stderr = "requests.exceptions.ConnectionError: HTTPSConnectionPool(host='management.azure.com', port=443): Max retries exceeded (Caused by NewConnectionError: Connection refused)";
+        let err = parse_network_error_from_stderr(stderr).unwrap();
+        // Connection refused is a CONNECTION pattern (not DNS)
+        assert_eq!(err.code, "NetworkConnectionError");
+    }
+
+    #[test]
+    fn test_parse_network_no_match() {
+        let stderr = "ERROR: (ResourceGroupNotFound) Resource group 'rg-test' not found.";
+        assert!(parse_network_error_from_stderr(stderr).is_none());
+    }
+
+    #[test]
+    fn test_format_network_dns_error() {
+        let err = AzureError {
+            code: "NetworkDnsError".to_string(),
+            message: "DNS resolution failed for management.azure.com.".to_string(),
+            target: None,
+            details: vec![],
+        };
+        let msg = format_user_friendly_error(&err);
+        assert!(msg.contains("DNS resolution failed"));
+        assert!(msg.contains("nslookup"));
+        assert!(!msg.contains("az login"));
+    }
+
+    #[test]
+    fn test_format_auth_token_error() {
+        let err = AzureError {
+            code: "AuthTokenError".to_string(),
+            message: "Your Azure authentication token has expired.".to_string(),
+            target: None,
+            details: vec![],
+        };
+        let msg = format_user_friendly_error(&err);
+        assert!(msg.contains("az login"));
+    }
+
+    #[test]
+    fn test_dns_has_priority_over_connection() {
+        // When stderr contains both DNS and Connection patterns, DNS should win
+        let stderr = "requests.exceptions.ConnectionError: HTTPSConnectionPool(host='management.azure.com', port=443): Max retries exceeded (Caused by NewConnectionError: [Errno -2] Name or service not known)";
+        let err = parse_network_error_from_stderr(stderr).unwrap();
+        assert_eq!(err.code, "NetworkDnsError");
+    }
+
+    #[test]
+    fn test_extract_hostname_from_host_pattern() {
+        let stderr = "HTTPSConnectionPool(host='login.microsoftonline.com', port=443)";
+        let err = parse_network_error_from_stderr(stderr);
+        // This has no network error pattern, so it should be None
+        assert!(err.is_none());
+
+        // But the hostname extractor should work on its own
+        let hostname = extract_hostname(stderr);
+        assert_eq!(hostname, "login.microsoftonline.com");
+    }
+
+    #[test]
+    fn test_extract_hostname_from_azure_suffix() {
+        let stderr = "Failed to connect to management.azure.com on port 443";
+        let hostname = extract_hostname(stderr);
+        assert_eq!(hostname, "management.azure.com");
+    }
+
+    #[test]
+    fn test_extract_hostname_fallback() {
+        let stderr = "Connection refused by some unknown server";
+        let hostname = extract_hostname(stderr);
+        assert_eq!(hostname, "Azure services");
+    }
+
+    #[test]
+    fn test_parse_network_proxy_error() {
+        let stderr = "requests.exceptions.ProxyError: HTTPSConnectionPool: Max retries exceeded";
+        let err = parse_network_error_from_stderr(stderr).unwrap();
+        assert_eq!(err.code, "NetworkConnectionError");
+        assert!(err.message.contains("proxy"));
+    }
+
+    #[test]
+    fn test_parse_network_remote_disconnected() {
+        let stderr = "http.client.RemoteDisconnected: Remote end closed connection without response";
+        let err = parse_network_error_from_stderr(stderr).unwrap();
+        assert_eq!(err.code, "NetworkConnectionError");
+    }
+
+    #[test]
+    fn test_network_error_case_insensitive() {
+        let stderr = "REQUESTS.EXCEPTIONS.CONNECTIONERROR: Connection Failed";
+        let err = parse_network_error_from_stderr(stderr).unwrap();
+        assert_eq!(err.code, "NetworkConnectionError");
     }
 }
