@@ -537,8 +537,8 @@ pub fn get_or_create_tunnel(
 
     // Spawn a new tunnel
     let port = pick_unused_local_port()?;
-    let mut child = std::process::Command::new("az")
-        .args([
+    let mut cmd = std::process::Command::new("az");
+    cmd.args([
             "network",
             "bastion",
             "tunnel",
@@ -554,7 +554,20 @@ pub fn get_or_create_tunnel(
             &port.to_string(),
         ])
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    // Create a new process group so cleanup can terminate the entire tree
+    // (az is a bash wrapper that spawns Python).
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
+    }
+    let mut child = cmd
         .spawn()
         .context("Failed to spawn az bastion tunnel")?;
 
