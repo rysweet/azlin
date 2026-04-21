@@ -848,10 +848,6 @@ pub enum Commands {
         /// Include named sessions
         #[arg(long)]
         include_named: bool,
-
-        /// Terminate all local bastion tunnel and SSH processes
-        #[arg(long)]
-        tunnels: bool,
     },
 
     // ── SSH Key Management ────────────────────────────────────────────

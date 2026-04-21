@@ -11,13 +11,6 @@ pub(crate) async fn dispatch(
     let _ = output;
     match command {
         azlin_cli::Commands::Cleanup {
-            tunnels: true,
-            ..
-        } => {
-            crate::cmd_cleanup_ops::handle_cleanup_tunnels()?;
-        }
-
-        azlin_cli::Commands::Cleanup {
             resource_group,
             dry_run,
             force,
