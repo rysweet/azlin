@@ -8,40 +8,33 @@
 
 ## Install
 
-### Option 1: Download Pre-Built Binary (Recommended)
-
-Download the native binary from [GitHub Releases](https://github.com/rysweet/azlin/releases/latest):
-
 ```bash
-# Linux x86_64
-curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-linux-x86_64.tar.gz | tar xz -C ~/.local/bin
-
-# Linux aarch64
-curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-linux-aarch64.tar.gz | tar xz -C ~/.local/bin
-
-# macOS x86_64
-curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-macos-x86_64.tar.gz | tar xz -C /usr/local/bin
-
-# macOS aarch64 (Apple Silicon)
-curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-macos-aarch64.tar.gz | tar xz -C /usr/local/bin
+curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-linux-$(uname -m).tar.gz | tar xz && mkdir -p ~/.local/bin && mv azlin-linux-$(uname -m) ~/.local/bin/azlin && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && export PATH="$HOME/.local/bin:$PATH"
 ```
 
-### Option 2: Build from Source with Cargo
+Verify: `azlin --version`
+
+<details>
+<summary>Other install methods</summary>
+
+#### macOS
 
 ```bash
-cargo install --git https://github.com/rysweet/azlin
+curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-macos-$(uname -m).tar.gz | tar xz && sudo mv azlin-macos-$(uname -m) /usr/local/bin/azlin
 ```
 
-### Option 3: Run via uvx (No Install)
+#### Build from Source
 
 ```bash
-uvx --from git+https://github.com/rysweet/azlin azlin list
+git clone https://github.com/rysweet/azlin && cd azlin/rust && cargo install --path crates/azlin
 ```
+
+</details>
 
 ### Self-Update
 
 ```bash
-azlin self-update
+azlin update
 ```
 
 ### Verify
