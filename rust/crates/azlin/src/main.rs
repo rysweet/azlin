@@ -202,7 +202,7 @@ impl BastionTunnelPool {
             .stderr(std::process::Stdio::null())
             .spawn()?;
         if let Err(e) =
-            wait_for_local_port_listener(port, child.id(), std::time::Duration::from_secs(10))
+            wait_for_local_port_listener(port, child.id(), std::time::Duration::from_secs(30))
         {
             // The az process was spawned but never became ready — kill it to avoid a leak.
             let _ = child.kill();
