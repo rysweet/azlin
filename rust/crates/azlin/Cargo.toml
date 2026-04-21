@@ -41,7 +41,6 @@ shlex = { workspace = true }
 shell-escape = { workspace = true }
 serde_yaml = { workspace = true }
 tempfile = { workspace = true }
-libc = "0.2.185"
 
 [dev-dependencies]
 assert_cmd = { workspace = true }

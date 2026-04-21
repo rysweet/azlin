@@ -182,8 +182,8 @@ impl BastionTunnelPool {
             return Ok(tunnel.local_port);
         }
         let port = pick_unused_local_port()?;
-        let mut cmd = std::process::Command::new("az");
-        cmd.args([
+        let mut child = std::process::Command::new("az")
+            .args([
                 "network",
                 "bastion",
                 "tunnel",
@@ -199,25 +199,13 @@ impl BastionTunnelPool {
                 &port.to_string(),
             ])
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        // Create a new process group so we can terminate the entire tree
-        // (az is a bash wrapper that spawns Python; without this, Python
-        // survives when we only SIGTERM the bash parent).
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            unsafe {
-                cmd.pre_exec(|| {
-                    libc::setsid();
-                    Ok(())
-                });
-            }
-        }
-        let mut child = cmd.spawn()?;
+            .stderr(std::process::Stdio::null())
+            .spawn()?;
         if let Err(e) =
             wait_for_local_port_listener(port, child.id(), std::time::Duration::from_secs(10))
         {
-            terminate_process_group(&child);
+            // The az process was spawned but never became ready — kill it to avoid a leak.
+            let _ = child.kill();
             let _ = child.wait();
             return Err(e);
         }
@@ -232,34 +220,10 @@ impl BastionTunnelPool {
     }
 }
 
-/// Terminate an entire process group by sending SIGTERM to the negative PID.
-/// Falls back to direct child termination if the process group signal fails.
-#[cfg(unix)]
-fn terminate_process_group(child: &std::process::Child) {
-    let pid = child.id() as i32;
-    // Signal the entire process group (negative PID)
-    unsafe {
-        libc::kill(-pid, libc::SIGTERM);
-    }
-    // Give processes 2 seconds to exit, then SIGKILL
-    std::thread::sleep(std::time::Duration::from_secs(2));
-    unsafe {
-        libc::kill(-pid, libc::SIGKILL);
-    }
-}
-
-#[cfg(not(unix))]
-fn terminate_process_group(child: &std::process::Child) {
-    // On non-Unix, fall back to direct child termination
-    let _ = std::process::Command::new("taskkill")
-        .args(["/PID", &child.id().to_string(), "/T", "/F"])
-        .status();
-}
-
 impl Drop for BastionTunnelPool {
     fn drop(&mut self) {
         for (_, mut tunnel) in self.tunnels.drain() {
-            terminate_process_group(&tunnel.child);
+            let _ = tunnel.child.kill();
             let _ = tunnel.child.wait();
         }
     }
