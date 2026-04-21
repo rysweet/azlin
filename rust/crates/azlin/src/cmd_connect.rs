@@ -202,7 +202,21 @@ pub(crate) async fn dispatch(
                         args.extend(effective_remote_command.iter().cloned());
                     }
                     let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-                    std::process::Command::new("az").args(&str_args).status()?
+                    let mut cmd = std::process::Command::new("az");
+                    cmd.args(&str_args);
+                    // Use process groups so the entire az process tree
+                    // (bash wrapper + Python child) is terminated on disconnect/reconnect
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::process::CommandExt;
+                        unsafe {
+                            cmd.pre_exec(|| {
+                                libc::setsid();
+                                Ok(())
+                            });
+                        }
+                    }
+                    cmd.status()?
                 } else {
                     // Direct SSH for VMs with public IPs
                     let ip = vm.public_ip.as_deref().unwrap();

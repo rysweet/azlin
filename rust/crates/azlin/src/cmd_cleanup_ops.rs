@@ -2,6 +2,95 @@
 use super::*;
 use anyhow::{Context, Result};
 
+/// Terminate all local bastion tunnel and SSH processes.
+pub(crate) fn handle_cleanup_tunnels() -> Result<()> {
+    println!("Scanning for bastion tunnel and SSH processes...");
+
+    let output = std::process::Command::new("ps")
+        .args(["aux"])
+        .stdout(std::process::Stdio::piped())
+        .output()
+        .context("Failed to run ps")?;
+
+    let ps_output = String::from_utf8_lossy(&output.stdout);
+    let mut pids: Vec<u32> = Vec::new();
+
+    for line in ps_output.lines() {
+        if line.contains("python3 -Im azure.cli network bastion") && !line.contains("grep") {
+            if let Some(pid_str) = line.split_whitespace().nth(1) {
+                if let Ok(pid) = pid_str.parse::<u32>() {
+                    if pid > 1 {
+                        pids.push(pid);
+                    }
+                }
+            }
+        }
+    }
+
+    // Also find bash wrappers for az bastion commands
+    for line in ps_output.lines() {
+        if line.contains("bash /usr/bin/az network bastion") && !line.contains("grep") {
+            if let Some(pid_str) = line.split_whitespace().nth(1) {
+                if let Ok(pid) = pid_str.parse::<u32>() {
+                    if pid > 1 && !pids.contains(&pid) {
+                        pids.push(pid);
+                    }
+                }
+            }
+        }
+    }
+
+    if pids.is_empty() {
+        println!("No bastion processes found.");
+        return Ok(());
+    }
+
+    println!("Found {} bastion processes. Terminating...", pids.len());
+
+    let mut terminated = 0;
+    for pid in &pids {
+        // Send SIGTERM to process group (negative PID)
+        #[cfg(unix)]
+        {
+            let neg_pid = -(*pid as i32);
+            unsafe {
+                libc::kill(neg_pid, libc::SIGTERM);
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .status();
+        }
+        terminated += 1;
+    }
+
+    // Wait briefly then SIGKILL any survivors
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    for pid in &pids {
+        #[cfg(unix)]
+        unsafe {
+            libc::kill(-(*pid as i32), libc::SIGKILL);
+        }
+    }
+
+    // Also prune the tunnel registry
+    let mut registry = crate::bastion_tunnel::TunnelRegistry::load();
+    let before = registry.tunnels.len();
+    registry.prune();
+    let pruned = before - registry.tunnels.len();
+    if pruned > 0 {
+        let _ = registry.save();
+    }
+
+    println!(
+        "Terminated {} bastion processes, pruned {} stale registry entries.",
+        terminated, pruned
+    );
+    Ok(())
+}
+
 pub(crate) fn handle_cleanup(
     resource_group: Option<String>,
     dry_run: bool,
