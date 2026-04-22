@@ -97,6 +97,9 @@ pub struct AzlinConfig {
     pub resource_group_cache_ttl: u64,
     pub resource_group_query_timeout: u64,
     pub bastion_detection_timeout: u64,
+    /// Timeout in seconds for native bastion tunnel setup (token exchange + WSS connect).
+    /// Default: 30 seconds. Also used as the wait-for-listener timeout.
+    pub bastion_tunnel_timeout: u64,
     /// Timeout in seconds for SSH/SCP connect operations.
     /// Default: 30 seconds.
     pub ssh_connect_timeout: u64,
@@ -130,6 +133,7 @@ impl Default for AzlinConfig {
             resource_group_cache_ttl: 900,
             resource_group_query_timeout: 30,
             bastion_detection_timeout: 60,
+            bastion_tunnel_timeout: 30,
             ssh_connect_timeout: 30,
             scp_transfer_timeout: 120,
             az_cli_timeout: 120,

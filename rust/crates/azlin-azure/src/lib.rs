@@ -6,6 +6,7 @@ pub mod auth;
 pub mod cloud_init;
 pub mod costs;
 pub mod error_handler;
+pub mod native_tunnel;
 pub mod ops;
 pub mod orphan_detector;
 pub mod rate_limiter;

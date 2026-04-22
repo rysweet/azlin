@@ -73,6 +73,28 @@ restore_timeout = 60  # 1 minute timeout per session
 - Increase fer VMs with long boot times
 - Decrease fer fast local networks
 
+## Bastion Tunnel Settings
+
+### bastion_tunnel_timeout
+
+Timeout for native bastion tunnel establishment (WebSocket handshake and local port readiness).
+
+**Type**: `integer`
+**Default**: `30`
+**Unit**: seconds
+
+**Example**:
+```toml
+bastion_tunnel_timeout = 45  # 45 second timeout for tunnel setup
+```
+
+**When to Adjust**:
+- Increase for slow or high-latency network connections to Azure
+- Decrease for fast networks where tunnels establish quickly
+
+**Note**: This does not affect `bastion_detection_timeout` (60s), which controls
+how long azlin waits to discover the bastion host during VM provisioning.
+
 ## Session Name Mappings
 
 Map VM names to custom tmux session names.
@@ -143,6 +165,7 @@ default_resource_group = "azlin-development"
 terminal_launcher = "windows_terminal"  # Override auto-detection
 terminal_multi_tab = true                # Use tabs (Windows Terminal)
 restore_timeout = 45                     # 45 second timeout
+bastion_tunnel_timeout = 30              # Tunnel establishment timeout
 
 # SSH configuration
 ssh_key_path = "~/.ssh/azlin_key"

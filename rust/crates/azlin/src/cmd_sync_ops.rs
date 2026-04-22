@@ -60,7 +60,8 @@ pub(crate) async fn handle_sync(
                     &bastion.bastion_name,
                     &bastion.resource_group,
                     &bastion.vm_resource_id,
-                )?;
+                )
+                .await?;
                 let ssh_cmd = format!(
                     "ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -p {}",
                     tunnel.local_port
@@ -178,7 +179,8 @@ pub(crate) async fn handle_cp(
                     &bastion.bastion_name,
                     &bastion.resource_group,
                     &bastion.vm_resource_id,
-                )?;
+                )
+                .await?;
                 let port_str = tunnel.local_port.to_string();
 
                 let scp_source = if crate::cp_helpers::is_remote_path(source) {

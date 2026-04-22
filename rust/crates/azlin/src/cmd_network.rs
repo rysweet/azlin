@@ -69,9 +69,76 @@ pub(crate) async fn dispatch(
                     disable,
                 )?;
             }
+            azlin_cli::BastionAction::Sweep => {
+                handle_bastion_sweep()?;
+            }
         },
 
         _ => unreachable!(),
     }
     Ok(())
+}
+
+/// Kill orphaned `az network bastion tunnel` processes left over from before
+/// the native tunnel migration. Only targets own-user processes (SEC-6).
+fn handle_bastion_sweep() -> Result<()> {
+    let output = std::process::Command::new("pgrep")
+        .args(["-u", &whoami(), "-fa", "az network bastion tunnel"])
+        .output();
+
+    let output = match output {
+        Ok(o) => o,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            println!("pgrep not found; cannot sweep orphaned az processes");
+            return Ok(());
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    if !output.status.success() && output.status.code() == Some(1) {
+        // pgrep exit code 1 = no matching processes
+        println!("No orphaned az bastion tunnel processes found.");
+        return Ok(());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut killed = 0u32;
+    for line in stdout.lines() {
+        let pid_str = line.split_whitespace().next().unwrap_or("");
+        let Ok(pid) = pid_str.parse::<u32>() else {
+            continue;
+        };
+        // Only kill processes whose cmdline matches exactly
+        if !line.contains("az network bastion tunnel") {
+            continue;
+        }
+        println!("Killing orphaned az bastion tunnel (PID {}): {}", pid, line.trim());
+        let _ = std::process::Command::new("kill")
+            .arg(pid.to_string())
+            .status();
+        killed += 1;
+    }
+
+    if killed == 0 {
+        println!("No orphaned az bastion tunnel processes found.");
+    } else {
+        println!("Swept {} orphaned az bastion tunnel process(es).", killed);
+    }
+    Ok(())
+}
+
+fn whoami() -> String {
+    std::env::var("USER")
+        .or_else(|_| std::env::var("LOGNAME"))
+        .unwrap_or_else(|_| {
+            String::from_utf8_lossy(
+                &std::process::Command::new("id")
+                    .args(["-un"])
+                    .output()
+                    .map(|o| o.stdout)
+                    .unwrap_or_default(),
+            )
+            .trim()
+            .to_string()
+        })
 }

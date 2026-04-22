@@ -839,7 +839,7 @@ pub(crate) async fn handle_vm_new(
                 bastion_name,
                 resource_group,
                 vm_resource_id,
-            )?)
+            ).await?)
         } else {
             None
         };

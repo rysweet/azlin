@@ -271,50 +271,27 @@ async fn open_bastion_tunnels(
         vm.name
     );
 
-    // For bastion-routed VMs we open one bastion tunnel per app port.
-    // Each bastion tunnel maps a local SSH port → VM port 22 (Azure Bastion handles the
+    // For bastion-routed VMs we open a native bastion tunnel per app port.
+    // Each native tunnel maps a local SSH port → VM port 22 (Azure Bastion handles the
     // inner jump). We then layer an SSH -L on top to forward the desired app port.
-    let base_local_port: u16 = 50200;
 
-    for (i, &remote_port) in ports.iter().enumerate() {
+    for &remote_port in ports.iter() {
         let lport = if ports.len() == 1 {
             local_port.unwrap_or(remote_port)
         } else {
             remote_port
         };
 
-        let bastion_local_port = base_local_port + i as u16;
+        // Open native bastion tunnel to get a local SSH port
+        let bastion_local_port = crate::bastion_tunnel::get_or_create_tunnel(
+            bastion_name,
+            rg,
+            &vm_rid,
+        )
+        .await
+        .with_context(|| format!("Failed to open bastion tunnel for port {}", remote_port))?;
 
-        // Step 1: open az bastion tunnel → bastion_local_port
-        let bastion_child = std::process::Command::new("az")
-            .args([
-                "network",
-                "bastion",
-                "tunnel",
-                "--name",
-                bastion_name,
-                "--resource-group",
-                rg,
-                "--target-resource-id",
-                &vm_rid,
-                "--resource-port",
-                "22",
-                "--port",
-                &bastion_local_port.to_string(),
-            ])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .context("Failed to spawn az bastion tunnel")?;
-
-        let bastion_pid = bastion_child.id();
-        std::mem::forget(bastion_child);
-
-        // Wait for bastion tunnel to establish — use async sleep to avoid
-        // blocking the tokio runtime thread.
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-
-        // Step 2: ssh -N -L lport:localhost:remote_port -p bastion_local_port user@127.0.0.1
+        // Layer ssh -N -L lport:localhost:remote_port -p bastion_local_port user@127.0.0.1
         let ssh_args = build_bastion_ssh_args(lport, remote_port, bastion_local_port, user, key);
 
         let ssh_child = std::process::Command::new("ssh")
@@ -332,19 +309,11 @@ async fn open_bastion_tunnels(
             lport, vm.name, remote_port
         );
 
-        // Record both pids — we store the SSH -L pid as the primary; also record bastion pid
         entries.push(TunnelEntry {
             vm_name: vm.name.clone(),
             local_port: lport,
             remote_port,
             pid: ssh_pid,
-        });
-        // Store bastion tunnel pid as a synthetic entry (remote_port=0 signals bastion helper)
-        entries.push(TunnelEntry {
-            vm_name: format!("{}__bastion__{}", vm.name, i),
-            local_port: bastion_local_port,
-            remote_port: 0,
-            pid: bastion_pid,
         });
     }
     Ok(())
@@ -364,19 +333,12 @@ fn cmd_tunnel_list() -> Result<()> {
         return Ok(());
     }
 
-    // Hide internal bastion helper entries from the user
-    let visible: Vec<_> = entries.iter().filter(|e| e.remote_port != 0).collect();
-    if visible.is_empty() {
-        println!("No active tunnels.");
-        return Ok(());
-    }
-
     println!(
         "{:<20} {:>12}  {:>12}  {:>8}",
         "VM", "LOCAL PORT", "REMOTE PORT", "PID"
     );
     println!("{}", "-".repeat(58));
-    for e in &visible {
+    for e in &entries {
         println!(
             "{:<20} {:>12}  {:>12}  {:>8}",
             e.vm_name, e.local_port, e.remote_port, e.pid
@@ -458,7 +420,7 @@ fn cmd_tunnel_close(vm_identifier: Option<String>, all: bool) -> Result<()> {
         let should_close = all
             || vm_identifier
                 .as_deref()
-                .map(|v| e.vm_name == v || e.vm_name.starts_with(&format!("{}__bastion__", v)))
+                .map(|v| e.vm_name == v)
                 .unwrap_or(false);
 
         if should_close {

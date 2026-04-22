@@ -1232,6 +1232,8 @@ pub enum BastionAction {
         #[arg(long)]
         disable: bool,
     },
+    /// Sweep orphaned az bastion tunnel processes from before native tunnel migration
+    Sweep,
 }
 
 // ── Tunnel subcommands ────────────────────────────────────────────────────

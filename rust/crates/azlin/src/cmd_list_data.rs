@@ -15,7 +15,11 @@ fn resolve_ssh_key() -> Option<std::path::PathBuf> {
 }
 
 /// Collect tmux sessions for all running VMs via SSH (direct or bastion).
-pub(crate) fn collect_tmux_sessions(
+///
+/// SSH probes run concurrently (up to 8 at a time) using `tokio::process::Command`
+/// to avoid blocking the async runtime. Bastion tunnels are pre-created so that
+/// concurrent SSH tasks share a single tunnel per bastion.
+pub(crate) async fn collect_tmux_sessions(
     vms: &[VmInfo],
     effective_rg: &str,
     is_table_output: bool,
@@ -23,110 +27,101 @@ pub(crate) fn collect_tmux_sessions(
     subscription_id: &str,
     connect_timeout: u64,
 ) -> HashMap<String, Vec<String>> {
-    let mut tmux_sessions: HashMap<String, Vec<String>> = HashMap::new();
-
     // Build bastion name map (region -> bastion_name) for private VMs
     let bastion_map: HashMap<String, String> = if is_table_output {
-        if let Ok(bastions) = crate::list_helpers::detect_bastion_hosts(effective_rg) {
-            bastions
+        let rg = effective_rg.to_string();
+        tokio::task::spawn_blocking(move || {
+            crate::list_helpers::detect_bastion_hosts(&rg)
+                .unwrap_or_default()
                 .into_iter()
                 .map(|(name, location, _)| (location, name))
                 .collect()
-        } else {
-            HashMap::new()
-        }
+        })
+        .await
+        .unwrap_or_default()
     } else {
         HashMap::new()
     };
 
     let ssh_key = resolve_ssh_key();
-    let mut tunnel_pool = BastionTunnelPool::new();
+
+    // Pre-create bastion tunnels so concurrent SSH tasks share them.
+    // Tunnel creation mutates a shared registry file, so we do it sequentially.
+    let mut bastion_ports: HashMap<String, u16> = HashMap::new();
+    for vm in vms {
+        if vm.power_state != azlin_core::models::PowerState::Running || vm.public_ip.is_some() {
+            continue;
+        }
+        if let Some(bastion_name) = bastion_map.get(&vm.location) {
+            if bastion_ports.contains_key(bastion_name) {
+                continue; // Already opened for this bastion
+            }
+            let vm_id = format!(
+                "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
+                subscription_id, vm.resource_group, vm.name
+            );
+            match crate::bastion_tunnel::get_or_create_tunnel(bastion_name, &vm.resource_group, &vm_id).await {
+                Ok(port) => { bastion_ports.insert(bastion_name.clone(), port); }
+                Err(e) => {
+                    if verbose {
+                        eprintln!("[VERBOSE] Failed to create bastion tunnel for {}: {}", vm.name, e);
+                    }
+                }
+            }
+        }
+    }
+
+    // Build SSH tasks for all running VMs, then execute concurrently
+    let tmux_cmd = "tmux list-sessions -F '#{session_name}:#{session_attached}' 2>/dev/null || true";
+    let mut join_set = tokio::task::JoinSet::new();
 
     for vm in vms {
         if vm.power_state != azlin_core::models::PowerState::Running {
             continue;
         }
-        let user = vm
-            .admin_username
-            .as_deref()
-            .unwrap_or(DEFAULT_ADMIN_USERNAME);
-        let tmux_cmd =
-            "tmux list-sessions -F '#{session_name}:#{session_attached}' 2>/dev/null || true";
+        let user = vm.admin_username.as_deref().unwrap_or(DEFAULT_ADMIN_USERNAME).to_string();
+        let vm_name = vm.name.clone();
+        let ssh_key = ssh_key.clone();
+        let tmux_cmd = tmux_cmd.to_string();
+        let timeout_arg = format!("ConnectTimeout={}", connect_timeout);
 
-        // Determine whether to use direct SSH or bastion tunnel
-        let timeout_str = format!("ConnectTimeout={}", connect_timeout);
-        let output = if let Some(ip) = vm.public_ip.as_deref() {
+        if let Some(ip) = vm.public_ip.as_deref() {
             // Direct SSH to public IP
-            let mut ssh_args = vec![
-                "-o",
-                "StrictHostKeyChecking=accept-new",
-                "-o",
-                &timeout_str,
-                "-o",
-                "BatchMode=yes",
-            ];
-            let user_host = format!("{}@{}", user, ip);
-            if let Some(ref key) = ssh_key {
-                ssh_args.push("-i");
-                ssh_args.push(key.to_str().unwrap_or(""));
-            }
-            ssh_args.push(&user_host);
-            ssh_args.push(tmux_cmd);
-
-            std::process::Command::new("ssh")
-                .args(&ssh_args)
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .output()
+            let ip = ip.to_string();
+            join_set.spawn(async move {
+                let mut cmd = tokio::process::Command::new("ssh");
+                cmd.args(["-o", "StrictHostKeyChecking=accept-new", "-o", &timeout_arg, "-o", "BatchMode=yes"]);
+                if let Some(ref key) = ssh_key {
+                    cmd.args(["-i", key.to_str().unwrap_or("")]);
+                }
+                cmd.arg(format!("{}@{}", user, ip));
+                cmd.arg(&tmux_cmd);
+                cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+                (vm_name, cmd.output().await)
+            });
         } else if let Some(bastion_name) = bastion_map.get(&vm.location) {
-            // Use bastion tunnel
-            let vm_id = format!(
-                "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
-                subscription_id, vm.resource_group, vm.name
-            );
-            match tunnel_pool.get_or_create(&vm_id, bastion_name, &vm.resource_group) {
-                Ok(port) => {
-                    let port_str = port.to_string();
-                    let user_host = format!("{}@127.0.0.1", user);
-                    let mut ssh_args: Vec<&str> = vec![
-                        "-o",
-                        "StrictHostKeyChecking=accept-new",
-                        "-o",
-                        &timeout_str,
-                        "-o",
-                        "BatchMode=yes",
-                        "-p",
-                        &port_str,
-                    ];
-                    let key_str;
+            if let Some(&port) = bastion_ports.get(bastion_name) {
+                // Bastion SSH via pre-created tunnel
+                join_set.spawn(async move {
+                    let mut cmd = tokio::process::Command::new("ssh");
+                    cmd.args(["-o", "StrictHostKeyChecking=accept-new", "-o", &timeout_arg, "-o", "BatchMode=yes"]);
+                    cmd.args(["-p", &port.to_string()]);
                     if let Some(ref key) = ssh_key {
-                        key_str = key.to_string_lossy();
-                        ssh_args.push("-i");
-                        ssh_args.push(&key_str);
+                        cmd.args(["-i", key.to_str().unwrap_or("")]);
                     }
-                    ssh_args.push(&user_host);
-                    ssh_args.push(tmux_cmd);
-                    std::process::Command::new("ssh")
-                        .args(&ssh_args)
-                        .stdout(std::process::Stdio::piped())
-                        .stderr(std::process::Stdio::piped())
-                        .output()
-                }
-                Err(e) => {
-                    if verbose {
-                        eprintln!(
-                            "[VERBOSE] Failed to create bastion tunnel for {}: {}",
-                            vm.name, e
-                        );
-                    }
-                    continue;
-                }
+                    cmd.arg(format!("{}@127.0.0.1", user));
+                    cmd.arg(&tmux_cmd);
+                    cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+                    (vm_name, cmd.output().await)
+                });
             }
-        } else {
-            continue; // No bastion available for this region
-        };
+        }
+    }
 
-        if let Ok(out) = output {
+    // Collect results
+    let mut tmux_sessions: HashMap<String, Vec<String>> = HashMap::new();
+    while let Some(result) = join_set.join_next().await {
+        if let Ok((vm_name, Ok(out))) = result {
             if out.status.success() {
                 let sessions: Vec<String> = String::from_utf8_lossy(&out.stdout)
                     .lines()
@@ -134,10 +129,10 @@ pub(crate) fn collect_tmux_sessions(
                     .map(|l| l.to_string())
                     .collect();
                 if verbose {
-                    eprintln!("[VERBOSE] {} -> {} sessions", vm.name, sessions.len());
+                    eprintln!("[VERBOSE] {} -> {} sessions", vm_name, sessions.len());
                 }
                 if !sessions.is_empty() {
-                    tmux_sessions.insert(vm.name.clone(), sessions);
+                    tmux_sessions.insert(vm_name, sessions);
                 }
             }
         }

@@ -145,7 +145,7 @@ pub(crate) async fn dispatch(
             let max = if no_reconnect { 1 } else { max_retries + 1 };
             loop {
                 let status = if use_bastion {
-                    // Route through Azure Bastion for private-only VMs
+                    // Route through Azure Bastion via native WebSocket tunnel
                     let bastion_map: std::collections::HashMap<String, String> =
                         if let Ok(bastions) = crate::list_helpers::detect_bastion_hosts(&rg) {
                             bastions.into_iter().map(|(n, l, _)| (l, n)).collect()
@@ -162,27 +162,21 @@ pub(crate) async fn dispatch(
                         "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
                         vm_manager.subscription_id(), rg, name
                     );
+                    // Open native bastion tunnel to get a local port
+                    let tunnel = crate::bastion_tunnel::ScopedBastionTunnel::new(
+                        bastion_name, &rg, &vm_rid,
+                    ).await?;
                     let ssh_key = key.clone().or_else(resolve_ssh_key);
                     let mut args = vec![
-                        "network".to_string(),
-                        "bastion".to_string(),
-                        "ssh".to_string(),
-                        "--name".to_string(),
-                        bastion_name.clone(),
-                        "--resource-group".to_string(),
-                        rg.clone(),
-                        "--target-resource-id".to_string(),
-                        vm_rid,
-                        "--auth-type".to_string(),
-                        "ssh-key".to_string(),
-                        "--username".to_string(),
-                        username.clone(),
+                        "-o".to_string(),
+                        "StrictHostKeyChecking=accept-new".to_string(),
+                        "-p".to_string(),
+                        tunnel.local_port.to_string(),
                     ];
                     if let Some(ref k) = ssh_key {
-                        args.push("--ssh-key".to_string());
+                        args.push("-i".to_string());
                         args.push(k.to_string_lossy().to_string());
                     }
-                    args.push("--".to_string());
                     // Enable X11 forwarding through bastion
                     if x11 {
                         args.push("-Y".to_string());
@@ -191,6 +185,7 @@ pub(crate) async fn dispatch(
                     if tmux_sess.is_some() || effective_remote_command.is_empty() {
                         args.push("-t".to_string());
                     }
+                    args.push(format!("{}@127.0.0.1", username));
                     // Build the remote command
                     if let Some(ref sess) = tmux_sess {
                         if effective_remote_command.is_empty() {
@@ -202,7 +197,7 @@ pub(crate) async fn dispatch(
                         args.extend(effective_remote_command.iter().cloned());
                     }
                     let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-                    std::process::Command::new("az").args(&str_args).status()?
+                    std::process::Command::new("ssh").args(&str_args).status()?
                 } else {
                     // Direct SSH for VMs with public IPs
                     let ip = vm.public_ip.as_deref().unwrap();
