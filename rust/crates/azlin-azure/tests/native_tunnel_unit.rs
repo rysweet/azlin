@@ -41,6 +41,7 @@ async fn test_open_tunnel_function_signature_exists() {
         "test-resource-id",
         22,
         "test-token",
+        azlin_azure::native_tunnel::WssUrlMode::NodeScoped,
         std::time::Duration::from_secs(1),
     )
     .await;
@@ -190,6 +191,7 @@ async fn test_reject_http_endpoint() {
         "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
         22,
         "token",
+        azlin_azure::native_tunnel::WssUrlMode::NodeScoped,
         std::time::Duration::from_secs(5),
     )
     .await;
@@ -211,6 +213,7 @@ async fn test_reject_ws_endpoint() {
         "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
         22,
         "token",
+        azlin_azure::native_tunnel::WssUrlMode::NodeScoped,
         std::time::Duration::from_secs(5),
     )
     .await;
@@ -227,6 +230,7 @@ async fn test_bare_hostname_treated_as_https() {
         "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
         22,
         "token",
+        azlin_azure::native_tunnel::WssUrlMode::NodeScoped,
         std::time::Duration::from_secs(1),
     )
     .await;
@@ -353,6 +357,7 @@ async fn test_reject_resource_port_zero() {
         "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
         0,  // invalid port
         "token",
+        azlin_azure::native_tunnel::WssUrlMode::NodeScoped,
         std::time::Duration::from_secs(1),
     )
     .await;
@@ -367,6 +372,7 @@ async fn test_reject_empty_endpoint() {
         "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
         22,
         "token",
+        azlin_azure::native_tunnel::WssUrlMode::NodeScoped,
         std::time::Duration::from_secs(1),
     )
     .await;
@@ -381,8 +387,44 @@ async fn test_reject_empty_token() {
         "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
         22,
         "",  // empty token
+        azlin_azure::native_tunnel::WssUrlMode::NodeScoped,
         std::time::Duration::from_secs(1),
     )
     .await;
     assert!(result.is_err(), "empty token must be rejected");
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// 8. WssUrlMode routing
+// ═══════════════════════════════════════════════════════════════════════
+
+/// NodeScoped mode must produce a /webtunnelv2/ URL with X-Node-Id query param.
+#[test]
+fn test_node_scoped_url_uses_webtunnelv2_path() {
+    let url = azlin_azure::native_tunnel::build_wss_url_standard(
+        "bastion.example.com",
+        "ws-tok",
+        "node-1",
+    );
+    assert!(url.contains("/webtunnelv2/"), "NodeScoped must use /webtunnelv2/ path");
+    assert!(url.contains("X-Node-Id="), "NodeScoped must include X-Node-Id query param");
+}
+
+/// EndpointScoped mode must produce a /omni/webtunnel/ URL without X-Node-Id.
+#[test]
+fn test_endpoint_scoped_url_uses_omni_path() {
+    let url = azlin_azure::native_tunnel::build_wss_url_developer(
+        "datapod.example.com",
+        "ws-tok",
+    );
+    assert!(url.contains("/omni/webtunnel/"), "EndpointScoped must use /omni/webtunnel/ path");
+    assert!(!url.contains("X-Node-Id"), "EndpointScoped must not include X-Node-Id");
+}
+
+/// WssUrlMode enum must have exactly NodeScoped and EndpointScoped variants.
+#[test]
+fn test_wss_url_mode_variants_exist() {
+    let _ns = azlin_azure::native_tunnel::WssUrlMode::NodeScoped;
+    let _es = azlin_azure::native_tunnel::WssUrlMode::EndpointScoped;
+    assert_ne!(_ns, _es);
 }

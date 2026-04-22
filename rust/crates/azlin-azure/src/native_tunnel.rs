@@ -26,6 +26,19 @@ use tracing::{debug, warn};
 /// Header name for node ID in cleanup requests.
 pub const NODE_ID_HEADER: &str = "X-Node-Id";
 
+/// Determines which WebSocket URL shape the tunnel uses.
+///
+/// Models the transport behavior, not the Azure Bastion marketing SKU.
+/// Standard/Premium bastions use a node-scoped path (`/webtunnelv2/{token}?X-Node-Id={id}`).
+/// Developer/QuickConnect bastions use an endpoint-scoped path (`/omni/webtunnel/{token}`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WssUrlMode {
+    /// Node-scoped path used by Standard and Premium SKU bastions.
+    NodeScoped,
+    /// Endpoint-scoped path used by Developer/QuickConnect SKU bastions.
+    EndpointScoped,
+}
+
 // ── Error types ──────────────────────────────────────────────────────────
 
 /// Errors from native bastion tunnel operations.
@@ -267,6 +280,7 @@ async fn handle_client(
     target_resource_id: String,
     resource_port: u16,
     token: String,
+    url_mode: WssUrlMode,
 ) {
     // Step 1: Token exchange
     let token_resp = match exchange_token(
@@ -285,12 +299,18 @@ async fn handle_client(
         }
     };
 
-    // Step 2: Build WSS URL (Standard SKU by default; Developer SKU uses /omni/ path)
-    let wss_url = build_wss_url_standard(
-        &endpoint,
-        &token_resp.websocket_token,
-        &token_resp.node_id,
-    );
+    // Step 2: Build WSS URL based on transport mode
+    let wss_url = match url_mode {
+        WssUrlMode::NodeScoped => build_wss_url_standard(
+            &endpoint,
+            &token_resp.websocket_token,
+            &token_resp.node_id,
+        ),
+        WssUrlMode::EndpointScoped => build_wss_url_developer(
+            &endpoint,
+            &token_resp.websocket_token,
+        ),
+    };
 
     // Step 3: Connect WSS
     let ws_result = tokio_tungstenite::connect_async(&wss_url).await;
@@ -340,6 +360,7 @@ async fn handle_client(
 /// - `target_resource_id` — Full ARM resource ID of the target VM
 /// - `resource_port` — Port on the target VM (typically 22 for SSH)
 /// - `token` — Azure AD bearer token for the bastion resource
+/// - `url_mode` — WebSocket URL shape to use (NodeScoped for Standard/Premium, EndpointScoped for Developer)
 /// - `timeout` — Connection timeout for the initial setup
 ///
 /// # Security
@@ -351,6 +372,7 @@ pub async fn open_tunnel(
     target_resource_id: &str,
     resource_port: u16,
     token: &str,
+    url_mode: WssUrlMode,
     timeout: Duration,
 ) -> Result<(u16, JoinHandle<()>), NativeTunnelError> {
     // Validate inputs
@@ -421,7 +443,7 @@ pub async fn open_tunnel(
                     let rid = owned_resource_id.clone();
                     let tok = owned_token.clone();
                     tokio::spawn(async move {
-                        handle_client(tcp_stream, client, ep, rid, resource_port, tok).await;
+                        handle_client(tcp_stream, client, ep, rid, resource_port, tok, url_mode).await;
                     });
                 }
                 Err(e) => {

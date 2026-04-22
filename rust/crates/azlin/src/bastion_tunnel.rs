@@ -590,12 +590,13 @@ pub async fn get_or_create_tunnel(
     // Resolve bastion endpoint (use bastion DNS name)
     let bastion_endpoint = format!("{}.bastion.azure.com", bastion_name);
 
-    // Open native tunnel
+    // Open native tunnel (NodeScoped = Standard/Premium SKU, the common case for .bastion.azure.com)
     let (port, handle) = azlin_azure::native_tunnel::open_tunnel(
         &bastion_endpoint,
         vm_resource_id,
         22,
         &token,
+        azlin_azure::native_tunnel::WssUrlMode::NodeScoped,
         timeout,
     )
     .await
