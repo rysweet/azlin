@@ -19,5 +19,10 @@ openssl = { workspace = true }
 tempfile = { workspace = true }
 wait-timeout = { workspace = true }
 
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+futures-util = { workspace = true }
+reqwest = { workspace = true }
+urlencoding = { workspace = true }
+
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt"] }

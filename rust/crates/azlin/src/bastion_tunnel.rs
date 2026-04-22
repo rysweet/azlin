@@ -53,6 +53,14 @@ pub struct TunnelRegistryEntry {
     pub local_port: u16,
     pub pid: u32,
     pub created_at: u64,
+    /// Tunnel type: "native" (in-process WSS) or "legacy" (az CLI subprocess).
+    /// Defaults to "legacy" for backward compatibility with existing registry files.
+    #[serde(default = "default_tunnel_type")]
+    pub tunnel_type: String,
+}
+
+fn default_tunnel_type() -> String {
+    "legacy".to_string()
 }
 
 /// The full tunnel registry.
@@ -131,9 +139,12 @@ impl TunnelRegistry {
     }
 
     /// Remove a specific tunnel and kill its process.
+    /// Native tunnels owned by the current process are not killed (they die when we exit).
     pub fn remove(&mut self, vm_resource_id: &str) -> Option<TunnelRegistryEntry> {
         if let Some(entry) = self.tunnels.remove(vm_resource_id) {
-            kill_process(entry.pid);
+            if !is_self_owned_native(&entry) {
+                kill_process(entry.pid);
+            }
             Some(entry)
         } else {
             None
@@ -141,11 +152,20 @@ impl TunnelRegistry {
     }
 
     /// Kill all tunnels and clear the registry.
+    /// Native tunnels owned by the current process are not killed (they die when we exit).
     pub fn remove_all(&mut self) {
         for (_, entry) in self.tunnels.drain() {
-            kill_process(entry.pid);
+            if !is_self_owned_native(&entry) {
+                kill_process(entry.pid);
+            }
         }
     }
+}
+
+/// True when the entry is a native (in-process) tunnel owned by the current process.
+/// Killing such an entry would SIGTERM ourselves.
+fn is_self_owned_native(entry: &TunnelRegistryEntry) -> bool {
+    entry.tunnel_type == "native" && entry.pid == std::process::id()
 }
 
 // ---- Process utilities ----
@@ -498,7 +518,7 @@ pub fn ensure_watchdog_running() {
 /// Get or create a bastion tunnel for a VM. Reuses existing tunnels from the registry.
 ///
 /// Returns the local port the tunnel is bound to.
-pub fn get_or_create_tunnel(
+pub async fn get_or_create_tunnel(
     bastion_name: &str,
     resource_group: &str,
     vm_resource_id: &str,
@@ -513,13 +533,24 @@ pub fn get_or_create_tunnel(
         let duplicate_port = registry.tunnels.iter().any(|(other_id, other)| {
             other_id != vm_resource_id && other.local_port == entry.local_port
         });
-        if process_is_running(entry.pid)
-            && local_port_owned_by_process_tree(entry.local_port, entry.pid)?
-            && !duplicate_port
-        {
+
+        let is_alive = if is_self_owned_native(&entry) {
+            // In-process native tunnel — if we're running, it's alive (mem::forget keeps it going)
+            true
+        } else if entry.tunnel_type == "native" {
+            // Native tunnel in another process — just check the process
+            process_is_running(entry.pid)
+        } else {
+            // For legacy tunnels, check if the PID-based process owns the port
+            process_is_running(entry.pid)
+                && local_port_owned_by_process_tree(entry.local_port, entry.pid)
+                    .unwrap_or(false)
+        };
+
+        if is_alive && !duplicate_port {
             debug!(
-                "reusing existing bastion tunnel for {} on port {}",
-                vm_resource_id, entry.local_port
+                "reusing existing {} bastion tunnel for {} on port {}",
+                entry.tunnel_type, vm_resource_id, entry.local_port
             );
             return Ok(entry.local_port);
         }
@@ -535,40 +566,43 @@ pub fn get_or_create_tunnel(
         }
     }
 
-    // Spawn a new tunnel
-    let port = pick_unused_local_port()?;
-    let mut child = std::process::Command::new("az")
-        .args([
-            "network",
-            "bastion",
-            "tunnel",
-            "--name",
-            bastion_name,
-            "--resource-group",
-            resource_group,
-            "--target-resource-id",
-            vm_resource_id,
-            "--resource-port",
-            "22",
-            "--port",
-            &port.to_string(),
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .context("Failed to spawn az bastion tunnel")?;
+    // Get Azure AD token via az CLI on a blocking thread to avoid stalling the runtime
+    let token = tokio::task::spawn_blocking(|| -> Result<String> {
+        let token_output = std::process::Command::new("az")
+            .args(["account", "get-access-token", "--query", "accessToken", "-o", "tsv"])
+            .output()
+            .context("failed to get Azure AD token for bastion tunnel")?;
+        if !token_output.status.success() {
+            anyhow::bail!(
+                "az account get-access-token failed: {}",
+                String::from_utf8_lossy(&token_output.stderr).trim()
+            );
+        }
+        Ok(String::from_utf8_lossy(&token_output.stdout).trim().to_string())
+    })
+    .await
+    .context("token task panicked")??;
 
-    let pid = child.id();
-    if let Err(error) = wait_for_local_port_listener(port, pid, std::time::Duration::from_secs(10))
-    {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(error).context(format!(
-            "Bastion tunnel for {} failed to listen on 127.0.0.1:{}",
-            vm_resource_id, port
-        ));
-    }
-    std::mem::forget(child);
+    // Load config for timeout
+    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+    let timeout = std::time::Duration::from_secs(config.bastion_tunnel_timeout);
+
+    // Resolve bastion endpoint (use bastion DNS name)
+    let bastion_endpoint = format!("{}.bastion.azure.com", bastion_name);
+
+    // Open native tunnel
+    let (port, handle) = azlin_azure::native_tunnel::open_tunnel(
+        &bastion_endpoint,
+        vm_resource_id,
+        22,
+        &token,
+        timeout,
+    )
+    .await
+    .context("failed to open native bastion tunnel")?;
+
+    // Detach the background task (it runs until the process exits)
+    std::mem::forget(handle);
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -580,14 +614,15 @@ pub fn get_or_create_tunnel(
         bastion_name: bastion_name.to_string(),
         resource_group: resource_group.to_string(),
         local_port: port,
-        pid,
+        pid: std::process::id(),
         created_at: now,
+        tunnel_type: "native".to_string(),
     });
     registry.save()?;
 
     debug!(
-        "started new bastion tunnel for {} on port {} (pid {})",
-        vm_resource_id, port, pid
+        "started new native bastion tunnel for {} on port {}",
+        vm_resource_id, port
     );
 
     Ok(port)
@@ -626,8 +661,8 @@ pub struct ScopedBastionTunnel {
 
 impl ScopedBastionTunnel {
     /// Get or create a bastion tunnel. The tunnel persists beyond this handle's lifetime.
-    pub fn new(bastion_name: &str, resource_group: &str, vm_resource_id: &str) -> Result<Self> {
-        let local_port = get_or_create_tunnel(bastion_name, resource_group, vm_resource_id)?;
+    pub async fn new(bastion_name: &str, resource_group: &str, vm_resource_id: &str) -> Result<Self> {
+        let local_port = get_or_create_tunnel(bastion_name, resource_group, vm_resource_id).await?;
         Ok(Self {
             local_port,
             vm_resource_id: vm_resource_id.to_string(),
@@ -762,6 +797,7 @@ mod tests {
             local_port: 50200,
             pid: 99999,
             created_at: 1000,
+            tunnel_type: "legacy".to_string(),
         });
 
         let json = serde_json::to_string(&r).unwrap();
@@ -780,6 +816,7 @@ mod tests {
             local_port: 50200,
             pid: 999999999,
             created_at: 1000,
+            tunnel_type: "legacy".to_string(),
         });
         r.prune();
         assert!(r.tunnels.is_empty(), "dead PID should be pruned");
@@ -906,6 +943,7 @@ mod tests {
             local_port: 50200,
             pid: 1,
             created_at: 1,
+            tunnel_type: "legacy".to_string(),
         });
         registry.insert(TunnelRegistryEntry {
             vm_resource_id: "/vm/b".to_string(),
@@ -914,6 +952,7 @@ mod tests {
             local_port: 50200,
             pid: 2,
             created_at: 2,
+            tunnel_type: "legacy".to_string(),
         });
         registry.insert(TunnelRegistryEntry {
             vm_resource_id: "/vm/c".to_string(),
@@ -922,6 +961,7 @@ mod tests {
             local_port: 50201,
             pid: 3,
             created_at: 3,
+            tunnel_type: "legacy".to_string(),
         });
 
         let removed = purge_registry_entries_for_port(&mut registry, 50200);

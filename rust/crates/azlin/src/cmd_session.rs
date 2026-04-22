@@ -297,7 +297,7 @@ pub(crate) async fn dispatch(
                 );
                 let tunnel = crate::bastion_tunnel::ScopedBastionTunnel::new(
                     bastion_name, &rg, &vm_rid,
-                )?;
+                ).await?;
                 let local_port = tunnel.local_port;
 
                 // Write SSH config entries so VS Code Remote-SSH can connect

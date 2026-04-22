@@ -42,7 +42,8 @@ pub(crate) async fn dispatch(
                 force,
                 terminal,
                 exclude,
-            )?;
+            )
+            .await?;
         }
 
         _ => unreachable!(),
