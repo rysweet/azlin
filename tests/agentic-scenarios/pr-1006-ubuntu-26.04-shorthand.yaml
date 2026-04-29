@@ -13,7 +13,7 @@ agents:
   - name: "test-agent"
     type: "system"
     config:
-      workingDirectory: "./rust"
+      workingDirectory: "."
       shell: "bash"
       timeout: 60000
 
