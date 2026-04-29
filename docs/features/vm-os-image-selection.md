@@ -33,6 +33,8 @@ Convenient aliases for common Ubuntu versions:
 
 | Shorthand | Resolved Image URN |
 |-----------|-------------------|
+| `26.04-lts` | `Canonical:ubuntu-26_04-lts:server:latest` |
+| `26.04` | `Canonical:ubuntu-26_04-lts:server:latest` |
 | `25.10` | `Canonical:ubuntu-25_10:server:latest` |
 | `24.10` | `Canonical:ubuntu-24_10:server:latest` |
 | `24.04-lts` | `Canonical:ubuntu-24_04-lts:server:latest` |

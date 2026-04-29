@@ -343,6 +343,7 @@ impl VmImage {
         // Accepts dotted (25.10) and dotless (2510) forms; bare versions
         // (24.04, 2204) resolve to LTS when available.
         let offer = match version_part {
+            "26.04-lts" | "26.04" | "2604" => "ubuntu-26_04-lts",
             "25.10" | "2510" => "ubuntu-25_10",
             "24.10" | "2410" => "ubuntu-24_10",
             "24.04-lts" | "24.04" | "2404" => "ubuntu-24_04-lts",
@@ -351,7 +352,7 @@ impl VmImage {
             _ => {
                 return Err(format!(
                     "Unknown image shorthand {:?}. Supported shorthands: \
-                     25.10, 24.10, 24.04-lts, 24.04, 22.04-lts, 22.04, 20.04-lts, 20.04. \
+                     26.04-lts, 26.04, 25.10, 24.10, 24.04-lts, 24.04, 22.04-lts, 22.04, 20.04-lts, 20.04. \
                      Or use a full URN like 'Canonical:ubuntu-25_10:server:latest'",
                     spec
                 ));
@@ -623,6 +624,33 @@ mod tests {
     fn test_from_image_spec_shorthand_dotless_2404() {
         let img = VmImage::from_image_spec("2404").unwrap();
         assert_eq!(img.offer, "ubuntu-24_04-lts");
+    }
+
+    #[test]
+    fn test_from_image_spec_shorthand_26_04_lts() {
+        let img = VmImage::from_image_spec("26.04-lts").unwrap();
+        assert_eq!(img.publisher, "Canonical");
+        assert_eq!(img.offer, "ubuntu-26_04-lts");
+        assert_eq!(img.sku, "server");
+        assert_eq!(img.version, "latest");
+    }
+
+    #[test]
+    fn test_from_image_spec_shorthand_26_04_bare() {
+        let img = VmImage::from_image_spec("26.04").unwrap();
+        assert_eq!(img.offer, "ubuntu-26_04-lts");
+    }
+
+    #[test]
+    fn test_from_image_spec_shorthand_dotless_2604() {
+        let img = VmImage::from_image_spec("2604").unwrap();
+        assert_eq!(img.offer, "ubuntu-26_04-lts");
+    }
+
+    #[test]
+    fn test_from_image_spec_shorthand_ubuntu_2604() {
+        let img = VmImage::from_image_spec("Ubuntu2604").unwrap();
+        assert_eq!(img.offer, "ubuntu-26_04-lts");
     }
 
     #[test]
