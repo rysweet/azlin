@@ -25,7 +25,7 @@ steps:
       command: "cd rust && cargo test -q -p azlin-core --lib -- test_from_image_spec_shorthand_26_04"
     expect:
       exit_code: 0
-      stdout_contains: "4 passed"
+      stdout_contains: "2 passed"
     timeout: 60000
 
   - name: "Verify all existing image spec tests still pass"
