@@ -1,4 +1,14 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// Result of ensuring an SSH keypair exists.
+pub struct SshKeypair {
+    /// Path to the private key.
+    pub private_key: PathBuf,
+    /// Path to the public key.
+    pub public_key: PathBuf,
+    /// True when the key was just generated (caller may need to push it to a VM).
+    pub generated: bool,
+}
 
 /// Well-known private key basenames (no `.pub` suffix).
 pub const KNOWN_PRIVATE_KEYS: &[&str] = &[
@@ -87,6 +97,93 @@ pub fn build_vm_prefix_query(prefix: &str) -> Option<String> {
     } else {
         Some(format!("[?starts_with(name, '{}')]", prefix))
     }
+}
+
+/// Ensure an SSH keypair exists, generating one if necessary.
+///
+/// Returns the paths to the private and public keys, plus a flag indicating
+/// whether the keypair was freshly generated (so the caller can push the
+/// public key to a VM).
+pub fn ensure_ssh_keypair() -> Result<SshKeypair, String> {
+    let ssh_dir = dirs::home_dir()
+        .ok_or_else(|| "Cannot determine home directory".to_string())?
+        .join(".ssh");
+
+    // Check for an existing keypair (both private + public must exist).
+    if let Some(private) = find_preferred_private_key(&ssh_dir) {
+        let public = private.with_extension("pub");
+        // If only the private key exists, derive a .pub manually isn't
+        // feasible, but we should still check before claiming success.
+        if public.exists() {
+            return Ok(SshKeypair {
+                private_key: private,
+                public_key: public,
+                generated: false,
+            });
+        }
+        // Private exists but .pub is missing — try to regenerate the .pub
+        let regen = std::process::Command::new("ssh-keygen")
+            .args(["-y", "-f"])
+            .arg(&private)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output();
+        if let Ok(out) = regen {
+            if out.status.success() {
+                let _ = std::fs::write(&public, &out.stdout);
+                if public.exists() {
+                    return Ok(SshKeypair {
+                        private_key: private,
+                        public_key: public,
+                        generated: false,
+                    });
+                }
+            }
+        }
+    }
+
+    // No usable keypair — generate a new one.
+    std::fs::create_dir_all(&ssh_dir).map_err(|e| format!("Cannot create ~/.ssh: {e}"))?;
+
+    let key_path = ssh_dir.join("id_ed25519_azlin");
+    let key_path_str = key_path.to_string_lossy().to_string();
+
+    eprintln!(
+        "No SSH key found. Generating {}...",
+        key_path.display()
+    );
+
+    let keygen_args = build_keygen_args(&key_path_str);
+    let status = std::process::Command::new("ssh-keygen")
+        .args(&keygen_args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .status()
+        .map_err(|e| format!("Failed to run ssh-keygen: {e}"))?;
+
+    if !status.success() {
+        return Err("ssh-keygen failed to generate a new key pair".to_string());
+    }
+
+    // Fix permissions on the private key
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600));
+    }
+
+    let pub_path = ssh_dir.join("id_ed25519_azlin.pub");
+    if !pub_path.exists() {
+        return Err("ssh-keygen ran but public key file was not created".to_string());
+    }
+
+    eprintln!("SSH key pair generated successfully.");
+
+    Ok(SshKeypair {
+        private_key: key_path,
+        public_key: pub_path,
+        generated: true,
+    })
 }
 
 #[cfg(test)]

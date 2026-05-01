@@ -162,7 +162,63 @@ pub(crate) async fn dispatch(
                         "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
                         vm_manager.subscription_id(), rg, name
                     );
-                    let ssh_key = key.clone().or_else(resolve_ssh_key);
+                    // Ensure an SSH key exists; auto-generate if missing.
+                    let (ssh_key, newly_generated_pubkey) = if let Some(k) = key.clone() {
+                        (Some(k), None)
+                    } else {
+                        match crate::key_helpers::ensure_ssh_keypair() {
+                            Ok(kp) => {
+                                let gen_pub = if kp.generated {
+                                    Some(kp.public_key.clone())
+                                } else {
+                                    None
+                                };
+                                (Some(kp.private_key), gen_pub)
+                            }
+                            Err(e) => {
+                                eprintln!("Warning: {e}");
+                                (None, None)
+                            }
+                        }
+                    };
+
+                    // If we just generated a new key, push it to the VM before connecting.
+                    if let Some(ref pub_path) = newly_generated_pubkey {
+                        if let Ok(pub_key) = std::fs::read_to_string(pub_path) {
+                            eprintln!(
+                                "Pushing new SSH key to {}...",
+                                name
+                            );
+                            let sync_status = std::process::Command::new("az")
+                                .args([
+                                    "vm",
+                                    "user",
+                                    "update",
+                                    "--resource-group",
+                                    &rg,
+                                    "--name",
+                                    &name,
+                                    "--username",
+                                    &username,
+                                    "--ssh-key-value",
+                                    pub_key.trim(),
+                                ])
+                                .stdout(std::process::Stdio::null())
+                                .stderr(std::process::Stdio::piped())
+                                .status();
+                            match sync_status {
+                                Ok(s) if s.success() => {
+                                    eprintln!("SSH key pushed successfully.");
+                                }
+                                _ => {
+                                    anyhow::bail!(
+                                        "Failed to push SSH key to {}. Run: az vm user update --resource-group {} --name {} --username {} --ssh-key-value \"$(cat {})\"",
+                                        name, rg, name, username, pub_path.display()
+                                    );
+                                }
+                            }
+                        }
+                    }
                     let mut args = vec![
                         "network".to_string(),
                         "bastion".to_string(),
