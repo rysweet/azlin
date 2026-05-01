@@ -108,9 +108,14 @@ pub fn ensure_ssh_keypair() -> Result<SshKeypair, String> {
     let ssh_dir = dirs::home_dir()
         .ok_or_else(|| "Cannot determine home directory".to_string())?
         .join(".ssh");
+    ensure_ssh_keypair_in(&ssh_dir)
+}
 
+/// Core logic for [`ensure_ssh_keypair`], parameterised on `ssh_dir` so it
+/// can be tested with a temp directory.
+pub fn ensure_ssh_keypair_in(ssh_dir: &Path) -> Result<SshKeypair, String> {
     // Check for an existing keypair (both private + public must exist).
-    if let Some(private) = find_preferred_private_key(&ssh_dir) {
+    if let Some(private) = find_preferred_private_key(ssh_dir) {
         let public = private.with_extension("pub");
         // If only the private key exists, derive a .pub manually isn't
         // feasible, but we should still check before claiming success.
@@ -143,7 +148,7 @@ pub fn ensure_ssh_keypair() -> Result<SshKeypair, String> {
     }
 
     // No usable keypair — generate a new one.
-    std::fs::create_dir_all(&ssh_dir).map_err(|e| format!("Cannot create ~/.ssh: {e}"))?;
+    std::fs::create_dir_all(ssh_dir).map_err(|e| format!("Cannot create ~/.ssh: {e}"))?;
 
     let key_path = ssh_dir.join("id_ed25519_azlin");
     let key_path_str = key_path.to_string_lossy().to_string();
@@ -317,5 +322,236 @@ mod tests {
 
         let p = find_preferred_private_key(temp.path()).unwrap();
         assert!(p.ends_with("azlin_key"));
+    }
+
+    // ── preferred_pubkey_names ────────────────────────────────────
+
+    #[test]
+    fn test_preferred_pubkey_names_matches_stems() {
+        let names = preferred_pubkey_names();
+        assert_eq!(names.len(), PREFERRED_KEY_STEMS.len());
+        for (name, stem) in names.iter().zip(PREFERRED_KEY_STEMS.iter()) {
+            assert_eq!(name, &format!("{stem}.pub"));
+        }
+    }
+
+    // ── find_preferred_pubkey edge cases ─────────────────────────
+
+    #[test]
+    fn test_find_preferred_pubkey_none_when_empty() {
+        let temp = tempfile::tempdir().unwrap();
+        assert!(find_preferred_pubkey(temp.path()).is_none());
+    }
+
+    #[test]
+    fn test_find_preferred_pubkey_skips_non_preferred() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("id_dsa.pub"), "k").unwrap();
+        assert!(find_preferred_pubkey(temp.path()).is_none());
+    }
+
+    #[test]
+    fn test_find_preferred_private_key_none_when_empty() {
+        let temp = tempfile::tempdir().unwrap();
+        assert!(find_preferred_private_key(temp.path()).is_none());
+    }
+
+    // ── ensure_ssh_keypair_in: existing pair found ───────────────
+
+    #[test]
+    fn test_ensure_finds_existing_azlin_key_pair() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("azlin_key"), "PRIV").unwrap();
+        std::fs::write(temp.path().join("azlin_key.pub"), "PUB").unwrap();
+
+        let kp = ensure_ssh_keypair_in(temp.path()).unwrap();
+        assert!(!kp.generated);
+        assert!(kp.private_key.ends_with("azlin_key"));
+        assert!(kp.public_key.ends_with("azlin_key.pub"));
+    }
+
+    #[test]
+    fn test_ensure_finds_existing_ed25519_pair() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("id_ed25519"), "PRIV").unwrap();
+        std::fs::write(temp.path().join("id_ed25519.pub"), "PUB").unwrap();
+
+        let kp = ensure_ssh_keypair_in(temp.path()).unwrap();
+        assert!(!kp.generated);
+        assert!(kp.private_key.ends_with("id_ed25519"));
+    }
+
+    #[test]
+    fn test_ensure_finds_existing_rsa_pair() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("id_rsa"), "PRIV").unwrap();
+        std::fs::write(temp.path().join("id_rsa.pub"), "PUB").unwrap();
+
+        let kp = ensure_ssh_keypair_in(temp.path()).unwrap();
+        assert!(!kp.generated);
+        assert!(kp.private_key.ends_with("id_rsa"));
+    }
+
+    #[test]
+    fn test_ensure_respects_priority_when_multiple_pairs_exist() {
+        let temp = tempfile::tempdir().unwrap();
+        // Lower priority
+        std::fs::write(temp.path().join("id_rsa"), "PRIV").unwrap();
+        std::fs::write(temp.path().join("id_rsa.pub"), "PUB").unwrap();
+        // Higher priority
+        std::fs::write(temp.path().join("id_ed25519_azlin"), "PRIV2").unwrap();
+        std::fs::write(temp.path().join("id_ed25519_azlin.pub"), "PUB2").unwrap();
+
+        let kp = ensure_ssh_keypair_in(temp.path()).unwrap();
+        assert!(!kp.generated);
+        assert!(kp.private_key.ends_with("id_ed25519_azlin"));
+    }
+
+    #[test]
+    fn test_ensure_returns_generated_false_for_existing() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("azlin_key"), "PRIV").unwrap();
+        std::fs::write(temp.path().join("azlin_key.pub"), "PUB").unwrap();
+
+        let kp = ensure_ssh_keypair_in(temp.path()).unwrap();
+        assert!(!kp.generated, "should not mark existing key as generated");
+    }
+
+    // ── ensure_ssh_keypair_in: generation (requires ssh-keygen) ──
+
+    #[test]
+    fn test_ensure_generates_key_when_empty_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let ssh_dir = temp.path().join("dot_ssh");
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+
+        let kp = ensure_ssh_keypair_in(&ssh_dir).unwrap();
+        assert!(kp.generated, "key should be marked generated");
+        assert!(kp.private_key.ends_with("id_ed25519_azlin"));
+        assert!(kp.public_key.ends_with("id_ed25519_azlin.pub"));
+        assert!(kp.private_key.exists(), "private key file must exist");
+        assert!(kp.public_key.exists(), "public key file must exist");
+    }
+
+    #[test]
+    fn test_ensure_generated_key_is_ed25519() {
+        let temp = tempfile::tempdir().unwrap();
+        let ssh_dir = temp.path().join("dot_ssh");
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+
+        let kp = ensure_ssh_keypair_in(&ssh_dir).unwrap();
+        let pub_content = std::fs::read_to_string(&kp.public_key).unwrap();
+        assert!(
+            pub_content.starts_with("ssh-ed25519 "),
+            "generated key should be ed25519, got: {}",
+            &pub_content[..pub_content.len().min(40)]
+        );
+    }
+
+    #[test]
+    fn test_ensure_generated_key_has_azlin_comment() {
+        let temp = tempfile::tempdir().unwrap();
+        let ssh_dir = temp.path().join("dot_ssh");
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+
+        let kp = ensure_ssh_keypair_in(&ssh_dir).unwrap();
+        let pub_content = std::fs::read_to_string(&kp.public_key).unwrap();
+        assert!(
+            pub_content.contains("azlin-rotated"),
+            "generated key should have azlin-rotated comment"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_ensure_generated_private_key_has_0600_perms() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let ssh_dir = temp.path().join("dot_ssh");
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+
+        let kp = ensure_ssh_keypair_in(&ssh_dir).unwrap();
+        let perms = std::fs::metadata(&kp.private_key).unwrap().permissions();
+        assert_eq!(
+            perms.mode() & 0o777,
+            0o600,
+            "private key should have 0600 permissions"
+        );
+    }
+
+    #[test]
+    fn test_ensure_creates_ssh_dir_if_missing() {
+        let temp = tempfile::tempdir().unwrap();
+        let ssh_dir = temp.path().join("nonexistent_ssh");
+
+        let kp = ensure_ssh_keypair_in(&ssh_dir).unwrap();
+        assert!(kp.generated);
+        assert!(ssh_dir.exists(), "ssh_dir should be created");
+    }
+
+    #[test]
+    fn test_ensure_idempotent_second_call_finds_generated_key() {
+        let temp = tempfile::tempdir().unwrap();
+        let ssh_dir = temp.path().join("dot_ssh");
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+
+        let kp1 = ensure_ssh_keypair_in(&ssh_dir).unwrap();
+        assert!(kp1.generated);
+
+        let kp2 = ensure_ssh_keypair_in(&ssh_dir).unwrap();
+        assert!(!kp2.generated, "second call should find existing key");
+        assert_eq!(kp2.private_key, kp1.private_key);
+    }
+
+    // ── ensure_ssh_keypair_in: .pub regeneration ─────────────────
+
+    #[test]
+    fn test_ensure_regenerates_missing_pub_from_private() {
+        // Generate a real key first, then delete .pub
+        let temp = tempfile::tempdir().unwrap();
+        let ssh_dir = temp.path().join("dot_ssh");
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+
+        let kp = ensure_ssh_keypair_in(&ssh_dir).unwrap();
+        assert!(kp.generated);
+        let pub_path = kp.public_key.clone();
+
+        // Remove .pub
+        std::fs::remove_file(&pub_path).unwrap();
+        assert!(!pub_path.exists());
+
+        // Second call should regenerate .pub without generating=true
+        let kp2 = ensure_ssh_keypair_in(&ssh_dir).unwrap();
+        assert!(!kp2.generated, "should regenerate .pub, not generate new key");
+        assert!(pub_path.exists(), ".pub should be regenerated");
+    }
+
+    // ── ensure_ssh_keypair_in: private-only with bogus data ──────
+
+    #[test]
+    fn test_ensure_with_bogus_private_key_generates_new() {
+        let temp = tempfile::tempdir().unwrap();
+        // Write a non-SSH-key file as "id_ed25519"
+        std::fs::write(temp.path().join("id_ed25519"), "not a real key").unwrap();
+        // No .pub file
+
+        // ssh-keygen -y will fail on the bogus file, so ensure should
+        // fall through to generating a new id_ed25519_azlin
+        let kp = ensure_ssh_keypair_in(temp.path()).unwrap();
+        assert!(kp.generated);
+        assert!(kp.private_key.ends_with("id_ed25519_azlin"));
+    }
+
+    // ── SshKeypair struct ────────────────────────────────────────
+
+    #[test]
+    fn test_ssh_keypair_paths_are_absolute_when_input_is_absolute() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("azlin_key"), "P").unwrap();
+        std::fs::write(temp.path().join("azlin_key.pub"), "P").unwrap();
+
+        let kp = ensure_ssh_keypair_in(temp.path()).unwrap();
+        assert!(kp.private_key.is_absolute());
+        assert!(kp.public_key.is_absolute());
     }
 }

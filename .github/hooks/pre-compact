@@ -17,4 +17,4 @@ if [ -z "$HOOKS_BIN" ]; then
   exit 0
 fi
 
-exec "$HOOKS_BIN" post-tool-use "$@"
+exec "$HOOKS_BIN" pre-compact "$@"
