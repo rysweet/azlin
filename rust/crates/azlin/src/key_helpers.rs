@@ -130,13 +130,16 @@ pub fn ensure_ssh_keypair_in(ssh_dir: &Path) -> Result<SshKeypair, String> {
         let regen = std::process::Command::new("ssh-keygen")
             .args(["-y", "-f"])
             .arg(&private)
+            .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
             .output();
         if let Ok(out) = regen {
             if out.status.success() {
-                let _ = std::fs::write(&public, &out.stdout);
-                if public.exists() {
+                if let Err(e) = std::fs::write(&public, &out.stdout) {
+                    eprintln!("Warning: could not write regenerated .pub: {e}");
+                    let _ = std::fs::remove_file(&public);
+                } else if public.exists() {
                     return Ok(SshKeypair {
                         private_key: private,
                         public_key: public,
@@ -172,16 +175,17 @@ pub fn ensure_ssh_keypair_in(ssh_dir: &Path) -> Result<SshKeypair, String> {
 
     let key_path_str = key_path.to_string_lossy().to_string();
     let keygen_args = build_keygen_args(&key_path_str);
-    let status = std::process::Command::new("ssh-keygen")
+    let output = std::process::Command::new("ssh-keygen")
         .args(&keygen_args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
-        .status()
+        .output()
         .map_err(|e| format!("Failed to run ssh-keygen: {e}"))?;
 
-    if !status.success() {
-        return Err("ssh-keygen failed to generate a new key pair".to_string());
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("ssh-keygen failed: {}", stderr.trim()));
     }
 
     // Fix permissions on the private key
