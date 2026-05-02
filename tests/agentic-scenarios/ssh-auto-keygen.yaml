@@ -111,5 +111,5 @@ steps:
           -- key_helpers 2>&1 | tail -5
     expect:
       exit_code: 0
-      stdout_contains: "44 passed"
+      stdout_contains: "45 passed"
     timeout: 30000
