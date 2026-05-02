@@ -554,4 +554,112 @@ mod tests {
         assert!(kp.private_key.is_absolute());
         assert!(kp.public_key.is_absolute());
     }
+
+    // ── gap-filling: edge cases & error paths ────────────────────
+
+    #[test]
+    fn test_detect_key_type_azlin_key_is_unknown() {
+        // "azlin_key" contains none of ed25519/rsa/ecdsa/dsa
+        assert_eq!(detect_key_type("azlin_key"), "unknown");
+    }
+
+    #[test]
+    fn test_is_known_key_name_id_dsa() {
+        assert!(is_known_key_name("id_dsa"));
+        assert!(is_known_key_name("id_dsa.pub"));
+    }
+
+    #[test]
+    fn test_is_known_key_name_id_ecdsa() {
+        assert!(is_known_key_name("id_ecdsa"));
+        assert!(is_known_key_name("id_ecdsa.pub"));
+    }
+
+    #[test]
+    fn test_find_preferred_pubkey_single_lowest_priority() {
+        let temp = tempfile::tempdir().unwrap();
+        // Only id_rsa (lowest preferred priority) present
+        std::fs::write(temp.path().join("id_rsa.pub"), "k").unwrap();
+        let p = find_preferred_pubkey(temp.path()).unwrap();
+        assert!(p.ends_with("id_rsa.pub"));
+    }
+
+    #[test]
+    fn test_find_preferred_private_key_skips_non_preferred() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("id_dsa"), "k").unwrap();
+        assert!(find_preferred_private_key(temp.path()).is_none());
+    }
+
+    #[test]
+    fn test_ensure_generated_key_pub_priv_are_siblings() {
+        let temp = tempfile::tempdir().unwrap();
+        let ssh_dir = temp.path().join("dot_ssh");
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+
+        let kp = ensure_ssh_keypair_in(&ssh_dir).unwrap();
+        assert_eq!(
+            kp.private_key.parent(),
+            kp.public_key.parent(),
+            "private and public keys must be in the same directory"
+        );
+    }
+
+    #[test]
+    fn test_ensure_skips_lower_priority_complete_pair_when_higher_has_bogus_private() {
+        // Scenario: id_ed25519 (higher priority) has bogus private + no pub,
+        //           id_rsa (lower priority) has valid pair.
+        // Expected: code tries id_ed25519 first, regen fails, falls through
+        //           to generate NEW key (does NOT fall back to id_rsa pair).
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("id_ed25519"), "bogus").unwrap();
+        std::fs::write(temp.path().join("id_rsa"), "PRIV").unwrap();
+        std::fs::write(temp.path().join("id_rsa.pub"), "PUB").unwrap();
+
+        let kp = ensure_ssh_keypair_in(temp.path()).unwrap();
+        // The code finds id_ed25519 first (higher priority), fails regen,
+        // then generates a brand new id_ed25519_azlin instead of using id_rsa.
+        assert!(kp.generated, "should generate new key, not fall back to id_rsa");
+        assert!(
+            kp.private_key.ends_with("id_ed25519_azlin"),
+            "should generate azlin key, got: {:?}",
+            kp.private_key
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_ensure_error_when_ssh_dir_is_a_file() {
+        let temp = tempfile::tempdir().unwrap();
+        // Create a regular file where the "ssh_dir" should be a directory
+        let fake_dir = temp.path().join("not_a_dir");
+        std::fs::write(&fake_dir, "I am a file").unwrap();
+
+        let result = ensure_ssh_keypair_in(&fake_dir);
+        // find_preferred_private_key returns None (not a dir), then
+        // create_dir_all fails because a file exists at that path
+        assert!(result.is_err(), "should fail when ssh_dir is a file");
+    }
+
+    #[test]
+    fn test_ensure_public_key_content_is_nonempty_after_generation() {
+        let temp = tempfile::tempdir().unwrap();
+        let ssh_dir = temp.path().join("dot_ssh");
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+
+        let kp = ensure_ssh_keypair_in(&ssh_dir).unwrap();
+        let content = std::fs::read_to_string(&kp.public_key).unwrap();
+        assert!(!content.trim().is_empty(), "public key must have content");
+    }
+
+    #[test]
+    fn test_ensure_private_key_content_is_nonempty_after_generation() {
+        let temp = tempfile::tempdir().unwrap();
+        let ssh_dir = temp.path().join("dot_ssh");
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+
+        let kp = ensure_ssh_keypair_in(&ssh_dir).unwrap();
+        let content = std::fs::read_to_string(&kp.private_key).unwrap();
+        assert!(!content.trim().is_empty(), "private key must have content");
+    }
 }
