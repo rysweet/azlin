@@ -1,47 +1,47 @@
 {
+  "version": 1,
   "hooks": {
-    "agentStop": [
-      {
-        "bash": "/home/rysweet/src/azlin/.github/hooks/stop",
-        "timeoutSec": 30,
-        "type": "command"
-      }
-    ],
-    "postToolUse": [
-      {
-        "bash": "/home/rysweet/src/azlin/.github/hooks/post-tool-use",
-        "timeoutSec": 30,
-        "type": "command"
-      }
-    ],
-    "preCompact": [
-      {
-        "bash": "/home/rysweet/src/azlin/.github/hooks/pre-compact",
-        "timeoutSec": 30,
-        "type": "command"
-      }
-    ],
-    "preToolUse": [
-      {
-        "bash": "/home/rysweet/src/azlin/.github/hooks/pre-tool-use",
-        "timeoutSec": 30,
-        "type": "command"
-      }
-    ],
     "sessionStart": [
       {
-        "bash": "/home/rysweet/src/azlin/.github/hooks/session-start",
-        "timeoutSec": 30,
-        "type": "command"
+        "type": "command",
+        "bash": ".github/hooks/session-start",
+        "timeoutSec": 30
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": ".github/hooks/session-stop",
+        "timeoutSec": 30
       }
     ],
     "userPromptSubmitted": [
       {
-        "bash": "/home/rysweet/src/azlin/.github/hooks/user-prompt-submit",
-        "timeoutSec": 30,
-        "type": "command"
+        "type": "command",
+        "bash": ".github/hooks/user-prompt-submit",
+        "timeoutSec": 10
+      }
+    ],
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": ".github/hooks/pre-tool-use",
+        "timeoutSec": 15
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": ".github/hooks/post-tool-use",
+        "timeoutSec": 10
+      }
+    ],
+    "errorOccurred": [
+      {
+        "type": "command",
+        "bash": ".github/hooks/error-occurred",
+        "timeoutSec": 10
       }
     ]
-  },
-  "version": 1
+  }
 }
