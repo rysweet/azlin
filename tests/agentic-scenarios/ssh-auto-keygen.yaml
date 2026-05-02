@@ -1,0 +1,115 @@
+name: "SSH auto-keygen when no keys exist"
+description: |
+  Verifies that azlin connect and azlin new flows auto-generate an SSH
+  keypair (~/.ssh/id_ed25519_azlin) when no SSH keys exist, instead of
+  failing with "No SSH key found" or bastion error. Covers the fix for
+  issue #1007. For Rust CLI repos, validated via cargo test.
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 30000
+
+steps:
+  - name: "ensure_ssh_keypair generates key in empty dir"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && RUST_MIN_STACK=8388608 cargo test -p azlin --bin azlin \
+          -- key_helpers::tests::test_ensure_generates_key_when_empty_dir --exact 2>&1 | tail -5
+    expect:
+      exit_code: 0
+      stdout_contains: "1 passed"
+    timeout: 30000
+
+  - name: "ensure_ssh_keypair creates .ssh dir if missing"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && RUST_MIN_STACK=8388608 cargo test -p azlin --bin azlin \
+          -- key_helpers::tests::test_ensure_creates_ssh_dir_if_missing --exact 2>&1 | tail -5
+    expect:
+      exit_code: 0
+      stdout_contains: "1 passed"
+    timeout: 30000
+
+  - name: "generated key is ed25519 type"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && RUST_MIN_STACK=8388608 cargo test -p azlin --bin azlin \
+          -- key_helpers::tests::test_ensure_generated_key_is_ed25519 --exact 2>&1 | tail -5
+    expect:
+      exit_code: 0
+      stdout_contains: "1 passed"
+    timeout: 30000
+
+  - name: "generated key has restrictive 0600 permissions"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && RUST_MIN_STACK=8388608 cargo test -p azlin --bin azlin \
+          -- key_helpers::tests::test_ensure_generated_private_key_has_0600_perms --exact 2>&1 | tail -5
+    expect:
+      exit_code: 0
+      stdout_contains: "1 passed"
+    timeout: 30000
+
+  - name: "existing key is preserved (not overwritten)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && RUST_MIN_STACK=8388608 cargo test -p azlin --bin azlin \
+          -- key_helpers::tests::test_ensure_returns_generated_false_for_existing --exact 2>&1 | tail -5
+    expect:
+      exit_code: 0
+      stdout_contains: "1 passed"
+    timeout: 30000
+
+  - name: "priority ordering: azlin_key > id_ed25519_azlin > id_ed25519 > id_rsa"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && RUST_MIN_STACK=8388608 cargo test -p azlin --bin azlin \
+          -- key_helpers::tests::test_ensure_respects_priority_when_multiple_pairs_exist --exact 2>&1 | tail -5
+    expect:
+      exit_code: 0
+      stdout_contains: "1 passed"
+    timeout: 30000
+
+  - name: "idempotent on second call"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && RUST_MIN_STACK=8388608 cargo test -p azlin --bin azlin \
+          -- key_helpers::tests::test_ensure_idempotent_second_call_finds_generated_key --exact 2>&1 | tail -5
+    expect:
+      exit_code: 0
+      stdout_contains: "1 passed"
+    timeout: 30000
+
+  - name: "all 44 key_helpers tests pass (comprehensive)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && RUST_MIN_STACK=8388608 cargo test -p azlin --bin azlin \
+          -- key_helpers 2>&1 | tail -5
+    expect:
+      exit_code: 0
+      stdout_contains: "44 passed"
+    timeout: 30000
