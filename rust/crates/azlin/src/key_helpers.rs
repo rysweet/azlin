@@ -149,18 +149,32 @@ pub fn ensure_ssh_keypair_in(ssh_dir: &Path) -> Result<SshKeypair, String> {
 
     // No usable keypair — generate a new one.
     std::fs::create_dir_all(ssh_dir).map_err(|e| format!("Cannot create ~/.ssh: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(ssh_dir, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| format!("Cannot set ~/.ssh permissions to 0700: {e}"))?;
+    }
 
     let key_path = ssh_dir.join("id_ed25519_azlin");
-    let key_path_str = key_path.to_string_lossy().to_string();
+
+    if key_path.exists() {
+        return Err(format!(
+            "Key file {} already exists but was not recognized as a valid pair. Remove it and retry.",
+            key_path.display()
+        ));
+    }
 
     eprintln!(
         "No SSH key found. Generating {}...",
         key_path.display()
     );
 
+    let key_path_str = key_path.to_string_lossy().to_string();
     let keygen_args = build_keygen_args(&key_path_str);
     let status = std::process::Command::new("ssh-keygen")
         .args(&keygen_args)
+        .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .status()
@@ -174,7 +188,10 @@ pub fn ensure_ssh_keypair_in(ssh_dir: &Path) -> Result<SshKeypair, String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600));
+        if let Err(e) = std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600))
+        {
+            eprintln!("Warning: could not set private key permissions to 0600: {e}");
+        }
     }
 
     let pub_path = ssh_dir.join("id_ed25519_azlin.pub");
@@ -487,6 +504,21 @@ mod tests {
         let kp = ensure_ssh_keypair_in(&ssh_dir).unwrap();
         assert!(kp.generated);
         assert!(ssh_dir.exists(), "ssh_dir should be created");
+    }
+
+    #[test]
+    fn test_ensure_created_ssh_dir_has_0700_perms() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let ssh_dir = temp.path().join("new_ssh_dir");
+
+        let _kp = ensure_ssh_keypair_in(&ssh_dir).unwrap();
+        let perms = std::fs::metadata(&ssh_dir).unwrap().permissions();
+        assert_eq!(
+            perms.mode() & 0o777,
+            0o700,
+            "created .ssh dir should have 0700 permissions"
+        );
     }
 
     #[test]

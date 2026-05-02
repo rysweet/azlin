@@ -184,7 +184,9 @@ pub(crate) async fn dispatch(
 
                     // If we just generated a new key, push it to the VM before connecting.
                     if let Some(ref pub_path) = newly_generated_pubkey {
-                        if let Ok(pub_key) = std::fs::read_to_string(pub_path) {
+                        let pub_key = std::fs::read_to_string(pub_path)
+                            .map_err(|e| anyhow::anyhow!("Cannot read generated public key {}: {e}", pub_path.display()))?;
+                        {
                             eprintln!(
                                 "Pushing new SSH key to {}...",
                                 name
@@ -262,7 +264,44 @@ pub(crate) async fn dispatch(
                 } else {
                     // Direct SSH for VMs with public IPs
                     let ip = vm.public_ip.as_deref().unwrap();
-                    let resolved_key = key.clone().or_else(resolve_ssh_key);
+                    let resolved_key = match key.clone() {
+                        Some(k) => Some(k),
+                        None => {
+                            match crate::key_helpers::ensure_ssh_keypair() {
+                                Ok(kp) => {
+                                    if kp.generated {
+                                        // Push newly generated key to VM
+                                        let pub_key = std::fs::read_to_string(&kp.public_key)
+                                            .map_err(|e| anyhow::anyhow!("Cannot read generated public key: {e}"))?;
+                                        eprintln!("Pushing new SSH key to {}...", name);
+                                        let sync_status = std::process::Command::new("az")
+                                            .args([
+                                                "vm", "user", "update",
+                                                "--resource-group", &rg,
+                                                "--name", &name,
+                                                "--username", &username,
+                                                "--ssh-key-value", pub_key.trim(),
+                                            ])
+                                            .stdout(std::process::Stdio::null())
+                                            .stderr(std::process::Stdio::piped())
+                                            .status();
+                                        match sync_status {
+                                            Ok(s) if s.success() => eprintln!("SSH key pushed successfully."),
+                                            _ => anyhow::bail!(
+                                                "Failed to push SSH key to {}. Run manually: az vm user update --resource-group {} --name {} --username {} --ssh-key-value \"$(cat {})\"",
+                                                name, rg, name, username, kp.public_key.display()
+                                            ),
+                                        }
+                                    }
+                                    Some(kp.private_key)
+                                }
+                                Err(e) => {
+                                    eprintln!("Warning: {e}");
+                                    None
+                                }
+                            }
+                        }
+                    };
                     let mut ssh_args = crate::connect_helpers::build_ssh_args(
                         &username,
                         ip,
