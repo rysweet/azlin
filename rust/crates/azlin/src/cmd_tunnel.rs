@@ -534,6 +534,7 @@ fn cmd_tunnel_list() -> Result<()> {
 
 /// Build SSH args for a bastion tunnel (loopback via bastion port).
 /// Uses `StrictHostKeyChecking=no` because 127.0.0.1 ports are reused across VMs.
+#[cfg(test)]
 pub(crate) fn build_bastion_ssh_args(
     lport: u16,
     remote_port: u16,

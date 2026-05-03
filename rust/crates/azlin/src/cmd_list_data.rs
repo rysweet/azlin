@@ -299,6 +299,47 @@ pub(crate) fn is_valid_restore_vm_name(name: &str) -> bool {
         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
 }
 
+/// Build the Windows Terminal argument list for restoring a single tmux session.
+///
+/// When `wsl_distro` is non-empty, the command is wrapped in `bash -lc '...'`
+/// so the user's login shell environment (PATH, SSH_AUTH_SOCK, etc.) is loaded.
+/// Without that wrapper, `wsl.exe -d <distro> -- <binary>` runs outside any
+/// shell, so tools like `ssh` and `az` may not be found.
+pub(crate) fn build_wt_restore_args(
+    wsl_distro: &str,
+    self_exe: &str,
+    vm_name: &str,
+    session: &str,
+) -> Vec<String> {
+    let mut args: Vec<String> = vec!["-w".into(), "0".into(), "new-tab".into()];
+    if !wsl_distro.is_empty() {
+        let inner_cmd = format!(
+            "exec {} connect {} --tmux-session {}",
+            crate::dispatch_helpers::shell_escape(self_exe),
+            crate::dispatch_helpers::shell_escape(vm_name),
+            crate::dispatch_helpers::shell_escape(session),
+        );
+        args.extend_from_slice(&[
+            "wsl.exe".into(),
+            "-d".into(),
+            wsl_distro.into(),
+            "--".into(),
+            "bash".into(),
+            "-lc".into(),
+            inner_cmd,
+        ]);
+    } else {
+        args.extend_from_slice(&[
+            self_exe.into(),
+            "connect".into(),
+            vm_name.into(),
+            "--tmux-session".into(),
+            session.into(),
+        ]);
+    }
+    args
+}
+
 /// Restore tmux sessions by connecting to each VM.
 pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>) {
     println!("\nRestoring tmux sessions...");
@@ -380,25 +421,12 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
 
             if use_wt {
                 println!("  Opening tab: {} (session: {})", vm_name, session);
-                // WT_SESSION is set inside WSL when running under Windows Terminal.
-                // wt.exe new-tab runs its command in the default WT profile (often
-                // PowerShell), so we must explicitly use wsl.exe to re-enter WSL
-                // where the azlin binary lives.
                 let wsl_distro =
                     std::env::var("WSL_DISTRO_NAME").unwrap_or_else(|_| "".to_string());
-                let mut wt_args: Vec<&str> = vec!["-w", "0", "new-tab"];
-                if !wsl_distro.is_empty() {
-                    wt_args.extend_from_slice(&["wsl.exe", "-d", &wsl_distro, "--"]);
-                }
-                wt_args.extend_from_slice(&[
-                    &self_exe,
-                    "connect",
-                    vm_name,
-                    "--tmux-session",
-                    &session,
-                ]);
+                let wt_args = build_wt_restore_args(&wsl_distro, &self_exe, vm_name, &session);
+                let wt_str_args: Vec<&str> = wt_args.iter().map(|s| s.as_str()).collect();
                 match std::process::Command::new("wt.exe")
-                    .args(&wt_args)
+                    .args(&wt_str_args)
                     .stdin(std::process::Stdio::null())
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped())
@@ -433,18 +461,28 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
                     eprintln!("  Warning: failed to open window for {}: {}", vm_name, e);
                 }
             } else {
-                println!("  Connecting to {} (session: {})", vm_name, session);
-                // On Linux without Windows Terminal, spawn in background.
-                // SSH needs a TTY for interactive use, but without a known
-                // terminal emulator we can only fire-and-forget.
-                if let Err(e) = std::process::Command::new(&self_exe)
-                    .args(["connect", vm_name, "--tmux-session", &session])
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .spawn()
-                {
-                    eprintln!("  Warning: failed to connect to {}: {}", vm_name, e);
+                // On Linux without Windows Terminal, open a terminal emulator.
+                let connect_cmd = format!(
+                    "{} connect {} --tmux-session {}",
+                    crate::dispatch_helpers::shell_escape(&self_exe),
+                    crate::dispatch_helpers::shell_escape(vm_name),
+                    crate::dispatch_helpers::shell_escape(&session),
+                );
+                if let Some(term) = detect_linux_terminal() {
+                    println!("  Opening terminal: {} (session: {})", vm_name, session);
+                    if let Err(e) = open_linux_terminal(&term, &connect_cmd) {
+                        eprintln!("  Warning: failed to open terminal for {}: {}", vm_name, e);
+                    }
+                } else {
+                    eprintln!(
+                        "  No terminal emulator detected for {}. Run manually:",
+                        vm_name
+                    );
+                    eprintln!(
+                        "    azlin connect {} --tmux-session {}",
+                        vm_name, session
+                    );
+                    eprintln!("  Tip: set AZLIN_TERMINAL=<your-terminal> to enable auto-restore.");
                 }
             }
         }
@@ -533,5 +571,110 @@ fn run_osascript(script: &str) -> Result<(), String> {
             Err(format!("osascript failed: {}", stderr.trim()))
         }
         Err(e) => Err(format!("failed to run osascript: {}", e)),
+    }
+}
+
+// ── Linux terminal support ──────────────────────────────────────────────
+
+/// Supported Linux terminal emulators.
+#[derive(Debug, PartialEq)]
+enum LinuxTerminal {
+    Custom(String),
+    GnomeTerminal,
+    Xfce4Terminal,
+    Konsole,
+    Xterm,
+}
+
+/// Detect an available Linux terminal emulator.
+///
+/// Checks `AZLIN_TERMINAL` env var first (user override, like `$EDITOR`),
+/// then probes known emulators via `which`.
+fn detect_linux_terminal() -> Option<LinuxTerminal> {
+    if let Ok(custom) = std::env::var("AZLIN_TERMINAL") {
+        if !custom.is_empty() {
+            // Reject values containing shell metacharacters to prevent injection.
+            if custom.contains([';', '&', '|', '$', '`', '\n', '(', ')'])
+            {
+                eprintln!(
+                    "  Warning: AZLIN_TERMINAL contains shell metacharacters, ignoring: {}",
+                    custom
+                );
+            } else if which_exists(&custom) {
+                return Some(LinuxTerminal::Custom(custom));
+            } else {
+                eprintln!(
+                    "  Warning: AZLIN_TERMINAL binary not found on PATH: {}",
+                    custom
+                );
+            }
+        }
+    }
+    let candidates = [
+        ("gnome-terminal", LinuxTerminal::GnomeTerminal),
+        ("xfce4-terminal", LinuxTerminal::Xfce4Terminal),
+        ("konsole", LinuxTerminal::Konsole),
+        ("xterm", LinuxTerminal::Xterm),
+    ];
+    for (bin, variant) in candidates {
+        if which_exists(bin) {
+            return Some(variant);
+        }
+    }
+    None
+}
+
+/// Check if a binary exists on PATH.
+fn which_exists(name: &str) -> bool {
+    std::process::Command::new("which")
+        .arg(name)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Open a new Linux terminal window running the given shell command string.
+fn open_linux_terminal(terminal: &LinuxTerminal, command: &str) -> Result<(), String> {
+    let result = match terminal {
+        LinuxTerminal::GnomeTerminal => std::process::Command::new("gnome-terminal")
+            .args(["--", "bash", "-lc", command])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn(),
+        LinuxTerminal::Konsole => std::process::Command::new("konsole")
+            .args(["-e", "bash", "-lc", command])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn(),
+        LinuxTerminal::Xfce4Terminal => {
+            // xfce4-terminal -e expects a single command string (shell-parsed)
+            let wrapped = format!("bash -lc {}", crate::dispatch_helpers::shell_escape(command));
+            std::process::Command::new("xfce4-terminal")
+                .args(["-e", &wrapped])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+        }
+        LinuxTerminal::Xterm => std::process::Command::new("xterm")
+            .args(["-e", "bash", "-lc", command])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn(),
+        LinuxTerminal::Custom(bin) => std::process::Command::new(bin)
+            .args(["-e", "bash", "-lc", command])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn(),
+    };
+    match result {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!("failed to launch terminal: {}", e)),
     }
 }
