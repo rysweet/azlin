@@ -344,3 +344,72 @@ fn test_restore_session_name_over_max_length_skipped_no_panic() {
     // Should not panic; name is skipped with a warning
     restore_tmux_sessions(&sessions);
 }
+
+// ---------------------------------------------------------------------------
+// build_wt_restore_args — Windows Terminal argument construction
+// ---------------------------------------------------------------------------
+
+use crate::cmd_list_data::build_wt_restore_args;
+
+#[test]
+fn test_wt_args_with_wsl_distro_wraps_bash_lc() {
+    let args = build_wt_restore_args("Ubuntu", "/usr/bin/azlin", "my-vm", "azlin");
+    assert!(args.contains(&"bash".to_string()), "should contain bash");
+    assert!(args.contains(&"-lc".to_string()), "should contain -lc");
+    let shell_cmd = args.last().unwrap();
+    assert!(
+        shell_cmd.contains("connect") && shell_cmd.contains("my-vm") && shell_cmd.contains("azlin"),
+        "shell command should contain the full connect invocation, got: {}",
+        shell_cmd
+    );
+    assert!(
+        shell_cmd.starts_with("exec "),
+        "should use exec to replace bash process, got: {}",
+        shell_cmd
+    );
+}
+
+#[test]
+fn test_wt_args_with_wsl_distro_includes_distro_name() {
+    let args = build_wt_restore_args("Debian", "/usr/bin/azlin", "vm1", "dev");
+    assert!(args.contains(&"Debian".to_string()));
+    assert!(args.contains(&"wsl.exe".to_string()));
+    assert!(args.contains(&"-d".to_string()));
+}
+
+#[test]
+fn test_wt_args_without_wsl_distro_uses_direct_args() {
+    let args = build_wt_restore_args("", "/usr/bin/azlin", "my-vm", "azlin");
+    assert!(!args.contains(&"bash".to_string()));
+    assert!(!args.contains(&"wsl.exe".to_string()));
+    assert!(args.contains(&"connect".to_string()));
+    assert!(args.contains(&"--tmux-session".to_string()));
+}
+
+#[test]
+fn test_wt_args_always_starts_with_window_tab() {
+    let args = build_wt_restore_args("Ubuntu", "/usr/bin/azlin", "vm1", "dev");
+    assert_eq!(&args[0..3], &["-w", "0", "new-tab"]);
+}
+
+#[test]
+fn test_wt_args_escapes_paths_with_spaces() {
+    let args = build_wt_restore_args("Ubuntu", "/path with spaces/azlin", "vm1", "dev");
+    let shell_cmd = args.last().unwrap();
+    assert!(
+        shell_cmd.contains("'/path with spaces/azlin'"),
+        "paths with spaces should be single-quoted, got: {}",
+        shell_cmd
+    );
+}
+
+#[test]
+fn test_wt_args_escapes_single_quotes_in_names() {
+    let args = build_wt_restore_args("Ubuntu", "/usr/bin/azlin", "vm-o'brien", "dev");
+    let shell_cmd = args.last().unwrap();
+    assert!(
+        shell_cmd.contains("'vm-o'\\''brien'"),
+        "single quotes should be escaped, got: {}",
+        shell_cmd
+    );
+}
