@@ -513,15 +513,9 @@ pub(crate) async fn handle_vm_new(
         loc
     };
     let admin_user = DEFAULT_ADMIN_USERNAME.to_string();
-    let ssh_key_path = {
-        let ssh_dir = dirs::home_dir().unwrap_or_default().join(".ssh");
-        crate::key_helpers::find_preferred_pubkey(&ssh_dir).ok_or_else(|| {
-            anyhow::anyhow!(
-                "No SSH public key found in ~/.ssh. Expected one of: {}",
-                crate::key_helpers::preferred_pubkey_names().join(", ")
-            )
-        })?
-    };
+    let keypair = crate::key_helpers::ensure_ssh_keypair()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let ssh_key_path = keypair.public_key;
     let should_seed_home =
         crate::create_helpers::should_seed_remote_home(name.as_deref(), vm_count);
     let has_home_seed_sources = if should_seed_home {

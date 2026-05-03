@@ -2,6 +2,51 @@
 use super::*;
 use anyhow::{Context, Result};
 
+/// Resolve SSH key (auto-generating if needed) and push to VM if newly generated.
+/// Returns the private key path, or None if key resolution failed with a warning.
+fn resolve_key_and_push(
+    explicit_key: &Option<std::path::PathBuf>,
+    rg: &str,
+    vm_name: &str,
+    username: &str,
+) -> Result<Option<std::path::PathBuf>> {
+    if let Some(k) = explicit_key.clone() {
+        return Ok(Some(k));
+    }
+    match crate::key_helpers::ensure_ssh_keypair() {
+        Ok(kp) => {
+            if kp.generated {
+                let pub_key = std::fs::read_to_string(&kp.public_key)
+                    .map_err(|e| anyhow::anyhow!("Cannot read generated public key {}: {e}", kp.public_key.display()))?;
+                eprintln!("Pushing new SSH key to {}...", vm_name);
+                let push_result = std::process::Command::new("az")
+                    .args([
+                        "vm", "user", "update",
+                        "--resource-group", rg,
+                        "--name", vm_name,
+                        "--username", username,
+                        "--ssh-key-value", pub_key.trim(),
+                    ])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::inherit())
+                    .status();
+                match push_result {
+                    Ok(s) if s.success() => eprintln!("SSH key pushed successfully."),
+                    _ => anyhow::bail!(
+                        "Failed to push SSH key to {}. Run manually: az vm user update --resource-group {} --name {} --username {} --ssh-key-value \"$(cat {})\"",
+                        vm_name, rg, vm_name, username, kp.public_key.display()
+                    ),
+                }
+            }
+            Ok(Some(kp.private_key))
+        }
+        Err(e) => {
+            eprintln!("Warning: {e}");
+            Ok(None)
+        }
+    }
+}
+
 pub(crate) fn build_effective_remote_command(x11: bool, remote_command: &[String]) -> Vec<String> {
     crate::gui_launch_helpers::maybe_wrap_x11_remote_command(x11, remote_command)
         .unwrap_or_else(|| remote_command.to_vec())
@@ -162,7 +207,8 @@ pub(crate) async fn dispatch(
                         "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
                         vm_manager.subscription_id(), rg, name
                     );
-                    let ssh_key = key.clone().or_else(resolve_ssh_key);
+                    // Ensure an SSH key exists; auto-generate if missing.
+                    let ssh_key = resolve_key_and_push(&key, &rg, &name, &username)?;
                     let mut args = vec![
                         "network".to_string(),
                         "bastion".to_string(),
@@ -206,7 +252,7 @@ pub(crate) async fn dispatch(
                 } else {
                     // Direct SSH for VMs with public IPs
                     let ip = vm.public_ip.as_deref().unwrap();
-                    let resolved_key = key.clone().or_else(resolve_ssh_key);
+                    let resolved_key = resolve_key_and_push(&key, &rg, &name, &username)?;
                     let mut ssh_args = crate::connect_helpers::build_ssh_args(
                         &username,
                         ip,
