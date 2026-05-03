@@ -305,13 +305,22 @@ pub(crate) fn is_valid_restore_vm_name(name: &str) -> bool {
 /// so the user's login shell environment (PATH, SSH_AUTH_SOCK, etc.) is loaded.
 /// Without that wrapper, `wsl.exe -d <distro> -- <binary>` runs outside any
 /// shell, so tools like `ssh` and `az` may not be found.
+///
+/// `restore_mode` controls window placement:
+/// - `Tab` → `wt.exe -w 0 new-tab ...` (reuse existing window)
+/// - `Window` → `wt.exe -w new new-tab ...` (new window per session)
+/// - `Auto` is resolved by the caller before reaching here; treated as `Tab`.
 pub(crate) fn build_wt_restore_args(
     wsl_distro: &str,
     self_exe: &str,
     vm_name: &str,
     session: &str,
+    restore_mode: &azlin_core::RestoreMode,
 ) -> Vec<String> {
-    let mut args: Vec<String> = vec!["-w".into(), "0".into(), "new-tab".into()];
+    let mut args: Vec<String> = match restore_mode {
+        azlin_core::RestoreMode::Window => vec!["-w".into(), "new".into(), "new-tab".into()],
+        _ => vec!["-w".into(), "0".into(), "new-tab".into()],
+    };
     if !wsl_distro.is_empty() {
         let inner_cmd = format!(
             "exec {} connect {} --tmux-session {}",
@@ -375,7 +384,21 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
         return;
     }
 
-    let use_wt = std::env::var("WT_SESSION").is_ok();
+    let detected_wt = std::env::var("WT_SESSION").is_ok();
+
+    // Load config for restore_mode preference.
+    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+    let restore_mode = &config.restore_mode;
+
+    // If restore_mode is explicitly set to tab or window, force wt.exe usage
+    // — but only when we're in WSL where wt.exe is actually available.
+    let in_wsl = std::env::var("WSL_DISTRO_NAME").is_ok_and(|v| !v.is_empty());
+    let force_wt = in_wsl
+        && matches!(
+            restore_mode,
+            azlin_core::RestoreMode::Tab | azlin_core::RestoreMode::Window
+        );
+    let use_wt = detected_wt || force_wt;
     let use_macos = cfg!(target_os = "macos") && !use_wt;
 
     // Resolve the current executable path so we can re-invoke ourselves
@@ -423,7 +446,7 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
                 println!("  Opening tab: {} (session: {})", vm_name, session);
                 let wsl_distro =
                     std::env::var("WSL_DISTRO_NAME").unwrap_or_else(|_| "".to_string());
-                let wt_args = build_wt_restore_args(&wsl_distro, &self_exe, vm_name, &session);
+                let wt_args = build_wt_restore_args(&wsl_distro, &self_exe, vm_name, &session, restore_mode);
                 let wt_str_args: Vec<&str> = wt_args.iter().map(|s| s.as_str()).collect();
                 match std::process::Command::new("wt.exe")
                     .args(&wt_str_args)

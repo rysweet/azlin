@@ -52,6 +52,30 @@ const VALID_AZURE_REGIONS: &[&str] = &[
     "italynorth",
 ];
 
+/// How `azlin list -r` opens restored tmux sessions in Windows Terminal.
+///
+/// - `Auto`: detect WT_SESSION env var; fall back to Linux terminal emulators.
+/// - `Tab`: force `wt.exe -w 0 new-tab` (reuse existing window).
+/// - `Window`: force `wt.exe new-tab` (open a new window per session).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RestoreMode {
+    #[default]
+    Auto,
+    Tab,
+    Window,
+}
+
+impl std::fmt::Display for RestoreMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Auto => write!(f, "auto"),
+            Self::Tab => write!(f, "tab"),
+            Self::Window => write!(f, "window"),
+        }
+    }
+}
+
 /// SSH key synchronization method.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -106,6 +130,8 @@ pub struct AzlinConfig {
     /// Timeout in seconds for `az` CLI subprocess calls.
     /// Default: 120 seconds. Increase on Windows/WSL where Azure CLI is slower.
     pub az_cli_timeout: u64,
+    /// How `azlin list -r` opens restored sessions: "auto", "tab", or "window".
+    pub restore_mode: RestoreMode,
 }
 
 impl Default for AzlinConfig {
@@ -133,6 +159,7 @@ impl Default for AzlinConfig {
             ssh_connect_timeout: 30,
             scp_transfer_timeout: 120,
             az_cli_timeout: 120,
+            restore_mode: RestoreMode::Auto,
         }
     }
 }
@@ -403,6 +430,20 @@ impl AzlinConfig {
             }
         }
 
+        if key == "restore_mode" {
+            match value.to_lowercase().as_str() {
+                "auto" | "tab" | "window" => {
+                    return Ok(serde_json::Value::String(value.to_lowercase()));
+                }
+                _ => {
+                    return Err(crate::AzlinError::Config(format!(
+                        "restore_mode must be 'auto', 'tab', or 'window', got '{}'",
+                        value
+                    )));
+                }
+            }
+        }
+
         if Self::BOOL_FIELDS.contains(&key) {
             match value {
                 "true" => return Ok(serde_json::Value::Bool(true)),
@@ -436,6 +477,7 @@ impl AzlinConfig {
             "notification_command",
             "default_nfs_storage",
             "ssh_sync_method",
+            "restore_mode",
         ];
         if !KNOWN_STRING_FIELDS.contains(&key)
             && !Self::BOOL_FIELDS.contains(&key)
