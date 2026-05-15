@@ -75,7 +75,7 @@ the later auth-forward, home seeding, and first auto-connect phases too.
 azlin automates the tedious process of setting up Azure Ubuntu VMs for development. In one command, it:
 
 1. Authenticates with Azure
-2. Provisions an Ubuntu 24.04 VM
+2. Provisions an Ubuntu 26.04 LTS VM
 3. Installs 12 essential development tools
 4. Creates a separate 100GB Premium SSD for /home (persistent storage), with optional /tmp disk
 5. Sets up SSH with key-based authentication
@@ -125,7 +125,7 @@ azlin logs my-vm --lines 50           # View last 50 lines
 ### Ubuntu Version Selection
 Specify Ubuntu version when creating VMs:
 ```bash
-azlin new --os 25.10         # Ubuntu 25.10
+azlin new --os 24.04-lts     # Ubuntu 24.04 LTS
 ```
 
 ### Separate /tmp Disk Support

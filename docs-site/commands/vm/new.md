@@ -292,7 +292,7 @@ When you run `azlin new`, the following happens automatically:
 
 1. **Authentication** - Verifies Azure CLI authentication
 2. **Prerequisites** - Checks SSH keys and required tools
-3. **VM Creation** - Provisions Ubuntu 24.04 VM with your chosen size
+3. **VM Creation** - Provisions Ubuntu 26.04 LTS VM with your chosen size
 4. **Cloud-Init** - Installs all development tools (4-5 minutes)
 5. **SSH Key Storage** - Automatically stores private key in Azure Key Vault for cross-system access
 6. **NFS Storage** (optional) - Mounts shared persistent home directory

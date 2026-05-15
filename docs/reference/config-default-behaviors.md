@@ -37,9 +37,9 @@ default_vm_size = "Standard_E16as_v5"
 
 # Default OS image for new VMs (shorthand or full URN)
 # Type: string (optional)
-# Default: None (falls back to Ubuntu 25.10)
+# Default: None (falls back to Ubuntu 26.04 LTS)
 # CLI Override: --os <IMAGE_SPEC>
-# Valid shorthands: 25.10, 24.10, 24.04-lts, 24.04, 22.04-lts, 22.04, 20.04-lts, 20.04
+# Valid shorthands: 26.04-lts, 26.04, 25.10, 24.10, 24.04-lts, 24.04, 22.04-lts, 22.04, 20.04-lts, 20.04
 # Valid URN format: Canonical:<offer>:<sku>:<version>
 default_vm_image = "Canonical:ubuntu-24_04-lts:server:latest"
 

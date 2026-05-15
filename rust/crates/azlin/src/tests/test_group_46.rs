@@ -10,6 +10,15 @@ fn test_format_os_display_ubuntu_version_lts() {
 }
 
 #[test]
+fn test_format_os_display_ubuntu_26_04_lts() {
+    let result = crate::display_helpers::format_os_display(
+        Some("ubuntu-26_04-lts"),
+        &azlin_core::models::OsType::Linux,
+    );
+    assert_eq!(result, "Ubuntu 26.04 LTS");
+}
+
+#[test]
 fn test_format_os_display_ubuntu_version_no_lts() {
     let result = crate::display_helpers::format_os_display(
         Some("ubuntu-25_10"),

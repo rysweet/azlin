@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Default VM OS image updated to Ubuntu 26.04 LTS.
+
 ### Added
 - **GUI Forwarding**: Run remote Linux GUI applications locally (#828)
   - `azlin connect --x11` / `-X` — X11 forwarding for lightweight GUI apps (gitk, meld, xeyes)
