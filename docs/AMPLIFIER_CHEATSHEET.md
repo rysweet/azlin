@@ -55,7 +55,7 @@ azlin new --vm-size Standard_D4s_v3 --repo https://github.com/microsoft/amplifie
 ```
 
 **What happens:**
-- Provisions Ubuntu 24.04 VM on Azure
+- Provisions Ubuntu 26.04 LTS VM on Azure
 - Installs 12 dev tools (Docker, Node.js, Python, Go, Rust, etc.)
 - Clones amplifier repo to `~/amplifier`
 - Auto-connects via SSH with tmux

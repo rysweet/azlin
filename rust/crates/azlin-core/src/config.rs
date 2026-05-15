@@ -109,7 +109,7 @@ pub struct AzlinConfig {
     pub vm_storage: Option<HashMap<String, String>>,
     pub default_nfs_storage: Option<String>,
     pub github_runner_fleets: Option<HashMap<String, serde_json::Value>>,
-    /// Default VM OS image URN (e.g. "Canonical:ubuntu-25_10:server:latest").
+    /// Default VM OS image URN (e.g. "Canonical:ubuntu-26_04-lts:server:latest").
     /// When None, falls back to VmImage::default().
     pub default_vm_image: Option<String>,
     pub ssh_auto_sync_keys: bool,
@@ -1060,23 +1060,25 @@ mod tests {
 
     #[test]
     fn test_validate_field_default_vm_image_full_urn() {
-        let result =
-            AzlinConfig::validate_field("default_vm_image", "Canonical:ubuntu-25_10:server:latest");
+        let result = AzlinConfig::validate_field(
+            "default_vm_image",
+            "Canonical:ubuntu-26_04-lts:server:latest",
+        );
         assert!(result.is_ok(), "should accept valid URN");
         assert_eq!(
             result.unwrap(),
-            serde_json::Value::String("Canonical:ubuntu-25_10:server:latest".to_string())
+            serde_json::Value::String("Canonical:ubuntu-26_04-lts:server:latest".to_string())
         );
     }
 
     #[test]
     fn test_validate_field_default_vm_image_shorthand() {
-        let result = AzlinConfig::validate_field("default_vm_image", "24.04-lts");
+        let result = AzlinConfig::validate_field("default_vm_image", "26.04-lts");
         assert!(result.is_ok(), "should accept valid shorthand");
         // Should store the resolved full URN
         assert_eq!(
             result.unwrap(),
-            serde_json::Value::String("Canonical:ubuntu-24_04-lts:server:latest".to_string())
+            serde_json::Value::String("Canonical:ubuntu-26_04-lts:server:latest".to_string())
         );
     }
 

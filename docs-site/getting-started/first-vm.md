@@ -7,7 +7,7 @@ This guide walks you through creating your first Azure VM with azlin in detail.
 
 By the end of this tutorial, you'll have:
 
-- A running Ubuntu 24.04 VM in Azure
+- A running Ubuntu 26.04 LTS VM in Azure
 - 12 development tools pre-installed
 - SSH access configured
 - A persistent tmux session
@@ -90,7 +90,7 @@ You'll see:
 ✓ SSH configured
 → Connecting to my-first-vm...
 
-Welcome to Ubuntu 24.04 LTS
+Welcome to Ubuntu 26.04 LTS
 
 azureuser@my-first-vm:~$
 ```

@@ -7,7 +7,7 @@ Understand the core concepts behind azlin to use it effectively.
 
 ### Virtual Machines (VMs)
 
-azlin creates **Ubuntu 24.04 LTS** virtual machines in Azure with development tools pre-installed.
+azlin creates **Ubuntu 26.04 LTS** virtual machines in Azure with development tools pre-installed.
 
 **Key characteristics:**
 

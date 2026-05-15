@@ -88,6 +88,7 @@ pub fn format_os_display(os_offer: Option<&str>, os_type: &azlin_core::models::O
 
 /// Parse Ubuntu offer strings into human-readable format.
 /// Handles multiple Azure offer formats:
+///   "ubuntu-26_04-lts" -> "Ubuntu 26.04 LTS"
 ///   "ubuntu-24_04-lts" -> "Ubuntu 24.04 LTS"
 ///   "ubuntu-25_10" -> "Ubuntu 25.10"
 ///   "0001-com-ubuntu-server-jammy" -> "Ubuntu 22.04 LTS"
