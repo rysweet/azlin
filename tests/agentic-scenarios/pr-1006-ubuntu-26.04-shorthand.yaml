@@ -1,0 +1,39 @@
+name: "Ubuntu 26.04 LTS shorthand support"
+description: |
+  Verifies that the --os flag correctly resolves Ubuntu 26.04 LTS
+  shorthands (26.04, 26.04-lts, 2604, Ubuntu2604) to the expected
+  Canonical:ubuntu-26_04-lts:server:latest URN. Uses unit tests as
+  the verification mechanism since image resolution is a pure function.
+version: "1.0.0"
+
+config:
+  timeout: 120000
+
+agents:
+  - name: "test-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 60000
+
+steps:
+  - name: "Verify 26.04 shorthand tests pass"
+    agent: "test-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo test -q -p azlin-core --lib -- test_from_image_spec_shorthand_26_04"
+    expect:
+      exit_code: 0
+      stdout_contains: "2 passed"
+    timeout: 60000
+
+  - name: "Verify all existing image spec tests still pass"
+    agent: "test-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo test -q -p azlin-core --lib -- image_spec"
+    expect:
+      exit_code: 0
+      stdout_contains: "23 passed"
+    timeout: 60000

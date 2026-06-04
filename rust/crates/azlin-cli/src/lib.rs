@@ -260,7 +260,7 @@ pub enum Commands {
         #[arg(long)]
         tmp_disk_size: Option<u32>,
 
-        /// OS image (e.g., 25.10, 24.04-lts, Ubuntu2510, or full URN like Canonical:ubuntu-25_10:server:latest; default: Ubuntu 25.10)
+        /// OS image (e.g., 26.04-lts, 25.10, 24.04-lts, Ubuntu2604, or full URN like Canonical:ubuntu-26_04-lts:server:latest; default: Ubuntu 25.10)
         #[arg(long)]
         os: Option<String>,
     },
