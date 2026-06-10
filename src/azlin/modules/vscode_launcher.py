@@ -18,6 +18,7 @@ Security:
 import logging
 import os
 import platform
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -143,17 +144,25 @@ class VSCodeLauncher:
             ssh_dir.mkdir(mode=0o700, parents=True)
             logger.debug(f"Created SSH directory: {ssh_dir}")
 
-        # Check if entry already exists
-        if ssh_config_path.exists():
-            existing_config = ssh_config_path.read_text()
-            if f"Host {ssh_host}" in existing_config:
-                logger.info(f"SSH config entry for {ssh_host} already exists, skipping")
-                return
-
-        # Generate and append config entry
+        # Generate config entry
         config_entry = config.generate_ssh_config_entry()
 
         try:
+            if ssh_config_path.exists():
+                existing_config = ssh_config_path.read_text()
+                if f"Host {ssh_host}" in existing_config:
+                    # Replace the existing block (host + all indented lines until next Host or EOF)
+                    updated = re.sub(
+                        rf"(?m)(# Added by azlin\n)?Host {re.escape(ssh_host)}\n(?:[ \t]+.*\n)*",
+                        f"# Added by azlin\n{config_entry}\n",
+                        existing_config,
+                    )
+                    ssh_config_path.write_text(updated)
+                    logger.info(f"Updated SSH config entry for {ssh_host}")
+                    if _is_wsl():
+                        cls._sync_ssh_config_to_windows(config)
+                    return
+
             with ssh_config_path.open("a") as f:
                 f.write("\n\n# Added by azlin\n")
                 f.write(config_entry)

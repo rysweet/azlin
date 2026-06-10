@@ -225,6 +225,43 @@ class TestVSCodeLauncher:
         entry = config.generate_ssh_config_entry()
         assert "Host azlin-test-vm" in entry
 
+    def test_write_ssh_config_updates_stale_entry(self, tmp_path: Path):
+        """Test that write_ssh_config replaces a stale entry with new port/host."""
+        ssh_dir = tmp_path / ".ssh"
+        ssh_dir.mkdir(mode=0o700)
+        ssh_config = ssh_dir / "config"
+
+        # Write an existing stale entry with old port
+        stale = (
+            "# Added by azlin\n"
+            "Host azlin-test-vm\n"
+            "    HostName 127.0.0.1\n"
+            "    Port 50002\n"
+            "    User azureuser\n"
+            "    IdentityFile /home/user/.ssh/azlin_key\n"
+            "    StrictHostKeyChecking no\n"
+            "    UserKnownHostsFile /dev/null\n"
+            "    ServerAliveInterval 60\n"
+            "    ServerAliveCountMax 3\n"
+        )
+        ssh_config.write_text(stale)
+
+        config = VSCodeConfig(
+            vm_name="test-vm",
+            host="127.0.0.1",
+            user="azureuser",
+            key_path=tmp_path / ".ssh" / "azlin_key",
+            port=50000,
+        )
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            VSCodeLauncher.write_ssh_config(config)
+
+        updated = ssh_config.read_text()
+        assert "Port 50000" in updated
+        assert "Port 50002" not in updated
+        assert updated.count("Host azlin-test-vm") == 1
+
     @patch("azlin.modules.vscode_launcher.subprocess.run")
     @patch("azlin.modules.vscode_launcher.shutil.which")
     def test_launch_vscode_success(self, mock_which: MagicMock, mock_run: MagicMock):
