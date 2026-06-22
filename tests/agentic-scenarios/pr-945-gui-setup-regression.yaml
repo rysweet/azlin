@@ -1,0 +1,76 @@
+name: "azlin gui Simard setup regression"
+description: |
+  Verifies that `azlin gui Simard` no longer fails with the empty
+  `GUI dependency/setup phase failed (exit 1): exit code 1` error and
+  instead reaches a live VNC viewer connection on the real Simard VM.
+version: "1.0.0"
+
+config:
+  timeout: 180000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 120000
+
+steps:
+  - name: "Build azlin GUI candidate"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo build -q -p azlin --bin azlin"
+    expect:
+      exit_code: 0
+    timeout: 120000
+
+  - name: "azlin gui Simard reaches VNC viewer connection"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        AZLIN_BIN=${AZLIN_BIN:-rust/target/debug/azlin}
+        LOG=$(mktemp)
+        status=0
+        timeout 90 "$AZLIN_BIN" gui Simard >"$LOG" 2>&1 || status=$?
+        cat "$LOG"
+        if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
+          rm -f "$LOG"
+          exit "$status"
+        fi
+        grep -q "Launching VNC viewer (127.0.0.1:5901)..." "$LOG" || {
+          rm -f "$LOG"
+          exit 1
+        }
+        grep -q "Connected to host 127.0.0.1 port 5901" "$LOG" || {
+          rm -f "$LOG"
+          exit 1
+        }
+        if grep -q "GUI dependency/setup phase failed" "$LOG"; then
+          echo "LEGACY_SETUP_FAILURE_PRESENT"
+          rm -f "$LOG"
+          exit 1
+        fi
+        rm -f "$LOG"
+        echo "GUI_SIMARD_CONNECTION_OK"
+    expect:
+      exit_code: 0
+      stdout_contains: "GUI_SIMARD_CONNECTION_OK"
+    timeout: 180000
+
+assertions:
+  - name: "Simard GUI session comes up without legacy setup failure"
+    type: "command_success"
+    agent: "cli-agent"
+    params:
+      step: "azlin gui Simard reaches VNC viewer connection"
+
+metadata:
+  tags:
+    - "gui"
+    - "vnc"
+    - "regression"
+    - "real-vm"
+  priority: "critical"

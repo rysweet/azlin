@@ -1,0 +1,161 @@
+name: "PR 957 Chromium provisioning regression"
+description: |
+  Verifies that newly provisioned private azlin VMs install Chromium,
+  enable systemd user lingering, expose the `/usr/local/bin/chromium-browser`
+  and `/usr/local/bin/chromium` wrappers, and avoid the historical snap
+  cgroup failure when Chromium is launched from an SSH shell.
+version: "1.0.0"
+
+config:
+  timeout: 1200000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 1200000
+
+steps:
+  - name: "Repo-local azlin candidate binary is available"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "AZLIN_BIN=${AZLIN_BIN:-rust/target/debug/azlin} && test -x \"$AZLIN_BIN\" && echo AZLIN_BIN_READY"
+    expect:
+      exit_code: 0
+      stdout_contains: "AZLIN_BIN_READY"
+    timeout: 5000
+
+  - name: "Fresh private VM provisions Chromium wrappers"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        set -euo pipefail
+
+        AZLIN_BIN=${AZLIN_BIN:-rust/target/debug/azlin}
+        AZURE_CONFIG_DIR=${AZURE_CONFIG_DIR:-$HOME/.azure}
+        VM="pr957-chromium-$(date +%s)"
+        AZLIN_HOME_DIR="$HOME/.azlin/home"
+        HOME_BACKUP_ROOT=$(mktemp -d)
+        ORIGINAL_HOME_PRESENT=0
+        NEW_LOG=$(mktemp)
+        REMOTE_LOG=$(mktemp)
+        DELETE_LOG=$(mktemp)
+        REMOTE_SCRIPT=$(mktemp)
+
+        if [ -d "$AZLIN_HOME_DIR" ]; then
+          mv "$AZLIN_HOME_DIR" "$HOME_BACKUP_ROOT/original-home"
+          ORIGINAL_HOME_PRESENT=1
+        fi
+        mkdir -p "$AZLIN_HOME_DIR"
+        printf 'PR957_CHROMIUM_SEED\n' > "$AZLIN_HOME_DIR/qa-marker.txt"
+
+        cleanup() {
+          status=$?
+          trap - EXIT
+          set +e
+          delete_status=0
+          AZURE_CONFIG_DIR="$AZURE_CONFIG_DIR" AZLIN_NO_UPDATE_CHECK=1 \
+            "$AZLIN_BIN" delete --force "$VM" >"$DELETE_LOG" 2>&1 || delete_status=$?
+          cat "$DELETE_LOG" || true
+          rm -f "$NEW_LOG" "$REMOTE_LOG" "$DELETE_LOG" "$REMOTE_SCRIPT"
+          if [ "$delete_status" -ne 0 ]; then
+            echo "VM_DELETE_FAILED"
+            if [ "$status" -eq 0 ]; then
+              exit "$delete_status"
+            fi
+          fi
+          rm -rf "$AZLIN_HOME_DIR"
+          if [ "$ORIGINAL_HOME_PRESENT" -eq 1 ]; then
+            mv "$HOME_BACKUP_ROOT/original-home" "$AZLIN_HOME_DIR"
+          fi
+          rm -rf "$HOME_BACKUP_ROOT"
+          exit "$status"
+        }
+        trap cleanup EXIT
+
+        if ! AZURE_CONFIG_DIR="$AZURE_CONFIG_DIR" AZLIN_NO_UPDATE_CHECK=1 \
+          "$AZLIN_BIN" new --private -y --region westus2 --size s \
+          --name "$VM" --no-nfs --no-auto-connect >"$NEW_LOG" 2>&1; then
+          cat "$NEW_LOG"
+          exit 1
+        fi
+        cat "$NEW_LOG"
+
+        cat >"$REMOTE_SCRIPT" <<'REMOTE'
+        set -euo pipefail
+
+        echo "browser=$(command -v chromium-browser)"
+        echo "alias=$(command -v chromium)"
+        echo "linger=$(loginctl show-user $(whoami) -p Linger --value 2>/dev/null || true)"
+        ls -l /usr/local/bin/chromium-browser /usr/local/bin/chromium
+
+        browser_status=0
+        if chromium-browser --headless --disable-gpu --dump-dom about:blank >/tmp/pr957-browser.out 2>/tmp/pr957-browser.err; then
+          browser_status=0
+        else
+          browser_status=$?
+        fi
+        echo "browser_exit=$browser_status"
+
+        alias_status=0
+        if chromium --headless --disable-gpu --dump-dom about:blank >/tmp/pr957-alias.out 2>/tmp/pr957-alias.err; then
+          alias_status=0
+        else
+          alias_status=$?
+        fi
+        echo "alias_exit=$alias_status"
+
+        gui_status=0
+        if timeout 10 chromium-browser about:blank >/tmp/pr957-gui.out 2>/tmp/pr957-gui.err; then
+          gui_status=0
+        else
+          gui_status=$?
+        fi
+        if grep -q "not a snap cgroup" /tmp/pr957-gui.err; then
+          echo SNAP_CGROUP_ERROR_PRESENT
+          cat /tmp/pr957-gui.err
+          exit 1
+        fi
+        if grep -Eq "Missing X server|platform failed to initialize|Unable to open X display|cannot open display" /tmp/pr957-gui.err; then
+          echo GUI_LAUNCH_REACHED_X11_GATE
+        else
+          echo UNEXPECTED_GUI_STDERR
+          cat /tmp/pr957-gui.err
+          exit 1
+        fi
+
+        [ "$browser_status" -eq 0 ]
+        [ "$alias_status" -eq 0 ]
+        grep -q "<html>" /tmp/pr957-browser.out && echo BROWSER_HEADLESS_OK
+        grep -q "<html>" /tmp/pr957-alias.out && echo ALIAS_HEADLESS_OK
+        REMOTE
+
+        AZURE_CONFIG_DIR="$AZURE_CONFIG_DIR" AZLIN_NO_UPDATE_CHECK=1 \
+          "$AZLIN_BIN" connect "$VM" --no-tmux --no-reconnect -- bash -s <"$REMOTE_SCRIPT" >"$REMOTE_LOG" 2>&1
+        cat "$REMOTE_LOG"
+
+        grep -q "browser=/usr/local/bin/chromium-browser" "$REMOTE_LOG"
+        grep -q "alias=/usr/local/bin/chromium" "$REMOTE_LOG"
+        grep -q "linger=yes" "$REMOTE_LOG"
+        grep -q "browser_exit=0" "$REMOTE_LOG"
+        grep -q "alias_exit=0" "$REMOTE_LOG"
+        grep -q "BROWSER_HEADLESS_OK" "$REMOTE_LOG"
+        grep -q "ALIAS_HEADLESS_OK" "$REMOTE_LOG"
+        grep -q "GUI_LAUNCH_REACHED_X11_GATE" "$REMOTE_LOG"
+        echo "PR957_CHROMIUM_PROVISIONING_OK"
+    expect:
+      exit_code: 0
+      stdout_contains: "PR957_CHROMIUM_PROVISIONING_OK"
+    timeout: 1200000
+
+metadata:
+  tags:
+    - "chromium"
+    - "provisioning"
+    - "real-vm"
+    - "regression"
+  priority: "critical"

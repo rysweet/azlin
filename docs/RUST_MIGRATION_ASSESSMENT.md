@@ -1,5 +1,7 @@
 # Rust Migration Assessment for azlin
 
+> **HISTORICAL** -- This assessment was written in October 2025, before the Rust rewrite. The rewrite is now complete and merged as of v2.3.0-rust (2026-03-08). The Rust version delivers 75-85x faster startup, 2,536 tests, and pre-built binaries for all platforms. Many of the predicted risks (18-24 months, $450k-$600k) did not materialize -- the rewrite was completed in weeks, not months, with AI-assisted development.
+
 **Date:** 2025-10-28
 **Assessment Type:** Performance & Feasibility Analysis
 **Current Stack:** Python 3.11+ (37,824 source LOC, 63,590 total)

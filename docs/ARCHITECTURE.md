@@ -394,6 +394,31 @@ Rationale:
 - Clear error handling at each step
 ```
 
+## GUI Forwarding
+
+```
+GUI Access Modes:
+
+1. X11 Forwarding (azlin connect --x11)
+   └─> Adds -Y flag to SSH connection
+   └─> Tunnels X11 protocol through SSH (or bastion tunnel)
+   └─> Displays individual GUI windows on local X server
+   └─> No additional packages required on VM (xauth auto-installed)
+
+2. VNC Desktop (azlin gui)
+   └─> Auto-installs: tigervnc-standalone-server, xfce4, dbus-x11
+   └─> Starts VNC server on localhost:590x (never network-exposed)
+   └─> Creates SSH tunnel from local port to VNC port
+   └─> Launches local VNC viewer with per-session random password
+   └─> Cleans up VNC server on session end
+
+Security:
+   └─> VNC bound to 127.0.0.1 only
+   └─> Random password per session (not stored)
+   └─> All traffic inside SSH/bastion tunnel
+   └─> No additional firewall rules needed
+```
+
 ## Extension Points
 
 ```

@@ -741,8 +741,8 @@ azlin template stats prod-app
 ## See Also
 
 - [Basic Templates Guide](./templates.md)
-- [VM Creation](../commands/create.md)
-- [Cloud-Init Configuration](./cloud-init.md)
+- [VM Creation](../commands/template/create.md)
+- Cloud-Init Configuration
 - [Command Reference](../commands/index.md)
 
 ---

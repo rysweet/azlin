@@ -35,6 +35,14 @@ default_region = "westus2"
 # Default VM size
 default_vm_size = "Standard_E16as_v5"
 
+# Default OS image for new VMs (shorthand or full URN)
+# Type: string (optional)
+# Default: None (falls back to Ubuntu 25.10)
+# CLI Override: --os <IMAGE_SPEC>
+# Valid shorthands: 25.10, 24.10, 24.04-lts, 24.04, 22.04-lts, 22.04, 20.04-lts, 20.04
+# Valid URN format: Canonical:<offer>:<sku>:<version>
+default_vm_image = "Canonical:ubuntu-24_04-lts:server:latest"
+
 # ============================================================================
 # SSH Configuration
 # ============================================================================
@@ -155,6 +163,23 @@ audit_log_max_size_mb = 10
 # Type: integer
 # Default: 5
 audit_log_backup_count = 5
+
+# ============================================================================
+# Log Viewing Defaults (azlin logs command)
+# ============================================================================
+[log_viewer]
+
+# Default number of log lines to display
+# Type: integer
+# Default: 100
+# CLI Override: --lines=<n> or -n <n>
+default_lines = 100
+
+# Default log type when --type is not specified
+# Type: string (syslog, cloud-init, auth, azlin, all)
+# Default: "syslog"
+# CLI Override: --type=<type> or -t <type>
+default_type = "syslog"
 ```
 
 ## Configuration Options by Category
@@ -528,21 +553,22 @@ audit_log_backup_count = 10  # Keep 10 rotated logs
 
 ## CLI Flags Reference
 
-All configuration options can be overridden via CLI flags:
+Connect flags that override configuration (from `azlin connect --help`):
 
 | Config Option | CLI Flag | Example |
 |---------------|----------|---------|
-| `ssh.auto_sync_keys` | `--no-auto-sync-keys` | `azlin connect vm --no-auto-sync-keys` |
-| `ssh.sync_timeout` | `--sync-timeout=<sec>` | `azlin connect vm --sync-timeout=60` |
-| `ssh.sync_method` | `--sync-method=<method>` | `azlin connect vm --sync-method=ssh` |
-| `ssh.key_path` | `--ssh-key=<path>` | `azlin connect vm --ssh-key ~/.ssh/key` |
-| `resource_group.auto_detect` | `--no-auto-detect-rg` | `azlin connect vm --no-auto-detect-rg` |
-| `resource_group.cache_ttl` | `--cache-ttl=<sec>` | `azlin connect vm --cache-ttl=300` |
-| `resource_group.query_timeout` | `--query-timeout=<sec>` | `azlin connect vm --query-timeout=60` |
-| `default_resource_group` | `--resource-group=<rg>` | `azlin connect vm --resource-group rg-prod` |
-| `logging.level` | `--debug` or `--quiet` | `azlin --debug connect vm` |
-| - | `--force-rg-refresh` | `azlin connect vm --force-rg-refresh` |
-| - | `--dry-run` | `azlin connect vm --dry-run` |
+| `default_vm_image` | `--os <IMAGE_SPEC>` | `azlin new --os 24.04-lts` |
+| `default_resource_group` | `--resource-group <RG>` | `azlin connect vm --resource-group rg-prod` |
+| `ssh.key_path` | `--key <PATH>` | `azlin connect vm --key ~/.ssh/custom_key` |
+| `ssh.user` | `--user <USER>` | `azlin connect vm --user ubuntu` |
+| `ssh.tmux_enabled` | `--no-tmux` | `azlin connect vm --no-tmux` |
+| `ssh.tmux_session` | `--tmux-session <NAME>` | `azlin connect vm --tmux-session dev` |
+| `ssh.reconnect` | `--no-reconnect` | `azlin connect vm --no-reconnect` |
+| `ssh.max_retries` | `--max-retries <N>` | `azlin connect vm --max-retries 5` |
+| - | `-y, --yes` | `azlin connect vm --yes` |
+| - | `-X, --x11` | `azlin connect vm -X` |
+| - | `--no-status` | `azlin connect vm --no-status` |
+| - | `--disable-bastion-pool` | `azlin connect vm --disable-bastion-pool` |
 
 ## Configuration Management Commands
 
@@ -569,43 +595,23 @@ azlin config set logging.level DEBUG
 
 ### Reset to Defaults
 
-Reset specific setting:
+To reset configuration, delete or edit the config file directly:
 ```bash
-azlin config reset ssh.auto_sync_keys
+# View current config
+azlin config show
+
+# Edit manually
+nano ~/.azlin/config.toml
+
+# Or delete to start fresh (azlin config init recreates it)
+rm ~/.azlin/config.toml && azlin config init
 ```
 
-Reset all settings:
+### Compare with Defaults
+
+Show differences between current config and defaults:
 ```bash
-azlin config reset --all
-```
-
-### Validate Configuration
-
-Check configuration file for errors:
-```bash
-azlin config validate
-```
-
-Output:
-```
-Validating configuration file: ~/.azlin/config.toml
-✓ Syntax valid (TOML)
-✓ All required fields present
-✓ All values have correct types
-✓ All values within valid ranges
-Configuration is valid.
-```
-
-### Export Configuration
-
-Export current configuration (useful for backup or sharing):
-```bash
-azlin config export > my-azlin-config.toml
-```
-
-Import configuration:
-```bash
-azlin config import my-azlin-config.toml
+azlin config diff
 ```
 
 ## Configuration Best Practices
@@ -718,15 +724,14 @@ audit_log_backup_count = 50              # Long retention
 
 **Solutions**:
 
-1. Validate syntax:
+1. View current config to check for issues:
    ```bash
-   azlin config validate
+   azlin config show
    ```
 
 2. Check config file location:
    ```bash
-   azlin config path
-   # Output: /Users/you/.azlin/config.toml
+   ls -la ~/.azlin/config.toml
    ```
 
 3. Check for typos (TOML is case-sensitive):
@@ -753,9 +758,9 @@ audit_log_backup_count = 50              # Long retention
    ls -la ~/.azlin/config.toml
    ```
 
-2. Check value ranges:
+2. Check current config values:
    ```bash
-   azlin config validate
+   azlin config show
    ```
 
 3. View effective configuration:
@@ -768,6 +773,7 @@ audit_log_backup_count = 50              # Long retention
 
 - [Auto-Sync SSH Keys](../features/auto-sync-keys.md) - Feature guide for key synchronization
 - [Auto-Detect Resource Group](../features/auto-detect-rg.md) - Feature guide for RG discovery
+- [Logs Command Reference](./logs-command.md) - Detailed logs command documentation
 - [Troubleshooting Connection Issues](../how-to/troubleshoot-connection-issues.md) - Common problems and solutions
 
 ## Feedback

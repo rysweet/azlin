@@ -39,7 +39,9 @@ class DocGenerator:
                 return i + 1, "\n".join(lines[i:end])
         return 0, ""
 
-    def create_page(self, path: Path, title: str, content: str, front_matter: dict | None = None):
+    def create_page(
+        self, path: Path, title: str, content: str, front_matter: dict | None = None
+    ):
         """Create a documentation page."""
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -478,7 +480,9 @@ azlin destroy my-first-vm
 **Congratulations!** You've created your first azlin VM. Continue to [Basic Concepts](concepts.md) to learn more.
 """
 
-        self.create_page(self.output_dir / "getting-started/first-vm.md", "Your First VM", content)
+        self.create_page(
+            self.output_dir / "getting-started/first-vm.md", "Your First VM", content
+        )
 
     def generate_concepts(self):
         """Generate basic concepts page."""
@@ -789,7 +793,9 @@ Now that you understand the concepts:
 **Ready to dive deeper?** Explore [Authentication](../authentication/index.md) or [Command Reference](../commands/index.md).
 """
 
-        self.create_page(self.output_dir / "getting-started/concepts.md", "Basic Concepts", content)
+        self.create_page(
+            self.output_dir / "getting-started/concepts.md", "Basic Concepts", content
+        )
 
     def generate_all(self):
         """Generate all documentation pages."""

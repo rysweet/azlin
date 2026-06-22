@@ -142,15 +142,21 @@ class ParallelVMListBenchmark:
         parallel_warm_times = self.results["parallel_warm"]
 
         baseline_mean = statistics.mean(baseline_times)
-        parallel_cold_mean = statistics.mean(parallel_cold_times) if parallel_cold_times else 0.0
+        parallel_cold_mean = (
+            statistics.mean(parallel_cold_times) if parallel_cold_times else 0.0
+        )
         parallel_warm_mean = statistics.mean(parallel_warm_times)
 
         # Calculate improvement percentages
         cold_improvement = (
-            ((baseline_mean - parallel_cold_mean) / baseline_mean) * 100 if baseline_mean > 0 else 0
+            ((baseline_mean - parallel_cold_mean) / baseline_mean) * 100
+            if baseline_mean > 0
+            else 0
         )
         warm_improvement = (
-            ((baseline_mean - parallel_warm_mean) / baseline_mean) * 100 if baseline_mean > 0 else 0
+            ((baseline_mean - parallel_warm_mean) / baseline_mean) * 100
+            if baseline_mean > 0
+            else 0
         )
 
         report = {
@@ -161,7 +167,9 @@ class ParallelVMListBenchmark:
             "baseline": {
                 "mean": baseline_mean,
                 "median": statistics.median(baseline_times),
-                "stddev": statistics.stdev(baseline_times) if len(baseline_times) > 1 else 0.0,
+                "stddev": statistics.stdev(baseline_times)
+                if len(baseline_times) > 1
+                else 0.0,
                 "min": min(baseline_times),
                 "max": max(baseline_times),
             },
@@ -229,12 +237,16 @@ class ParallelVMListBenchmark:
                 f"  ⚠️  PARTIAL: {parallel_warm['improvement_pct']:.1f}% improvement (target: 70%)"
             )
         else:
-            print(f"  ❌ FAILED: {parallel_warm['improvement_pct']:.1f}% improvement (target: 70%)")
+            print(
+                f"  ❌ FAILED: {parallel_warm['improvement_pct']:.1f}% improvement (target: 70%)"
+            )
 
         # Print cache effectiveness
         if report["cache_stats"]:
             avg_hit_rate = statistics.mean(
-                stats["cache_hit_rate"] for _, stats in report["cache_stats"] if _ == "warm"
+                stats["cache_hit_rate"]
+                for _, stats in report["cache_stats"]
+                if _ == "warm"
             )
             print("\nCACHE EFFECTIVENESS:")
             print(f"  Average Hit Rate: {avg_hit_rate:.1%}")
@@ -250,7 +262,9 @@ class ParallelVMListBenchmark:
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(description="Benchmark parallel VM listing performance")
+    parser = argparse.ArgumentParser(
+        description="Benchmark parallel VM listing performance"
+    )
     parser.add_argument(
         "--resource-group",
         "-g",

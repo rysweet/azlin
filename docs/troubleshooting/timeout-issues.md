@@ -58,6 +58,22 @@ ls -la ~/.azlin/vm_list_cache.json
 - Ensure cache file exists and is readable
 - Cache automatically updates every 5 minutes (mutable data) / 24 hours (immutable data)
 
+## SSH Readiness Timeouts After VM Creation
+
+When `azlin new` creates a VM, it waits for SSH to become ready. The timeout
+scales by VM size:
+
+| Size Tier | SSH Timeout | SKU Example |
+|-----------|-------------|-------------|
+| s / m     | 300s        | Standard_D2s_v3, Standard_D16s_v3 |
+| l         | 450s        | Standard_D32s_v3 |
+| xl        | 600s        | Standard_D64s_v3 |
+
+If SSH times out, the VM is still usable — connect manually with `azlin ssh <name>`.
+Progress is printed every 30s and provisioning state is checked every 60s.
+
+See [SSH Readiness Wait Behavior](../features/ssh-readiness-wait.md) for details.
+
 ## Timeout Values
 
 As of PR #557, azlin uses these timeouts:

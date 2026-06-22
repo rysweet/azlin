@@ -50,7 +50,7 @@ azlin ip check my-vm --json           # JSON output
 
 ## File Locations
 
-- **Spec**: `/Users/ryan/src/azlin/docs/specs/ip-check-command-spec.md`
+- **Spec**: `docs/specs/ip-check-command-spec.md`
 - **Implementation**:
   - `src/azlin/modules/ip_diagnostics.py` (new)
   - `src/azlin/vm_manager.py` (extend)

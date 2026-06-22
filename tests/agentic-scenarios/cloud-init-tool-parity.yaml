@@ -1,0 +1,87 @@
+name: cloud-init-tool-parity
+description: >
+  Verify that both cloud-init code paths (YAML and shell-script) include
+  all required development tools matching Python provisioning parity.
+version: "1.0.0"
+
+config:
+  timeout: 30000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 120000
+
+steps:
+  - name: "build test binary"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && cargo build --quiet 2>&1 && echo BUILD_OK"
+    expect:
+      exit_code: 0
+      stdout_contains: "BUILD_OK"
+    timeout: 120000
+
+  - name: "YAML cloud-init default_dev_setup_commands test passes"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && RUST_MIN_STACK=8388608 cargo test -p azlin-azure -- test_default_dev_setup_commands --nocapture 2>&1 | tail -5"
+    expect:
+      exit_code: 0
+      stdout_contains: "ok"
+    timeout: 60000
+
+  - name: "YAML cloud-init default_dev_packages test passes"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && RUST_MIN_STACK=8388608 cargo test -p azlin-azure -- test_default_dev_packages --nocapture 2>&1 | tail -5"
+    expect:
+      exit_code: 0
+      stdout_contains: "ok"
+    timeout: 60000
+
+  - name: "shell-script cloud-init installs gh and az CLI"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && RUST_MIN_STACK=8388608 cargo test -p azlin-azure -- test_cloud_init_script_installs_gh_and_az --nocapture 2>&1 | tail -5"
+    expect:
+      exit_code: 0
+      stdout_contains: "ok"
+    timeout: 60000
+
+  - name: "shell-script cloud-init installs essential tools"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && RUST_MIN_STACK=8388608 cargo test -p azlin-azure -- test_cloud_init_script_installs_essential_tools --nocapture 2>&1 | tail -5"
+    expect:
+      exit_code: 0
+      stdout_contains: "ok"
+    timeout: 60000
+
+  - name: "shell-script cloud-init installs Rust"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && RUST_MIN_STACK=8388608 cargo test -p azlin-azure -- test_cloud_init_script_installs_rust --nocapture 2>&1 | tail -5"
+    expect:
+      exit_code: 0
+      stdout_contains: "ok"
+    timeout: 60000
+
+  - name: "shell-script cloud-init installs .NET"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "cd rust && RUST_MIN_STACK=8388608 cargo test -p azlin-azure -- test_cloud_init_script_installs_dotnet --nocapture 2>&1 | tail -5"
+    expect:
+      exit_code: 0
+      stdout_contains: "ok"
+    timeout: 60000

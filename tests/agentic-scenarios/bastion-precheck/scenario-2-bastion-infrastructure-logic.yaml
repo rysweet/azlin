@@ -1,0 +1,46 @@
+scenario:
+  name: "Bastion Pre-Check - Infrastructure Logic and Unit Tests"
+  description: >
+    Verify the bastion helper functions: naming conventions, existence
+    checks, az CLI command builders, and the prompt action flow.
+    Runs unit tests from the Rust workspace that cover:
+    - bastion_name_for_region(), bastion_vnet_name(), bastion_pip_name()
+    - bastion_exists_in_region() with match/no-match/case-insensitive
+    - build_create_vnet_args(), build_create_bastion_subnet_args()
+    - build_create_pip_args(), build_create_bastion_args()
+    - build_check_vnet_args(), build_check_bastion_subnet_args()
+    - BastionMissingAction enum variants and Copy trait
+    - prompt_bastion_action() with --yes flag
+  type: cli
+  tags: [regression, bastion, unit]
+
+  prerequisites:
+    - "Rust toolchain installed"
+    - "azlin workspace at ./rust/"
+
+  steps:
+    # Run bastion_helpers unit tests (17 tests)
+    - action: launch
+      target: "cargo"
+      args: ["test", "-q", "-p", "azlin", "--bin", "azlin", "--", "bastion_helpers"]
+      cwd: "./rust"
+
+    - action: verify_output
+      matches: "test result: ok\\. 17 passed"
+      description: "All 17 bastion_helpers tests should pass"
+
+    - action: verify_exit_code
+      expected: 0
+
+    # Run cmd_vm_ops unit tests (13 tests including bastion prompt tests)
+    - action: launch
+      target: "cargo"
+      args: ["test", "-q", "-p", "azlin", "--bin", "azlin", "--", "cmd_vm_ops::tests"]
+      cwd: "./rust"
+
+    - action: verify_output
+      matches: "test result: ok\\. 13 passed"
+      description: "All 13 cmd_vm_ops tests should pass"
+
+    - action: verify_exit_code
+      expected: 0

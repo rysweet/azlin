@@ -1,478 +1,150 @@
 # azlin Architecture Overview
 
+azlin is written in Rust for fast startup and reliable execution. The CLI is structured as a workspace of focused crates, each handling a specific domain.
+
+## Crate Structure
+
+```
+rust/
+├── Cargo.toml                  # Workspace root
+└── crates/
+    ├── azlin-cli/              # CLI entry point and command routing
+    ├── azlin-core/             # Shared types, config, caching, output
+    ├── azlin-azure/            # Azure API interactions (VMs, storage, bastion)
+    ├── azlin-ssh/              # SSH connections, tunneling, key management
+    └── azlin-ai/               # AI features (do, doit, autopilot)
+```
+
+A Python bridge (`src/azlin/`) exists for backward compatibility. Running `azlin` routes through the bridge to the native Rust binary. The Python CLI is available directly as `azlin-py`.
+
 ## System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         azlin CLI                                │
-│                      (User Entry Point)                          │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-                            v
-┌─────────────────────────────────────────────────────────────────┐
-│                    CLIOrchestrator                               │
-│                  (Workflow Coordinator)                          │
-│                                                                   │
-│  run() -> Executes 9-step workflow:                             │
-│    1. Prerequisites Check                                        │
-│    2. Azure Authentication                                       │
-│    3. SSH Key Setup                                             │
-│    4. VM Provisioning                                           │
-│    5. Wait for VM Ready                                         │
-│    6. GitHub Setup (optional)                                   │
-│    7. Notification (optional)                                   │
-│    8. Display Info                                              │
-│    9. SSH Connection                                            │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-                            v
-         ┌──────────────────┴──────────────────┐
-         │                                      │
-         v                                      v
-┌────────────────────┐              ┌────────────────────┐
-│  Core Modules      │              │  Feature Modules   │
-│  (Always Used)     │              │  (Conditional)     │
-├────────────────────┤              ├────────────────────┤
-│ 1. Prerequisites   │              │ 6. GitHub Setup    │
-│ 2. Azure Auth      │              │ 8. Notifications   │
-│ 3. SSH Keys        │              └────────────────────┘
-│ 4. VM Provisioner  │
-│ 5. SSH Connector   │
-│ 7. Progress        │
-└────────────────────┘
-
-## Module Dependencies
-
-┌─────────────────────────────────────────────────────────────────┐
-│                     Prerequisites Checker                        │
-│  - Validates: az, gh, git, ssh, tmux                            │
-│  - No dependencies                                               │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            v
-┌─────────────────────────────────────────────────────────────────┐
-│                     Azure Authenticator                          │
-│  - Uses: az CLI                                                  │
-│  - Gets: subscription ID, credentials                            │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            v
-┌─────────────────────────────────────────────────────────────────┐
-│                     SSH Key Manager                              │
-│  - Generates: ~/.ssh/azlin_key (Ed25519)                        │
-│  - Permissions: 0600 (private), 0644 (public)                   │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            v
-┌─────────────────────────────────────────────────────────────────┐
-│                     VM Provisioner                               │
-│  - Uses: SSH public key                                          │
-│  - Creates: Resource group, VM, Network                          │
-│  - Runs: cloud-init (installs 9 dev tools)                      │
-│  - Returns: VM details (IP, name, etc)                          │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            v
-┌─────────────────────────────────────────────────────────────────┐
-│                     SSH Connector                                │
-│  - Uses: SSH private key, VM IP                                 │
-│  - Waits: For SSH port + cloud-init completion                  │
-│  - Connects: With tmux session                                  │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            v (if --repo provided)
-┌─────────────────────────────────────────────────────────────────┐
-│                     GitHub Setup Handler                         │
-│  - Validates: GitHub URL (HTTPS only)                           │
-│  - Runs: gh auth login on VM                                    │
-│  - Clones: Repository to ~/repo-name                            │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            v (throughout workflow)
-┌─────────────────────────────────────────────────────────────────┐
-│                     Progress Display                             │
-│  - Shows: Real-time updates                                      │
-│  - Tracks: Elapsed time, stages                                 │
-│  - Symbols: ►, ..., ✓, ✗, ⚠                                    │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            v (if available)
-┌─────────────────────────────────────────────────────────────────┐
-│                     Notification Handler                         │
-│  - Uses: imessR (optional)                                       │
-│  - Sends: Completion/error notifications                         │
-│  - Graceful: Degrades if not available                          │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                    azlin CLI (Rust)                       │
+│                   (User Entry Point)                      │
+└───────────────────────┬─────────────────────────────────┘
+                        │
+                        v
+┌─────────────────────────────────────────────────────────┐
+│               Command Router (clap)                      │
+│   53 commands, 154 subcommand variants                   │
+│   azlin <command> [subcommand] [options]                 │
+└───────────────────────┬─────────────────────────────────┘
+                        │
+          ┌─────────────┼─────────────┐
+          │             │             │
+          v             v             v
+┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+│  azlin-core  │ │ azlin-azure  │ │  azlin-ssh   │
+│              │ │              │ │              │
+│ Config       │ │ VM lifecycle │ │ Connections  │
+│ Caching      │ │ Storage/NFS  │ │ Tunneling    │
+│ Output/Table │ │ Bastion      │ │ Key mgmt     │
+│ Types        │ │ Snapshots    │ │ X11/VNC      │
+└──────────────┘ └──────────────┘ └──────────────┘
+                        │
+                        v
+┌─────────────────────────────────────────────────────────┐
+│                    Azure CLI (az)                         │
+│              Subprocess calls for API access              │
+└─────────────────────────────────────────────────────────┘
 ```
 
-## Data Flow
+## Key Design Decisions
+
+### Azure CLI as Backend
+azlin delegates all Azure API calls to `az` CLI subprocesses rather than using the Azure SDK directly. This:
+
+- Leverages Azure CLI's authentication and credential management
+- Avoids SDK version conflicts
+- Keeps the binary self-contained (no native Azure SDK dependencies)
+
+### Custom Table Renderer
+The Rust binary includes a custom table renderer with guaranteed single-line truncation for clean terminal output, even with narrow terminals.
+
+### Non-TTY Safe
+All confirmation prompts handle piped input gracefully, making azlin safe to use in scripts and automation.
+
+### Caching
+VM lists and metadata are cached locally for fast repeated queries. Per-VM incremental cache refresh ensures newly created VMs appear immediately while avoiding full re-fetches.
+
+## Data Flow: Creating a VM
 
 ```
-User Input (CLI Args)
+User: azlin new --name myvm
          │
          v
 ┌────────────────────┐
-│  Parse Arguments   │
-│  - repo URL        │
-│  - vm-size         │
-│  - region          │
-│  - resource-group  │
+│  Parse Arguments   │  (clap)
+│  name, size,       │
+│  region, repo, os  │
 └──────┬─────────────┘
        │
        v
 ┌────────────────────┐
-│  Prerequisites     │────> Platform info, Tool versions
+│  Prerequisites     │──> Verify az CLI, SSH client
 └──────┬─────────────┘
        │
        v
 ┌────────────────────┐
-│  Azure Auth        │────> Subscription ID, Credentials
+│  Azure Auth        │──> az account show (verify login)
 └──────┬─────────────┘
        │
        v
 ┌────────────────────┐
-│  SSH Keys          │────> Public key content, Key paths
+│  SSH Keys          │──> Generate or reuse ~/.ssh/azlin_key
 └──────┬─────────────┘
        │
        v
 ┌────────────────────┐
-│  VM Provisioning   │────> VM IP, VM name, Resource group
-│  (with cloud-init) │
+│  VM Provisioning   │──> az vm create (with cloud-init)
+│  (4-5 min)         │    Installs 12 dev tools
 └──────┬─────────────┘
        │
        v
 ┌────────────────────┐
-│  Wait for Ready    │────> SSH ready, cloud-init status
+│  Wait for Ready    │──> Poll SSH + cloud-init status
 └──────┬─────────────┘
        │
        v (if --repo)
 ┌────────────────────┐
-│  GitHub Setup      │────> Repository path on VM
+│  GitHub Setup      │──> gh auth + git clone on VM
 └──────┬─────────────┘
        │
        v
 ┌────────────────────┐
-│  Display Info      │────> VM details to user
-└──────┬─────────────┘
-       │
-       v
-┌────────────────────┐
-│  SSH Connection    │────> Interactive tmux session
+│  SSH Connection    │──> Interactive tmux session
 └────────────────────┘
-```
-
-## Error Handling Flow
-
-```
-                    Start Workflow
-                         │
-                         v
-                  ┌──────────────┐
-                  │   Try Block  │
-                  └──────┬───────┘
-                         │
-         ┌───────────────┼───────────────┐
-         │               │               │
-         v               v               v
-  ┌──────────┐   ┌──────────┐   ┌──────────┐
-  │Prerequisites│ │  Azure   │   │   VM     │
-  │   Error    │ │   Auth   │   │Provision │
-  │  Exit: 2   │ │ Exit: 3  │   │ Exit: 4  │
-  └──────────┘   └──────────┘   └──────────┘
-         │               │               │
-         └───────────────┼───────────────┘
-                         │
-                         v
-              ┌─────────────────┐
-              │  Send Error     │
-              │  Notification   │
-              └────────┬────────┘
-                       │
-                       v
-              ┌─────────────────┐
-              │  Show Cleanup   │
-              │  Instructions   │
-              └────────┬────────┘
-                       │
-                       v
-                   Exit with
-                   error code
-```
-
-## Module Interaction Matrix
-
-```
-                 Pre  Auth  SSH  VM   Conn  GH   Prog  Not
-Prerequisites     -    ✓    -    -    -     -    ✓     -
-Azure Auth        ✓    -    -    ✓    -     -    ✓     -
-SSH Keys          ✓    -    -    ✓    ✓     -    ✓     -
-VM Provisioner    ✓    ✓    ✓    -    ✓     -    ✓     -
-SSH Connector     ✓    -    ✓    ✓    -     ✓    ✓     -
-GitHub Setup      ✓    -    -    -    ✓     -    ✓     -
-Progress          -    -    -    -    -     -    -     -
-Notifications     -    -    -    ✓    -     -    -     -
-
-Legend:
-  ✓ = Uses/Depends on
-  - = No dependency
 ```
 
 ## Security Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Security Boundaries                         │
-└─────────────────────────────────────────────────────────────────┘
+- **Credentials**: Delegated entirely to Azure CLI (`~/.azure/`). azlin never stores tokens or passwords.
+- **SSH Keys**: Ed25519 keys at `~/.ssh/azlin_key` with 0600 permissions. Key-based auth only, no passwords.
+- **NFS Storage**: RootSquash enabled, Azure AD authentication (no storage keys).
+- **VNC**: Localhost-only binding with random per-session passwords, all traffic through SSH tunnel.
+- **Bastion**: SSH and GUI traffic tunneled through Azure Bastion for private VMs with no public IPs.
 
-User Space
-  │
-  ├─> Azure CLI (~/.azure/)
-  │   └─> Credentials stored by az CLI (delegated)
-  │       - Access tokens
-  │       - Refresh tokens
-  │       - Subscription info
-  │
-  ├─> SSH Keys (~/.ssh/)
-  │   └─> azlin_key (0600 - read/write owner only)
-  │       azlin_key.pub (0644 - readable by all)
-  │
-  └─> azlin (no storage)
-      └─> Only uses credentials via:
-          - az CLI subprocess calls
-          - SSH key file paths
-          - Never stores tokens/passwords
+## Performance
 
-Network Communication
-  │
-  ├─> Azure API
-  │   └─> Via az CLI (HTTPS)
-  │       - VM provisioning
-  │       - Resource management
-  │
-  ├─> GitHub API
-  │   └─> Via gh CLI (HTTPS)
-  │       - Authentication
-  │       - Repository operations
-  │
-  └─> VM SSH
-      └─> Via ssh client (SSH protocol)
-          - Key-based auth only
-          - No password auth
-```
+The Rust rewrite provides 75-85x faster startup compared to the original Python implementation:
 
-## File System Layout
+- **Cold start**: ~50ms (vs ~4s in Python)
+- **`azlin list` (cached)**: ~100ms
+- **Parallel CLI tool detection**: 5s startup (down from 15s)
+- **Batch storage quota queries**: Eliminates N+1 Azure CLI calls
 
-```
-azlin-feat-1/
-├── src/
-│   └── azlin/
-│       ├── __init__.py              # Package metadata
-│       ├── __main__.py              # Entry point
-│       ├── cli.py                   # Orchestrator (648 lines)
-│       ├── azure_auth.py            # Azure auth
-│       ├── vm_provisioning.py       # VM provisioning
-│       └── modules/
-│           ├── __init__.py
-│           ├── prerequisites.py     # Prerequisites
-│           ├── ssh_keys.py          # SSH keys
-│           ├── ssh_connector.py     # SSH connector
-│           ├── github_setup.py      # GitHub setup
-│           ├── progress.py          # Progress display
-│           └── notifications.py     # Notifications
-│
-├── tests/                           # Unit tests
-├── pyproject.toml                   # Package config
-├── README.md                        # User documentation
-├── ORCHESTRATION_COMPLETE.md        # Implementation docs
-├── CLI_REFERENCE.md                 # CLI reference
-├── INTEGRATION_SUMMARY.md           # Summary
-├── ARCHITECTURE.md                  # This file
-└── test_orchestration.py            # Integration test
-```
+## Testing
 
-## State Machine
-
-```
-┌─────────┐
-│  Start  │
-└────┬────┘
-     │
-     v
-┌──────────────────┐
-│ Check Prerequisites │────> [FAIL] ──> Exit 2
-└────┬──────────────┘
-     │ [PASS]
-     v
-┌──────────────────┐
-│ Azure Auth       │────> [FAIL] ──> Exit 3
-└────┬──────────────┘
-     │ [PASS]
-     v
-┌──────────────────┐
-│ SSH Key Setup    │────> [FAIL] ──> Exit 4
-└────┬──────────────┘
-     │ [PASS]
-     v
-┌──────────────────┐
-│ VM Provisioning  │────> [FAIL] ──> Exit 4 + Cleanup
-└────┬──────────────┘
-     │ [PASS]
-     v
-┌──────────────────┐
-│ Wait for Ready   │────> [FAIL] ──> Exit 5
-└────┬──────────────┘
-     │ [PASS]
-     v
-┌──────────────────┐
-│ GitHub Setup     │────> [FAIL] ──> Continue (optional)
-└────┬──────────────┘
-     │ [PASS/SKIP]
-     v
-┌──────────────────┐
-│ Send Notification│
-└────┬──────────────┘
-     │
-     v
-┌──────────────────┐
-│ Display Info     │
-└────┬──────────────┘
-     │
-     v
-┌──────────────────┐
-│ SSH Connect      │────> [FAIL] ──> Exit 5 (VM still running)
-└────┬──────────────┘
-     │ [PASS]
-     v
-┌──────────────────┐
-│  tmux Session    │
-│  (Interactive)   │
-└──────────────────┘
-```
-
-## Workflow Timing
-
-```
-Typical Workflow Duration: 7-9 minutes
-
-┌────────────────────────────────────────────────┐
-│ Prerequisites Check             │ 0.1s         │
-├────────────────────────────────────────────────┤
-│ Azure Authentication            │ 0.5s         │
-├────────────────────────────────────────────────┤
-│ SSH Key Setup                   │ 0.1s         │
-├────────────────────────────────────────────────┤
-│ VM Provisioning                 │ 4-5 min      │
-├────────────────────────────────────────────────┤
-│ Wait for SSH Ready              │ 0.5-1 min    │
-├────────────────────────────────────────────────┤
-│ Wait for cloud-init             │ 2-3 min      │
-├────────────────────────────────────────────────┤
-│ GitHub Setup (if --repo)        │ 0.5-1 min    │
-├────────────────────────────────────────────────┤
-│ Display Info + Notification     │ 0.1s         │
-├────────────────────────────────────────────────┤
-│ SSH Connection                  │ 0.1s         │
-└────────────────────────────────────────────────┘
-
-Total: 7-9 minutes
-  - VM provisioning: 4-5 min (longest step)
-  - cloud-init: 2-3 min (tool installation)
-  - Other steps: < 2 min combined
-```
-
-## Concurrency Model
-
-```
-Sequential Execution (No Parallelism)
-
-Step N ──> Wait for completion ──> Step N+1
-
-Rationale:
-- Each step depends on previous step's output
-- VM IP needed before SSH connection
-- SSH ready needed before GitHub setup
-- Clear error handling at each step
-```
+- **2,536 tests** across unit, integration, and orchestration levels
+- Tests run with `cargo test` in the Rust workspace
+- Python bridge tests in `tests/` directory
+- CI runs on every push via GitHub Actions
 
 ## Extension Points
 
-```
-Future Extensions:
-
-1. Config File Support
-   └─> --config flag currently unused
-   └─> Could load VM size, region, repos from file
-
-2. Custom cloud-init Scripts
-   └─> Allow user-defined tool installation
-   └─> Override default cloud-init
-
-3. Multiple Repository Support
-   └─> --repo could accept multiple URLs
-   └─> Clone multiple repos to VM
-
-4. VM Templates
-   └─> Pre-defined VM configurations
-   └─> Quick launch for common setups
-
-5. Resource Tagging
-   └─> Add tags to Azure resources
-   └─> Better organization and cost tracking
-```
-
-## Testing Strategy
-
-```
-Level 1: Unit Tests
-  └─> Individual module methods
-  └─> Mock external dependencies
-  └─> Fast execution
-
-Level 2: Integration Tests
-  └─> Module interaction
-  └─> Mock Azure/GitHub APIs
-  └─> Verify data flow
-
-Level 3: Orchestration Tests ✓ (COMPLETE)
-  └─> Full workflow without provisioning
-  └─> Verify all modules load
-  └─> Verify workflow steps exist
-
-Level 4: E2E Tests (Manual)
-  └─> Actual Azure provisioning
-  └─> Real VM creation
-  └─> Cost implications
-```
-
-## Performance Considerations
-
-```
-Bottlenecks:
-1. VM Provisioning (4-5 min)
-   └─> Azure API limits
-   └─> Cannot parallelize
-
-2. cloud-init (2-3 min)
-   └─> Package installation
-   └─> Network bandwidth
-   └─> Cannot skip (tools needed)
-
-Optimizations:
-- Use B-series for dev (cheaper, faster)
-- Choose region close to user (faster network)
-- Cache prerequisites check (already fast)
-- Reuse SSH keys (already implemented)
-```
-
-## Conclusion
-
-The azlin architecture is designed as a **linear orchestrator** that:
-
-1. **Validates** prerequisites before starting
-2. **Authenticates** with Azure securely
-3. **Provisions** VMs with all dev tools
-4. **Connects** automatically via SSH
-5. **Handles** errors gracefully
-6. **Cleans up** on failure
-
-All modules are **self-contained bricks** with **clear contracts**, making the system **maintainable** and **testable**.
+- **Templates**: Pre-defined VM configurations for common setups
+- **Cloud-init customization**: User-defined tool installation scripts
+- **Contexts**: Multiple Azure subscription/region profiles
+- **AI commands**: Natural language VM management via `azlin do`

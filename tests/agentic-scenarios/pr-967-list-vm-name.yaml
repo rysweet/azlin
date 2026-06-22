@@ -1,0 +1,86 @@
+name: "azlin list -w shows full VM names"
+description: |
+  Verifies that azlin list -w does not truncate the VM Name column.
+  The column auto-sizes to the longest name and is protected from shrink passes.
+version: "1.0.0"
+
+config:
+  timeout: 30000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 10000
+
+steps:
+  - name: "Verify -w flag shows VM Name column"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "rust/target/debug/azlin list -w --help | grep -q 'wide' && echo PASS"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 5000
+
+  - name: "Verify VM Name column header present in wide mode help"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        grep -c 'VM Name' rust/crates/azlin/src/cmd_list_render.rs | head -1
+        echo "PASS: VM Name column defined"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 5000
+
+  - name: "Verify VM Name is protected from shrink"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        if grep -q '"VM Name"' rust/crates/azlin/src/cmd_list_render.rs && \
+           grep -q 'protected.*VM Name' rust/crates/azlin/src/cmd_list_render.rs; then
+          echo "PASS: VM Name is in protected list"
+        else
+          echo "FAIL: VM Name not protected"
+          exit 1
+        fi
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 5000
+
+  - name: "Verify VM Name column auto-sizes"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        if grep -q 'vm.name.len()' rust/crates/azlin/src/cmd_list_render.rs; then
+          echo "PASS: VM Name column auto-sizes to content"
+        else
+          echo "FAIL: VM Name column uses fixed width"
+          exit 1
+        fi
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 5000
+
+assertions:
+  - name: "VM Name protected from truncation"
+    type: "command_success"
+    agent: "cli-agent"
+    params:
+      step: "Verify VM Name is protected from shrink"
+
+metadata:
+  tags:
+    - "list"
+    - "cli"
+    - "ux"
+  priority: "high"

@@ -295,8 +295,6 @@ azlin storage mount vm <storage> --vm my-vm
 ## Related Features
 
 - [VM Cloning](../vm-lifecycle/cloning.md) - Clone with shared storage
-- [Snapshots](../snapshots/index.md) - Backup entire storage
-- [File Transfer](../file-transfer/index.md) - Alternative data sharing
 
 ## Source Code
 

@@ -220,13 +220,13 @@ jobs:
 
 ## Related Commands
 
-- [`azlin session`](../commands/session.md) - Manage session names
-- [`azlin connect`](../commands/connect.md) - Connect to sessions
-- [`azlin list`](../commands/list.md) - List all sessions
-- [`azlin exec`](../commands/command.md) - Execute commands on sessions
+- [`azlin session`](../commands/vm/session.md) - Manage session names
+- [`azlin connect`](../commands/vm/connect.md) - Connect to sessions
+- [`azlin list`](../commands/vm/list.md) - List all sessions
+- [`azlin exec`](../commands/batch/command.md) - Execute commands on sessions
 
 ## See Also
 
 - [Session Management Guide](../advanced/session-management.md)
-- [Multi-VM Workflows](../advanced/multi-vm-workflows.md)
-- [Team Collaboration](../advanced/team-collaboration.md)
+- Multi-VM Workflows
+- Team Collaboration

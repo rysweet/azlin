@@ -1,29 +1,74 @@
 # azlin - Azure Ubuntu VM Provisioning CLI
 
-**[Full Documentation](https://rysweet.github.io/azlin/)** | **[Quick Start](https://rysweet.github.io/azlin/getting-started/quickstart/)** | **[Discussions](https://github.com/rysweet/azlin/discussions)**
+[![Latest Release](https://img.shields.io/github/v/release/rysweet/azlin?label=latest&sort=semver)](https://github.com/rysweet/azlin/releases/latest)
 
-**Version:** 2.2.1
-**Last Updated:** 2026-02-10
-**[Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.2.1)** | **[Changelog](CHANGELOG.md)** | **[Latest Release](https://github.com/rysweet/azlin/releases/tag/v2.2.1)**
+**[Full Documentation](https://rysweet.github.io/azlin/)** | **[Quick Start](https://rysweet.github.io/azlin/getting-started/quickstart/)** | **[Discussions](https://github.com/rysweet/azlin/discussions)** | **[Release Notes](https://github.com/rysweet/azlin/releases/latest)** | **[Changelog](CHANGELOG.md)**
 
 **One command to create a fully-equipped development VM on Azure**
 
-```bash
-# Run directly from GitHub (no installation needed)
-uvx --from git+https://github.com/rysweet/azlin azlin new
+## Install
 
-# Create VM with custom name (NEW in v0.3.2!)
+```bash
+curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-linux-$(uname -m).tar.gz | tar xz && mkdir -p ~/.local/bin && mv azlin-linux-$(uname -m) ~/.local/bin/azlin && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && export PATH="$HOME/.local/bin:$PATH"
+```
+
+Verify: `azlin --version`
+
+<details>
+<summary>Other install methods</summary>
+
+#### macOS
+
+```bash
+curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-macos-$(uname -m).tar.gz | tar xz && sudo mv azlin-macos-$(uname -m) /usr/local/bin/azlin
+```
+
+#### Build from Source
+
+```bash
+git clone https://github.com/rysweet/azlin && cd azlin/rust && cargo install --path crates/azlin
+```
+
+</details>
+
+### Self-Update
+
+```bash
+azlin update
+```
+
+### Verify
+
+```bash
+azlin --version
+azlin --help
+```
+
+## Quick Start
+
+```bash
+# Create VM with custom name
 azlin new --name myproject
 
-# Fully automated provisioning (NEW in v0.3.2!)
+# Fully automated provisioning
 azlin new --name myvm --yes  # Zero prompts!
 
 # Create VM and clone GitHub repo
 azlin new --repo https://github.com/owner/repo
 
-# Mount Azure Files locally on macOS (NEW in v0.3.2!)
-azlin storage mount local --mount-point ~/azure/
+# Check health of all VMs
+azlin health
 ```
+
+`azlin new` selects the first available public key from
+`~/.ssh/azlin_key.pub`, `~/.ssh/id_ed25519_azlin.pub`,
+`~/.ssh/id_ed25519.pub`, then `~/.ssh/id_rsa.pub`. When create-time home
+seeding, repo clone, or first auto-connect shell run, azlin reuses the
+matching private key for those phases too. If one of those post-create SSH
+phases is enabled and the matching private key is missing, `azlin new` now
+errors instead of silently falling back to a different identity. If the create
+flow routes through bastion, `azlin new --bastion-name <name>` is reused for
+the later auth-forward, home seeding, and first auto-connect phases too.
 
 ## What is azlin?
 
@@ -32,14 +77,14 @@ azlin automates the tedious process of setting up Azure Ubuntu VMs for developme
 1. Authenticates with Azure
 2. Provisions an Ubuntu 24.04 VM
 3. Installs 12 essential development tools
-4. Creates a separate 100GB disk for /home (persistent storage)
+4. Creates a separate 100GB Premium SSD for /home (persistent storage), with optional /tmp disk
 5. Sets up SSH with key-based authentication
 6. Starts a persistent tmux session
 7. Optionally clones a GitHub repository
 
 **Total time**: 4-7 minutes from command to working development environment.
 
-##  Azlin Mobile PWA (NEW!)
+## Azlin Mobile PWA
 
 **Manage your Azure VMs from your iPhone!**
 
@@ -53,87 +98,53 @@ The Azlin Mobile PWA brings full VM management to your mobile device. Install it
 
 **[PWA Documentation](docs/pwa/README.md)** | **[Getting Started](docs/pwa/getting-started.md)** | **[Architecture](docs/pwa/architecture.md)**
 
-## What's New in v2.2.1
+## Highlights
 
-### azlin restore - Automatic Session Restoration
-Restore all your development sessions with one command:
+azlin is written in Rust with pre-built binaries for Linux (x86_64, aarch64) and macOS (x86_64, aarch64). Self-update with `azlin self-update`.
+
+### VM Health Dashboard
+Monitor all your VMs with Four Golden Signals:
 ```bash
-azlin restore  # Launches terminals for all active VMs
-azlin restore --dry-run  # Preview what would be restored
+azlin health                 # All VMs in default resource group
+azlin health --vm my-vm      # Single VM check
+```
+Displays latency (SSH), traffic (state), errors, and saturation (CPU/Mem/Disk).
+
+### VM Log Viewer
+View syslog, cloud-init, auth, and azlin logs from any VM:
+```bash
+azlin logs my-vm                      # View last 100 lines of syslog (default)
+azlin logs my-vm --follow             # Stream syslog in real-time
+azlin logs my-vm --type cloud-init    # View cloud-init provisioning logs
+azlin logs my-vm --type auth          # View authentication logs
+azlin logs my-vm --type azlin         # View azlin agent logs
+azlin logs my-vm --type all           # View all log types (snapshot)
+azlin logs my-vm --lines 50           # View last 50 lines
 ```
 
-**Features:**
-- Works on macOS, Windows Terminal, WSL, and Linux
-- Multi-tab support for Windows Terminal
-- Configurable terminal preferences in ~/.azlin/config.toml
-- Smart session-to-VM mapping
-
-See [azlin restore documentation](https://rysweet.github.io/azlin/commands/restore/) for details.
-
-### Faster Performance
-**azlin list is now 10x faster** with intelligent caching:
-- First run: ~3 seconds
-- Cached results: <100ms
-- Auto-refreshes in background
-- 90% fewer Azure API calls
-
-### Private IP VM Support
-**azlin code now works with Bastion-only VMs:**
+### Ubuntu Version Selection
+Specify Ubuntu version when creating VMs:
 ```bash
-azlin code my-private-vm  # Automatically creates Bastion tunnel
-```
-- VS Code launcher supports Bastion tunnels
-- Automatic retry logic for reliability
-- No public IP required
-
-See [Release Notes](https://github.com/rysweet/azlin/releases/tag/v2.2.1) for complete feature list including iOS PWA, separate /home disk support, and more.
-
----
-
-## What's New in v0.4.0
-
-### Separate Home Disk (NEW)
-VMs now automatically get a dedicated 100GB disk for `/home`:
-```bash
-azlin new                      # 100GB home disk (default)
-azlin new --home-disk-size 200  # Custom size
-azlin new --no-home-disk        # Disable (use OS disk)
+azlin new --os 25.10         # Ubuntu 25.10
 ```
 
-**Benefits:**
-- Persistent storage isolated from OS disk
-- No NFS setup required
-- Cost-effective ($4.80/month for 100GB)
-- Automatic formatting and mounting
-
-See [Separate Home Disk Guide](docs/how-to/separate-home-disk.md) for details.
-
-##  What's New in v0.3.2
-
-### Custom VM Names
-Give your VMs meaningful names instead of timestamps:
+### Separate /tmp Disk Support
+Add dedicated `/tmp` disks to new VMs with `--tmp-disk-size`:
 ```bash
-azlin new --name myproject   # VM named "myproject"
-azlin connect myproject      # Connect by name
-azlin list                   # See custom names
+azlin new --name build-vm --tmp-disk-size 64          # 64GB /tmp disk
+azlin new --name ml-vm --home-disk-size 500 --tmp-disk-size 128  # Both disks
 ```
+Disks are Premium SSD, tagged with `azlin-session`/`azlin-role`, and set up via hardened cloud-init with retry logic and graceful degradation. See [Disk Guide](docs/how-to/separate-home-disk.md).
 
-### Complete --yes Automation
-Full CI/CD automation - ALL prompts now respect `--yes`:
-```bash
-azlin new --name ci-vm --yes  # Zero interaction required!
-```
+### Compound VM:Session Naming
+Address VMs with `hostname:session_name` syntax across all commands.
 
-### Mount Local for macOS
-Access Azure Files from your Mac via Finder:
-```bash
-azlin storage mount local --mount-point ~/azure/
-# Your Azure Files now accessible locally!
-```
+### Performance Improvements
+- CLI tool detection parallelized (15s to 5s startup)
+- Batch storage quota queries eliminate N+1 Azure CLI calls
+- Per-VM incremental cache refresh
 
-### Python 3.13 & Ripgrep
-- All new VMs get Python 3.13+
-- ripgrep (rg) pre-installed for fast search
+See [Release Notes](https://github.com/rysweet/azlin/releases/latest) and [Changelog](CHANGELOG.md) for the complete list.
 
 ## Development Tools Installed
 
@@ -170,6 +181,23 @@ Node.js is configured for user-local global package installations, which means:
 - Automatic PATH and MANPATH configuration
 - Clean separation from system Node.js packages
 
+### Verifying Installed Tool Versions
+
+All VMs automatically log installed versions of npm and ripgrep during provisioning:
+
+```bash
+# View all tool versions logged during provisioning
+grep '[AZLIN_VERSION]' /var/log/cloud-init-output.log
+
+# Example output (actual versions may vary):
+# [AZLIN_VERSION] npm: 10.2.4
+# [AZLIN_VERSION] rg: 14.1.0
+```
+
+**Note**: The versions shown are examples. Actual versions depend on Ubuntu repository state at provision time. npm is bundled with Node.js 20.x LTS (installed via apt), not installed separately.
+
+This provides an audit trail of exactly which tool versions were installed, useful for troubleshooting and compliance.
+
 ## Prerequisites
 
 Before using azlin, ensure these tools are installed:
@@ -185,83 +213,9 @@ Before using azlin, ensure these tools are installed:
 **macOS**: `brew install azure-cli gh git tmux`
 **Linux**: See platform-specific installation in Prerequisites module
 
-## Quick Start
-
-### Getting Help
+### Copy Files to/from VMs
 
 ```bash
-# Show all available commands
-azlin
-
-# Or use the help flag
-azlin --help
-
-# Get help for specific commands
-azlin new --help
-azlin list --help
-```
-
-### Option 1: Zero-Install with uvx (Recommended for Trying)
-
-Run azlin instantly without installation using [uvx](https://docs.astral.sh/uv/concepts/tools/):
-
-```bash
-# Run directly from GitHub (no installation needed)
-uvx --from git+https://github.com/rysweet/azlin azlin list
-
-# Provision a VM
-uvx --from git+https://github.com/rysweet/azlin azlin new
-
-# Clone a repo on the VM
-uvx --from git+https://github.com/rysweet/azlin azlin new --repo https://github.com/microsoft/vscode
-
-# Any azlin command works
-uvx --from git+https://github.com/rysweet/azlin azlin status
-```
-
-**Tip**: For shorter commands, set an alias:
-```bash
-alias azlin-git='uvx --from git+https://github.com/rysweet/azlin azlin'
-azlin-git list
-```
-
-### Option 2: Install with uv (Recommended)
-
-```bash
-# Install azlin using uv (fastest)
-uv tool install azlin
-
-# Or install from GitHub
-uv tool install git+https://github.com/rysweet/azlin
-
-# Now use azlin commands
-azlin list
-azlin --help
-```
-
-### Option 3: Install with pip
-
-```bash
-# Create and activate virtual environment
-uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install azlin
-uv pip install azlin
-
-# Or use regular pip
-pip install azlin
-
-# Create a development VM
-azlin new
-
-# Create VM and clone a repo
-azlin new --repo https://github.com/microsoft/vscode
-
-# Sync your dotfiles to existing VMs
-azlin sync
-
-# Copy files to/from VMs
 azlin cp myfile.txt vm1:~/
 azlin cp vm1:~/data.txt ./
 ```
@@ -310,8 +264,8 @@ Connect to VMs securely without public IPs using Azure Bastion:
 # List available Bastion hosts
 azlin bastion list
 
-# Connect to VM through Bastion (auto-detected)
-azlin connect my-vm --use-bastion
+# Connect to VM through Bastion (auto-detected when available)
+azlin connect my-vm
 
 # Configure VM to use specific Bastion
 azlin bastion configure my-vm --bastion-name my-bastion --resource-group my-rg
@@ -403,31 +357,32 @@ azlin automatically handles connection complexities so you can focus on your wor
 
 ### Auto-Sync SSH Keys
 
-azlin automatically synchronizes SSH keys from Azure Key Vault to your VMs before connecting. No more "Permission denied" errors from key mismatches.
+For bastion-routed VM targets, azlin can re-push your local public key to the
+VM with `az vm user update` after a permission error, then retry the
+connection.
 
 ```bash
 # Just connect - azlin handles the rest
 azlin connect my-vm
 
 # Output:
-# Fetching SSH key from Key Vault... ✓
-# Auto-syncing key to VM... ✓
-# SSH key synchronized to VM
+# SSH auth failed for my-vm, syncing key via az vm user update...
+# Key synced, retrying SSH...
 # Connecting to my-vm...
 # Connected!
 ```
 
 **What it does:**
-- Fetches the correct SSH key from Key Vault (source of truth)
-- Checks if the key exists in the VM's authorized_keys
-- Appends the key if missing (never replaces existing keys)
-- Proceeds with connection
+- Reuses your local public key
+- Pushes that key with `az vm user update`
+- Retries the SSH command after the VM accepts the key
+- Preserves existing keys on the VM
 
 **Benefits:**
 - Eliminates key mismatch connection failures
-- Automatic key synchronization on first connection
+- Automatic retry on supported routes
 - Safe append-only operations (preserves existing keys)
-- Works automatically - no manual intervention
+- No manual recovery step when the VM rejects the current key
 
 ### Auto-Detect Resource Group
 
@@ -478,11 +433,8 @@ Disable features for specific connections:
 # Disable auto-sync for this connection
 azlin connect my-vm --no-auto-sync-keys
 
-# Disable auto-detect (requires --resource-group)
-azlin connect my-vm --no-auto-detect-rg --resource-group my-rg
-
-# Force cache refresh
-azlin connect my-vm --force-rg-refresh
+# Specify resource group explicitly
+azlin connect my-vm --resource-group my-rg
 ```
 
 ### Documentation
@@ -525,6 +477,7 @@ This section provides detailed examples of all azlin commands with practical use
 - [VM Maintenance](#vm-maintenance) - Update tools and packages
 - [Connection](#connection) - Connect to VMs
 - [Azure Bastion](#azure-bastion-secure-vm-access) - Secure VM access without public IPs
+- [GUI & Remote Desktop](#gui--remote-desktop) - X11 forwarding and VNC desktop
 - [Monitoring](#monitoring) - Monitor VM status and processes
 - [File Operations](#file-operations) - Transfer and sync files
 - [Shared Storage](#shared-storage) - NFS storage across VMs
@@ -546,7 +499,7 @@ This section provides detailed examples of all azlin commands with practical use
 
 Most azlin commands support these standard options:
 
-- **`--resource-group, --rg TEXT`** - Specify the Azure resource group to use. If not provided, uses the default resource group from your config file (`~/.azlin/config.toml`) or prompts for selection.
+- **`--resource-group <RESOURCE_GROUP>`** - Specify the Azure resource group to use. If not provided, uses the default resource group from your config file (`~/.azlin/config.toml`) or prompts for selection.
 - **`--config PATH`** - Path to a custom config file (overrides the default `~/.azlin/config.toml`)
 
 These options are available on nearly all commands that interact with Azure resources, including:
@@ -1160,11 +1113,11 @@ Stores VM-to-Bastion mapping in `~/.azlin/bastion_config.toml` for automatic use
 azlin connect my-private-vm --resource-group my-rg
 # Output: Found Bastion host 'my-bastion'. Use it? (y/N)
 
-# Force Bastion connection
-azlin connect my-vm --use-bastion --resource-group my-rg
+# Connect via Bastion (auto-detected when Bastion exists)
+azlin connect my-vm --resource-group my-rg
 
-# Use specific Bastion
-azlin connect my-vm --use-bastion --bastion-name my-bastion
+# Disable Bastion connection pooling
+azlin connect my-vm --disable-bastion-pool
 ```
 
 **How It Works:**
@@ -1206,6 +1159,30 @@ prefer_bastion = false  # Prefer direct connection when both available
 
 - **Security Requirements**: See [BASTION_SECURITY_REQUIREMENTS.md](docs/BASTION_SECURITY_REQUIREMENTS.md)
 - **Security Testing**: See [BASTION_SECURITY_TESTING.md](docs/BASTION_SECURITY_TESTING.md)
+
+---
+
+## GUI & Remote Desktop
+
+Run graphical applications from your Azure VMs. Two approaches are supported:
+
+```bash
+# X11 forwarding: display individual GUI apps locally
+azlin connect --x11 my-vm
+# Then on the VM: gitk --all &
+
+# VNC desktop: full remote desktop session
+azlin gui my-vm
+azlin gui my-vm --resolution 2560x1440
+```
+
+- **X11 forwarding** (`--x11`) tunnels individual app windows over SSH. Best for lightweight tools like gitk, meld, and xeyes.
+- **VNC desktop** (`azlin gui`) launches a full XFCE desktop, auto-installs dependencies, and opens your local VNC viewer. VNC runs on localhost only with random per-session passwords -- all traffic is encrypted through the SSH or bastion tunnel.
+- **First-run GUI setup** uses the same `--user` and `--key` values as the tunnel, runs non-interactively, and exits with the setup error if dependency installation cannot finish.
+
+Both approaches work transparently through Azure Bastion.
+
+See [GUI Forwarding Guide](docs/GUI_FORWARDING.md) for prerequisites, options, and troubleshooting.
 
 ---
 
@@ -2024,18 +2001,15 @@ azlin snapshot sync --vm my-vm
 
 ## Natural Language Commands (AI-Powered)
 
-**New in v2.1**: Use natural language to control azlin with Claude AI
+Use natural language to control azlin with Claude AI
 
-The `azlin do` command understands what you want and executes the appropriate commands automatically. Just describe what you need in plain English, and azlin figures out the right commands to run.
+The `azlin doit` command understands what you want and executes the appropriate commands automatically. Just describe what you need in plain English, and azlin figures out the right commands to run.
 
 ### Installation & Setup
 
 ```bash
 # Install via uvx (no installation needed)
-uvx --from git+https://github.com/rysweet/azlin azlin do "list all my vms"
-
-# Or install locally
-pip install git+https://github.com/rysweet/azlin
+uvx --from git+https://github.com/rysweet/azlin azlin doit "list all my vms"
 
 # Configure your API key (required)
 export ANTHROPIC_API_KEY=sk-ant-xxxxx...
@@ -2052,38 +2026,38 @@ All of these were tested and work reliably:
 
 ```bash
 # VM Provisioning
-azlin do "create a new vm called Sam"
-azlin do "provision a Standard_D4s_v3 vm called ml-trainer"
-uvx --from git+https://github.com/rysweet/azlin azlin do "create a vm"
+azlin doit "create a new vm called Sam"
+azlin doit "provision a Standard_D4s_v3 vm called ml-trainer"
+uvx --from git+https://github.com/rysweet/azlin azlin doit "create a vm"
 
 # Listing VMs
-azlin do "show me all my vms"
-azlin do "list all my vms"
-azlin do "what vms do I have"
+azlin doit "show me all my vms"
+azlin doit "list all my vms"
+azlin doit "what vms do I have"
 
 # Checking Status
-azlin do "what is the status of my vms"
-azlin do "show me vm details"
+azlin doit "what is the status of my vms"
+azlin doit "show me vm details"
 
 # Cost Queries
-azlin do "what are my azure costs"
-azlin do "show me costs by vm"
-azlin do "what's my current azure spending"
+azlin doit "what are my azure costs"
+azlin doit "show me costs by vm"
+azlin doit "what's my current azure spending"
 
 # File Operations
-azlin do "sync all my vms"
-azlin do "sync my home directory to vm Sam"
-azlin do "copy myproject to the vm"
+azlin doit "sync all my vms"
+azlin doit "sync my home directory to vm Sam"
+azlin doit "copy myproject to the vm"
 
 # Starting/Stopping VMs
-azlin do "start my development vm"
-azlin do "stop all test vms"
-azlin do "stop all idle vms to save costs"
+azlin doit "start my development vm"
+azlin doit "stop all test vms"
+azlin doit "stop all idle vms to save costs"
 
 # Complex Multi-Step Operations
-azlin do "create 5 test vms and sync them all"
-azlin do "set up a new development environment"
-azlin do "show me my costs and stop any vms I'm not using"
+azlin doit "create 5 test vms and sync them all"
+azlin doit "set up a new development environment"
+azlin doit "show me my costs and stop any vms I'm not using"
 ```
 
 ### Resource Cleanup with Natural Language
@@ -2092,22 +2066,22 @@ Safe, step-by-step cleanup workflow:
 
 ```bash
 # Step 1: List what you have
-azlin do "show me all my vms"
+azlin doit "show me all my vms"
 
 # Step 2: Preview deletion (dry-run)
-azlin do "delete all test vms" --dry-run
+azlin doit "delete all test vms" --dry-run
 
 # Step 3: Execute deletion (with confirmation)
-azlin do "delete all test vms"
+azlin doit "delete all test vms"
 # Shows what will be deleted and asks "Execute these commands? [y/N]"
 
 # Step 4: Verify cleanup
-azlin do "list all vms"
+azlin doit "list all vms"
 
 # Other cleanup examples
-azlin do "delete vm called experiment-123"
-azlin do "delete vms older than 7 days"
-azlin do "stop all stopped vms to deallocate them"
+azlin doit "delete vm called experiment-123"
+azlin doit "delete vms older than 7 days"
+azlin doit "stop all stopped vms to deallocate them"
 ```
 
 ### Error Handling & Safety
@@ -2116,15 +2090,15 @@ The system gracefully handles invalid requests:
 
 ```bash
 # Invalid requests (no action taken)
-azlin do "make me coffee"
+azlin doit "make me coffee"
 # Response: Warning: Low confidence. No commands executed.
 
 # Ambiguous requests (asks for clarification)
-azlin do "update something"
+azlin doit "update something"
 # Response: Warning: Low confidence. Continue anyway? [y/N]
 
 # Dry-run for safety
-azlin do "delete everything" --dry-run
+azlin doit "delete everything" --dry-run
 # Shows plan without executing anything
 ```
 
@@ -2132,16 +2106,16 @@ azlin do "delete everything" --dry-run
 
 ```bash
 # Preview without executing
-azlin do "delete all old vms" --dry-run
+azlin doit "delete all old vms" --dry-run
 
 # Skip confirmation prompts (for automation)
-azlin do "create vm test-001" --yes
+azlin doit "create vm test-001" --yes
 
 # See detailed parsing and execution
-azlin do "create a vm" --verbose
+azlin doit "create a vm" --verbose
 
 # Combine options
-azlin do "delete test vms" --dry-run --verbose
+azlin doit "delete test vms" --dry-run --verbose
 ```
 
 ### Features
@@ -2222,9 +2196,8 @@ azlin doit cleanup --force      # Delete all doit resources
 ```
 
 **📖 Learn More:**
-- [Quick Start Guide](QUICKSTART_DOIT.md)
-- [Tagging & Management](DOIT_TAGGING_AND_MANAGEMENT.md)
-- [Architecture Docs](src/azlin/doit/README.md)
+- [Doit Documentation](docs/AZDOIT.md)
+- [Doit README](docs/AZDOIT_README.md)
 
 ---
 
@@ -2381,7 +2354,7 @@ azlin start my-vm  # Start if stopped
 ```
 
 **Connection drops frequently?**
-- Auto-reconnect feature will prompt you (new in v2.1!)
+- Auto-reconnect feature will prompt you
 - Check network stability
 - Consider using screen/tmux for persistence
 

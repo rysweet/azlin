@@ -264,4 +264,4 @@ For complex operations, use direct azlin commands with full control.
 
 - [Quick Start](../../getting-started/quickstart.md)
 - [Cost Tracking](../../monitoring/cost.md)
-- [AI Command Examples](../../examples/ai-commands.md)
+- [AI Features Overview](../../ai/index.md)

@@ -44,7 +44,6 @@ Runs on:
 - **Bandit** - Python security linter (checks for common security issues)
 - **Safety** - Checks dependencies for known vulnerabilities
 - **CodeQL** - GitHub's advanced security analysis
-- **Trivy** - Vulnerability scanner for dependencies
 - **OSSF Scorecard** - Project security posture check (main branch only)
 - **Security Summary** - Aggregates all security scan results
 

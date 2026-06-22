@@ -197,7 +197,7 @@ Variables are stored in:
 - Local: `~/.azlin/env/<vm-name>.env`
 - VM: `/etc/azlin/environment`
 
-See [Environment Management](../environment/index.md) for details.
+Use `azlin env --help` to see environment management commands.
 
 ### Cost Management
 

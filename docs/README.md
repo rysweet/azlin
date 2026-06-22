@@ -1,5 +1,7 @@
 # azlin Documentation
 
+> **Note**: As of v2.6.17, azlin is implemented in Rust. The `azlin` command routes through a Python bridge to the native Rust binary (75-85x faster). The Python CLI remains available as `azlin-py`. See [../README.md](../README.md) for updated installation instructions.
+
 This directory contains comprehensive documentation for azlin - Azure VM provisioning CLI.
 
 ## Documentation by Audience
@@ -27,6 +29,9 @@ This directory contains comprehensive documentation for azlin - Azure VM provisi
 - **[features/tmux-session-status.md](features/tmux-session-status.md)** - Visual tmux session connection status in VM listings
 - **[features/memory-latency.md](features/memory-latency.md)** - Memory allocation and network latency monitoring
 - **[features/session-restore.md](features/session-restore.md)** - Automatic session restore feature overview and architecture
+- **[features/credential-forwarding.md](features/credential-forwarding.md)** - Automatic credential forwarding (gh, az, Copilot, Claude) to new VMs
+- **[how-to/forward-credentials.md](how-to/forward-credentials.md)** - Forward developer credentials to a VM after creation
+- **[reference/credential-forwarding.md](reference/credential-forwarding.md)** - Credential forwarding technical reference (detection, SCP, security)
 
 ### For Developers
 
@@ -48,18 +53,17 @@ This directory contains comprehensive documentation for azlin - Azure VM provisi
 
 ### Historical Documentation
 
-Documentation in `archive/` contains implementation records and historical snapshots:
-
-- **[archive/IMPLEMENTATION_COMPLETE.md](archive/IMPLEMENTATION_COMPLETE.md)** - v2.0 implementation checklist
-- **[archive/V2_FEATURES.md](archive/V2_FEATURES.md)** - v2.0 feature details
-- **[archive/FEATURES_10_11_12.md](archive/FEATURES_10_11_12.md)** - Features 10-12 implementation
+Historical implementation records have been archived. See the project's git history for v2.0 implementation details.
 
 ## Quick Navigation
 
 **Getting Started**
 ```bash
-# Install azlin
-pip install azlin
+# Download pre-built binary (fastest)
+curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-linux-x86_64.tar.gz | tar xz -C ~/.local/bin
+
+# Or run via uvx (auto-migrates to Rust)
+uvx --from git+https://github.com/rysweet/azlin azlin --help
 
 # See all commands
 azlin --help

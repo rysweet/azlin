@@ -4,6 +4,10 @@ This file documents non-obvious problems, solutions, and patterns discovered dur
 
 **Archive**: Entries older than 3 months are moved to [DISCOVERIES_ARCHIVE.md](./DISCOVERIES_ARCHIVE.md).
 
+## March 2026
+
+- [azlin list Shows No VMs When All Deallocated - Confusing UX](#azlin-list-no-vms-when-deallocated-2026-03-08)
+
 ## February 2026
 
 - [SSH Key Sync Timeout and Silent Failure](#ssh-key-sync-timeout-and-silent-failure-2026-02-04)
@@ -39,6 +43,40 @@ This file documents non-obvious problems, solutions, and patterns discovered dur
 - [Pattern Applicability Framework](#pattern-applicability-analysis-framework-2025-10-20)
 - [Socratic Questioning Pattern](#socratic-questioning-pattern-2025-10-18)
 - [Expert Agent Creation Pattern](#expert-agent-creation-pattern-2025-10-18)
+
+---
+
+## azlin list Shows No VMs When All Deallocated - Confusing UX (2026-03-08)
+
+### Problem
+
+User reported "lost connection to all VMs" and `azlin list` showed "No VMs found" while `az vm list` showed them. Investigation revealed all 5 VMs were bulk-deallocated at 13:18 UTC by `ryan.sweet@DefenderATEVET17.onmicrosoft.com`.
+
+`azlin list` defaults to showing only running VMs. The stale cache said "[CACHE HIT] Using 5 cached VMs" but after the running-only filter, zero remained, producing "No VMs found."
+
+### Root Cause
+
+- All VMs deallocated simultaneously (manual bulk operation from portal/CLI)
+- No auto-shutdown schedules configured (verified - no DevTestLab schedules)
+- `azlin list` filters to running VMs only by default
+- Cache message "5 cached VMs" followed by "No VMs found" is misleading
+
+### Solution
+
+- Restarted all 5 VMs with `az vm start --no-wait`
+- Confirmed all running and visible in `azlin list --no-cache`
+
+### UX Improvement Opportunity
+
+When cache returns VMs but running-filter removes them all, azlin should say:
+"No running VMs found. 5 VMs are stopped/deallocated (use --all to see them)"
+instead of just "No VMs found."
+
+### Key Takeaway
+
+- `azlin list --all` shows stopped VMs
+- `azlin list --no-cache` bypasses stale cache
+- Activity logs (`az monitor activity-log list`) identify who/what deallocated VMs
 
 ---
 

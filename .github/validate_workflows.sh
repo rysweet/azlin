@@ -101,7 +101,7 @@ echo ""
 
 # Check for security scans
 echo "🔒 Checking security scans:"
-SECURITY_TOOLS=("gitguardian" "bandit" "safety" "codeql" "trivy")
+SECURITY_TOOLS=("gitguardian" "bandit" "safety" "codeql")
 for tool in "${SECURITY_TOOLS[@]}"; do
     if grep -qi "$tool" .github/workflows/security.yml; then
         echo -e "${GREEN}✅${NC} $tool configured"

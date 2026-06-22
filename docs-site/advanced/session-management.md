@@ -517,6 +517,6 @@ See [Compound Naming Troubleshooting](../troubleshooting/compound-naming.md) fer
 ## See Also
 
 - [Compound Naming Guide](../getting-started/compound-naming.md) - Basic usage
-- [CLI Reference](../commands/compound-naming-reference.md) - Command details
-- [Multi-VM Workflows](./multi-vm-workflows.md) - Working with multiple VMs
-- [Team Collaboration](./team-collaboration.md) - Team best practices
+- [CLI Reference](../getting-started/compound-naming.md) - Command details
+- Multi-VM Workflows - Working with multiple VMs
+- Team Collaboration - Team best practices

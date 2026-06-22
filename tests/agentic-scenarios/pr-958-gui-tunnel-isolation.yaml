@@ -1,0 +1,161 @@
+name: "PR 958 GUI tunnel isolation regression"
+description: |
+  Verifies that `azlin gui <vm>` no longer reuses the historical fixed local
+  VNC port 5901 and still routes through Azure Bastion to the requested VM.
+  The regression harness intentionally occupies local port 5901 before
+  launching `azlin gui devy` and then verifies that the launched `vncviewer`
+  targets a different loopback port while the active bastion tunnel is pinned
+  to `devy`.
+version: "1.0.0"
+
+config:
+  timeout: 600000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 600000
+
+steps:
+  - name: "Repo-local azlin candidate binary is available"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: "AZLIN_BIN=${AZLIN_BIN:-rust/target/debug/azlin} && test -x \"$AZLIN_BIN\" && echo AZLIN_BIN_READY"
+    expect:
+      exit_code: 0
+      stdout_contains: "AZLIN_BIN_READY"
+    timeout: 5000
+
+  - name: "azlin gui isolates the local VNC tunnel from stale 5901 listeners"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        set -euo pipefail
+
+        AZLIN_BIN=${AZLIN_BIN:-rust/target/debug/azlin}
+        AZURE_CONFIG_DIR=${AZURE_CONFIG_DIR:-$HOME/azure-atevet17}
+        GUI_LOG=$(mktemp)
+        DUMMY_LOG=$(mktemp)
+        GUI_PID=""
+        DUMMY_PID=""
+
+        cleanup() {
+          status=$?
+          trap - EXIT
+          set +e
+          if [ -n "$GUI_PID" ]; then
+            CHILD_PIDS=$(ps -eo pid=,ppid= | awk -v target="$GUI_PID" '$2 == target {print $1}')
+            kill "$GUI_PID" 2>/dev/null || true
+            if [ -n "${CHILD_PIDS:-}" ]; then
+              kill $CHILD_PIDS 2>/dev/null || true
+            fi
+            wait "$GUI_PID" 2>/dev/null || true
+          fi
+          if [ -n "$DUMMY_PID" ]; then
+            kill "$DUMMY_PID" 2>/dev/null || true
+            wait "$DUMMY_PID" 2>/dev/null || true
+          fi
+          rm -f "$GUI_LOG" "$DUMMY_LOG"
+          exit "$status"
+        }
+        trap cleanup EXIT
+
+        python3 - <<'PY' >"$DUMMY_LOG" 2>&1 &
+        import socket
+        import time
+
+        sock = socket.socket()
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("127.0.0.1", 5901))
+        sock.listen(1)
+        print("DUMMY_5901_READY", flush=True)
+        time.sleep(180)
+        PY
+        DUMMY_PID=$!
+
+        for _ in $(seq 1 50); do
+          if grep -q "DUMMY_5901_READY" "$DUMMY_LOG"; then
+            break
+          fi
+          sleep 0.1
+        done
+        grep -q "DUMMY_5901_READY" "$DUMMY_LOG"
+
+        AZURE_CONFIG_DIR="$AZURE_CONFIG_DIR" AZLIN_NO_UPDATE_CHECK=1 \
+          "$AZLIN_BIN" gui devy >"$GUI_LOG" 2>&1 &
+        GUI_PID=$!
+
+        kill -0 "$DUMMY_PID"
+
+        VNC_LINE=""
+        SSH_LINE=""
+        BASTION_LINE=""
+        for attempt in $(seq 1 180); do
+          CHILD_LINES=$(ps -eo pid=,ppid=,cmd= \
+            | awk -v target="$GUI_PID" '$2 == target { $1=""; $2=""; sub(/^  */, "", $0); print }')
+          VNC_LINE=$(printf '%s\n' "$CHILD_LINES" \
+            | grep -F "azlin_vnc_passwd_${GUI_PID}" \
+            | grep 'vncviewer' \
+            | head -n1 || true)
+          if [ -n "$VNC_LINE" ]; then
+            VNC_TARGET=$(printf '%s\n' "$VNC_LINE" | grep -o '127\.0\.0\.1:[0-9]\+' | head -n1 || true)
+            if [ -n "$VNC_TARGET" ]; then
+              SSH_LINE=$(printf '%s\n' "$CHILD_LINES" \
+                | grep ' -N ' \
+                | grep -F -- "-L ${VNC_TARGET#127.0.0.1:}:localhost:5901" \
+                | head -n1 || true)
+            fi
+          fi
+          BASTION_LINE=$(printf '%s\n' "$CHILD_LINES" \
+            | grep 'az network bastion tunnel' \
+            | grep '/virtualMachines/devy' \
+            | head -n1 || true)
+          if [ -n "$VNC_LINE" ] && [ -n "${VNC_TARGET:-}" ] && [ -n "$SSH_LINE" ] && [ -n "$BASTION_LINE" ]; then
+            break
+          fi
+          if [ $((attempt % 5)) -eq 0 ]; then
+            echo "WAITING_FOR_GUI_CHILDREN attempt=$attempt"
+          fi
+          sleep 1
+        done
+
+        test -n "$VNC_TARGET"
+        test "$VNC_TARGET" != "127.0.0.1:5901"
+        test -n "$SSH_LINE"
+        test -n "$BASTION_LINE"
+        FINAL_CHILD_LINES=$(ps -eo pid=,ppid=,cmd= \
+          | awk -v target="$GUI_PID" '$2 == target { $1=""; $2=""; sub(/^  */, "", $0); print }')
+        printf '%s\n' "$FINAL_CHILD_LINES" \
+          | grep ' -N ' \
+          | grep -F -- "-L ${VNC_TARGET#127.0.0.1:}:localhost:5901"
+        printf '%s\n' "$FINAL_CHILD_LINES" \
+          | grep 'az network bastion tunnel' \
+          | grep '/virtualMachines/devy'
+
+        grep -Eq 'Launching VNC viewer \(127\.0\.0\.1:[0-9]+\)\.\.\.' "$GUI_LOG"
+        ! grep -q 'Launching VNC viewer (127.0.0.1:5901)...' "$GUI_LOG"
+        grep -F "CConn:       Connected to host 127.0.0.1 port ${VNC_TARGET#127.0.0.1:}" "$GUI_LOG"
+
+        printf 'DUMMY_PID=%s\n' "$DUMMY_PID"
+        printf 'VNC_TARGET=%s\n' "$VNC_TARGET"
+        printf 'SSH_LINE=%s\n' "$SSH_LINE"
+        printf 'BASTION_LINE=%s\n' "$BASTION_LINE"
+        echo PR958_GUI_TUNNEL_ISOLATION_OK
+    expect:
+      exit_code: 0
+      stdout_contains: "PR958_GUI_TUNNEL_ISOLATION_OK"
+    timeout: 600000
+
+metadata:
+  tags:
+    - "gui"
+    - "bastion"
+    - "vnc"
+    - "regression"
+    - "real-vm"
+  priority: "critical"

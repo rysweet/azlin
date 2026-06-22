@@ -189,7 +189,7 @@ $ uv run python scripts/validate_documentation.py
 ## Try It Now
 
 ```bash
-cd /Users/ryan/src/azlin/worktrees/feat-issue-192-fix-documentation
+cd /path/to/azlin
 uv run python scripts/validate_documentation.py
 ```
 

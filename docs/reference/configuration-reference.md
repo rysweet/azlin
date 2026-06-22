@@ -268,8 +268,10 @@ azlin restore --dry-run
 
 ### Validate Config File
 
+Use dry-run mode to verify configuration:
+
 ```bash
-azlin config validate
+azlin restore --dry-run
 ```
 
 ## See Also

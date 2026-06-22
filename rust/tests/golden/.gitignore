@@ -1,0 +1,3 @@
+# Golden files are machine-specific; only capture_golden.sh is tracked.
+*.txt
+*.json

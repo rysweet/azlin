@@ -54,6 +54,9 @@ azlin new [OPTIONS]
 | `--no-nfs` | Skip NFS storage mounting | NFS enabled if configured |
 | `--no-bastion` | Always create public IP (skip bastion) | Bastion auto-detected |
 | `--bastion-name TEXT` | Explicit bastion host name | Auto-detected |
+| `--home-disk-size INTEGER` | Size of separate /home disk in GB (16–4096) | 100 |
+| `--no-home-disk` | Disable separate /home disk | Enabled |
+| `--tmp-disk-size INTEGER` | Size of separate /tmp disk in GB (16–4096) | None |
 | `-y, --yes` | Accept all defaults (non-interactive) | Interactive |
 
 ## Size Tiers Explained

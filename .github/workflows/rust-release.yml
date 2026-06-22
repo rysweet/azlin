@@ -1,0 +1,253 @@
+name: Rust Release
+
+on:
+  push:
+    branches: [main]
+    paths: ['rust/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Auto-increment patch version ──────────────────────────────────────
+  version-bump:
+    runs-on: ubuntu-latest
+    # Skip if this push is already a version-bump commit (prevent loops)
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      sha: ${{ steps.bump.outputs.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bump patch version
+        id: bump
+        run: |
+          set -euo pipefail
+
+          # Read current version from workspace Cargo.toml
+          CURRENT=$(grep '^version' rust/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          echo "Current Cargo.toml version: ${CURRENT}"
+
+          # Parse major.minor.patch
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${CURRENT}"
+
+          # Find the latest release tag matching this major.minor
+          LATEST_TAG=$(gh release list --limit 100 --json tagName --jq '.[].tagName' \
+            | grep -E "^v${MAJOR}\.${MINOR}\.[0-9]+-rust\." \
+            | sort -t. -k3 -n -r \
+            | head -1 || true)
+
+          if [ -n "${LATEST_TAG}" ]; then
+            # Extract patch from tag: v2.6.3-rust.abc1234 → 3
+            LATEST_PATCH=$(echo "${LATEST_TAG}" | sed 's/^v[0-9]*\.[0-9]*\.\([0-9]*\)-.*/\1/')
+            NEW_PATCH=$((LATEST_PATCH + 1))
+            echo "Latest release tag: ${LATEST_TAG} (patch=${LATEST_PATCH})"
+          else
+            # No prior release for this major.minor — use current patch
+            NEW_PATCH="${PATCH}"
+            echo "No prior release found for v${MAJOR}.${MINOR}.x"
+          fi
+
+          NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+          echo "New version: ${NEW_VERSION}"
+
+          if [ "${NEW_VERSION}" = "${CURRENT}" ]; then
+            echo "Version unchanged — skipping commit"
+            echo "version=${CURRENT}" >> "$GITHUB_OUTPUT"
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # ── Update all version files ──────────────────────────────────
+          # 1. rust/Cargo.toml (workspace)
+          sed -i "s/^version = \"${CURRENT}\"/version = \"${NEW_VERSION}\"/" rust/Cargo.toml
+
+          # 2. pyproject.toml (root)
+          sed -i "s/^version = \"${CURRENT}\"/version = \"${NEW_VERSION}\"/" pyproject.toml
+
+          # 3. rust/pyproject.toml (maturin)
+          sed -i "s/^version = \"${CURRENT}\"/version = \"${NEW_VERSION}\"/" rust/pyproject.toml
+
+          # 4. src/azlin/__init__.py
+          sed -i "s/__version__ = \"${CURRENT}\"/__version__ = \"${NEW_VERSION}\"/" src/azlin/__init__.py
+
+          # ── Commit and push ───────────────────────────────────────────
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add rust/Cargo.toml pyproject.toml rust/pyproject.toml src/azlin/__init__.py
+          git commit -m "chore: bump version ${CURRENT} → ${NEW_VERSION} [skip ci]"
+          git push
+
+          echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Build native binaries ─────────────────────────────────────────────
+  build:
+    needs: [version-bump]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            suffix: linux-x86_64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            suffix: linux-aarch64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            suffix: macos-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            suffix: macos-aarch64
+
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: rust
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version-bump.outputs.sha }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      # Cross-compilation support for linux-aarch64
+      - name: Install cross-compilation tools
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build release binaries
+        run: cargo build --release --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Package binaries
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/azlin dist/azlin-${{ matrix.suffix }}
+          cp target/${{ matrix.target }}/release/azdoit dist/azdoit-${{ matrix.suffix }}
+          chmod +x dist/*
+          cd dist && tar czf azlin-${{ matrix.suffix }}.tar.gz azlin-${{ matrix.suffix }} azdoit-${{ matrix.suffix }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.suffix }}
+          path: rust/dist/azlin-${{ matrix.suffix }}.tar.gz
+
+  # Build Python wheels with maturin for uvx/pip install
+  wheels:
+    needs: [version-bump]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64
+          - os: ubuntu-latest
+            target: aarch64
+          - os: macos-latest
+            target: x86_64
+          - os: macos-latest
+            target: aarch64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version-bump.outputs.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+          working-directory: rust
+          manylinux: 2_28
+          before-script-linux: (dnf install -y perl-core make 2>/dev/null || yum install -y perl-core make 2>/dev/null || (apt-get update -q && apt-get install -yq perl make))
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}-${{ matrix.target }}
+          path: rust/dist/*.whl
+
+  # ── Create GitHub Release ─────────────────────────────────────────────
+  release:
+    needs: [version-bump, build]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version-bump.outputs.sha }}
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION="${{ needs.version-bump.outputs.version }}"
+          SHORT_SHA=$(echo "${{ needs.version-bump.outputs.sha }}" | cut -c1-7)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=${VERSION}-rust.${SHORT_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release files
+        run: |
+          mkdir release
+          find artifacts -name '*.tar.gz' -exec cp {} release/ \;
+          find artifacts -name '*.whl' -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Create/Update Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.tag }}
+          name: "azlin v${{ steps.version.outputs.version }} (${{ needs.version-bump.outputs.sha }})"
+          body: |
+            ## Rust CLI Release
+
+            Pre-built binaries and Python wheels for the Rust port of azlin.
+
+            ### Install via cargo (always-latest)
+            ```bash
+            cargo install --git https://github.com/rysweet/azlin
+            # Re-run with --force to update
+            ```
+
+            ### Install via pip (from wheel)
+            ```bash
+            pip install azlin-rs --find-links https://github.com/rysweet/azlin/releases/latest
+            ```
+
+            ### Download binary directly
+            Download the appropriate archive for your platform, extract, and add to PATH.
+          files: release/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

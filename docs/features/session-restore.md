@@ -50,6 +50,17 @@ Configure behavior via `~/.azlin/config.toml`:
 - Configure timeouts
 - Enable/disable multi-tab mode
 
+### 6. Multi-Session Per VM
+
+Each tmux session runnin' on a VM gets its own terminal tab or window. If a VM has multiple tmux sessions (say, one fer yer dev server and another fer tailing logs), `azlin restore` opens a separate tab fer each one — no sessions left behind in Davy Jones' locker.
+
+- **One tab per session**: Every active tmux session on a VM spawns its own terminal tab/window
+- **Safety limit**: A maximum of 20 sessions per VM (`MAX_SESSIONS_PER_VM`) prevents a rogue VM from openin' a broadside of tabs across yer screen
+- **Warning on limit**: When a VM exceeds the 20-session limit, ye'll see a warning like:
+  ```
+  Warning: frontend-vm has 34 tmux sessions, only restoring first 20 (MAX_SESSIONS_PER_VM)
+  ```
+
 ## Use Cases
 
 ### Morning Routine - Restore Work Environment
@@ -97,11 +108,13 @@ azlin list  # Shows 3 VMs running from yesterday
 azlin restore
 
 # Output:
-# ✓ frontend-vm → Terminal with React dev server
-# ✓ backend-vm → Terminal with API server logs
-# ✓ database-vm → Terminal with psql prompt
+# ✓ frontend-vm → session: react-dev
+# ✓ frontend-vm → session: webpack
+# ✓ backend-vm → session: api-server
+# ✓ backend-vm → session: logs
+# ✓ database-vm → session: psql
 
-# All sessions preserved from yesterday
+# All sessions preserved from yesterday — every last one of 'em
 ```
 
 ### Workflow 2: Multi-Environment Testing
@@ -278,6 +291,7 @@ azlin restore
 2. **Tmux Dependency**: VMs must have tmux installed fer session management
 3. **Platform-Specific**: Behavior varies by platform (multi-tab only on Windows Terminal)
 4. **Network Required**: Active network connection to Azure
+5. **Session Limit**: Maximum of 20 tmux sessions restored per VM (`MAX_SESSIONS_PER_VM`). Any sessions beyond that be left on the dock with a warning.
 
 ## Future Enhancements
 

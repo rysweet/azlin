@@ -32,7 +32,9 @@ class CLIExtractor:
         "azlin.context",
     ]
 
-    def extract_command(self, module_path: str, command_name: str) -> CLIMetadata | None:
+    def extract_command(
+        self, module_path: str, command_name: str
+    ) -> CLIMetadata | None:
         """Extract metadata from a single command.
 
         Args:
@@ -70,7 +72,10 @@ class CLIExtractor:
 
         except Exception as e:
             # Log error but fail gracefully
-            print(f"Warning: Failed to extract command '{command_name}': {e}", file=sys.stderr)
+            print(
+                f"Warning: Failed to extract command '{command_name}': {e}",
+                file=sys.stderr,
+            )
             return None
 
     def extract_all_commands(self, module_path: str) -> list[CLIMetadata]:
@@ -154,7 +159,9 @@ class CLIExtractor:
                 for subcmd_name in command.list_commands(None):
                     subcmd = command.get_command(None, subcmd_name)
                     if subcmd:
-                        sub_metadata = self._extract_from_click_command(subcmd, full_path)
+                        sub_metadata = self._extract_from_click_command(
+                            subcmd, full_path
+                        )
                         if sub_metadata:
                             subcommands.append(sub_metadata)
 

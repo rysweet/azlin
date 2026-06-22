@@ -25,11 +25,13 @@ azlin new [OPTIONS]
 | Option | Type | Description |
 |--------|------|-------------|
 | `--repo TEXT` | URL | GitHub repository URL to clone after provisioning |
-| `--size [s\|m\|l\|xl]` | Choice | VM size tier: `s`(mall)=8GB, `m`(edium)=64GB, `l`(arge)=128GB (default), `xl`=256GB RAM |
+| `--size [xs\|s\|m\|l\|xl\|xxl]` | Choice | VM size tier (see [Size Tiers](#size-tiers-explained) below) |
 | `--vm-size TEXT` | Azure Size | Exact Azure VM size (e.g., `Standard_E8as_v5`). Overrides `--size` |
+| `--vm-family [d\|e]` | Choice | VM family: `d` (general purpose, default) or `e` (memory-optimized). See [VM Families](#vm-families) |
 | `--region TEXT` | Azure Region | Azure region for VM placement (default: from config or interactive) |
+| `--region-fit` | Flag | Automatically find a region with available quota and SKU capacity. See [Region Fit](#region-fit) |
 | `--resource-group, --rg TEXT` | Name | Azure resource group (default: from config or interactive) |
-| `--name TEXT` | Name | Custom VM name (default: auto-generated `azlin-vm-TIMESTAMP`) |
+| `--name TEXT` | Name | Base VM name for a single create (or a base name for pools). Single named creates also use the resolved VM name as the `azlin-session` tag shown by `azlin list`. |
 | `--pool INTEGER` | Count | Number of VMs to create in parallel for distributed workloads |
 | `--no-auto-connect` | Flag | Skip automatic SSH connection after provisioning |
 | `--config PATH` | File | Path to custom config file (default: `~/.azlin/config.toml`) |
@@ -38,38 +40,141 @@ azlin new [OPTIONS]
 | `--no-nfs` | Flag | Skip NFS storage mounting; use only local home directory |
 | `--no-bastion` | Flag | Force public IP creation; skip Azure Bastion auto-detection |
 | `--bastion-name TEXT` | Name | Explicit bastion host name for private VM connections |
+| `--home-disk-size INTEGER` | Size | Size of separate /home disk in GB (16–4096). See [Disk Configuration](#disk-configuration) | `100` |
+| `--no-home-disk` | Flag | Disable separate /home disk; use OS disk | Enabled |
+| `--tmp-disk-size INTEGER` | Size | Size of separate /tmp disk in GB (16–4096). See [Disk Configuration](#disk-configuration) | None (no tmp disk) |
 | `-y, --yes` | Flag | Non-interactive mode: accept all defaults and skip confirmations |
 | `-h, --help` | Flag | Show command help and exit |
 
 ## Size Tiers Explained
 
-azlin provides convenient size tiers that map to Azure VM SKUs:
+azlin provides convenient size tiers that map to Azure VM SKUs. The default family is **D-series v5** (general purpose). Use `--vm-family e` for **E-series v5** (memory-optimized).
 
-| Tier | RAM | vCPUs | Azure VM Size | Use Case |
-|------|-----|-------|---------------|----------|
-| `s` (small) | 8GB | 2 | `Standard_D2s_v5` | Light development, testing |
-| `m` (medium) | 64GB | 16 | `Standard_E16as_v5` | General development, ML training |
-| `l` (large) | 128GB | 32 | `Standard_E32as_v5` | **Default** - Heavy workloads, containers |
-| `xl` (extra-large) | 256GB | 64 | `Standard_E64as_v5` | Large datasets, distributed systems |
+### D-series (default: `--vm-family d`)
 
-**Tip:** Use `--size` for quick selection or `--vm-size` for exact Azure SKU control.
+| Tier | vCPUs | RAM | Azure VM Size | Use Case |
+|------|-------|-----|---------------|----------|
+| `xs` (extra-small) | 2 | 8GB | `Standard_D2s_v5` | Cheapest dev box, CI runners |
+| `s` (small) | 4 | 16GB | `Standard_D4s_v5` | Light development |
+| `m` (medium) | 8 | 32GB | `Standard_D8s_v5` | Standard development |
+| `l` (large) | 16 | 64GB | `Standard_D16s_v5` | Heavy development |
+| `xl` (extra-large) | 32 | 128GB | `Standard_D32s_v5` | Power user workloads |
+| `xxl` (2x-large) | 64 | 256GB | `Standard_D64s_v5` | Maximum compute |
+
+### E-series (`--vm-family e`)
+
+Memory-optimized VMs with higher RAM-to-core ratios, ideal for large datasets, in-memory caches, and ML workloads:
+
+| Tier | vCPUs | RAM | Azure VM Size | Use Case |
+|------|-------|-----|---------------|----------|
+| `xs` (extra-small) | 2 | 16GB | `Standard_E2as_v5` | Light memory-intensive work |
+| `s` (small) | 4 | 32GB | `Standard_E4as_v5` | Dev with larger datasets |
+| `m` (medium) | 8 | 64GB | `Standard_E8as_v5` | General ML development |
+| `l` (large) | 16 | 128GB | `Standard_E16as_v5` | Heavy ML, containers |
+| `xl` (extra-large) | 32 | 256GB | `Standard_E32as_v5` | Large in-memory workloads |
+| `xxl` (2x-large) | 64 | 512GB | `Standard_E64as_v5` | Maximum memory |
+
+**Tip:** Use `--size` for quick selection, `--vm-family` to pick the series, or `--vm-size` for exact Azure SKU control. When `--vm-size` is provided, `--size` and `--vm-family` are ignored.
+
+> **Migration note:** Previous versions used D-series v3 SKUs with different tier mappings (`s`=2 cores, `m`=16 cores, `l`=32 cores, `xl`=64 cores). The v5 series offers better availability and performance at the same or lower cost. If you have v3-specific quota, use `--vm-size` to specify v3 SKUs directly.
+
+## VM Families
+
+The `--vm-family` flag selects which Azure VM series to use:
+
+| Family | Series | Optimized For | Example |
+|--------|--------|---------------|---------|
+| `d` (default) | Dv5 | General purpose — balanced CPU/RAM | `Standard_D8s_v5` |
+| `e` | Eav5 | Memory — 2x RAM per core vs D-series | `Standard_E8as_v5` |
+
+```bash
+# General purpose (default)
+azlin new --size m
+# → Standard_D8s_v5 (8 cores, 32GB)
+
+# Memory-optimized
+azlin new --size m --vm-family e
+# → Standard_E8as_v5 (8 cores, 64GB)
+```
+
+## Region Fit
+
+The `--region-fit` flag automatically scans Azure regions to find one with available quota and SKU capacity:
+
+```bash
+# Auto-select a region with capacity for a large VM
+azlin new --size l --region-fit
+```
+
+Output:
+```
+🔍 Scanning 8 regions for Standard_D16s_v5 (16 cores)...
+  ✓ westus2: 48/100 cores used, SKU available
+  ✗ centralus: 98/100 cores used (insufficient)
+  ... (skipping remaining — match found)
+
+✅ Selected region: westus2 (52 cores available)
+Creating VM in westus2...
+```
+
+When combined with `--region`, the specified region is checked first; others are scanned only if it lacks capacity:
+
+```bash
+# Prefer westus2, fall back to any available region
+azlin new --size l --region westus2 --region-fit
+```
+
+If no region has capacity, azlin prints a diagnostic table showing quota and SKU status for all candidate regions, plus suggestions for next steps.
+
+Region fit also activates as **error recovery**: when a VM creation fails with `QuotaExceeded` or `SkuNotAvailable`, the error message suggests re-running with `--region-fit`.
+
+**Full documentation:** [Region Fit Feature](../../../docs/features/region-fit.md)
 
 ## Examples
 
 ### Basic Provisioning
 
 ```bash
-# Provision VM with default settings (Large = 128GB RAM)
+# Provision VM with default settings (large = 16 cores, 64GB RAM)
 azlin new
 
-# Provision Medium VM (64GB RAM)
+# Cheapest dev box (2 cores, 8GB)
+azlin new --size xs
+
+# Standard development (8 cores, 32GB)
 azlin new --size m
 
-# Provision Small VM (8GB RAM) for testing
-azlin new --size s
+# Maximum compute (64 cores, 256GB)
+azlin new --size xxl
+```
 
-# Provision Extra-Large VM (256GB RAM) for heavy workloads
-azlin new --size xl
+### VM Family Selection
+
+```bash
+# General purpose D-series (default)
+azlin new --size m
+# → Standard_D8s_v5 (8 cores, 32GB)
+
+# Memory-optimized E-series (2x RAM per core)
+azlin new --size m --vm-family e
+# → Standard_E8as_v5 (8 cores, 64GB)
+
+# E-series large for ML workloads
+azlin new --size xl --vm-family e
+# → Standard_E32as_v5 (32 cores, 256GB)
+```
+
+### Region Fit — Automatic Region Selection
+
+```bash
+# Find any region with capacity
+azlin new --size l --region-fit
+
+# Prefer westus2, fall back if quota exhausted
+azlin new --size xl --region westus2 --region-fit
+
+# Combine with E-series and automation
+azlin new --size l --vm-family e --region-fit --yes
 ```
 
 ### Custom VM Names
@@ -85,6 +190,11 @@ azlin new --name web-app --repo https://github.com/owner/webapp
 azlin new --name backend-dev --size m
 azlin new --name frontend-dev --size s
 ```
+
+For a single named VM, azlin also seeds the new machine from your local
+`~/.azlin/home/` directory when that directory exists and is not empty. With
+`--pool`, azlin treats `--name` as a base name for the generated VM names
+instead of applying one shared session label.
 
 ### Exact Azure VM Size
 
@@ -186,7 +296,7 @@ When you run `azlin new`, the following happens automatically:
 4. **Cloud-Init** - Installs all development tools (4-5 minutes)
 5. **SSH Key Storage** - Automatically stores private key in Azure Key Vault for cross-system access
 6. **NFS Storage** (optional) - Mounts shared persistent home directory
-7. **Home Sync** - Syncs initial dotfiles and configuration
+7. **Home Sync** - For named single-VM creates, seeds initial dotfiles and configuration from `~/.azlin/home/` when that directory exists and is not empty
 8. **GitHub Setup** (optional) - Clones repository if `--repo` specified
 9. **SSH Connection** (optional) - Auto-connects with tmux unless `--no-auto-connect`
 
@@ -322,11 +432,14 @@ azlin new --no-nfs
 
 **Solutions:**
 ```bash
+# Automatic: let azlin find a region with capacity
+azlin new --size l --region-fit
+
 # Check current quota usage
 azlin list --show-quota
 
 # Use smaller VM size
-azlin new --size s  # or --size m
+azlin new --size xs  # or --size s
 
 # Request quota increase (Azure portal)
 # Or use different region with available quota
@@ -391,6 +504,39 @@ azlin new --name temp-vm --no-auto-connect
 # azlin stop temp-vm --deallocate
 ```
 
+### Disk Configuration
+
+```bash
+# Default: 100GB home disk, no tmp disk
+azlin new --name dev-vm
+
+# Custom home disk size
+azlin new --name data-vm --home-disk-size 200
+
+# Add /tmp disk for build artifacts
+azlin new --name build-vm --tmp-disk-size 64
+
+# Both disks
+azlin new --name ml-vm --home-disk-size 500 --tmp-disk-size 128
+
+# No home disk (use OS disk), with /tmp disk
+azlin new --name scratch-vm --no-home-disk --tmp-disk-size 64
+
+# Disable home disk entirely
+azlin new --name simple-vm --no-home-disk
+```
+
+**Disk details:**
+- **SKU**: Premium_LRS (Premium SSD)
+- **Size bounds**: 16–4096 GB (validated before creation)
+- **LUN assignment**: Home → LUN 0, Tmp → LUN 1
+- **Tags**: `azlin-session`, `azlin-role` for auditing
+- **Orphan cleanup**: Disks auto-deleted if VM creation fails
+- **NFS precedence**: `--nfs-storage` disables home disk (planned; NFS not yet in Rust CLI)
+- **Graceful degradation**: Disk setup failure does not abort cloud-init
+
+**Full documentation:** [Separate Home & Tmp Disk Guide](../../../docs/how-to/separate-home-disk.md)
+
 ## Related Commands
 
 - [`azlin list`](list.md) - List all VMs
@@ -402,9 +548,9 @@ azlin new --name temp-vm --no-auto-connect
 
 ## Source Code
 
-- [vm_provisioning.py](https://github.com/rysweet/azlin/blob/main/src/azlin/vm_provisioning.py) - Core provisioning logic
-- [cli.py](https://github.com/rysweet/azlin/blob/main/src/azlin/cli.py) - CLI command definition
-- [cloud-init template](https://github.com/rysweet/azlin/blob/main/src/azlin/cloud_init_config.py) - Cloud-init script
+- [vm.rs](https://github.com/rysweet/azlin/blob/main/rust/crates/azlin-azure/src/vm.rs) - Core provisioning logic (`create_vm`)
+- [cmd_vm_ops.rs](https://github.com/rysweet/azlin/blob/main/rust/crates/azlin/src/cmd_vm_ops.rs) - `new` command handler
+- [lib.rs](https://github.com/rysweet/azlin/blob/main/rust/crates/azlin-cli/src/lib.rs) - CLI command definitions
 
 ## See Also
 
