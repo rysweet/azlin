@@ -114,7 +114,7 @@ azlin list
 
 Create a fresh Azure Ubuntu VM with all development tools pre-installed.
 
-**Aliases**: `azlin vm`, `azlin create`
+**Aliases**: `azlin create`
 
 ```bash
 # Basic provisioning (interactive if VMs exist)

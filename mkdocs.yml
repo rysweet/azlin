@@ -277,7 +277,6 @@ nav:
       - commands/batch/sync.md
       - commands/batch/start.md
       - commands/batch/stop.md
-      - commands/batch/update.md
     - Environment Commands:
       - commands/env/index.md
       - commands/env/set.md

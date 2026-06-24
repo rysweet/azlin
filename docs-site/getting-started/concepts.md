@@ -166,13 +166,13 @@ Run commands across **multiple VMs** in parallel:
 
 ```bash
 # Execute on all VMs
-azlin batch exec --all "docker ps"
+azlin batch command "docker ps" --all
 
 # Execute on tagged VMs
-azlin batch exec --tag env=dev "git pull"
+azlin batch command "git pull" --tag env=dev
 
-# Sync files to all VMs
-azlin batch sync --all ~/config.json /etc/myapp/
+# Sync dotfiles to all VMs
+azlin batch sync --all
 ```
 
 See [Batch Operations](../batch/index.md) for details.

@@ -37,7 +37,7 @@ Before setting up service principal authentication, ensure you have:
 - **Azure subscription** with permissions to create service principals
 - **Azure CLI** installed (`az` command)
 - **azlin** installed (version 2.1+)
-- **Python 3.11+** (for azlin)
+- **Python 3.11+** (optional — only for the `azlin-py` Python bridge or `uvx`; the native `azlin` binary needs no Python)
 
 ### For Certificate-Based Authentication (Optional)
 - **OpenSSL** for generating certificates
