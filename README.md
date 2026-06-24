@@ -65,12 +65,6 @@ azlin new --repo https://github.com/owner/repo
 azlin health
 ```
 
-By default, `azlin new` picks up your existing SSH public key (trying
-`~/.ssh/azlin_key.pub`, `~/.ssh/id_ed25519_azlin.pub`, `~/.ssh/id_ed25519.pub`,
-then `~/.ssh/id_rsa.pub`) and reuses the matching private key for home seeding,
-repo clone, and the first auto-connect. See [Connection](#connection) for
-details and bastion behavior.
-
 ## What is azlin?
 
 azlin automates the tedious process of setting up Azure Ubuntu VMs for development. In one command, it:
