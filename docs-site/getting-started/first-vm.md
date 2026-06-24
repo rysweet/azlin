@@ -241,7 +241,7 @@ Now that you have your first VM:
 
 **Check quotas:**
 ```bash
-azlin quota
+azlin list --quota
 ```
 
 Try a different region or request a quota increase in the Azure portal.

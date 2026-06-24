@@ -63,7 +63,7 @@ Get up and running with azlin in 5 minutes.
 
 - Azure account ([create free account](https://azure.microsoft.com/free/))
 - Azure CLI installed and configured (`az login`)
-- Python 3.12 or later
+- Python 3.11 or later
 
 ## Step 1: Install azlin
 

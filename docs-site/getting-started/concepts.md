@@ -213,7 +213,7 @@ azlin includes cost tracking and optimization:
 azlin cost --resource-group my-rg
 
 # Check quotas
-azlin quota
+azlin list --quota
 
 # Enable auto-stop
 azlin autopilot enable --idle-timeout 2h
