@@ -37,7 +37,7 @@ azlin new --name myproject
 
 azlin will:
 
-1. Create an Ubuntu 24.04 VM
+1. Create an Ubuntu 26.04 LTS VM
 2. Install 12 development tools
 3. Configure SSH access
 4. Start tmux session

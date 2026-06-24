@@ -253,7 +253,7 @@ Typical provisioning times:
 Every azlin VM comes with:
 
 **Development Tools:**
-- Python 3.13 (with uv package manager)
+- Python 3.14 (with uv package manager)
 - Docker & Docker Compose
 - Node.js & npm
 - Git & GitHub CLI (gh)

@@ -228,7 +228,7 @@ impl Default for VmImage {
     fn default() -> Self {
         Self {
             publisher: "Canonical".into(),
-            offer: "ubuntu-25_10".into(),
+            offer: "ubuntu-26_04-lts".into(),
             sku: "server".into(),
             version: "latest".into(),
         }
@@ -250,7 +250,7 @@ impl VmImage {
     ///
     /// Accepts:
     /// - Full URN: `Canonical:ubuntu-25_10:server:latest` (must be Canonical publisher)
-    /// - Shorthands: `25.10`, `24.04-lts`, `ubuntu-25.10`, `ubuntu-24.04-lts`
+    /// - Shorthands: `26.04`, `25.10`, `24.04-lts`, `ubuntu-26.04`, `ubuntu-24.04-lts`
     ///
     /// Returns an error for empty/whitespace input, shell metacharacters, non-Canonical
     /// publishers, malformed URNs, or unrecognized shorthands.
@@ -343,6 +343,7 @@ impl VmImage {
         // Accepts dotted (25.10) and dotless (2510) forms; bare versions
         // (24.04, 2204) resolve to LTS when available.
         let offer = match version_part {
+            "26.04-lts" | "26.04" | "2604" => "ubuntu-26_04-lts",
             "25.10" | "2510" => "ubuntu-25_10",
             "24.10" | "2410" => "ubuntu-24_10",
             "24.04-lts" | "24.04" | "2404" => "ubuntu-24_04-lts",
@@ -351,8 +352,8 @@ impl VmImage {
             _ => {
                 return Err(format!(
                     "Unknown image shorthand {:?}. Supported shorthands: \
-                     25.10, 24.10, 24.04-lts, 24.04, 22.04-lts, 22.04, 20.04-lts, 20.04. \
-                     Or use a full URN like 'Canonical:ubuntu-25_10:server:latest'",
+                     26.04-lts, 26.04, 25.10, 24.10, 24.04-lts, 24.04, 22.04-lts, 22.04, 20.04-lts, 20.04. \
+                     Or use a full URN like 'Canonical:ubuntu-26_04-lts:server:latest'",
                     spec
                 ));
             }
@@ -564,7 +565,7 @@ mod tests {
     fn test_vm_image_default() {
         let img = VmImage::default();
         assert_eq!(img.publisher, "Canonical");
-        assert_eq!(img.offer, "ubuntu-25_10");
+        assert_eq!(img.offer, "ubuntu-26_04-lts");
         assert_eq!(img.sku, "server");
         assert_eq!(img.version, "latest");
     }
@@ -572,7 +573,7 @@ mod tests {
     #[test]
     fn test_vm_image_display() {
         let img = VmImage::default();
-        assert_eq!(img.to_string(), "Canonical:ubuntu-25_10:server:latest");
+        assert_eq!(img.to_string(), "Canonical:ubuntu-26_04-lts:server:latest");
     }
 
     // ── from_image_spec tests (TDD — will fail until implementation) ──
@@ -584,6 +585,17 @@ mod tests {
         assert_eq!(img.offer, "ubuntu-25_10");
         assert_eq!(img.sku, "server");
         assert_eq!(img.version, "latest");
+    }
+
+    #[test]
+    fn test_from_image_spec_shorthand_26_04_lts() {
+        for spec in ["26.04", "26.04-lts", "2604", "ubuntu-26.04"] {
+            let img = VmImage::from_image_spec(spec).unwrap();
+            assert_eq!(img.publisher, "Canonical");
+            assert_eq!(img.offer, "ubuntu-26_04-lts");
+            assert_eq!(img.sku, "server");
+            assert_eq!(img.version, "latest");
+        }
     }
 
     #[test]
@@ -707,7 +719,8 @@ mod tests {
     #[test]
     fn test_from_image_spec_roundtrip_via_display() {
         // Parse a full URN, display it, re-parse — should be identical
-        let original = VmImage::from_image_spec("Canonical:ubuntu-24_04-lts:server:latest").unwrap();
+        let original =
+            VmImage::from_image_spec("Canonical:ubuntu-24_04-lts:server:latest").unwrap();
         let displayed = original.to_string();
         let reparsed = VmImage::from_image_spec(&displayed).unwrap();
         assert_eq!(original, reparsed);

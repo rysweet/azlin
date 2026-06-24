@@ -43,7 +43,7 @@
 azlin automates the tedious process of setting up Azure Ubuntu VMs for development. Written in Rust for blazing-fast startup (75-85x faster than the original Python implementation), it provisions a fully configured VM in one command:
 
 1. Authenticates with Azure
-2. Provisions an Ubuntu 24.04 VM
+2. Provisions an Ubuntu 26.04 LTS VM
 3. Installs 12 essential development tools
 4. Sets up SSH with key-based authentication
 5. Starts a persistent tmux session
@@ -124,7 +124,7 @@ Every azlin VM comes pre-configured with:
 === "Languages"
 
     - **Node.js** - JavaScript runtime with user-local npm
-    - **Python 3.13+** - Latest Python from deadsnakes PPA
+    - **Python 3.14+** - Latest Python from deadsnakes PPA
     - **Rust** - Systems programming language
     - **Golang** - Go programming language
     - **.NET** - .NET development framework

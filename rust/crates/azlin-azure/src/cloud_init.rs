@@ -314,8 +314,8 @@ CHROMIUMALIAS
 chmod 755 /usr/local/bin/chromium"#.to_string(),
         // astral-uv (uv package manager)
         "snap install astral-uv --classic || true".to_string(),
-        // Node.js 22 LTS (via NodeSource)
-        "curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt install -y nodejs".to_string(),
+        // Node.js 24 LTS (via NodeSource)
+        "curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt install -y nodejs".to_string(),
         // npm user-local configuration
         format!("mkdir -p /home/{u}/.npm-packages && echo 'prefix=${{HOME}}/.npm-packages' > /home/{u}/.npmrc && chown {u}:{u} /home/{u}/.npmrc /home/{u}/.npm-packages", u = username),
         // Tmux configuration
@@ -344,7 +344,7 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
             chmod +x ~/.cargo/bin/azlin 2>/dev/null; \
             rm -rf /tmp/azlin-install' || echo 'WARNING: azlin installation failed'", u = username),
         // Go
-        "wget -q https://go.dev/dl/go1.26.1.linux-amd64.tar.gz -O /tmp/go.tar.gz && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz".to_string(),
+        "wget -q https://go.dev/dl/go1.26.4.linux-amd64.tar.gz -O /tmp/go.tar.gz && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz".to_string(),
         // .NET 10 SDK
         "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && chmod +x /tmp/dotnet-install.sh && (/tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet || echo 'WARNING: .NET 10 SDK install failed') && ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet; rm -f /tmp/dotnet-install.sh".to_string(),
         // Docker post-install

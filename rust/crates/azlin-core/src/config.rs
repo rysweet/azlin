@@ -109,7 +109,7 @@ pub struct AzlinConfig {
     pub vm_storage: Option<HashMap<String, String>>,
     pub default_nfs_storage: Option<String>,
     pub github_runner_fleets: Option<HashMap<String, serde_json::Value>>,
-    /// Default VM OS image URN (e.g. "Canonical:ubuntu-25_10:server:latest").
+    /// Default VM OS image URN (e.g. "Canonical:ubuntu-26_04-lts:server:latest").
     /// When None, falls back to VmImage::default().
     pub default_vm_image: Option<String>,
     pub ssh_auto_sync_keys: bool,
@@ -1117,8 +1117,11 @@ mod tests {
     #[test]
     fn test_set_field_default_vm_image() {
         let config = AzlinConfig::default();
-        let (toml_str, _) =
-            simulate_set_field(&config, "default_vm_image", "Canonical:ubuntu-25_10:server:latest");
+        let (toml_str, _) = simulate_set_field(
+            &config,
+            "default_vm_image",
+            "Canonical:ubuntu-25_10:server:latest",
+        );
         assert!(
             toml_str.contains("default_vm_image"),
             "TOML should contain default_vm_image key after set_field"

@@ -53,7 +53,7 @@ Typically 4-7 minutes. The breakdown:
 
 ### What tools are pre-installed on VMs?
 
-Every VM gets: Docker, Azure CLI, GitHub CLI, Git, Node.js, Python 3.13+, Rust, Go, .NET, GitHub Copilot CLI, OpenAI Codex CLI, and Claude Code CLI.
+Every VM gets: Docker, Azure CLI, GitHub CLI, Git, Node.js, Python 3.14+, Rust, Go, .NET, GitHub Copilot CLI, OpenAI Codex CLI, and Claude Code CLI.
 
 ### Can I customize what gets installed?
 
