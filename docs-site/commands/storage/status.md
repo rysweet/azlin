@@ -101,8 +101,8 @@ done
 # Check if storage is filling up
 azlin storage status ml-training
 
-# If usage > 80%, consider expanding:
-# azlin storage resize ml-training --size 1000
+# If usage > 80%, expand the share via the Azure CLI:
+# az storage share-rm update --quota 1000 --name <share> --storage-account <account> --resource-group <rg>
 ```
 
 ### Verify VM Connections

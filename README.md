@@ -176,18 +176,20 @@ Node.js is configured for user-local global package installations, which means:
 
 ### Verifying Installed Tool Versions
 
-All VMs automatically log installed versions of npm and ripgrep during provisioning:
+At the end of provisioning, every VM logs a verification block listing the
+installed core tool versions (gh, az, node, rustc, amplihack, azlin, dotnet):
 
 ```bash
-# View all tool versions logged during provisioning
-grep '[AZLIN_VERSION]' /var/log/cloud-init-output.log
+# View the provisioning log, including the final version-verification block
+grep '\[AZLIN\]' /var/log/cloud-init-output.log
 
-# Example output (actual versions may vary):
-# [AZLIN_VERSION] npm: 10.2.4
-# [AZLIN_VERSION] rg: 14.1.0
+# The block is emitted right after this line:
+# [AZLIN] Provisioning complete
 ```
 
-**Note**: The versions shown are examples. Actual versions depend on Ubuntu repository state at provision time. npm is bundled with Node.js 24.x LTS (installed via NodeSource), not installed separately.
+**Note**: Actual versions depend on Ubuntu repository state and upstream
+installers at provision time. npm is bundled with Node.js 24.x LTS (installed
+via NodeSource), not installed separately.
 
 This provides an audit trail of exactly which tool versions were installed, useful for troubleshooting and compliance.
 

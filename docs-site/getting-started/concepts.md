@@ -287,7 +287,7 @@ azlin new --name bob-dev --storage team-data
 azlin new --name ci-$BUILD_ID --yes --no-auto-connect
 
 # 2. Run tests
-azlin exec ci-$BUILD_ID "pytest tests/"
+azlin connect ci-$BUILD_ID -- "pytest tests/"
 
 # 3. Cleanup
 azlin destroy ci-$BUILD_ID --yes
