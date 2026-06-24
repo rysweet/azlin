@@ -184,7 +184,7 @@ sudo apt upgrade -y      # Install available updates
 - Bug fixes
 
 **NOT updated:**
-- azlin development tools (use `azlin update` instead)
+- azlin development tools (use `azlin vm update-tools` instead)
 - User-installed packages from source
 - Docker containers
 - Node.js packages
@@ -290,7 +290,7 @@ sudo apt update && sudo apt upgrade -y
 
 ## Related Commands
 
-- [`azlin update`](../vm/update.md) - Update development tools
+- [`azlin vm update-tools`](../vm/update.md) - Update development tools
 - [`azlin connect`](../vm/connect.md) - SSH to VM
 - [`azlin snapshot create`](../snapshot/create.md) - Backup before updates
 

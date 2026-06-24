@@ -11,8 +11,6 @@ Azure Bastion provides secure RDP/SSH connectivity to VMs without exposing publi
 - [**azlin bastion list**](list.md) - List Azure Bastion hosts
 - [**azlin bastion status**](status.md) - Show Bastion host status
 - [**azlin bastion configure**](configure.md) - Configure Bastion for a VM
-- [**azlin bastion create**](create.md) - Create new Bastion host
-- [**azlin bastion delete**](delete.md) - Delete Bastion host
 
 ## Quick Start
 

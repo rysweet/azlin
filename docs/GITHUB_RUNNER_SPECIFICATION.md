@@ -491,7 +491,7 @@ CLI commands tested manually:
 
 ### Python Version
 
-- Python 3.11+ (existing azlin requirement)
+- Python 3.11+ (optional — only for the `azlin-py` Python bridge or `uvx`; the native `azlin` binary needs no Python)
 
 ## Acceptance Criteria
 

@@ -11,7 +11,8 @@ The `azlin new` command is the core of azlin - it provisions a fully-equipped Az
 - Node.js with user-local npm configuration
 - Python 3.14+, Rust, Golang, .NET 10
 - ripgrep (rg) for fast code search
-- AI tools: GitHub Copilot CLI, OpenAI Codex CLI, Claude Code CLI
+- uv (Python package manager) and Chromium
+- AI assistant: Claude Code CLI
 - Persistent tmux session management
 
 ## Usage
@@ -350,7 +351,7 @@ Every VM runs a comprehensive cloud-init script that:
 8. Installs Golang
 9. Installs .NET 10
 10. Installs ripgrep (rg) for fast search
-11. Installs AI CLI tools (Copilot, Codex, Claude)
+11. Installs Claude Code CLI
 12. Configures tmux for persistent sessions
 
 **Monitoring Progress:**

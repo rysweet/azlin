@@ -206,7 +206,7 @@ azlin stop my-vm && azlin start my-vm
 
 ```bash
 # Check quota
-azlin quota
+azlin list --quota
 
 # Check VM status
 azlin status --vm my-vm

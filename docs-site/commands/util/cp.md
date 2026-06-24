@@ -457,7 +457,7 @@ azlin connect vm "tar -xzf ~/project.tar.gz"
 - [`azlin sync`](sync.md) - Sync dotfiles from ~/.azlin/home/
 - [`azlin connect`](../vm/connect.md) - SSH to VM (also supports Bastion)
 - [`azlin storage mount`](../storage/mount.md) - Mount shared NFS storage
-- [`azlin bastion create`](../bastion/create.md) - Set up Azure Bastion
+- [`azlin bastion configure`](../bastion/configure.md) - Configure Azure Bastion for a VM
 - [`azlin bastion status`](../bastion/status.md) - Check Bastion availability
 
 ## Deep Links

@@ -255,7 +255,7 @@ done
 
 ```bash
 # Check quota
-azlin quota
+azlin list --quota
 
 # Try smaller VM size
 azlin clone my-vm --vm-size Standard_D4s_v3

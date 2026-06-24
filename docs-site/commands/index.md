@@ -47,7 +47,7 @@ Complete reference for all azlin commands organized by category.
 - `azlin status` - Show VM status
 - `azlin session` - Manage session names
 - `azlin tag` - Manage VM tags
-- `azlin update` - Update development tools
+- `azlin vm update-tools` - Update development tools
 - `azlin destroy` - Delete a VM
 - `azlin kill` - Delete VM and resources
 - `azlin killall` - Delete all VMs
@@ -61,7 +61,7 @@ Complete reference for all azlin commands organized by category.
 ### Storage & Files
 - `azlin storage create` - Create NFS storage
 - `azlin storage mount` - Mount storage on VMs
-- `azlin storage mount local` - Mount on macOS
+- `azlin storage mount-file` - Mount Azure Files locally (macOS)
 - `azlin storage list` - List storage accounts
 - `azlin cp` - Copy files to/from VMs
 - `azlin sync` - Sync home directory
@@ -75,11 +75,10 @@ Complete reference for all azlin commands organized by category.
 - `azlin logs` - View VM logs
 
 ### Batch Operations
-- `azlin batch exec` - Execute on multiple VMs
+- `azlin batch command` - Execute on multiple VMs
 - `azlin batch sync` - Sync multiple VMs
 - `azlin batch start` - Start multiple VMs
 - `azlin batch stop` - Stop multiple VMs
-- `azlin batch update` - Update multiple VMs
 
 ### Environment & Snapshots
 - `azlin env set` - Set environment variables
@@ -96,5 +95,5 @@ Complete reference for all azlin commands organized by category.
 ### Advanced Features
 - `azlin compose up` - Deploy multi-VM compose
 - `azlin github-runner enable` - Enable runner fleet
-- `azlin bastion setup` - Setup Azure Bastion
+- `azlin bastion configure` - Configure Bastion for a VM
 - `azlin ip check` - Check IP configuration

@@ -251,8 +251,8 @@ rm ~/.env ~/.aws/credentials
 # Document setup
 cat > ~/README.md <<EOF
 This VM includes:
-- Python 3.11
-- Node.js 20
+- Python 3.14
+- Node.js 24
 - Docker
 - Project repo cloned to ~/project
 EOF

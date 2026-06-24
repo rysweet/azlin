@@ -15,7 +15,7 @@ azlin list
 # Output shows: myvm:main, myvm:dev, othervm:main
 
 # Execute commands on specific sessions
-azlin exec myvm:dev "git status"
+azlin connect myvm:dev -- "git status"
 ```
 
 ## When to Use Compound Naming
@@ -59,11 +59,11 @@ azlin list
 
 ```bash
 # Run command on specific session
-azlin exec myvm:main "docker ps"
+azlin connect myvm:main -- "docker ps"
 
 # Works across different VMs
-azlin exec vm1:test "npm test"
-azlin exec vm2:test "npm test"
+azlin connect vm1:test -- "npm test"
+azlin connect vm2:test -- "npm test"
 ```
 
 ## How It Works
@@ -97,8 +97,8 @@ azlin connect main
 
 ```bash
 # Create multiple dev environments on same VM
-azlin ssh myvm --tmux-session feature-auth
-azlin ssh myvm --tmux-session feature-api
+azlin connect myvm --tmux-session feature-auth
+azlin connect myvm --tmux-session feature-api
 
 # Later, connect to specific feature
 azlin connect myvm:feature-auth
@@ -118,9 +118,9 @@ azlin connect shared-vm:charlie
 
 ```bash
 # Test across environments
-azlin exec prod-vm:app "curl localhost:8080/health"
-azlin exec staging-vm:app "curl localhost:8080/health"
-azlin exec dev-vm:app "curl localhost:8080/health"
+azlin connect prod-vm:app -- "curl localhost:8080/health"
+azlin connect staging-vm:app -- "curl localhost:8080/health"
+azlin connect dev-vm:app -- "curl localhost:8080/health"
 ```
 
 ## Configuration
@@ -191,7 +191,7 @@ ENVIRONMENTS=(
 
 for env in "${ENVIRONMENTS[@]}"; do
     echo "Deploying to $env..."
-    azlin exec "$env" "cd ~/app && git pull && docker-compose up -d"
+    azlin connect "$env" -- "cd ~/app && git pull && docker-compose up -d"
 done
 ```
 
@@ -204,11 +204,11 @@ jobs:
     steps:
       - name: Deploy to production
         run: |
-          azlin exec prod-vm:app "cd /app && ./deploy.sh"
+          azlin connect prod-vm:app -- "cd /app && ./deploy.sh"
 
       - name: Verify deployment
         run: |
-          azlin exec prod-vm:app "curl -f localhost:8080/health"
+          azlin connect prod-vm:app -- "curl -f localhost:8080/health"
 ```
 
 ## Best Practices
@@ -223,7 +223,7 @@ jobs:
 - [`azlin session`](../commands/vm/session.md) - Manage session names
 - [`azlin connect`](../commands/vm/connect.md) - Connect to sessions
 - [`azlin list`](../commands/vm/list.md) - List all sessions
-- [`azlin exec`](../commands/batch/command.md) - Execute commands on sessions
+- [`azlin batch command`](../commands/batch/command.md) - Run a command across multiple sessions
 
 ## See Also
 

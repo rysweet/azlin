@@ -39,8 +39,8 @@ Update the azlin binary itself to the latest release:
 azlin update          # alias: azlin self-update
 ```
 
-> Note: `azlin update <vm>` (with a VM argument) instead updates the development
-> tools *on that VM* — see [VM Maintenance](#vm-maintenance).
+> Note: to update the development tools *on a VM* instead, use
+> `azlin vm update-tools <vm>` — see [VM Maintenance](#vm-maintenance).
 
 ### Verify
 
@@ -156,19 +156,15 @@ Every azlin VM comes pre-configured with:
 7. **Rust** - Systems programming language
 8. **Golang** - Go programming language
 9. **.NET 10** - .NET development framework
-10. **GitHub Copilot CLI** - AI-powered coding assistant
-11. **OpenAI Codex CLI** - AI code generation
-12. **Claude Code CLI** - AI coding assistant
+10. **uv** - Fast Python package manager (Astral)
+11. **Chromium** - Headless browser for testing and automation
+12. **Claude Code CLI** - Anthropic's AI coding assistant
 
-### AI CLI Tools
+### AI Coding Assistant
 
-Three AI-powered coding assistants are pre-installed and ready to use:
+**Claude Code CLI** (`@anthropic-ai/claude-code`) — Anthropic's AI coding assistant — is pre-installed and ready to use on every VM. It is installed via the official installer into your user account, so it's immediately available in your PATH without requiring sudo permissions.
 
-- **GitHub Copilot CLI** (`@github/copilot`) - AI pair programmer from GitHub
-- **OpenAI Codex CLI** (`@openai/codex`) - Advanced AI code generation
-- **Claude Code CLI** (`@anthropic-ai/claude-code`) - Anthropic's AI coding assistant
-
-These tools are installed using npm's user-local configuration, so they're immediately available in your PATH without requiring sudo permissions.
+> Want to use GitHub Copilot or OpenAI Codex on a VM? azlin can forward your local GitHub Copilot and Claude credentials to a new VM (see [credential forwarding](docs/features/credential-forwarding.md)); install their CLIs with `npm install -g @github/copilot` or `@openai/codex` once connected.
 
 ### npm User-Local Configuration
 
@@ -180,18 +176,20 @@ Node.js is configured for user-local global package installations, which means:
 
 ### Verifying Installed Tool Versions
 
-All VMs automatically log installed versions of npm and ripgrep during provisioning:
+At the end of provisioning, every VM logs a verification block listing the
+installed core tool versions (gh, az, node, rustc, amplihack, azlin, dotnet):
 
 ```bash
-# View all tool versions logged during provisioning
-grep '[AZLIN_VERSION]' /var/log/cloud-init-output.log
+# View the provisioning log, including the final version-verification block
+grep '\[AZLIN\]' /var/log/cloud-init-output.log
 
-# Example output (actual versions may vary):
-# [AZLIN_VERSION] npm: 10.2.4
-# [AZLIN_VERSION] rg: 14.1.0
+# The block is emitted right after this line:
+# [AZLIN] Provisioning complete
 ```
 
-**Note**: The versions shown are examples. Actual versions depend on Ubuntu repository state at provision time. npm is bundled with Node.js 24.x LTS (installed via NodeSource), not installed separately.
+**Note**: Actual versions depend on Ubuntu repository state and upstream
+installers at provision time. npm is bundled with Node.js 24.x LTS (installed
+via NodeSource), not installed separately.
 
 This provides an audit trail of exactly which tool versions were installed, useful for troubleshooting and compliance.
 
@@ -435,7 +433,7 @@ Most azlin commands support these standard options:
 
 These options are available on nearly all commands that interact with Azure resources, including:
 - VM management: `new`, `list`, `start`, `stop`, `kill`, `destroy`, `status`
-- Maintenance: `update`, `os-update`, `prune`
+- Maintenance: `vm update-tools`, `os-update`, `prune`
 - Monitoring: `w`, `ps`, `top`, `cost`
 - File operations: `sync`, `cp`
 - Storage: `storage list`, `storage create`, `storage mount`, etc.
@@ -452,7 +450,7 @@ These options are available on nearly all commands that interact with Azure reso
 
 Create a fresh Azure Ubuntu VM with all development tools pre-installed.
 
-**Aliases**: `azlin vm`, `azlin create`
+**Aliases**: `azlin create`
 
 ```bash
 # Basic provisioning (interactive if VMs exist)
@@ -796,34 +794,30 @@ azlin prune --force
 
 ## VM Maintenance
 
-### `azlin update` - Update development tools on a VM
+### `azlin vm update-tools` - Update development tools on a VM
 
-Update all programming tools and AI CLI tools that were installed during VM provisioning. **Default timeout: 300 seconds per tool.**
+Update the development toolchains that were installed during VM provisioning. **Default timeout: 300 seconds per update.**
 
 ```bash
 # Update tools on a VM by session name
-azlin update my-project
+azlin vm update-tools my-project
 
 # Update tools on a VM by name
-azlin update azlin-vm-12345 --resource-group my-rg
+azlin vm update-tools azlin-vm-12345 --resource-group my-rg
 
 # Update with longer timeout (default 300s)
-azlin update my-vm --timeout 600
+azlin vm update-tools my-vm --timeout 600
 ```
 
 **What gets updated**:
-- Node.js packages (npm, AI CLI tools)
-- Python packages (pip, uv, astral-uv)
-- Rust toolchain (rustup)
-- Go toolchain
-- Docker
-- GitHub CLI
-- Azure CLI
+- System packages (`apt-get update && apt-get upgrade`)
+- Rust toolchain (`rustup update`)
+- Python package manager (`pip install --upgrade pip`)
+- Node.js package manager (`npm install -g npm`)
 
 **Use cases**:
 - Keep development environments up-to-date
 - Apply security patches to dev tools
-- Get latest AI CLI features
 - Synchronize tool versions across VMs
 
 **Performance**: Updates typically complete in 2-5 minutes depending on available updates.
@@ -879,7 +873,7 @@ Many azlin commands accept a **VM identifier** in three formats:
    - Example: `azlin connect 20.1.2.3`
 
 **Commands that accept VM identifiers:**
-- `connect`, `update`, `os-update`, `stop`, `start`, `kill`, `destroy`
+- `connect`, `vm update-tools`, `os-update`, `stop`, `start`, `kill`, `destroy`
 
 **Tip:** Use session names for easy access:
 ```bash
@@ -2291,7 +2285,7 @@ azlin ps  # Check for resource-heavy processes
 | `azlin stop` | Stop VM (save $) | `azlin stop my-vm` |
 | `azlin kill` | Delete VM | `azlin kill my-vm` |
 | `azlin destroy` | Advanced delete | `azlin destroy --dry-run` |
-| `azlin update` | Update dev tools | `azlin update my-vm` |
+| `azlin vm update-tools` | Update dev tools | `azlin vm update-tools my-vm` |
 | `azlin os-update` | Update Ubuntu packages | `azlin os-update my-vm` |
 | `azlin status` | Detailed status | `azlin status` |
 | `azlin top` | Real-time monitor | `azlin top` |

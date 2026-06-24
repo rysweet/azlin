@@ -114,7 +114,7 @@ azlin list
 
 Create a fresh Azure Ubuntu VM with all development tools pre-installed.
 
-**Aliases**: `azlin vm`, `azlin create`
+**Aliases**: `azlin create`
 
 ```bash
 # Basic provisioning (interactive if VMs exist)
@@ -177,7 +177,7 @@ azlin new --home-disk-size 200 --tmp-disk-size 128  # Both disks
 **What gets installed**:
 - Docker, Azure CLI, GitHub CLI, Git
 - Node.js, Python 3.14+, Rust, Golang, .NET 10
-- GitHub Copilot CLI, OpenAI Codex CLI, Claude Code CLI
+- uv, Chromium, Claude Code CLI
 - tmux, vim, and essential utilities
 
 **Default VM**: Size 'l' = Standard_E16as_v5 (128GB RAM, 16 vCPU, 12.5 Gbps network)
@@ -376,27 +376,26 @@ azlin killall --force
 
 ## VM Maintenance
 
-### `azlin update` - Update development tools
+### `azlin vm update-tools` - Update development tools
 
-Update all programming tools and AI CLI tools installed during provisioning.
+Refresh the development toolchains installed during provisioning.
 
 ```bash
 # Update tools on a VM by session name
-azlin update my-project
+azlin vm update-tools my-project
 
 # Update tools on a VM by name
-azlin update azlin-vm-12345 --resource-group my-rg
+azlin vm update-tools azlin-vm-12345 --resource-group my-rg
 
 # Update with longer timeout (default 300s)
-azlin update my-vm --timeout 600
+azlin vm update-tools my-vm --timeout 600
 ```
 
 **What gets updated**:
-- Node.js packages (npm, AI CLI tools)
-- Python packages (pip, uv, astral-uv)
-- Rust toolchain (rustup)
-- Go toolchain
-- Docker, GitHub CLI, Azure CLI
+- System packages (`apt-get update && apt-get upgrade`)
+- Rust toolchain (`rustup update`)
+- Python package manager (`pip install --upgrade pip`)
+- Node.js package manager (`npm install -g npm`)
 
 **Time**: 2-5 minutes
 
@@ -967,7 +966,7 @@ azlin new --name my-vm --vm-size Standard_D4s_v3
 
 ```bash
 # Try with longer timeout
-azlin update my-vm --timeout 600
+azlin vm update-tools my-vm --timeout 600
 
 # Check VM connectivity
 azlin connect my-vm
@@ -1042,7 +1041,7 @@ cat ~/.azure/az.log
 | `azlin kill` | Delete VM | `azlin kill my-vm` |
 | `azlin destroy` | Advanced delete | `azlin destroy --dry-run` |
 | `azlin killall` | Delete all VMs | `azlin killall` |
-| `azlin update` | Update dev tools | `azlin update my-vm` |
+| `azlin vm update-tools` | Update dev tools | `azlin vm update-tools my-vm` |
 | `azlin os-update` | Update Ubuntu | `azlin os-update my-vm` |
 | `azlin session` | Manage names | `azlin session vm-123 my-name` |
 | `azlin w` | Who's logged in | `azlin w` |
