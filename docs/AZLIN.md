@@ -176,7 +176,7 @@ azlin new --home-disk-size 200 --tmp-disk-size 128  # Both disks
 
 **What gets installed**:
 - Docker, Azure CLI, GitHub CLI, Git
-- Node.js, Python 3.13+, Rust, Golang, .NET 10
+- Node.js, Python 3.14+, Rust, Golang, .NET 10
 - GitHub Copilot CLI, OpenAI Codex CLI, Claude Code CLI
 - tmux, vim, and essential utilities
 
