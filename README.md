@@ -33,9 +33,14 @@ git clone https://github.com/rysweet/azlin && cd azlin/rust && cargo install --p
 
 ### Self-Update
 
+Update the azlin binary itself to the latest release:
+
 ```bash
-azlin update
+azlin update          # alias: azlin self-update
 ```
+
+> Note: `azlin update <vm>` (with a VM argument) instead updates the development
+> tools *on that VM* — see [VM Maintenance](#vm-maintenance).
 
 ### Verify
 
@@ -60,15 +65,11 @@ azlin new --repo https://github.com/owner/repo
 azlin health
 ```
 
-`azlin new` selects the first available public key from
-`~/.ssh/azlin_key.pub`, `~/.ssh/id_ed25519_azlin.pub`,
-`~/.ssh/id_ed25519.pub`, then `~/.ssh/id_rsa.pub`. When create-time home
-seeding, repo clone, or first auto-connect shell run, azlin reuses the
-matching private key for those phases too. If one of those post-create SSH
-phases is enabled and the matching private key is missing, `azlin new` now
-errors instead of silently falling back to a different identity. If the create
-flow routes through bastion, `azlin new --bastion-name <name>` is reused for
-the later auth-forward, home seeding, and first auto-connect phases too.
+By default, `azlin new` picks up your existing SSH public key (trying
+`~/.ssh/azlin_key.pub`, `~/.ssh/id_ed25519_azlin.pub`, `~/.ssh/id_ed25519.pub`,
+then `~/.ssh/id_rsa.pub`) and reuses the matching private key for home seeding,
+repo clone, and the first auto-connect. See [Connection](#connection) for
+details and bastion behavior.
 
 ## What is azlin?
 
@@ -212,74 +213,8 @@ Before using azlin, ensure these tools are installed:
 - `uv`
 - `python`
 
-**macOS**: `brew install azure-cli gh git tmux`
-**Linux**: See platform-specific installation in Prerequisites module
-
-### Copy Files to/from VMs
-
-```bash
-azlin cp myfile.txt vm1:~/
-azlin cp vm1:~/data.txt ./
-```
-
-### Home Directory Sync
-
-Automatically sync your configuration files from `~/.azlin/home/` to all VMs:
-
-```bash
-# Setup: Place your dotfiles in ~/.azlin/home/
-mkdir -p ~/.azlin/home
-cp ~/.bashrc ~/.vimrc ~/.gitconfig ~/.azlin/home/
-
-# Auto-syncs on VM creation and login
-azlin new # Dotfiles automatically synced after provisioning
-
-# Manual sync to specific VM
-azlin sync --vm-name my-vm
-
-# Preview what would be synced
-azlin sync --dry-run
-```
-
-**Security**: Automatically blocks SSH keys, cloud credentials, .env files, and other secrets.
-
-### Bidirectional File Transfer
-
-Copy files between your local machine and VMs:
-
-```bash
-# Copy local file to VM
-azlin cp report.pdf vm1:~/documents/
-
-# Copy from VM to local
-azlin cp vm1:~/results.tar.gz ./
-
-# Preview transfer
-azlin cp --dry-run large-dataset.zip vm1:~/
-```
-
-### Azure Bastion (Secure Access)
-
-Connect to VMs securely without public IPs using Azure Bastion:
-
-```bash
-# List available Bastion hosts
-azlin bastion list
-
-# Connect to VM through Bastion (auto-detected when available)
-azlin connect my-vm
-
-# Configure VM to use specific Bastion
-azlin bastion configure my-vm --bastion-name my-bastion --resource-group my-rg
-```
-
-**Security Benefits**: Bastion eliminates internet-facing access to VMs, providing enhanced security through centralized access control, audit logging, and compliance with security policies requiring private-only VMs.
-
-**Cost**: ~$289/month per Bastion host (Standard SKU, shared across all VMs in the VNet).
-
-**Note**: azlin requires Standard SKU to enable CLI tunneling via `az network bastion tunnel`. Basic SKU only supports browser-based access.
-
-For complete documentation, see the [Azure Bastion](#azure-bastion-secure-vm-access) section.
+**macOS**: `brew install azure-cli gh git tmux uv python`
+**Linux**: Install the Azure CLI and GitHub CLI from their official apt/dnf repositories; `git`, `ssh`, `tmux`, and `python` are available from your distro's package manager.
 
 ## Authentication
 
@@ -815,22 +750,6 @@ azlin killall --force
 **Defaults:**
 - `--prefix`: "azlin" (only deletes azlin-created VMs)
 
-### Deletion Commands Comparison
-
-| Feature | `kill` | `destroy` | `killall` |
-|---------|--------|-----------|-----------|
-| Delete single VM | ✓ | ✓ | ✗ |
-| Delete multiple VMs | ✗ | ✗ | ✓ |
-| Dry-run mode | ✗ | ✓ | ✗ |
-| Delete resource group | ✗ | ✓ | ✗ |
-| Confirmation | ✓ | ✓ | ✓ |
-| Force flag | ✓ | ✓ | ✓ |
-
-**When to use:**
-- `kill` - Simple, quick VM deletion
-- `destroy` - Advanced with dry-run and RG deletion
-- `killall` - Bulk cleanup of multiple VMs
-
 ### `azlin prune` - Automated VM cleanup
 
 Intelligently identify and delete idle or unused VMs based on age and activity.
@@ -1190,12 +1109,16 @@ See [GUI Forwarding Guide](docs/GUI_FORWARDING.md) for prerequisites, options, a
 
 ## Monitoring
 
+All monitoring commands (`azlin top`, `azlin w`, `azlin ps`) automatically
+discover your VMs via tag-based discovery — including custom-named VMs and
+compound `hostname:session` formats — so you never need to list them manually.
+
 ### `azlin top` - Distributed real-time monitoring
 
-Monitor CPU, memory, and processes across all VMs in a unified dashboard. Automatically discovers all azlin VMs using tag-based discovery, including VMs with custom names.
+Monitor CPU, memory, and processes across all VMs in a unified dashboard.
 
 ```bash
-# Default: 10 second refresh (discovers all azlin VMs including custom-named)
+# Default: 10 second refresh
 azlin top
 
 # Custom refresh rate (5 second refresh)
@@ -1217,16 +1140,12 @@ azlin top -i 15 -t 10
 - `--interval, -i SECONDS` - Refresh rate (default: 10 seconds)
 - `--timeout, -t SECONDS` - SSH timeout per VM (default: 5 seconds)
 
-**Output:** Real-time dashboard showing all VMs (including custom-named):
-- CPU usage per VM
-- Memory utilization
-- System load averages
-- Top processes
+**Output:** Real-time dashboard showing per-VM CPU usage, memory utilization,
+system load averages, and top processes.
 
 **Use cases:**
-- Monitor distributed workloads across custom-named VMs
+- Monitor distributed workloads across the fleet
 - Identify resource bottlenecks
-- Track performance across fleet (regardless of naming convention)
 - Real-time capacity planning
 
 Press Ctrl+C to exit.
@@ -1235,17 +1154,15 @@ Press Ctrl+C to exit.
 
 Run the `w` command on all VMs to see active users and their processes.
 
-**All monitoring commands (`azlin w`, `azlin ps`, `azlin top`) automatically discover VMs using tag-based discovery, supporting custom VM names including compound formats like "hostname:session".**
-
 ```bash
-# Run 'w' on all VMs (discovers all azlin VMs including custom-named)
+# Run 'w' on all VMs
 azlin w
 
 # Run on specific resource group
 azlin w --resource-group my-rg
 ```
 
-**Output** (showing custom-named VMs):
+**Output:**
 ```
 === VM: myhost:dev (20.12.34.56) ===
  12:34:56 up  2:15,  1 user,  load average: 0.52, 0.58, 0.59
@@ -1255,15 +1172,15 @@ azureuser pts/0   192.168.1.1      10:30    0.00s  0.04s  0.00s w
 
 **Use cases**:
 - Check if anyone is using a VM
-- Monitor system load across all VMs (including custom-named)
+- Monitor system load across all VMs
 - See active sessions
 
 ### `azlin ps` - Show running processes
 
-Run `ps aux` on all VMs to see all processes. Automatically discovers all azlin VMs using tag-based discovery.
+Run `ps aux` on all VMs to see all processes.
 
 ```bash
-# Show all processes on all VMs (discovers all azlin VMs including custom-named)
+# Show all processes on all VMs
 azlin ps
 
 # Show on specific resource group
@@ -1271,8 +1188,8 @@ azlin ps --resource-group my-rg
 ```
 
 **Use cases**:
-- Find runaway processes across fleet
-- Monitor resource usage (including custom-named VMs)
+- Find runaway processes across the fleet
+- Monitor resource usage
 - Debug performance issues
 
 ---
