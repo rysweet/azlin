@@ -47,7 +47,7 @@ Complete reference for all azlin commands organized by category.
 - `azlin status` - Show VM status
 - `azlin session` - Manage session names
 - `azlin tag` - Manage VM tags
-- `azlin update` - Update development tools
+- `azlin vm update-tools` - Update development tools
 - `azlin destroy` - Delete a VM
 - `azlin kill` - Delete VM and resources
 - `azlin killall` - Delete all VMs

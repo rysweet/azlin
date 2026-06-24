@@ -22,7 +22,7 @@ Utility commands provide helpful tools for monitoring, updating, file operations
 
 ### VM Maintenance
 
-- [**azlin update**](update.md) - Update all development tools on a VM
+- [**azlin update**](update.md) - Update the azlin binary to the latest release
 - [**azlin os-update**](os-update.md) - Update OS packages on a VM
 - [**azlin prune**](prune.md) - Prune inactive VMs based on age and idle time
 
@@ -64,7 +64,7 @@ azlin cp my-vm:~/data.json ./local-data.json
 
 ```bash
 # Update development tools
-azlin update my-vm
+azlin vm update-tools my-vm
 
 # Update OS packages
 azlin os-update my-vm

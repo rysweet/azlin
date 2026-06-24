@@ -128,9 +128,9 @@ azlin compose up -f docker-compose.azlin.yml
 azlin compose down -f docker-compose.azlin.yml
 
 # Perform maintenance
-azlin update web-server
-azlin update api-*
-azlin update db-server
+azlin vm update-tools web-server
+azlin vm update-tools api-*
+azlin vm update-tools db-server
 
 # Restart services
 azlin compose up -f docker-compose.azlin.yml

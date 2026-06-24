@@ -302,8 +302,8 @@ rustc --version
 go version
 dotnet --version
 
-# AI coding assistants
-npx @github/copilot --version
+# AI coding assistant
+claude --version
 ```
 
 All commands should return version information.
@@ -377,9 +377,7 @@ The VM came with these tools pre-installed:
 - Go
 - .NET 10
 
-**AI Coding Assistants:**
-- GitHub Copilot CLI
-- OpenAI Codex CLI
+**AI Coding Assistant:**
 - Claude Code CLI
 
 ### SSH Configuration
