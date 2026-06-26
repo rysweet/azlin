@@ -64,6 +64,7 @@ pub fn build_create_pip_args(resource_group: &str, region: &str) -> Vec<String> 
         "--location".into(), region.to_lowercase(),
         "--sku".into(), "Standard".into(),
         "--allocation-method".into(), "Static".into(),
+        "--ip-tags".into(), "FirstPartyUsage=/ATEVETNonProd".into(),
         "--output".into(), "none".into(),
     ]
 }
@@ -336,6 +337,14 @@ mod tests {
         assert!(args.contains(&"azlin-bastion-westus-pip".to_string()));
         assert!(args.contains(&"Standard".to_string()));
         assert!(args.contains(&"Static".to_string()));
+    }
+
+    #[test]
+    fn test_build_create_pip_args_applies_first_party_ip_tag() {
+        let args = build_create_pip_args("my-rg", "westus");
+        // Every bastion public IP must carry the FirstPartyUsage IP tag.
+        let tag_idx = args.iter().position(|a| a == "--ip-tags").unwrap();
+        assert_eq!(args[tag_idx + 1], "FirstPartyUsage=/ATEVETNonProd");
     }
 
     #[test]
