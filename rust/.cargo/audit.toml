@@ -1,0 +1,31 @@
+# Supply-chain audit configuration for `cargo audit`.
+# https://github.com/rustsec/rustsec/tree/main/cargo-audit
+#
+# The gate is BLOCKING: any advisory not explicitly listed below fails CI.
+# Every ignore must cite a reason and a tracking issue. Re-evaluate on each
+# dependency bump and remove entries once upstream fixes are adopted.
+
+[advisories]
+ignore = [
+    # RUSTSEC-2023-0071 — Marvin Attack (timing side-channel) in `rsa`.
+    # No fixed upstream release exists. Pulled in transitively via
+    # russh-keys -> ssh-key -> rsa. Not remotely exploitable in azlin's
+    # usage (local key parsing only). Tracked upstream:
+    # https://github.com/RustCrypto/RSA/issues/19
+    "RUSTSEC-2023-0071",
+
+    # RUSTSEC-2026-0154 — Unbounded 32-bit allocation in `russh` 0.49.x.
+    # RUSTSEC-2026-0153 — Unchecked CryptoVec allocation in russh-cryptovec.
+    # Both are fixed in russh >= 0.60.3, which is a breaking API change
+    # (russh-keys merged into russh::keys, Handler trait reworked). The
+    # upgrade is tracked separately so it can ship with full SSH testing:
+    # https://github.com/rysweet/azlin/issues/1034
+    "RUSTSEC-2026-0154",
+    "RUSTSEC-2026-0153",
+
+    # RUSTSEC-2025-0119 — `number_prefix` is unmaintained (informational).
+    # Transitive via indicatif 0.17 (progress bars). Removed by indicatif
+    # 0.18; bumped together with the russh work (issue #1034) to keep this
+    # PR focused.
+    "RUSTSEC-2025-0119",
+]

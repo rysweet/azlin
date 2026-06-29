@@ -6,13 +6,14 @@ on:
     paths: ['rust/**']
   workflow_dispatch:
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
   # ── Auto-increment patch version ──────────────────────────────────────
   version-bump:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     # Skip if this push is already a version-bump commit (prevent loops)
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     outputs:
@@ -20,7 +21,7 @@ jobs:
       sha: ${{ steps.bump.outputs.sha }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -92,6 +93,8 @@ jobs:
   # ── Build native binaries ─────────────────────────────────────────────
   build:
     needs: [version-bump]
+    permissions:
+      contents: read
     strategy:
       matrix:
         include:
@@ -114,15 +117,16 @@ jobs:
         working-directory: rust
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.version-bump.outputs.sha }}
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: rust
 
@@ -147,7 +151,7 @@ jobs:
           cd dist && tar czf azlin-${{ matrix.suffix }}.tar.gz azlin-${{ matrix.suffix }} azdoit-${{ matrix.suffix }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: binaries-${{ matrix.suffix }}
           path: rust/dist/azlin-${{ matrix.suffix }}.tar.gz
@@ -155,6 +159,8 @@ jobs:
   # Build Python wheels with maturin for uvx/pip install
   wheels:
     needs: [version-bump]
+    permissions:
+      contents: read
     strategy:
       matrix:
         include:
@@ -170,16 +176,16 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.version-bump.outputs.sha }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
 
       - name: Build wheel
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.target }}
           args: --release --out dist
@@ -188,7 +194,7 @@ jobs:
           before-script-linux: (dnf install -y perl-core make 2>/dev/null || yum install -y perl-core make 2>/dev/null || (apt-get update -q && apt-get install -yq perl make))
 
       - name: Upload wheel
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: wheel-${{ matrix.os }}-${{ matrix.target }}
           path: rust/dist/*.whl
@@ -197,9 +203,11 @@ jobs:
   release:
     needs: [version-bump, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.version-bump.outputs.sha }}
 
@@ -212,7 +220,7 @@ jobs:
           echo "tag=${VERSION}-rust.${SHORT_SHA}" >> $GITHUB_OUTPUT
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
 
@@ -224,7 +232,7 @@ jobs:
           ls -la release/
 
       - name: Create/Update Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ steps.version.outputs.tag }}
           name: "azlin v${{ steps.version.outputs.version }} (${{ needs.version-bump.outputs.sha }})"
