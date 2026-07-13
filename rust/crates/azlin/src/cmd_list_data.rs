@@ -478,7 +478,7 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
                 println!("  Opening window: {} (session: {})", vm_name, session);
                 let connect_cmd = escape_for_applescript(&format!(
                     "{} connect {} --tmux-session {}",
-                    &self_exe, vm_name, &session
+                    self_exe, vm_name, session
                 ));
                 if let Err(e) = open_macos_terminal(&macos_terminal, &connect_cmd) {
                     eprintln!("  Warning: failed to open window for {}: {}", vm_name, e);

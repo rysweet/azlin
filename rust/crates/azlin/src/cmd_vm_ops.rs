@@ -603,8 +603,10 @@ pub(crate) async fn handle_vm_new(
                         "Provisioning bastion infrastructure in {}...",
                         final_loc
                     ));
-                    let result =
-                        crate::bastion_helpers::ensure_bastion_infrastructure(&rg, &final_loc);
+                    let ip_tags = config_defaults.bastion_pip_ip_tags();
+                    let result = crate::bastion_helpers::ensure_bastion_infrastructure(
+                        &rg, &final_loc, &ip_tags,
+                    );
                     pb.finish_and_clear();
                     result?;
                 }

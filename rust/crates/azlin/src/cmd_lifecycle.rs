@@ -203,7 +203,6 @@ pub(crate) async fn dispatch(
         azlin_cli::Commands::OsUpdate {
             vm_identifier,
             resource_group,
-            timeout: _,
             ..
         } => {
             let rg = resolve_resource_group(resource_group)?;
