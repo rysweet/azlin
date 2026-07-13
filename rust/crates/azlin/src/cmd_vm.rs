@@ -70,7 +70,6 @@ pub(crate) async fn dispatch(
             azlin_cli::VmAction::UpdateTools {
                 vm_identifier,
                 resource_group,
-                timeout: _,
                 ..
             } => {
                 crate::cmd_vm_ops2::handle_vm_update(&vm_identifier, resource_group).await?;
