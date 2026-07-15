@@ -14,6 +14,64 @@ fn resolve_ssh_key() -> Option<std::path::PathBuf> {
     crate::key_helpers::find_preferred_private_key(&ssh_dir)
 }
 
+/// Result of resolving a bare identifier against known tmux session names
+/// across all running VMs in a resource group.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum SessionLookup {
+    /// Exactly one running VM has a tmux session with this name.
+    Found { vm_name: String },
+    /// No running VM has a tmux session with this name.
+    NotFound,
+    /// More than one running VM has a tmux session with this name; caller
+    /// should ask the user to disambiguate with `vm:session` notation.
+    Ambiguous { vm_names: Vec<String> },
+}
+
+/// Search all running VMs in `rg` for a tmux session named `session_name`.
+///
+/// Used by `azlin connect <name>` to fall back to session-name resolution
+/// when `<name>` does not match any VM hostname: if exactly one running VM
+/// has a matching tmux session, callers can connect to `vm_name:session_name`.
+pub(crate) fn find_vm_by_tmux_session(
+    vms: &[VmInfo],
+    rg: &str,
+    subscription_id: &str,
+    connect_timeout: u64,
+    session_name: &str,
+    verbose: bool,
+) -> SessionLookup {
+    // collect_tmux_sessions now auto-detects whether bastion probing is
+    // needed based on the VM list, so no output-format flag is required.
+    let tmux_sessions = collect_tmux_sessions(vms, rg, verbose, subscription_id, connect_timeout);
+    match_session_in_map(&tmux_sessions, session_name)
+}
+
+/// Pure matching logic for [`find_vm_by_tmux_session`], split out so it can
+/// be unit tested without spawning real SSH/az processes.
+pub(crate) fn match_session_in_map(
+    tmux_sessions: &HashMap<String, Vec<String>>,
+    session_name: &str,
+) -> SessionLookup {
+    let mut matches: Vec<String> = Vec::new();
+    for (vm_name, sessions) in tmux_sessions {
+        let has_match = sessions
+            .iter()
+            .any(|raw| parse_session_name(raw).as_deref() == Some(session_name));
+        if has_match {
+            matches.push(vm_name.clone());
+        }
+    }
+    matches.sort();
+
+    match matches.len() {
+        0 => SessionLookup::NotFound,
+        1 => SessionLookup::Found {
+            vm_name: matches.remove(0),
+        },
+        _ => SessionLookup::Ambiguous { vm_names: matches },
+    }
+}
+
 /// Collect tmux sessions for all running VMs via SSH (direct or bastion).
 ///
 /// Always attempts bastion detection when at least one running VM has no
@@ -482,7 +540,8 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
                 println!("  Opening tab: {} (session: {})", vm_name, session);
                 let wsl_distro =
                     std::env::var("WSL_DISTRO_NAME").unwrap_or_else(|_| "".to_string());
-                let wt_args = build_wt_restore_args(&wsl_distro, &self_exe, vm_name, &session, restore_mode);
+                let wt_args =
+                    build_wt_restore_args(&wsl_distro, &self_exe, vm_name, &session, restore_mode);
                 let wt_str_args: Vec<&str> = wt_args.iter().map(|s| s.as_str()).collect();
                 match std::process::Command::new("wt.exe")
                     .args(&wt_str_args)
@@ -537,10 +596,7 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
                         "  No terminal emulator detected for {}. Run manually:",
                         vm_name
                     );
-                    eprintln!(
-                        "    azlin connect {} --tmux-session {}",
-                        vm_name, session
-                    );
+                    eprintln!("    azlin connect {} --tmux-session {}", vm_name, session);
                     eprintln!("  Tip: set AZLIN_TERMINAL=<your-terminal> to enable auto-restore.");
                 }
             }
@@ -653,8 +709,7 @@ fn detect_linux_terminal() -> Option<LinuxTerminal> {
     if let Ok(custom) = std::env::var("AZLIN_TERMINAL") {
         if !custom.is_empty() {
             // Reject values containing shell metacharacters to prevent injection.
-            if custom.contains([';', '&', '|', '$', '`', '\n', '(', ')'])
-            {
+            if custom.contains([';', '&', '|', '$', '`', '\n', '(', ')']) {
                 eprintln!(
                     "  Warning: AZLIN_TERMINAL contains shell metacharacters, ignoring: {}",
                     custom
@@ -711,7 +766,10 @@ fn open_linux_terminal(terminal: &LinuxTerminal, command: &str) -> Result<(), St
             .spawn(),
         LinuxTerminal::Xfce4Terminal => {
             // xfce4-terminal -e expects a single command string (shell-parsed)
-            let wrapped = format!("bash -lc {}", crate::dispatch_helpers::shell_escape(command));
+            let wrapped = format!(
+                "bash -lc {}",
+                crate::dispatch_helpers::shell_escape(command)
+            );
             std::process::Command::new("xfce4-terminal")
                 .args(["-e", &wrapped])
                 .stdin(std::process::Stdio::null())
@@ -735,5 +793,61 @@ fn open_linux_terminal(terminal: &LinuxTerminal, command: &str) -> Result<(), St
     match result {
         Ok(_) => Ok(()),
         Err(e) => Err(format!("failed to launch terminal: {}", e)),
+    }
+}
+
+#[cfg(test)]
+mod session_lookup_tests {
+    use super::*;
+
+    fn sessions_map(entries: &[(&str, &[&str])]) -> HashMap<String, Vec<String>> {
+        entries
+            .iter()
+            .map(|(vm, sess)| (vm.to_string(), sess.iter().map(|s| s.to_string()).collect()))
+            .collect()
+    }
+
+    #[test]
+    fn test_match_session_found_on_single_vm() {
+        let map = sessions_map(&[("vm-a", &["main:1", "scratch:0"]), ("vm-b", &["other:0"])]);
+        let result = match_session_in_map(&map, "scratch");
+        assert_eq!(
+            result,
+            SessionLookup::Found {
+                vm_name: "vm-a".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_match_session_not_found() {
+        let map = sessions_map(&[("vm-a", &["main:1"])]);
+        let result = match_session_in_map(&map, "nonexistent");
+        assert_eq!(result, SessionLookup::NotFound);
+    }
+
+    #[test]
+    fn test_match_session_ambiguous_across_vms() {
+        let map = sessions_map(&[("vm-a", &["shared:0"]), ("vm-b", &["shared:1"])]);
+        let result = match_session_in_map(&map, "shared");
+        match result {
+            SessionLookup::Ambiguous { vm_names } => {
+                assert_eq!(vm_names, vec!["vm-a".to_string(), "vm-b".to_string()]);
+            }
+            other => panic!("expected Ambiguous, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_match_session_ignores_attached_suffix() {
+        // Session name matching strips the ":attached" suffix via parse_session_name.
+        let map = sessions_map(&[("vm-a", &["work:1"])]);
+        let result = match_session_in_map(&map, "work");
+        assert_eq!(
+            result,
+            SessionLookup::Found {
+                vm_name: "vm-a".to_string()
+            }
+        );
     }
 }

@@ -78,9 +78,10 @@ pub(crate) async fn dispatch(
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
+            let identifier_was_explicit = vm_identifier.is_some();
 
             // Parse compound identifier: "vm:session" → (vm_name, Some(session))
-            let (raw_name, colon_session) = if let Some(ref id) = vm_identifier {
+            let (raw_name, mut colon_session) = if let Some(ref id) = vm_identifier {
                 if let Some((vm_part, sess_part)) = id.split_once(':') {
                     (Some(vm_part.to_string()), Some(sess_part.to_string()))
                 } else {
@@ -91,7 +92,7 @@ pub(crate) async fn dispatch(
             };
 
             // If no VM specified, show interactive picker of running VMs
-            let name = if let Some(n) = raw_name {
+            let mut name = if let Some(n) = raw_name {
                 n
             } else {
                 let vms = vm_manager.list_vms(&rg)?;
@@ -129,8 +130,86 @@ pub(crate) async fn dispatch(
             };
 
             let pb = penguin_spinner(&format!("Looking up {}...", name));
-            let vm = vm_manager.get_vm(&rg, &name)?;
-            pb.finish_and_clear();
+            let vm = match vm_manager.get_vm(&rg, &name) {
+                Ok(vm) => vm,
+                Err(get_vm_err) => {
+                    pb.finish_and_clear();
+                    // Fall back to tmux-session-name resolution only when the
+                    // user typed a bare identifier (no explicit "vm:session"
+                    // notation and no --tmux-session flag), since those forms
+                    // already unambiguously name the VM.
+                    if !identifier_was_explicit || colon_session.is_some() || tmux_session.is_some()
+                    {
+                        return Err(get_vm_err);
+                    }
+                    // Capture the original error as a string up front: it's
+                    // needed in more than one branch below, and anyhow::Error
+                    // isn't Clone.
+                    let get_vm_err_msg = format!("{get_vm_err:#}");
+                    let pb2 = penguin_spinner(&format!(
+                        "'{}' is not a known VM; searching tmux sessions...",
+                        name
+                    ));
+                    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+                    // If listing VMs fails here (e.g. a transient Azure API
+                    // error), don't silently treat that the same as "checked
+                    // and found no matching session" — report the original
+                    // get_vm error together with the listing failure so the
+                    // user knows the fallback lookup itself didn't run.
+                    let all_vms = vm_manager.list_vms(&rg).map_err(|list_err| {
+                        anyhow::anyhow!(
+                            "'{}' is not a known VM ({}), and could not be resolved as a tmux \
+                             session name either: failed to list VMs to search for a match: {list_err}",
+                            name,
+                            get_vm_err_msg
+                        )
+                    })?;
+                    let running: Vec<_> = all_vms
+                        .into_iter()
+                        .filter(|v| v.power_state == azlin_core::models::PowerState::Running)
+                        .collect();
+                    let lookup = crate::cmd_list_data::find_vm_by_tmux_session(
+                        &running,
+                        &rg,
+                        vm_manager.subscription_id(),
+                        config.ssh_connect_timeout,
+                        &name,
+                        verbose,
+                    );
+                    pb2.finish_and_clear();
+                    match lookup {
+                        crate::cmd_list_data::SessionLookup::Found { vm_name } => {
+                            eprintln!("Resolved tmux session '{}' to VM '{}'.", name, vm_name);
+                            colon_session = Some(name.clone());
+                            let pb3 = penguin_spinner(&format!("Looking up {}...", vm_name));
+                            let resolved = vm_manager.get_vm(&rg, &vm_name);
+                            pb3.finish_and_clear();
+                            let resolved_vm = resolved.with_context(|| {
+                                format!(
+                                    "Found tmux session '{}' on VM '{}', but failed to look up that VM",
+                                    name, vm_name
+                                )
+                            })?;
+                            name = vm_name;
+                            resolved_vm
+                        }
+                        crate::cmd_list_data::SessionLookup::NotFound => {
+                            return Err(get_vm_err.context(format!(
+                                "'{}' also does not match any tmux session name on running VMs",
+                                name
+                            )));
+                        }
+                        crate::cmd_list_data::SessionLookup::Ambiguous { vm_names } => {
+                            anyhow::bail!(
+                                "'{}' is not a known VM, and matches tmux sessions on multiple VMs ({}); use 'azlin connect <vm>:{}' to disambiguate",
+                                name,
+                                vm_names.join(", "),
+                                name
+                            );
+                        }
+                    }
+                }
+            };
 
             let username = vm.admin_username.unwrap_or_else(|| user.clone());
             let use_bastion = vm.public_ip.is_none();
