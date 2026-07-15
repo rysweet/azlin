@@ -273,7 +273,9 @@ pub(crate) async fn dispatch(
                 let _rg = match resource_group {
                     Some(rg) => rg,
                     None => config.default_resource_group.clone().ok_or_else(|| {
-                        anyhow::anyhow!("No resource group specified. Use --resource-group or set in config.")
+                        anyhow::anyhow!(
+                            "No resource group specified. Use --resource-group or set in config."
+                        )
                     })?,
                 };
                 println!("\nvCPU Quota:");

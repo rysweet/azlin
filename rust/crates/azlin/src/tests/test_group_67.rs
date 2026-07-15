@@ -82,8 +82,10 @@ fn test_build_effective_remote_command_wraps_env_split_string_chromium() {
 
 #[test]
 fn test_build_effective_remote_command_wraps_env_split_string_equals_chromium() {
-    let remote_command =
-        vec!["env".to_string(), "--split-string=chromium-browser --no-sandbox".to_string()];
+    let remote_command = vec![
+        "env".to_string(),
+        "--split-string=chromium-browser --no-sandbox".to_string(),
+    ];
     let wrapped = crate::cmd_connect::build_effective_remote_command(true, &remote_command);
 
     assert_eq!(wrapped.len(), 1);
@@ -350,8 +352,9 @@ fn test_maybe_wrap_vnc_app_command_handles_env_debug_flag_chromium() {
 
 #[test]
 fn test_maybe_wrap_vnc_app_command_handles_env_dash_alias_chromium() {
-    let wrapped =
-        crate::gui_launch_helpers::maybe_wrap_vnc_app_command("env - chromium-browser --no-sandbox");
+    let wrapped = crate::gui_launch_helpers::maybe_wrap_vnc_app_command(
+        "env - chromium-browser --no-sandbox",
+    );
     assert!(wrapped.contains("systemd-run --user --scope --quiet -- sh -lc"));
     assert!(wrapped.contains("env - chromium-browser --no-sandbox"));
 }

@@ -61,13 +61,11 @@ fn check_region_availability(
     };
 
     // Check quota via `az vm list-usage` (timeout + sanitization via az_cli_with_timeout)
-    let quota_json = match azlin_azure::az_cli_with_timeout(
-        &["vm", "list-usage", "--location", region],
-        120,
-    ) {
-        Ok(json) => json,
-        Err(e) => return make_error(format!("Failed to query quota: {e}")),
-    };
+    let quota_json =
+        match azlin_azure::az_cli_with_timeout(&["vm", "list-usage", "--location", region], 120) {
+            Ok(json) => json,
+            Err(e) => return make_error(format!("Failed to query quota: {e}")),
+        };
 
     let (quota_available, quota_limit, has_capacity) =
         match azlin_azure::region_fit::parse_quota_json(&quota_json) {
@@ -207,9 +205,7 @@ pub(crate) enum BastionMissingAction {
 pub(crate) fn prompt_bastion_action(region: &str, yes: bool) -> Result<BastionMissingAction> {
     use std::io::IsTerminal;
 
-    eprintln!(
-        "No Azure Bastion found in {region}. A bastion is required to SSH into private VMs."
-    );
+    eprintln!("No Azure Bastion found in {region}. A bastion is required to SSH into private VMs.");
 
     if yes {
         eprintln!("--yes flag set: auto-creating bastion infrastructure...");
@@ -266,10 +262,12 @@ fn select_bastion_resource_group(
         .iter()
         .filter(|b| b["name"].as_str() == Some(bastion_name))
         .filter_map(|b| {
-            b["resourceGroup"]
-                .as_str()
-                .map(str::to_owned)
-                .or_else(|| b["id"].as_str().and_then(resource_group_from_arm_id).map(str::to_owned))
+            b["resourceGroup"].as_str().map(str::to_owned).or_else(|| {
+                b["id"]
+                    .as_str()
+                    .and_then(resource_group_from_arm_id)
+                    .map(str::to_owned)
+            })
         })
         .collect();
 
@@ -457,9 +455,7 @@ pub(crate) async fn handle_vm_new(
         match explicit_family {
             Some(f) => f,
             None => match tier {
-                azlin_cli::VmSizeTier::Xl | azlin_cli::VmSizeTier::Xxl => {
-                    azlin_cli::VmFamily::E
-                }
+                azlin_cli::VmSizeTier::Xl | azlin_cli::VmSizeTier::Xxl => azlin_cli::VmFamily::E,
                 _ => azlin_cli::VmFamily::D,
             },
         }
@@ -483,7 +479,10 @@ pub(crate) async fn handle_vm_new(
         let mut results = Vec::new();
         let mut found_region: Option<String> = None;
 
-        eprintln!("🔍 Scanning {} regions for available quota and SKU...", candidates.len());
+        eprintln!(
+            "🔍 Scanning {} regions for available quota and SKU...",
+            candidates.len()
+        );
 
         for candidate in &candidates {
             let check = check_region_availability(candidate, &size, estimated_cores);
@@ -492,7 +491,10 @@ pub(crate) async fn handle_vm_new(
             results.push(check);
             if usable {
                 found_region = Some(candidate.to_string());
-                eprintln!("✓ Selected region: {} (SKU available, {} cores free)", candidate, avail);
+                eprintln!(
+                    "✓ Selected region: {} (SKU available, {} cores free)",
+                    candidate, avail
+                );
                 break;
             }
         }
@@ -513,8 +515,7 @@ pub(crate) async fn handle_vm_new(
         loc
     };
     let admin_user = DEFAULT_ADMIN_USERNAME.to_string();
-    let keypair = crate::key_helpers::ensure_ssh_keypair()
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let keypair = crate::key_helpers::ensure_ssh_keypair().map_err(|e| anyhow::anyhow!("{e}"))?;
     let ssh_key_path = keypair.public_key;
     let should_seed_home =
         crate::create_helpers::should_seed_remote_home(name.as_deref(), vm_count);
@@ -1206,8 +1207,7 @@ mod tests {
             Ok(action) => assert_eq!(action, super::BastionMissingAction::CreateBastion),
             Err(e) => {
                 assert!(
-                    e.to_string().contains("io error")
-                        || e.to_string().contains("not a terminal"),
+                    e.to_string().contains("io error") || e.to_string().contains("not a terminal"),
                     "Unexpected error: {e}"
                 );
             }
@@ -1219,23 +1219,59 @@ mod tests {
     #[test]
     fn test_tier_to_sku_d_series_all_tiers() {
         use azlin_cli::{VmFamily, VmSizeTier};
-        assert_eq!(super::tier_to_sku(VmSizeTier::Xs, VmFamily::D), "Standard_D2s_v5");
-        assert_eq!(super::tier_to_sku(VmSizeTier::S, VmFamily::D), "Standard_D4s_v5");
-        assert_eq!(super::tier_to_sku(VmSizeTier::M, VmFamily::D), "Standard_D8s_v5");
-        assert_eq!(super::tier_to_sku(VmSizeTier::L, VmFamily::D), "Standard_D16s_v5");
-        assert_eq!(super::tier_to_sku(VmSizeTier::Xl, VmFamily::D), "Standard_D32s_v5");
-        assert_eq!(super::tier_to_sku(VmSizeTier::Xxl, VmFamily::D), "Standard_D64s_v5");
+        assert_eq!(
+            super::tier_to_sku(VmSizeTier::Xs, VmFamily::D),
+            "Standard_D2s_v5"
+        );
+        assert_eq!(
+            super::tier_to_sku(VmSizeTier::S, VmFamily::D),
+            "Standard_D4s_v5"
+        );
+        assert_eq!(
+            super::tier_to_sku(VmSizeTier::M, VmFamily::D),
+            "Standard_D8s_v5"
+        );
+        assert_eq!(
+            super::tier_to_sku(VmSizeTier::L, VmFamily::D),
+            "Standard_D16s_v5"
+        );
+        assert_eq!(
+            super::tier_to_sku(VmSizeTier::Xl, VmFamily::D),
+            "Standard_D32s_v5"
+        );
+        assert_eq!(
+            super::tier_to_sku(VmSizeTier::Xxl, VmFamily::D),
+            "Standard_D64s_v5"
+        );
     }
 
     #[test]
     fn test_tier_to_sku_e_series_all_tiers() {
         use azlin_cli::{VmFamily, VmSizeTier};
-        assert_eq!(super::tier_to_sku(VmSizeTier::Xs, VmFamily::E), "Standard_E2as_v5");
-        assert_eq!(super::tier_to_sku(VmSizeTier::S, VmFamily::E), "Standard_E4as_v5");
-        assert_eq!(super::tier_to_sku(VmSizeTier::M, VmFamily::E), "Standard_E8as_v5");
-        assert_eq!(super::tier_to_sku(VmSizeTier::L, VmFamily::E), "Standard_E16as_v5");
-        assert_eq!(super::tier_to_sku(VmSizeTier::Xl, VmFamily::E), "Standard_E32as_v5");
-        assert_eq!(super::tier_to_sku(VmSizeTier::Xxl, VmFamily::E), "Standard_E64as_v5");
+        assert_eq!(
+            super::tier_to_sku(VmSizeTier::Xs, VmFamily::E),
+            "Standard_E2as_v5"
+        );
+        assert_eq!(
+            super::tier_to_sku(VmSizeTier::S, VmFamily::E),
+            "Standard_E4as_v5"
+        );
+        assert_eq!(
+            super::tier_to_sku(VmSizeTier::M, VmFamily::E),
+            "Standard_E8as_v5"
+        );
+        assert_eq!(
+            super::tier_to_sku(VmSizeTier::L, VmFamily::E),
+            "Standard_E16as_v5"
+        );
+        assert_eq!(
+            super::tier_to_sku(VmSizeTier::Xl, VmFamily::E),
+            "Standard_E32as_v5"
+        );
+        assert_eq!(
+            super::tier_to_sku(VmSizeTier::Xxl, VmFamily::E),
+            "Standard_E64as_v5"
+        );
     }
 
     #[test]
@@ -1244,7 +1280,10 @@ mod tests {
         let sku = super::tier_to_sku(VmSizeTier::Xl, VmFamily::E);
         // E-series SKUs should contain "E" and "as" (AMD memory-optimized)
         assert!(sku.contains("_E"), "E-series SKU must contain _E prefix");
-        assert!(sku.contains("as_v5"), "E-series SKU must be AMD-based (as_v5)");
+        assert!(
+            sku.contains("as_v5"),
+            "E-series SKU must be AMD-based (as_v5)"
+        );
     }
 
     #[test]
@@ -1252,6 +1291,9 @@ mod tests {
         use azlin_cli::{VmFamily, VmSizeTier};
         let sku = super::tier_to_sku(VmSizeTier::M, VmFamily::D);
         assert!(sku.contains("_D"), "D-series SKU must contain _D prefix");
-        assert!(sku.contains("s_v5"), "D-series SKU must be v5 with premium storage (s_v5)");
+        assert!(
+            sku.contains("s_v5"),
+            "D-series SKU must be v5 with premium storage (s_v5)"
+        );
     }
 }

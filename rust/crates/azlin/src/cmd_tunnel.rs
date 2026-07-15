@@ -310,13 +310,9 @@ async fn open_bastion_tunnels(
         };
 
         if remote_port == 22 {
-            open_bastion_ssh_tunnel(
-                bastion_name, rg, &vm_rid, vm, user, lport, key, entries, i,
-            )?;
+            open_bastion_ssh_tunnel(bastion_name, rg, &vm_rid, vm, user, lport, key, entries, i)?;
         } else {
-            open_bastion_direct_tunnel(
-                bastion_name, rg, &vm_rid, vm, lport, remote_port, entries,
-            )?;
+            open_bastion_direct_tunnel(bastion_name, rg, &vm_rid, vm, lport, remote_port, entries)?;
         }
     }
     Ok(())
@@ -337,24 +333,24 @@ fn open_bastion_direct_tunnel(
 ) -> Result<()> {
     let mut cmd = std::process::Command::new("az");
     cmd.args([
-            "network",
-            "bastion",
-            "tunnel",
-            "--name",
-            bastion_name,
-            "--resource-group",
-            rg,
-            "--target-resource-id",
-            vm_rid,
-            "--resource-port",
-            &remote_port.to_string(),
-            "--port",
-            &local_port.to_string(),
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    let bastion_child = spawn_as_group_leader(&mut cmd)
-        .context("Failed to spawn az bastion tunnel")?;
+        "network",
+        "bastion",
+        "tunnel",
+        "--name",
+        bastion_name,
+        "--resource-group",
+        rg,
+        "--target-resource-id",
+        vm_rid,
+        "--resource-port",
+        &remote_port.to_string(),
+        "--port",
+        &local_port.to_string(),
+    ])
+    .stdout(std::process::Stdio::null())
+    .stderr(std::process::Stdio::null());
+    let bastion_child =
+        spawn_as_group_leader(&mut cmd).context("Failed to spawn az bastion tunnel")?;
 
     let pid = bastion_child.id();
     std::mem::forget(bastion_child);
@@ -396,24 +392,24 @@ fn open_bastion_ssh_tunnel(
 
     let mut cmd = std::process::Command::new("az");
     cmd.args([
-            "network",
-            "bastion",
-            "tunnel",
-            "--name",
-            bastion_name,
-            "--resource-group",
-            rg,
-            "--target-resource-id",
-            vm_rid,
-            "--resource-port",
-            "22",
-            "--port",
-            &bastion_local_port.to_string(),
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    let bastion_child = spawn_as_group_leader(&mut cmd)
-        .context("Failed to spawn az bastion tunnel")?;
+        "network",
+        "bastion",
+        "tunnel",
+        "--name",
+        bastion_name,
+        "--resource-group",
+        rg,
+        "--target-resource-id",
+        vm_rid,
+        "--resource-port",
+        "22",
+        "--port",
+        &bastion_local_port.to_string(),
+    ])
+    .stdout(std::process::Stdio::null())
+    .stderr(std::process::Stdio::null());
+    let bastion_child =
+        spawn_as_group_leader(&mut cmd).context("Failed to spawn az bastion tunnel")?;
 
     let bastion_pid = bastion_child.id();
     std::mem::forget(bastion_child);

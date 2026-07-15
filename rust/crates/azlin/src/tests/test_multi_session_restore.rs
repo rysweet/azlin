@@ -38,12 +38,13 @@ fn test_multiple_vms_all_sessions() {
     );
     sessions.insert(
         "db-server".to_string(),
-        vec!["postgres:1".to_string(), "backup:0".to_string(), "monitoring:0".to_string()],
+        vec![
+            "postgres:1".to_string(),
+            "backup:0".to_string(),
+            "monitoring:0".to_string(),
+        ],
     );
-    sessions.insert(
-        "app-server".to_string(),
-        vec!["app:1".to_string()],
-    );
+    sessions.insert("app-server".to_string(), vec!["app:1".to_string()]);
 
     // Should process:
     // - web-server: nginx, logs (2 tabs)
@@ -89,9 +90,9 @@ fn test_invalid_sessions_skipped_others_processed() {
         "mixed-vm".to_string(),
         vec![
             "valid-1:1".to_string(),
-            "inval!d:0".to_string(),  // Invalid: contains !
+            "inval!d:0".to_string(), // Invalid: contains !
             "valid-2:0".to_string(),
-            "".to_string(),           // Invalid: empty
+            "".to_string(), // Invalid: empty
             "valid-3:1".to_string(),
         ],
     );
@@ -107,11 +108,11 @@ fn test_session_name_special_cases() {
     sessions.insert(
         "special-vm".to_string(),
         vec![
-            "a:0".to_string(),                    // Single char
-            "my_session:1".to_string(),           // Underscore
-            "my-session:0".to_string(),           // Hyphen
-            "MySession123:1".to_string(),         // Mixed case + numbers
-            "a".repeat(128) + ":0",               // Max length (128 chars)
+            "a:0".to_string(),            // Single char
+            "my_session:1".to_string(),   // Underscore
+            "my-session:0".to_string(),   // Hyphen
+            "MySession123:1".to_string(), // Mixed case + numbers
+            "a".repeat(128) + ":0",       // Max length (128 chars)
         ],
     );
 
@@ -218,5 +219,9 @@ fn test_performance_with_many_vms() {
     let duration = start.elapsed();
 
     // Should complete quickly in test mode (< 100ms)
-    assert!(duration.as_millis() < 100, "Restore took too long: {:?}", duration);
+    assert!(
+        duration.as_millis() < 100,
+        "Restore took too long: {:?}",
+        duration
+    );
 }

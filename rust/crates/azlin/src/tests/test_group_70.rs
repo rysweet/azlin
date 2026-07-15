@@ -205,12 +205,12 @@ fn test_provisioning_check_failed_state_recognized() {
     // When provisioning returns "Failed", wait_for_ssh should bail early.
     // This tests the string matching logic.
     let states = vec![
-        ("Succeeded", false),   // normal — don't bail
-        ("Creating", false),    // still going — don't bail
-        ("Updating", false),    // still going — don't bail
-        ("Failed", true),       // BAIL EARLY
-        ("Canceled", true),     // BAIL EARLY
-        ("Deleting", true),     // BAIL EARLY
+        ("Succeeded", false), // normal — don't bail
+        ("Creating", false),  // still going — don't bail
+        ("Updating", false),  // still going — don't bail
+        ("Failed", true),     // BAIL EARLY
+        ("Canceled", true),   // BAIL EARLY
+        ("Deleting", true),   // BAIL EARLY
     ];
     for (state, should_bail) in states {
         assert_eq!(
@@ -249,10 +249,10 @@ fn test_provisioning_check_interval_is_60s() {
 fn test_all_cli_tiers_produce_valid_timeout() {
     // Every VmSizeTier must map to a known Azure SKU that produces a valid timeout
     let tier_skus = vec![
-        ("Standard_D2s_v3", 300),   // S
-        ("Standard_D16s_v3", 300),  // M
-        ("Standard_D32s_v3", 450),  // L
-        ("Standard_D64s_v3", 600),  // Xl
+        ("Standard_D2s_v3", 300),  // S
+        ("Standard_D16s_v3", 300), // M
+        ("Standard_D32s_v3", 450), // L
+        ("Standard_D64s_v3", 600), // Xl
     ];
     for (sku, expected_secs) in tier_skus {
         let timeout = crate::cmd_vm_ops::ssh_timeout_for_vm_size(sku);

@@ -164,9 +164,13 @@ fn test_bastion_ssh_args_connects_to_loopback() {
 #[test]
 fn test_bastion_ssh_args_includes_bastion_port() {
     let args = crate::cmd_tunnel::build_bastion_ssh_args(3000, 8080, 50201, "testuser", None);
-    let port_idx = args.iter().position(|a| a == "-p").expect("-p flag missing");
+    let port_idx = args
+        .iter()
+        .position(|a| a == "-p")
+        .expect("-p flag missing");
     assert_eq!(
-        args[port_idx + 1], "50201",
+        args[port_idx + 1],
+        "50201",
         "bastion SSH must use bastion local port"
     );
 }
@@ -176,7 +180,10 @@ fn test_bastion_ssh_args_includes_key_when_provided() {
     let key_path = std::path::Path::new("/home/test/.ssh/azlin_key");
     let args =
         crate::cmd_tunnel::build_bastion_ssh_args(8080, 8080, 50200, "azureuser", Some(key_path));
-    let key_idx = args.iter().position(|a| a == "-i").expect("-i flag missing");
+    let key_idx = args
+        .iter()
+        .position(|a| a == "-i")
+        .expect("-i flag missing");
     assert_eq!(
         args[key_idx + 1],
         "/home/test/.ssh/azlin_key",
@@ -290,7 +297,10 @@ fn test_tunnel_entry_bastion_helper_marker() {
 fn test_bastion_ssh_args_different_local_and_remote_ports() {
     let args = crate::cmd_tunnel::build_bastion_ssh_args(15432, 5432, 50202, "admin", None);
     assert!(args.contains(&"15432:localhost:5432".to_string()));
-    assert_eq!(args[args.iter().position(|a| a == "-p").unwrap() + 1], "50202");
+    assert_eq!(
+        args[args.iter().position(|a| a == "-p").unwrap() + 1],
+        "50202"
+    );
     assert!(args.last().unwrap().starts_with("admin@"));
 }
 

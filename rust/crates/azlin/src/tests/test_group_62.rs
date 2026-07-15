@@ -289,7 +289,11 @@ fn test_restore_multiple_sessions_opens_all_tabs() {
     let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
     sessions.insert(
         "myvm".to_string(),
-        vec!["first:1".to_string(), "second:0".to_string(), "third:1".to_string()],
+        vec![
+            "first:1".to_string(),
+            "second:0".to_string(),
+            "third:1".to_string(),
+        ],
     );
     // This test runs in test mode, so it will print dry-run output for all sessions
     restore_tmux_sessions(&sessions);

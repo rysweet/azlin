@@ -29,7 +29,10 @@ fn test_tunnel_help_examples_use_open_subcommand() {
         "tunnel open myvm 5432",
         "tunnel open myvm 8080 3000 5432",
     ] {
-        assert!(help.contains(expected), "help should contain '{expected}':\n{help}");
+        assert!(
+            help.contains(expected),
+            "help should contain '{expected}':\n{help}"
+        );
     }
 }
 
@@ -65,7 +68,10 @@ fn test_tunnel_help_close_examples_correct() {
         help.contains("tunnel close myvm") || help.contains("tunnel close --all"),
         "tunnel help should include close examples:\n{help}",
     );
-    assert!(help.contains("tunnel list"), "tunnel help should include 'tunnel list':\n{help}");
+    assert!(
+        help.contains("tunnel list"),
+        "tunnel help should include 'tunnel list':\n{help}"
+    );
 }
 
 #[test]
@@ -93,5 +99,8 @@ fn test_tunnel_open_cli_parse_valid() {
 fn test_tunnel_bare_vm_port_rejected_by_parser() {
     use clap::Parser;
     let result = azlin_cli::Cli::try_parse_from(["azlin", "tunnel", "myvm", "8080"]);
-    assert!(result.is_err(), "bare 'tunnel myvm 8080' should be rejected by the parser");
+    assert!(
+        result.is_err(),
+        "bare 'tunnel myvm 8080' should be rejected by the parser"
+    );
 }

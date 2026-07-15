@@ -295,16 +295,13 @@ pub(crate) async fn dispatch(
                     "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
                     vm_manager.subscription_id(), rg, name
                 );
-                let tunnel = crate::bastion_tunnel::ScopedBastionTunnel::new(
-                    bastion_name, &rg, &vm_rid,
-                )?;
+                let tunnel =
+                    crate::bastion_tunnel::ScopedBastionTunnel::new(bastion_name, &rg, &vm_rid)?;
                 let local_port = tunnel.local_port;
 
                 // Write SSH config entries so VS Code Remote-SSH can connect
                 let ssh_key = key.or_else(resolve_ssh_key);
-                write_ssh_config_entry(
-                    &name, &user, local_port, ssh_key.as_deref(),
-                )?;
+                write_ssh_config_entry(&name, &user, local_port, ssh_key.as_deref())?;
 
                 let host_alias = format!("azlin-{}", name);
                 println!(
