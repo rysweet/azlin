@@ -144,6 +144,9 @@ fn download_and_replace(url: &str, version: &str) -> Result<()> {
         fs::set_permissions(&current_exe, fs::Permissions::from_mode(0o755))?;
     }
 
+    // Ensure the short "ay" alias next to the binary still points at azlin.
+    ensure_ay_alias(&current_exe);
+
     // Clean up backup and temp dir
     if let Err(e) = fs::remove_file(&backup) {
         eprintln!("Warning: failed to clean up backup file: {e}");
@@ -155,6 +158,44 @@ fn download_and_replace(url: &str, version: &str) -> Result<()> {
     pb.finish_and_clear();
     println!("Updated azlin: {} → {}", CURRENT_VERSION, version);
     Ok(())
+}
+
+/// Create or refresh the short "ay" alias as a symlink to the azlin binary,
+/// placed in the same directory. Best-effort: failures are logged but never
+/// abort the update, since the alias is a convenience, not a requirement.
+fn ensure_ay_alias(azlin_path: &std::path::Path) {
+    let Some(dir) = azlin_path.parent() else {
+        return;
+    };
+    let ay_path = dir.join(if cfg!(windows) { "ay.exe" } else { "ay" });
+
+    #[cfg(unix)]
+    {
+        // Remove any existing file/symlink at the target path first, since
+        // symlink() fails if the destination already exists.
+        if ay_path.symlink_metadata().is_ok() {
+            if let Err(e) = fs::remove_file(&ay_path) {
+                eprintln!("Warning: failed to refresh 'ay' alias: {e}");
+                return;
+            }
+        }
+        if let Err(e) = std::os::unix::fs::symlink(azlin_path, &ay_path) {
+            eprintln!("Warning: failed to create 'ay' alias: {e}");
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        if ay_path.exists() {
+            if let Err(e) = fs::remove_file(&ay_path) {
+                eprintln!("Warning: failed to refresh 'ay' alias: {e}");
+                return;
+            }
+        }
+        if let Err(e) = fs::copy(azlin_path, &ay_path) {
+            eprintln!("Warning: failed to create 'ay' alias: {e}");
+        }
+    }
 }
 
 /// Find the azlin binary in an extracted directory tree (max depth 3).
@@ -214,5 +255,29 @@ mod tests {
         // Version should be semver-like
         assert!(CURRENT_VERSION.contains('.'));
         assert!(!CURRENT_VERSION.is_empty());
+    }
+
+    #[test]
+    fn test_ensure_ay_alias_creates_symlink() {
+        let tmp = std::env::temp_dir().join(format!("azlin-ay-alias-test-{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let azlin_path = tmp.join("azlin");
+        fs::write(&azlin_path, b"fake binary").unwrap();
+
+        ensure_ay_alias(&azlin_path);
+
+        let ay_path = tmp.join("ay");
+        assert!(ay_path.symlink_metadata().is_ok(), "ay alias was not created");
+        #[cfg(unix)]
+        {
+            let target = fs::read_link(&ay_path).unwrap();
+            assert_eq!(target, azlin_path);
+        }
+
+        // Calling again should refresh the alias without error.
+        ensure_ay_alias(&azlin_path);
+        assert!(ay_path.symlink_metadata().is_ok());
+
+        fs::remove_dir_all(&tmp).ok();
     }
 }

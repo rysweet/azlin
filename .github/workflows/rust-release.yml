@@ -147,8 +147,12 @@ jobs:
           mkdir -p dist
           cp target/${{ matrix.target }}/release/azlin dist/azlin-${{ matrix.suffix }}
           cp target/${{ matrix.target }}/release/azdoit dist/azdoit-${{ matrix.suffix }}
+          # "ay" is a short alias for azlin, packaged as an identical copy so
+          # the tarball extracts a self-contained binary (symlinks don't
+          # survive some archive/transfer paths reliably).
+          cp target/${{ matrix.target }}/release/azlin dist/ay-${{ matrix.suffix }}
           chmod +x dist/*
-          cd dist && tar czf azlin-${{ matrix.suffix }}.tar.gz azlin-${{ matrix.suffix }} azdoit-${{ matrix.suffix }}
+          cd dist && tar czf azlin-${{ matrix.suffix }}.tar.gz azlin-${{ matrix.suffix }} azdoit-${{ matrix.suffix }} ay-${{ matrix.suffix }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

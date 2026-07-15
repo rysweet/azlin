@@ -9,10 +9,10 @@
 ## Install
 
 ```bash
-curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-linux-$(uname -m).tar.gz | tar xz && mkdir -p ~/.local/bin && mv azlin-linux-$(uname -m) ~/.local/bin/azlin && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && export PATH="$HOME/.local/bin:$PATH"
+curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-linux-$(uname -m).tar.gz | tar xz && mkdir -p ~/.local/bin && mv azlin-linux-$(uname -m) ~/.local/bin/azlin && mv ay-linux-$(uname -m) ~/.local/bin/ay && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Verify: `azlin --version`
+Verify: `azlin --version` (or the short alias: `ay --version`)
 
 <details>
 <summary>Other install methods</summary>
@@ -20,13 +20,13 @@ Verify: `azlin --version`
 #### macOS
 
 ```bash
-curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-macos-$(uname -m).tar.gz | tar xz && sudo mv azlin-macos-$(uname -m) /usr/local/bin/azlin
+curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-macos-$(uname -m).tar.gz | tar xz && sudo mv azlin-macos-$(uname -m) /usr/local/bin/azlin && sudo mv ay-macos-$(uname -m) /usr/local/bin/ay
 ```
 
 #### Build from Source
 
 ```bash
-git clone https://github.com/rysweet/azlin && cd azlin/rust && cargo install --path crates/azlin
+git clone https://github.com/rysweet/azlin && cd azlin/rust && cargo install --path crates/azlin && ln -sf "$(command -v azlin)" "$(dirname "$(command -v azlin)")/ay"
 ```
 
 </details>
