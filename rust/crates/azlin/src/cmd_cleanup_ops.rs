@@ -314,7 +314,6 @@ pub(crate) fn handle_restore(
     let tmux_sessions = crate::cmd_list_data::collect_tmux_sessions(
         &running,
         &rg,
-        true,
         verbose,
         vm_manager.subscription_id(),
         ssh_timeout,

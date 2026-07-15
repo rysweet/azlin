@@ -672,3 +672,6 @@ index.scip
 # Kuzu database (amplihack runtime)
 .amplihack/
 outputs/
+
+# Local tool state (e.g. gh CLI device-id) accidentally created under crate dirs
+.local/
