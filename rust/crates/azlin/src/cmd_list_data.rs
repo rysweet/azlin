@@ -15,25 +15,40 @@ fn resolve_ssh_key() -> Option<std::path::PathBuf> {
 }
 
 /// Collect tmux sessions for all running VMs via SSH (direct or bastion).
+///
+/// Always attempts bastion detection when at least one running VM has no
+/// public IP (i.e. is bastion-only), regardless of output format. Previously
+/// this was gated on `is_table_output`, which meant tmux sessions were never
+/// collected for private VMs in JSON/CSV output modes.
 pub(crate) fn collect_tmux_sessions(
     vms: &[VmInfo],
     effective_rg: &str,
-    is_table_output: bool,
     verbose: bool,
     subscription_id: &str,
     connect_timeout: u64,
 ) -> HashMap<String, Vec<String>> {
     let mut tmux_sessions: HashMap<String, Vec<String>> = HashMap::new();
 
+    let needs_bastion = vms.iter().any(|vm| {
+        vm.power_state == azlin_core::models::PowerState::Running && vm.public_ip.is_none()
+    });
+
     // Build bastion name map (region -> bastion_name) for private VMs
-    let bastion_map: HashMap<String, String> = if is_table_output {
-        if let Ok(bastions) = crate::list_helpers::detect_bastion_hosts(effective_rg) {
-            bastions
+    let bastion_map: HashMap<String, String> = if needs_bastion {
+        match crate::list_helpers::detect_bastion_hosts(effective_rg) {
+            Ok(bastions) => bastions
                 .into_iter()
                 .map(|(name, location, _)| (location, name))
-                .collect()
-        } else {
-            HashMap::new()
+                .collect(),
+            Err(e) => {
+                if verbose {
+                    eprintln!(
+                        "[VERBOSE] Failed to detect bastion hosts in '{}': {}",
+                        effective_rg, e
+                    );
+                }
+                HashMap::new()
+            }
         }
     } else {
         HashMap::new()
@@ -123,11 +138,17 @@ pub(crate) fn collect_tmux_sessions(
                 }
             }
         } else {
+            if verbose {
+                eprintln!(
+                    "[VERBOSE] {} has no public IP and no bastion detected for region '{}'; skipping tmux collection",
+                    vm.name, vm.location
+                );
+            }
             continue; // No bastion available for this region
         };
 
-        if let Ok(out) = output {
-            if out.status.success() {
+        match output {
+            Ok(out) if out.status.success() => {
                 let sessions: Vec<String> = String::from_utf8_lossy(&out.stdout)
                     .lines()
                     .filter(|l| !l.is_empty() && !l.starts_with('{'))
@@ -138,6 +159,21 @@ pub(crate) fn collect_tmux_sessions(
                 }
                 if !sessions.is_empty() {
                     tmux_sessions.insert(vm.name.clone(), sessions);
+                }
+            }
+            Ok(out) => {
+                if verbose {
+                    eprintln!(
+                        "[VERBOSE] SSH to {} exited with status {}: {}",
+                        vm.name,
+                        out.status,
+                        String::from_utf8_lossy(&out.stderr).trim()
+                    );
+                }
+            }
+            Err(e) => {
+                if verbose {
+                    eprintln!("[VERBOSE] Failed to run SSH against {}: {}", vm.name, e);
                 }
             }
         }
