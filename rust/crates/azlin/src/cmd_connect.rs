@@ -142,12 +142,28 @@ pub(crate) async fn dispatch(
                     {
                         return Err(get_vm_err);
                     }
+                    // Capture the original error as a string up front: it's
+                    // needed in more than one branch below, and anyhow::Error
+                    // isn't Clone.
+                    let get_vm_err_msg = format!("{get_vm_err:#}");
                     let pb2 = penguin_spinner(&format!(
                         "'{}' is not a known VM; searching tmux sessions...",
                         name
                     ));
                     let config = azlin_core::AzlinConfig::load().unwrap_or_default();
-                    let all_vms = vm_manager.list_vms(&rg).unwrap_or_default();
+                    // If listing VMs fails here (e.g. a transient Azure API
+                    // error), don't silently treat that the same as "checked
+                    // and found no matching session" — report the original
+                    // get_vm error together with the listing failure so the
+                    // user knows the fallback lookup itself didn't run.
+                    let all_vms = vm_manager.list_vms(&rg).map_err(|list_err| {
+                        anyhow::anyhow!(
+                            "'{}' is not a known VM ({}), and could not be resolved as a tmux \
+                             session name either: failed to list VMs to search for a match: {list_err}",
+                            name,
+                            get_vm_err_msg
+                        )
+                    })?;
                     let running: Vec<_> = all_vms
                         .into_iter()
                         .filter(|v| v.power_state == azlin_core::models::PowerState::Running)
