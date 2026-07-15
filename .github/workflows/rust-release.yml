@@ -78,10 +78,49 @@ jobs:
           # 4. src/azlin/__init__.py
           sed -i "s/__version__ = \"${CURRENT}\"/__version__ = \"${NEW_VERSION}\"/" src/azlin/__init__.py
 
+          # 5. rust/Cargo.lock — the workspace member "version" fields must
+          # stay in sync with Cargo.toml, or any subsequent `cargo build
+          # --locked` (used by CI and by contributors) fails with "cannot
+          # update the lock file because --locked was passed". Patch each
+          # local workspace-member entry directly via sed (matching each
+          # package's `name = "..."` line, then the very next `version =
+          # "..."` line two lines below it) — this needs no network access
+          # and no Rust toolchain, unlike `cargo update`/`cargo check`, which
+          # would fail here since this job never sets up a cached registry.
+          #
+          # Members are derived from rust/Cargo.toml's `members = [...]`
+          # array (crate directory name == package name for every member in
+          # this repo) rather than hardcoded, so this loop never silently
+          # drifts out of sync if a crate is added, renamed, or removed.
+          WORKSPACE_MEMBERS=$(sed -n '/^members = \[/,/^\]/p' rust/Cargo.toml \
+            | grep -oP '"crates/\K[^"]+')
+          echo "Workspace members detected: ${WORKSPACE_MEMBERS}"
+          for pkg in ${WORKSPACE_MEMBERS}; do
+            sed -i "/^name = \"${pkg}\"\$/{n;s/^version = \"${CURRENT}\"/version = \"${NEW_VERSION}\"/}" rust/Cargo.lock
+          done
+
+          # Fail loudly rather than silently shipping a stale lock file if
+          # the Cargo.lock format ever changes (e.g. the lockfile layout
+          # shifts) and the sed above stops matching. Check each member
+          # individually — a blunt whole-file count could be misled by an
+          # external dependency that coincidentally shares the same version
+          # string. A silently-skipped update here is worse than no update
+          # at all, since it would look identical to success.
+          if [ -z "${WORKSPACE_MEMBERS}" ]; then
+            echo "::error::Could not parse any workspace members from rust/Cargo.toml's [workspace] members array. The parsing logic in this job needs to be fixed before merging." >&2
+            exit 1
+          fi
+          for pkg in ${WORKSPACE_MEMBERS}; do
+            if ! grep -A1 "^name = \"${pkg}\"\$" rust/Cargo.lock | grep -q "^version = \"${NEW_VERSION}\"\$"; then
+              echo "::error::rust/Cargo.lock entry for workspace member '${pkg}' was not bumped to ${NEW_VERSION}. The sed patterns in this job no longer match the lock file's structure — fix the patch logic before merging." >&2
+              exit 1
+            fi
+          done
+
           # ── Commit and push ───────────────────────────────────────────
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add rust/Cargo.toml pyproject.toml rust/pyproject.toml src/azlin/__init__.py
+          git add rust/Cargo.toml rust/Cargo.lock pyproject.toml rust/pyproject.toml src/azlin/__init__.py
           git commit -m "chore: bump version ${CURRENT} → ${NEW_VERSION} [skip ci]"
           git push
 
