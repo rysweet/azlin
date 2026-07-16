@@ -70,7 +70,7 @@ Available sessions on myvm: myvm:main, myvm:staging
 2. **Session not created yet**
    ```bash
    # Create the session first
-   azlin ssh myvm --tmux-session dev
+   azlin connect myvm --tmux-session dev
    # Now available as: myvm:dev
    ```
 
@@ -138,9 +138,9 @@ Expected: hostname:session_name
 ```bash
 # Session names cannot contain colons
 # Use hyphens or underscores instead
-azlin ssh myvm --tmux-session dev-test  # ✅
-azlin ssh myvm --tmux-session dev_test  # ✅
-azlin ssh myvm --tmux-session dev:test  # ❌
+azlin connect myvm --tmux-session dev-test  # ✅
+azlin connect myvm --tmux-session dev_test  # ✅
+azlin connect myvm --tmux-session dev:test  # ❌
 ```
 
 ---
@@ -269,7 +269,7 @@ azlin connect myvm:main  # Instead of: azlin connect main
 **Fixes:**
 
 1. Check spelling: `azlin list`
-2. Create session: `azlin ssh vm --tmux-session name`
+2. Create session: `azlin connect vm --tmux-session name`
 3. Verify VM: `azlin list --all`
 
 ---
@@ -308,12 +308,12 @@ azlin connect myvm:main  # Instead of: azlin connect main
 
 ```bash
 # Good: Descriptive, no colons
-azlin ssh vm --tmux-session feature-auth
-azlin ssh vm --tmux-session feature-api
+azlin connect vm --tmux-session feature-auth
+azlin connect vm --tmux-session feature-api
 
 # Bad: Generic, confusing
-azlin ssh vm --tmux-session dev
-azlin ssh vm --tmux-session test
+azlin connect vm --tmux-session dev
+azlin connect vm --tmux-session test
 ```
 
 ### 2. Document Team Conventions
@@ -333,7 +333,7 @@ azlin connect myvm:main
 
 # Then script it
 #!/bin/bash
-azlin exec myvm:main "deploy.sh"
+azlin connect myvm:main -- "deploy.sh"
 ```
 
 ### 4. Use --verbose for Debugging

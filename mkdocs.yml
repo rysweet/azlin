@@ -278,7 +278,6 @@ nav:
       - commands/batch/sync.md
       - commands/batch/start.md
       - commands/batch/stop.md
-      - commands/batch/update.md
     - Environment Commands:
       - commands/env/index.md
       - commands/env/set.md
@@ -308,11 +307,9 @@ nav:
       - commands/keys/backup.md
     - Bastion Commands:
       - commands/bastion/index.md
-      - commands/bastion/create.md
       - commands/bastion/configure.md
       - commands/bastion/list.md
       - commands/bastion/status.md
-      - commands/bastion/delete.md
     - IP Commands:
       - commands/ip/index.md
       - commands/ip/check.md

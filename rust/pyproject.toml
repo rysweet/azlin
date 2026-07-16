@@ -4,12 +4,12 @@ build-backend = "maturin"
 
 [project]
 name = "azlin-rs"
-version = "2.6.70"
+version = "2.6.82"
 description = "Azure VM fleet management CLI (Rust) — provision, manage, and monitor development VMs"
 requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [{name = "Ryan Sweet", email = "rysweet@microsoft.com"}]
-readme = "../README.md"
+readme = "README.md"
 keywords = ["azure", "vm", "cli", "rust", "devops", "cloud", "provisioning"]
 classifiers = [
     "Development Status :: 4 - Beta",

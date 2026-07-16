@@ -1,17 +1,17 @@
-# azlin update
+# azlin vm update-tools
 
 **Update development tools on a VM**
 
 ## Description
 
-The `azlin update` command updates all development tools and programming languages that were installed during VM provisioning. This includes Node.js packages, Rust toolchain, Python tools, Docker, Azure CLI, GitHub CLI, and AI CLI assistants.
+The `azlin vm update-tools` command refreshes the development toolchains that were installed during VM provisioning. It upgrades system packages, the Rust toolchain, and the Python and Node.js package managers.
 
 Note: This updates development tools, NOT operating system packages. For OS updates, use [`azlin os-update`](../util/os-update.md).
 
 ## Usage
 
 ```bash
-azlin update [OPTIONS] VM_IDENTIFIER
+azlin vm update-tools [OPTIONS] VM_IDENTIFIER
 ```
 
 ## Arguments
@@ -34,45 +34,40 @@ azlin update [OPTIONS] VM_IDENTIFIER
 ### Update by VM Name
 
 ```bash
-azlin update my-vm
+azlin vm update-tools my-vm
 ```
 
 ### Update by Session Name
 
 ```bash
-azlin update my-project
+azlin vm update-tools my-project
 ```
 
 ### Update by IP Address
 
 ```bash
-azlin update 20.1.2.3
+azlin vm update-tools 20.1.2.3
 ```
 
 ### Update with Custom Timeout
 
 ```bash
 # Allow 10 minutes per tool update
-azlin update my-vm --timeout 600
+azlin vm update-tools my-vm --timeout 600
 ```
 
 ### Update with Explicit Resource Group
 
 ```bash
-azlin update my-vm --rg my-resource-group
+azlin vm update-tools my-vm --rg my-resource-group
 ```
 
 ## What Gets Updated
 
-- **Node.js**: npm packages, global npm tools
-- **Python**: pip, uv, astral-uv
-- **Rust**: rustc, cargo (via rustup)
-- **Go**: go toolchain
-- **.NET**: dotnet SDK and runtime
-- **Docker**: docker engine and CLI
-- **GitHub CLI**: gh command
-- **Azure CLI**: az command
-- **AI Tools**: GitHub Copilot CLI, OpenAI Codex CLI, Claude Code CLI
+- **System packages**: `apt-get update && apt-get upgrade`
+- **Rust**: `rustup update` (rustc, cargo)
+- **Python**: `pip install --upgrade pip`
+- **Node.js**: `npm install -g npm`
 
 ## Troubleshooting
 
@@ -83,7 +78,7 @@ azlin update my-vm --rg my-resource-group
 **Solutions:**
 ```bash
 # Increase timeout
-azlin update my-vm --timeout 900
+azlin vm update-tools my-vm --timeout 900
 
 # Or update manually via SSH
 azlin connect my-vm
@@ -115,7 +110,7 @@ pip install --upgrade pip uv  # Python
 
 ## Source Code
 
-- [cli.py](https://github.com/rysweet/azlin/blob/main/src/azlin/cli.py) - Command definition
+- [update_helpers.rs](https://github.com/rysweet/azlin/blob/main/rust/crates/azlin/src/update_helpers.rs) - Update script definition
 
 ## See Also
 

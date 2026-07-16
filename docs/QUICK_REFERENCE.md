@@ -703,7 +703,7 @@ azlin <command> --help
 | `azlin cost` | 5-10 seconds |
 | `azlin new` | 4-7 minutes |
 | `azlin clone` | 10-15 minutes |
-| `azlin update` | 2-5 minutes |
+| `azlin vm update-tools` | 2-5 minutes |
 | `azlin sync` | 30s - 5 minutes |
 | `azlin doit` | +2s parsing overhead |
 

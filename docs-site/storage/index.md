@@ -254,7 +254,7 @@ az storage account check-name --name myteam-shared
 azlin storage create myteam-shared-2
 
 # Check quota
-azlin quota
+azlin list --quota
 ```
 
 ### Mount Fails

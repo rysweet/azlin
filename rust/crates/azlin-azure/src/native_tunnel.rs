@@ -255,13 +255,11 @@ pub async fn forward_tcp_to_ws(
     let ws_to_tcp = async {
         while let Some(msg) = ws_source.next().await {
             match msg {
-                Ok(Message::Binary(data)) => {
-                    if tcp_writer.write_all(&data).await.is_err() {
-                        break;
-                    }
+                Ok(Message::Binary(data)) if tcp_writer.write_all(&data).await.is_err() => {
+                    break;
                 }
                 Ok(Message::Close(_)) | Err(_) => break,
-                _ => {} // ignore ping/pong/text
+                _ => {} // ignore successful writes and ping/pong/text
             }
         }
     };

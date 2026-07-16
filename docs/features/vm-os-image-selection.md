@@ -4,7 +4,7 @@ Choose the operating system image for new VMs via the `--os` flag or persistent 
 
 ## Overview
 
-By default, `azlin new` provisions VMs with Ubuntu 25.10. You can override this per-command with `--os` or set a persistent default with `azlin config set default_vm_image`.
+By default, `azlin new` provisions VMs with Ubuntu 26.04 LTS. You can override this per-command with `--os` or set a persistent default with `azlin config set default_vm_image`.
 
 ## Quick Start
 
@@ -33,6 +33,8 @@ Convenient aliases for common Ubuntu versions:
 
 | Shorthand | Resolved Image URN |
 |-----------|-------------------|
+| `26.04-lts` | `Canonical:ubuntu-26_04-lts:server:latest` |
+| `26.04` | `Canonical:ubuntu-26_04-lts:server:latest` |
 | `25.10` | `Canonical:ubuntu-25_10:server:latest` |
 | `24.10` | `Canonical:ubuntu-24_10:server:latest` |
 | `24.04-lts` | `Canonical:ubuntu-24_04-lts:server:latest` |
@@ -68,7 +70,7 @@ azlin config set default_vm_image "Canonical:ubuntu-24_04-lts:server:latest"
 # View current default
 azlin config get default_vm_image
 
-# Remove default (revert to built-in Ubuntu 25.10)
+# Remove default (revert to built-in Ubuntu 26.04 LTS)
 azlin config unset default_vm_image
 ```
 
@@ -94,7 +96,7 @@ When creating a VM, the OS image is resolved in this order (highest priority fir
 
 1. **`--os` flag** — per-command override
 2. **`default_vm_image` config** — persistent default in `~/.azlin/config.toml`
-3. **Built-in default** — Ubuntu 25.10 (`Canonical:ubuntu-25_10:server:latest`)
+3. **Built-in default** — Ubuntu 26.04 LTS (`Canonical:ubuntu-26_04-lts:server:latest`)
 
 ```bash
 # Uses --os flag (highest priority)
@@ -103,7 +105,7 @@ azlin new --os 22.04-lts
 # Uses config default_vm_image (if set)
 azlin new
 
-# Uses built-in Ubuntu 25.10 (if no config set and no --os)
+# Uses built-in Ubuntu 26.04 LTS (if no config set and no --os)
 azlin new
 ```
 
@@ -159,12 +161,12 @@ Invalid input produces a clear error:
 ```
 $ azlin new --os "NotAPublisher:image:sku:latest"
 Error: Only Canonical publisher is supported for VM images, got "NotAPublisher".
-  Use a URN like 'Canonical:ubuntu-25_10:server:latest'
+  Use a URN like 'Canonical:ubuntu-26_04-lts:server:latest'
 
 $ azlin new --os "not-a-version"
 Error: Unknown image shorthand "not-a-version". Supported shorthands:
-  25.10, 24.10, 24.04-lts, 24.04, 22.04-lts, 22.04, 20.04-lts, 20.04.
-  Or use a full URN like 'Canonical:ubuntu-25_10:server:latest'
+  26.04-lts, 26.04, 25.10, 24.10, 24.04-lts, 24.04, 22.04-lts, 22.04, 20.04-lts, 20.04.
+  Or use a full URN like 'Canonical:ubuntu-26_04-lts:server:latest'
 ```
 
 ## Troubleshooting

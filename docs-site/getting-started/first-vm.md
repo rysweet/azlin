@@ -7,7 +7,7 @@ This guide walks you through creating your first Azure VM with azlin in detail.
 
 By the end of this tutorial, you'll have:
 
-- A running Ubuntu 24.04 VM in Azure
+- A running Ubuntu 26.04 LTS VM in Azure
 - 12 development tools pre-installed
 - SSH access configured
 - A persistent tmux session
@@ -90,7 +90,7 @@ You'll see:
 ✓ SSH configured
 → Connecting to my-first-vm...
 
-Welcome to Ubuntu 24.04 LTS
+Welcome to Ubuntu 26.04 LTS
 
 azureuser@my-first-vm:~$
 ```
@@ -113,8 +113,8 @@ rustc --version
 go version
 dotnet --version
 
-# AI coding assistants
-npx @github/copilot --version
+# AI coding assistant
+claude --version
 ```
 
 All commands should return version information.
@@ -183,14 +183,12 @@ The VM came with these tools pre-installed:
 
 **Programming Languages:**
 - Node.js with npm
-- Python 3.13 with pip
+- Python 3.14 with pip
 - Rust with cargo
 - Go
-- .NET 10 RC
+- .NET 10
 
-**AI Coding Assistants:**
-- GitHub Copilot CLI
-- OpenAI Codex CLI
+**AI Coding Assistant:**
 - Claude Code CLI
 
 ### SSH Configuration
@@ -243,7 +241,7 @@ Now that you have your first VM:
 
 **Check quotas:**
 ```bash
-azlin quota
+azlin list --quota
 ```
 
 Try a different region or request a quota increase in the Azure portal.

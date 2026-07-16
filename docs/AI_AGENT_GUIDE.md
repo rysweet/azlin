@@ -371,7 +371,7 @@ if result.exit_code == 0:
 - ✅ SSH key-based authentication works
 - ✅ Tmux session persists across reconnects
 - ✅ npm configured for user-local installs
-- ✅ AI CLI tools (Copilot, Codex, Claude) pre-installed
+- ✅ Claude Code CLI pre-installed
 
 ### Non-Functional Requirements
 - ✅ Total provisioning time < 7 minutes

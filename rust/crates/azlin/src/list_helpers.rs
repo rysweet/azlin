@@ -166,6 +166,13 @@ mod tests {
 
 /// Detect Azure Bastion hosts for a resource group.
 /// Returns Vec of (name, location, sku).
+///
+/// On `az` CLI failure, returns an empty list rather than an error (bastion
+/// support is optional), but prints a diagnostic to stderr so a transient
+/// failure (auth, throttling, network) isn't silently indistinguishable from
+/// "no bastion configured" -- this was previously swallowed entirely, which
+/// caused `azlin list`/`connect` to intermittently and silently drop tmux
+/// session data for bastion-only (private) VMs with no visible cause.
 pub fn detect_bastion_hosts(resource_group: &str) -> anyhow::Result<Vec<(String, String, String)>> {
     let output = std::process::Command::new("az")
         .args([
@@ -182,7 +189,15 @@ pub fn detect_bastion_hosts(resource_group: &str) -> anyhow::Result<Vec<(String,
         .output()?;
 
     if !output.status.success() {
-        return Ok(Vec::new()); // Bastion not available, not an error
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = stderr.trim();
+        if !stderr.is_empty() {
+            eprintln!(
+                "Warning: 'az network bastion list' failed for resource group '{}': {}",
+                resource_group, stderr
+            );
+        }
+        return Ok(Vec::new()); // Bastion not available, not a fatal error
     }
 
     let bastions: Vec<serde_json::Value> =

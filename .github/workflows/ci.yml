@@ -11,6 +11,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions: {}
+
 jobs:
   # Python source was retired in PR #810.
   # Rust checks live in rust-ci.yml (build, test, clippy).

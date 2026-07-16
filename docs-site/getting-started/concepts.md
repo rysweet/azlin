@@ -7,7 +7,7 @@ Understand the core concepts behind azlin to use it effectively.
 
 ### Virtual Machines (VMs)
 
-azlin creates **Ubuntu 24.04 LTS** virtual machines in Azure with development tools pre-installed.
+azlin creates **Ubuntu 26.04 LTS** virtual machines in Azure with development tools pre-installed.
 
 **Key characteristics:**
 
@@ -166,13 +166,13 @@ Run commands across **multiple VMs** in parallel:
 
 ```bash
 # Execute on all VMs
-azlin batch exec --all "docker ps"
+azlin batch command "docker ps" --all
 
 # Execute on tagged VMs
-azlin batch exec --tag env=dev "git pull"
+azlin batch command "git pull" --tag env=dev
 
-# Sync files to all VMs
-azlin batch sync --all ~/config.json /etc/myapp/
+# Sync dotfiles to all VMs
+azlin batch sync --all
 ```
 
 See [Batch Operations](../batch/index.md) for details.
@@ -213,7 +213,7 @@ azlin includes cost tracking and optimization:
 azlin cost --resource-group my-rg
 
 # Check quotas
-azlin quota
+azlin list --quota
 
 # Enable auto-stop
 azlin autopilot enable --idle-timeout 2h
@@ -287,7 +287,7 @@ azlin new --name bob-dev --storage team-data
 azlin new --name ci-$BUILD_ID --yes --no-auto-connect
 
 # 2. Run tests
-azlin exec ci-$BUILD_ID "pytest tests/"
+azlin connect ci-$BUILD_ID -- "pytest tests/"
 
 # 3. Cleanup
 azlin destroy ci-$BUILD_ID --yes

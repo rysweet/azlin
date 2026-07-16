@@ -14,21 +14,90 @@ fn resolve_ssh_key() -> Option<std::path::PathBuf> {
     crate::key_helpers::find_preferred_private_key(&ssh_dir)
 }
 
+/// Result of resolving a bare identifier against known tmux session names
+/// across all running VMs in a resource group.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum SessionLookup {
+    /// Exactly one running VM has a tmux session with this name.
+    Found { vm_name: String },
+    /// No running VM has a tmux session with this name.
+    NotFound,
+    /// More than one running VM has a tmux session with this name; caller
+    /// should ask the user to disambiguate with `vm:session` notation.
+    Ambiguous { vm_names: Vec<String> },
+}
+
+/// Search all running VMs in `rg` for a tmux session named `session_name`.
+///
+/// Used by `azlin connect <name>` to fall back to session-name resolution
+/// when `<name>` does not match any VM hostname: if exactly one running VM
+/// has a matching tmux session, callers can connect to `vm_name:session_name`.
+pub(crate) async fn find_vm_by_tmux_session(
+    vms: &[VmInfo],
+    rg: &str,
+    subscription_id: &str,
+    connect_timeout: u64,
+    session_name: &str,
+    verbose: bool,
+) -> SessionLookup {
+    // collect_tmux_sessions now auto-detects whether bastion probing is
+    // needed based on the VM list, so no output-format flag is required.
+    let tmux_sessions =
+        collect_tmux_sessions(vms, rg, verbose, subscription_id, connect_timeout).await;
+    match_session_in_map(&tmux_sessions, session_name)
+}
+
+/// Pure matching logic for [`find_vm_by_tmux_session`], split out so it can
+/// be unit tested without spawning real SSH/az processes.
+pub(crate) fn match_session_in_map(
+    tmux_sessions: &HashMap<String, Vec<String>>,
+    session_name: &str,
+) -> SessionLookup {
+    let mut matches: Vec<String> = Vec::new();
+    for (vm_name, sessions) in tmux_sessions {
+        let has_match = sessions
+            .iter()
+            .any(|raw| parse_session_name(raw).as_deref() == Some(session_name));
+        if has_match {
+            matches.push(vm_name.clone());
+        }
+    }
+    matches.sort();
+
+    match matches.len() {
+        0 => SessionLookup::NotFound,
+        1 => SessionLookup::Found {
+            vm_name: matches.remove(0),
+        },
+        _ => SessionLookup::Ambiguous { vm_names: matches },
+    }
+}
+
 /// Collect tmux sessions for all running VMs via SSH (direct or bastion).
 ///
 /// SSH probes run concurrently (up to 8 at a time) using `tokio::process::Command`
 /// to avoid blocking the async runtime. Bastion tunnels are pre-created so that
 /// concurrent SSH tasks share a single tunnel per bastion.
+///
+/// Bastion detection runs whenever at least one running VM has no public IP
+/// (i.e. is bastion-only), regardless of output format. Previously this was
+/// gated on `is_table_output`, so tmux sessions were never collected for
+/// private VMs in JSON/CSV output modes.
 pub(crate) async fn collect_tmux_sessions(
     vms: &[VmInfo],
     effective_rg: &str,
-    is_table_output: bool,
     verbose: bool,
     subscription_id: &str,
     connect_timeout: u64,
 ) -> HashMap<String, Vec<String>> {
+    // A running VM with no public IP is bastion-only; detect bastions whenever
+    // any such VM exists so private VMs are probed in every output format.
+    let needs_bastion = vms.iter().any(|vm| {
+        vm.power_state == azlin_core::models::PowerState::Running && vm.public_ip.is_none()
+    });
+
     // Build bastion name map (region -> bastion_name) for private VMs
-    let bastion_map: HashMap<String, String> = if is_table_output {
+    let bastion_map: HashMap<String, String> = if needs_bastion {
         let rg = effective_rg.to_string();
         tokio::task::spawn_blocking(move || {
             crate::list_helpers::detect_bastion_hosts(&rg)
@@ -114,6 +183,11 @@ pub(crate) async fn collect_tmux_sessions(
                     cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
                     (vm_name, cmd.output().await)
                 });
+            } else if verbose {
+                eprintln!(
+                    "[VERBOSE] {} has no public IP and no bastion tunnel for region '{}'; skipping tmux collection",
+                    vm.name, vm.location
+                );
             }
         }
     }
@@ -294,6 +368,56 @@ pub(crate) fn is_valid_restore_vm_name(name: &str) -> bool {
         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
 }
 
+/// Build the Windows Terminal argument list for restoring a single tmux session.
+///
+/// When `wsl_distro` is non-empty, the command is wrapped in `bash -lc '...'`
+/// so the user's login shell environment (PATH, SSH_AUTH_SOCK, etc.) is loaded.
+/// Without that wrapper, `wsl.exe -d <distro> -- <binary>` runs outside any
+/// shell, so tools like `ssh` and `az` may not be found.
+///
+/// `restore_mode` controls window placement:
+/// - `Tab` → `wt.exe -w 0 new-tab ...` (reuse existing window)
+/// - `Window` → `wt.exe -w new new-tab ...` (new window per session)
+/// - `Auto` is resolved by the caller before reaching here; treated as `Tab`.
+pub(crate) fn build_wt_restore_args(
+    wsl_distro: &str,
+    self_exe: &str,
+    vm_name: &str,
+    session: &str,
+    restore_mode: &azlin_core::RestoreMode,
+) -> Vec<String> {
+    let mut args: Vec<String> = match restore_mode {
+        azlin_core::RestoreMode::Window => vec!["-w".into(), "new".into(), "new-tab".into()],
+        _ => vec!["-w".into(), "0".into(), "new-tab".into()],
+    };
+    if !wsl_distro.is_empty() {
+        let inner_cmd = format!(
+            "exec {} connect {} --tmux-session {}",
+            crate::dispatch_helpers::shell_escape(self_exe),
+            crate::dispatch_helpers::shell_escape(vm_name),
+            crate::dispatch_helpers::shell_escape(session),
+        );
+        args.extend_from_slice(&[
+            "wsl.exe".into(),
+            "-d".into(),
+            wsl_distro.into(),
+            "--".into(),
+            "bash".into(),
+            "-lc".into(),
+            inner_cmd,
+        ]);
+    } else {
+        args.extend_from_slice(&[
+            self_exe.into(),
+            "connect".into(),
+            vm_name.into(),
+            "--tmux-session".into(),
+            session.into(),
+        ]);
+    }
+    args
+}
+
 /// Restore tmux sessions by connecting to each VM.
 pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>) {
     println!("\nRestoring tmux sessions...");
@@ -329,7 +453,21 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
         return;
     }
 
-    let use_wt = std::env::var("WT_SESSION").is_ok();
+    let detected_wt = std::env::var("WT_SESSION").is_ok();
+
+    // Load config for restore_mode preference.
+    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+    let restore_mode = &config.restore_mode;
+
+    // If restore_mode is explicitly set to tab or window, force wt.exe usage
+    // — but only when we're in WSL where wt.exe is actually available.
+    let in_wsl = std::env::var("WSL_DISTRO_NAME").is_ok_and(|v| !v.is_empty());
+    let force_wt = in_wsl
+        && matches!(
+            restore_mode,
+            azlin_core::RestoreMode::Tab | azlin_core::RestoreMode::Window
+        );
+    let use_wt = detected_wt || force_wt;
     let use_macos = cfg!(target_os = "macos") && !use_wt;
 
     // Resolve the current executable path so we can re-invoke ourselves
@@ -375,25 +513,13 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
 
             if use_wt {
                 println!("  Opening tab: {} (session: {})", vm_name, session);
-                // WT_SESSION is set inside WSL when running under Windows Terminal.
-                // wt.exe new-tab runs its command in the default WT profile (often
-                // PowerShell), so we must explicitly use wsl.exe to re-enter WSL
-                // where the azlin binary lives.
                 let wsl_distro =
                     std::env::var("WSL_DISTRO_NAME").unwrap_or_else(|_| "".to_string());
-                let mut wt_args: Vec<&str> = vec!["-w", "0", "new-tab"];
-                if !wsl_distro.is_empty() {
-                    wt_args.extend_from_slice(&["wsl.exe", "-d", &wsl_distro, "--"]);
-                }
-                wt_args.extend_from_slice(&[
-                    &self_exe,
-                    "connect",
-                    vm_name,
-                    "--tmux-session",
-                    &session,
-                ]);
+                let wt_args =
+                    build_wt_restore_args(&wsl_distro, &self_exe, vm_name, &session, restore_mode);
+                let wt_str_args: Vec<&str> = wt_args.iter().map(|s| s.as_str()).collect();
                 match std::process::Command::new("wt.exe")
-                    .args(&wt_args)
+                    .args(&wt_str_args)
                     .stdin(std::process::Stdio::null())
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped())
@@ -422,24 +548,31 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
                 println!("  Opening window: {} (session: {})", vm_name, session);
                 let connect_cmd = escape_for_applescript(&format!(
                     "{} connect {} --tmux-session {}",
-                    &self_exe, vm_name, &session
+                    self_exe, vm_name, session
                 ));
                 if let Err(e) = open_macos_terminal(&macos_terminal, &connect_cmd) {
                     eprintln!("  Warning: failed to open window for {}: {}", vm_name, e);
                 }
             } else {
-                println!("  Connecting to {} (session: {})", vm_name, session);
-                // On Linux without Windows Terminal, spawn in background.
-                // SSH needs a TTY for interactive use, but without a known
-                // terminal emulator we can only fire-and-forget.
-                if let Err(e) = std::process::Command::new(&self_exe)
-                    .args(["connect", vm_name, "--tmux-session", &session])
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .spawn()
-                {
-                    eprintln!("  Warning: failed to connect to {}: {}", vm_name, e);
+                // On Linux without Windows Terminal, open a terminal emulator.
+                let connect_cmd = format!(
+                    "{} connect {} --tmux-session {}",
+                    crate::dispatch_helpers::shell_escape(&self_exe),
+                    crate::dispatch_helpers::shell_escape(vm_name),
+                    crate::dispatch_helpers::shell_escape(&session),
+                );
+                if let Some(term) = detect_linux_terminal() {
+                    println!("  Opening terminal: {} (session: {})", vm_name, session);
+                    if let Err(e) = open_linux_terminal(&term, &connect_cmd) {
+                        eprintln!("  Warning: failed to open terminal for {}: {}", vm_name, e);
+                    }
+                } else {
+                    eprintln!(
+                        "  No terminal emulator detected for {}. Run manually:",
+                        vm_name
+                    );
+                    eprintln!("    azlin connect {} --tmux-session {}", vm_name, session);
+                    eprintln!("  Tip: set AZLIN_TERMINAL=<your-terminal> to enable auto-restore.");
                 }
             }
         }
@@ -528,5 +661,168 @@ fn run_osascript(script: &str) -> Result<(), String> {
             Err(format!("osascript failed: {}", stderr.trim()))
         }
         Err(e) => Err(format!("failed to run osascript: {}", e)),
+    }
+}
+
+// ── Linux terminal support ──────────────────────────────────────────────
+
+/// Supported Linux terminal emulators.
+#[derive(Debug, PartialEq)]
+enum LinuxTerminal {
+    Custom(String),
+    GnomeTerminal,
+    Xfce4Terminal,
+    Konsole,
+    Xterm,
+}
+
+/// Detect an available Linux terminal emulator.
+///
+/// Checks `AZLIN_TERMINAL` env var first (user override, like `$EDITOR`),
+/// then probes known emulators via `which`.
+fn detect_linux_terminal() -> Option<LinuxTerminal> {
+    if let Ok(custom) = std::env::var("AZLIN_TERMINAL") {
+        if !custom.is_empty() {
+            // Reject values containing shell metacharacters to prevent injection.
+            if custom.contains([';', '&', '|', '$', '`', '\n', '(', ')']) {
+                eprintln!(
+                    "  Warning: AZLIN_TERMINAL contains shell metacharacters, ignoring: {}",
+                    custom
+                );
+            } else if which_exists(&custom) {
+                return Some(LinuxTerminal::Custom(custom));
+            } else {
+                eprintln!(
+                    "  Warning: AZLIN_TERMINAL binary not found on PATH: {}",
+                    custom
+                );
+            }
+        }
+    }
+    let candidates = [
+        ("gnome-terminal", LinuxTerminal::GnomeTerminal),
+        ("xfce4-terminal", LinuxTerminal::Xfce4Terminal),
+        ("konsole", LinuxTerminal::Konsole),
+        ("xterm", LinuxTerminal::Xterm),
+    ];
+    for (bin, variant) in candidates {
+        if which_exists(bin) {
+            return Some(variant);
+        }
+    }
+    None
+}
+
+/// Check if a binary exists on PATH.
+fn which_exists(name: &str) -> bool {
+    std::process::Command::new("which")
+        .arg(name)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Open a new Linux terminal window running the given shell command string.
+fn open_linux_terminal(terminal: &LinuxTerminal, command: &str) -> Result<(), String> {
+    let result = match terminal {
+        LinuxTerminal::GnomeTerminal => std::process::Command::new("gnome-terminal")
+            .args(["--", "bash", "-lc", command])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn(),
+        LinuxTerminal::Konsole => std::process::Command::new("konsole")
+            .args(["-e", "bash", "-lc", command])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn(),
+        LinuxTerminal::Xfce4Terminal => {
+            // xfce4-terminal -e expects a single command string (shell-parsed)
+            let wrapped = format!(
+                "bash -lc {}",
+                crate::dispatch_helpers::shell_escape(command)
+            );
+            std::process::Command::new("xfce4-terminal")
+                .args(["-e", &wrapped])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+        }
+        LinuxTerminal::Xterm => std::process::Command::new("xterm")
+            .args(["-e", "bash", "-lc", command])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn(),
+        LinuxTerminal::Custom(bin) => std::process::Command::new(bin)
+            .args(["-e", "bash", "-lc", command])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn(),
+    };
+    match result {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!("failed to launch terminal: {}", e)),
+    }
+}
+
+#[cfg(test)]
+mod session_lookup_tests {
+    use super::*;
+
+    fn sessions_map(entries: &[(&str, &[&str])]) -> HashMap<String, Vec<String>> {
+        entries
+            .iter()
+            .map(|(vm, sess)| (vm.to_string(), sess.iter().map(|s| s.to_string()).collect()))
+            .collect()
+    }
+
+    #[test]
+    fn test_match_session_found_on_single_vm() {
+        let map = sessions_map(&[("vm-a", &["main:1", "scratch:0"]), ("vm-b", &["other:0"])]);
+        let result = match_session_in_map(&map, "scratch");
+        assert_eq!(
+            result,
+            SessionLookup::Found {
+                vm_name: "vm-a".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_match_session_not_found() {
+        let map = sessions_map(&[("vm-a", &["main:1"])]);
+        let result = match_session_in_map(&map, "nonexistent");
+        assert_eq!(result, SessionLookup::NotFound);
+    }
+
+    #[test]
+    fn test_match_session_ambiguous_across_vms() {
+        let map = sessions_map(&[("vm-a", &["shared:0"]), ("vm-b", &["shared:1"])]);
+        let result = match_session_in_map(&map, "shared");
+        match result {
+            SessionLookup::Ambiguous { vm_names } => {
+                assert_eq!(vm_names, vec!["vm-a".to_string(), "vm-b".to_string()]);
+            }
+            other => panic!("expected Ambiguous, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_match_session_ignores_attached_suffix() {
+        // Session name matching strips the ":attached" suffix via parse_session_name.
+        let map = sessions_map(&[("vm-a", &["work:1"])]);
+        let result = match_session_in_map(&map, "work");
+        assert_eq!(
+            result,
+            SessionLookup::Found {
+                vm_name: "vm-a".to_string()
+            }
+        );
     }
 }

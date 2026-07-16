@@ -1,7 +1,8 @@
-//! `azlin tunnel` — SSH local port-forwarding to remote VMs.
+//! `azlin tunnel` — port-forwarding to remote VMs via Azure Bastion or SSH.
 //!
-//! Spawns `ssh -N -L` subprocesses, records their PIDs in
-//! `~/.azlin/tunnels.json`, and provides `list` / `close` subcommands.
+//! For non-SSH ports, uses direct `az bastion tunnel` (single hop).
+//! For SSH (port 22), layers `ssh -N -L` on top of a bastion tunnel.
+//! Records PIDs in `~/.azlin/tunnels.json` and provides `list`/`close`.
 
 #[allow(unused_imports)]
 use super::*;
@@ -71,6 +72,21 @@ fn process_is_running(pid: u32) -> bool {
             .map(|s| s.success())
             .unwrap_or(false)
     }
+}
+
+/// Kill a process and its entire process group.
+/// `az` spawns bash→python3, so killing just the parent leaves orphans.
+fn kill_process_tree(pid: u32) {
+    let _ = std::process::Command::new("kill")
+        .args(["--", &format!("-{}", pid)])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    let _ = std::process::Command::new("kill")
+        .arg(pid.to_string())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
 }
 
 // ---------------------------------------------------------------------------
@@ -169,9 +185,7 @@ async fn cmd_tunnel_open(
             _ = tokio::signal::ctrl_c() => {
                 println!("\nShutting down tunnels...");
                 for e in &entries {
-                    let _ = std::process::Command::new("kill")
-                        .arg(e.pid.to_string())
-                        .status();
+                    kill_process_tree(e.pid);
                 }
                 // Prune our in-memory entries — no need to re-read disk
                 entries.retain(|e| process_is_running(e.pid));
@@ -424,9 +438,7 @@ fn cmd_tunnel_close(vm_identifier: Option<String>, all: bool) -> Result<()> {
                 .unwrap_or(false);
 
         if should_close {
-            let _ = std::process::Command::new("kill")
-                .arg(e.pid.to_string())
-                .status();
+            kill_process_tree(e.pid);
             if e.remote_port != 0 {
                 println!(
                     "Closed tunnel: localhost:{} → {}:{}",

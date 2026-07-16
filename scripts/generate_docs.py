@@ -63,7 +63,7 @@ Get up and running with azlin in 5 minutes.
 
 - Azure account ([create free account](https://azure.microsoft.com/free/))
 - Azure CLI installed and configured (`az login`)
-- Python 3.12 or later
+- Python 3.11 or later
 
 ## Step 1: Install azlin
 
@@ -92,7 +92,7 @@ azlin new --name myproject
 
 azlin will:
 
-1. ✓ Create an Ubuntu 24.04 VM
+1. ✓ Create an Ubuntu 26.04 LTS VM
 2. ✓ Install 12 development tools
 3. ✓ Configure SSH access
 4. ✓ Start tmux session
@@ -196,7 +196,7 @@ This guide walks you through creating your first Azure VM with azlin in detail.
 
 By the end of this tutorial, you'll have:
 
-- A running Ubuntu 24.04 VM in Azure
+- A running Ubuntu 26.04 LTS VM in Azure
 - 12 development tools pre-installed
 - SSH access configured
 - A persistent tmux session
@@ -279,7 +279,7 @@ You'll see:
 ✓ SSH configured
 → Connecting to my-first-vm...
 
-Welcome to Ubuntu 24.04 LTS
+Welcome to Ubuntu 26.04 LTS
 
 azureuser@my-first-vm:~$
 ```
@@ -302,8 +302,8 @@ rustc --version
 go version
 dotnet --version
 
-# AI coding assistants
-npx @github/copilot --version
+# AI coding assistant
+claude --version
 ```
 
 All commands should return version information.
@@ -372,14 +372,12 @@ The VM came with these tools pre-installed:
 
 **Programming Languages:**
 - Node.js with npm
-- Python 3.13 with pip
+- Python 3.14 with pip
 - Rust with cargo
 - Go
-- .NET 10 RC
+- .NET 10
 
-**AI Coding Assistants:**
-- GitHub Copilot CLI
-- OpenAI Codex CLI
+**AI Coding Assistant:**
 - Claude Code CLI
 
 ### SSH Configuration
@@ -493,7 +491,7 @@ Understand the core concepts behind azlin to use it effectively.
 
 ### Virtual Machines (VMs)
 
-azlin creates **Ubuntu 24.04 LTS** virtual machines in Azure with development tools pre-installed.
+azlin creates **Ubuntu 26.04 LTS** virtual machines in Azure with development tools pre-installed.
 
 **Key characteristics:**
 

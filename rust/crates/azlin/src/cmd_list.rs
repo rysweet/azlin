@@ -202,7 +202,6 @@ pub(crate) async fn dispatch(
                 let sessions = crate::cmd_list_data::collect_tmux_sessions(
                     &all_vms,
                     effective_rg,
-                    matches!(output, azlin_cli::OutputFormat::Table),
                     effective_verbose,
                     vm_manager.subscription_id(),
                     ssh_timeout,

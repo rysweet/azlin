@@ -55,7 +55,12 @@ pub fn build_create_bastion_subnet_args(resource_group: &str, region: &str) -> V
 }
 
 /// Build `az network public-ip create` arguments for the bastion public IP.
-pub fn build_create_pip_args(resource_group: &str, region: &str) -> Vec<String> {
+///
+/// `ip_tags` is the already-resolved, validated Azure `--ip-tags` value
+/// (e.g. `FirstPartyUsage=/ATEVETNonProd`). It is emitted verbatim as a single
+/// argument — callers must resolve it via
+/// [`azlin_core::AzlinConfig::bastion_pip_ip_tags`].
+pub fn build_create_pip_args(resource_group: &str, region: &str, ip_tags: &str) -> Vec<String> {
     let pip = bastion_pip_name(region);
     vec![
         "network".into(), "public-ip".into(), "create".into(),
@@ -64,6 +69,7 @@ pub fn build_create_pip_args(resource_group: &str, region: &str) -> Vec<String> 
         "--location".into(), region.to_lowercase(),
         "--sku".into(), "Standard".into(),
         "--allocation-method".into(), "Static".into(),
+        "--ip-tags".into(), ip_tags.into(),
         "--output".into(), "none".into(),
     ]
 }
@@ -137,11 +143,16 @@ fn run_az_or_bail(args: &[String], context: &str) -> anyhow::Result<()> {
 /// Ensure the bastion VNet, AzureBastionSubnet, public IP, and bastion host
 /// all exist in the target region. Creates only what is missing (idempotent).
 ///
+/// `ip_tags` is the already-resolved Azure `--ip-tags` value applied to the
+/// bastion public IP (resolve via
+/// [`azlin_core::AzlinConfig::bastion_pip_ip_tags`]).
+///
 /// Uses `penguin_spinner` (via the supplied callback) for user feedback during
 /// long-running operations.
 pub fn ensure_bastion_infrastructure(
     resource_group: &str,
     region: &str,
+    ip_tags: &str,
 ) -> anyhow::Result<()> {
     // Normalize region once to avoid repeated to_lowercase() in every helper call.
     let region = &region.to_lowercase();
@@ -189,7 +200,7 @@ pub fn ensure_bastion_infrastructure(
     //    create-or-update operation)
     eprintln!("Ensuring public IP '{pip}'...");
     run_az_or_bail(
-        &build_create_pip_args(resource_group, region),
+        &build_create_pip_args(resource_group, region, ip_tags),
         &format!("Failed to create bastion public IP in {region}"),
     )?;
     eprintln!("  ✓ Public IP ready");
@@ -332,10 +343,28 @@ mod tests {
 
     #[test]
     fn test_build_create_pip_args_uses_standard_sku() {
-        let args = build_create_pip_args("my-rg", "westus");
+        let args = build_create_pip_args("my-rg", "westus", "FirstPartyUsage=/ATEVETNonProd");
         assert!(args.contains(&"azlin-bastion-westus-pip".to_string()));
         assert!(args.contains(&"Standard".to_string()));
         assert!(args.contains(&"Static".to_string()));
+    }
+
+    #[test]
+    fn test_build_create_pip_args_applies_default_ip_tag() {
+        // When the caller passes the default tag value, the public IP must carry
+        // FirstPartyUsage=/ATEVETNonProd for backward compatibility.
+        let args = build_create_pip_args("my-rg", "westus", "FirstPartyUsage=/ATEVETNonProd");
+        let tag_idx = args.iter().position(|a| a == "--ip-tags").unwrap();
+        assert_eq!(args[tag_idx + 1], "FirstPartyUsage=/ATEVETNonProd");
+    }
+
+    #[test]
+    fn test_build_create_pip_args_applies_custom_ip_tag() {
+        // The IP tag is now configurable: whatever resolved value is passed in
+        // must be emitted verbatim as the --ip-tags argument.
+        let args = build_create_pip_args("my-rg", "westus", "FirstPartyUsage=/CustomTag");
+        let tag_idx = args.iter().position(|a| a == "--ip-tags").unwrap();
+        assert_eq!(args[tag_idx + 1], "FirstPartyUsage=/CustomTag");
     }
 
     #[test]

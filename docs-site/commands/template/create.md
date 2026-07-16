@@ -207,14 +207,14 @@ azlin template create frontend-dev \
   --vm-size Standard_D4s_v3 \
   --cloud-init ~/frontend-setup.yaml \
   --tags project=frontend \
-  --description "Frontend development with Node.js 20"
+  --description "Frontend development with Node.js 24"
 
 # Backend development
 azlin template create backend-dev \
   --vm-size Standard_D8s_v3 \
   --cloud-init ~/backend-setup.yaml \
   --tags project=backend \
-  --description "Backend development with Python 3.11"
+  --description "Backend development with Python 3.14"
 
 # Database testing
 azlin template create db-test \

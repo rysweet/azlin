@@ -1,4 +1,9 @@
-mkdocs-material>=9.5.0
-mkdocs-git-revision-date-localized-plugin>=1.2.0
-mkdocs-minify-plugin>=0.8.0
-pymdown-extensions>=10.0
+# Documentation toolchain — pinned for reproducible, supply-chain-audited
+# MkDocs builds. Versions are exact (==) and verified green by `pip-audit`
+# in the Security Scanning workflow (.github/workflows/security.yml).
+# Bump deliberately and re-run pip-audit before changing a pin.
+mkdocs-material==9.7.6
+mkdocs-git-revision-date-localized-plugin==1.5.3
+mkdocs-minify-plugin==0.8.0
+pymdown-extensions==11.0
+pyyaml==6.0.3

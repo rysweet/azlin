@@ -6,13 +6,14 @@ on:
     paths: ['rust/**']
   workflow_dispatch:
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
   # ── Auto-increment patch version ──────────────────────────────────────
   version-bump:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     # Skip if this push is already a version-bump commit (prevent loops)
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     outputs:
@@ -20,7 +21,7 @@ jobs:
       sha: ${{ steps.bump.outputs.sha }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -77,10 +78,49 @@ jobs:
           # 4. src/azlin/__init__.py
           sed -i "s/__version__ = \"${CURRENT}\"/__version__ = \"${NEW_VERSION}\"/" src/azlin/__init__.py
 
+          # 5. rust/Cargo.lock — the workspace member "version" fields must
+          # stay in sync with Cargo.toml, or any subsequent `cargo build
+          # --locked` (used by CI and by contributors) fails with "cannot
+          # update the lock file because --locked was passed". Patch each
+          # local workspace-member entry directly via sed (matching each
+          # package's `name = "..."` line, then the very next `version =
+          # "..."` line two lines below it) — this needs no network access
+          # and no Rust toolchain, unlike `cargo update`/`cargo check`, which
+          # would fail here since this job never sets up a cached registry.
+          #
+          # Members are derived from rust/Cargo.toml's `members = [...]`
+          # array (crate directory name == package name for every member in
+          # this repo) rather than hardcoded, so this loop never silently
+          # drifts out of sync if a crate is added, renamed, or removed.
+          WORKSPACE_MEMBERS=$(sed -n '/^members = \[/,/^\]/p' rust/Cargo.toml \
+            | grep -oP '"crates/\K[^"]+')
+          echo "Workspace members detected: ${WORKSPACE_MEMBERS}"
+          for pkg in ${WORKSPACE_MEMBERS}; do
+            sed -i "/^name = \"${pkg}\"\$/{n;s/^version = \"${CURRENT}\"/version = \"${NEW_VERSION}\"/}" rust/Cargo.lock
+          done
+
+          # Fail loudly rather than silently shipping a stale lock file if
+          # the Cargo.lock format ever changes (e.g. the lockfile layout
+          # shifts) and the sed above stops matching. Check each member
+          # individually — a blunt whole-file count could be misled by an
+          # external dependency that coincidentally shares the same version
+          # string. A silently-skipped update here is worse than no update
+          # at all, since it would look identical to success.
+          if [ -z "${WORKSPACE_MEMBERS}" ]; then
+            echo "::error::Could not parse any workspace members from rust/Cargo.toml's [workspace] members array. The parsing logic in this job needs to be fixed before merging." >&2
+            exit 1
+          fi
+          for pkg in ${WORKSPACE_MEMBERS}; do
+            if ! grep -A1 "^name = \"${pkg}\"\$" rust/Cargo.lock | grep -q "^version = \"${NEW_VERSION}\"\$"; then
+              echo "::error::rust/Cargo.lock entry for workspace member '${pkg}' was not bumped to ${NEW_VERSION}. The sed patterns in this job no longer match the lock file's structure — fix the patch logic before merging." >&2
+              exit 1
+            fi
+          done
+
           # ── Commit and push ───────────────────────────────────────────
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add rust/Cargo.toml pyproject.toml rust/pyproject.toml src/azlin/__init__.py
+          git add rust/Cargo.toml rust/Cargo.lock pyproject.toml rust/pyproject.toml src/azlin/__init__.py
           git commit -m "chore: bump version ${CURRENT} → ${NEW_VERSION} [skip ci]"
           git push
 
@@ -92,6 +132,8 @@ jobs:
   # ── Build native binaries ─────────────────────────────────────────────
   build:
     needs: [version-bump]
+    permissions:
+      contents: read
     strategy:
       matrix:
         include:
@@ -114,15 +156,16 @@ jobs:
         working-directory: rust
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.version-bump.outputs.sha }}
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: rust
 
@@ -143,11 +186,15 @@ jobs:
           mkdir -p dist
           cp target/${{ matrix.target }}/release/azlin dist/azlin-${{ matrix.suffix }}
           cp target/${{ matrix.target }}/release/azdoit dist/azdoit-${{ matrix.suffix }}
+          # "ay" is a short alias for azlin, packaged as an identical copy so
+          # the tarball extracts a self-contained binary (symlinks don't
+          # survive some archive/transfer paths reliably).
+          cp target/${{ matrix.target }}/release/azlin dist/ay-${{ matrix.suffix }}
           chmod +x dist/*
-          cd dist && tar czf azlin-${{ matrix.suffix }}.tar.gz azlin-${{ matrix.suffix }} azdoit-${{ matrix.suffix }}
+          cd dist && tar czf azlin-${{ matrix.suffix }}.tar.gz azlin-${{ matrix.suffix }} azdoit-${{ matrix.suffix }} ay-${{ matrix.suffix }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: binaries-${{ matrix.suffix }}
           path: rust/dist/azlin-${{ matrix.suffix }}.tar.gz
@@ -155,6 +202,8 @@ jobs:
   # Build Python wheels with maturin for uvx/pip install
   wheels:
     needs: [version-bump]
+    permissions:
+      contents: read
     strategy:
       matrix:
         include:
@@ -170,16 +219,16 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.version-bump.outputs.sha }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
 
       - name: Build wheel
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.target }}
           args: --release --out dist
@@ -188,7 +237,7 @@ jobs:
           before-script-linux: (dnf install -y perl-core make 2>/dev/null || yum install -y perl-core make 2>/dev/null || (apt-get update -q && apt-get install -yq perl make))
 
       - name: Upload wheel
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: wheel-${{ matrix.os }}-${{ matrix.target }}
           path: rust/dist/*.whl
@@ -197,9 +246,11 @@ jobs:
   release:
     needs: [version-bump, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.version-bump.outputs.sha }}
 
@@ -212,7 +263,7 @@ jobs:
           echo "tag=${VERSION}-rust.${SHORT_SHA}" >> $GITHUB_OUTPUT
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
 
@@ -224,7 +275,7 @@ jobs:
           ls -la release/
 
       - name: Create/Update Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ steps.version.outputs.tag }}
           name: "azlin v${{ steps.version.outputs.version }} (${{ needs.version-bump.outputs.sha }})"

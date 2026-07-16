@@ -9,9 +9,10 @@ The `azlin new` command is the core of azlin - it provisions a fully-equipped Az
 **What gets installed on every VM:**
 - Docker, Azure CLI, GitHub CLI, Git
 - Node.js with user-local npm configuration
-- Python 3.13+, Rust, Golang, .NET 10 RC
+- Python 3.14+, Rust, Golang, .NET 10
 - ripgrep (rg) for fast code search
-- AI tools: GitHub Copilot CLI, OpenAI Codex CLI, Claude Code CLI
+- uv (Python package manager) and Chromium
+- AI assistant: Claude Code CLI
 - Persistent tmux session management
 
 ## Usage
@@ -292,7 +293,7 @@ When you run `azlin new`, the following happens automatically:
 
 1. **Authentication** - Verifies Azure CLI authentication
 2. **Prerequisites** - Checks SSH keys and required tools
-3. **VM Creation** - Provisions Ubuntu 24.04 VM with your chosen size
+3. **VM Creation** - Provisions Ubuntu 26.04 LTS VM with your chosen size
 4. **Cloud-Init** - Installs all development tools (4-5 minutes)
 5. **SSH Key Storage** - Automatically stores private key in Azure Key Vault for cross-system access
 6. **NFS Storage** (optional) - Mounts shared persistent home directory
@@ -345,12 +346,12 @@ Every VM runs a comprehensive cloud-init script that:
 3. Configures non-root Docker access
 4. Installs Azure CLI, GitHub CLI, Git
 5. Sets up Node.js with user-local npm (no sudo needed)
-6. Installs Python 3.13+ from deadsnakes PPA
+6. Installs Python 3.14+ from deadsnakes PPA
 7. Installs Rust via rustup
 8. Installs Golang
-9. Installs .NET 10 RC
+9. Installs .NET 10
 10. Installs ripgrep (rg) for fast search
-11. Installs AI CLI tools (Copilot, Codex, Claude)
+11. Installs Claude Code CLI
 12. Configures tmux for persistent sessions
 
 **Monitoring Progress:**

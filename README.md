@@ -9,10 +9,10 @@
 ## Install
 
 ```bash
-curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-linux-$(uname -m).tar.gz | tar xz && mkdir -p ~/.local/bin && mv azlin-linux-$(uname -m) ~/.local/bin/azlin && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && export PATH="$HOME/.local/bin:$PATH"
+curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-linux-$(uname -m).tar.gz | tar xz && mkdir -p ~/.local/bin && mv azlin-linux-$(uname -m) ~/.local/bin/azlin && mv ay-linux-$(uname -m) ~/.local/bin/ay && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Verify: `azlin --version`
+Verify: `azlin --version` (or the short alias: `ay --version`)
 
 <details>
 <summary>Other install methods</summary>
@@ -20,22 +20,27 @@ Verify: `azlin --version`
 #### macOS
 
 ```bash
-curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-macos-$(uname -m).tar.gz | tar xz && sudo mv azlin-macos-$(uname -m) /usr/local/bin/azlin
+curl -sSL https://github.com/rysweet/azlin/releases/latest/download/azlin-macos-$(uname -m).tar.gz | tar xz && sudo mv azlin-macos-$(uname -m) /usr/local/bin/azlin && sudo mv ay-macos-$(uname -m) /usr/local/bin/ay
 ```
 
 #### Build from Source
 
 ```bash
-git clone https://github.com/rysweet/azlin && cd azlin/rust && cargo install --path crates/azlin
+git clone https://github.com/rysweet/azlin && cd azlin/rust && cargo install --path crates/azlin && ln -sf "$(command -v azlin)" "$(dirname "$(command -v azlin)")/ay"
 ```
 
 </details>
 
 ### Self-Update
 
+Update the azlin binary itself to the latest release:
+
 ```bash
-azlin update
+azlin update          # alias: azlin self-update
 ```
+
+> Note: to update the development tools *on a VM* instead, use
+> `azlin vm update-tools <vm>` — see [VM Maintenance](#vm-maintenance).
 
 ### Verify
 
@@ -60,22 +65,12 @@ azlin new --repo https://github.com/owner/repo
 azlin health
 ```
 
-`azlin new` selects the first available public key from
-`~/.ssh/azlin_key.pub`, `~/.ssh/id_ed25519_azlin.pub`,
-`~/.ssh/id_ed25519.pub`, then `~/.ssh/id_rsa.pub`. When create-time home
-seeding, repo clone, or first auto-connect shell run, azlin reuses the
-matching private key for those phases too. If one of those post-create SSH
-phases is enabled and the matching private key is missing, `azlin new` now
-errors instead of silently falling back to a different identity. If the create
-flow routes through bastion, `azlin new --bastion-name <name>` is reused for
-the later auth-forward, home seeding, and first auto-connect phases too.
-
 ## What is azlin?
 
 azlin automates the tedious process of setting up Azure Ubuntu VMs for development. In one command, it:
 
 1. Authenticates with Azure
-2. Provisions an Ubuntu 24.04 VM
+2. Provisions an Ubuntu 26.04 LTS VM
 3. Installs 12 essential development tools
 4. Creates a separate 100GB Premium SSD for /home (persistent storage), with optional /tmp disk
 5. Sets up SSH with key-based authentication
@@ -123,9 +118,11 @@ azlin logs my-vm --lines 50           # View last 50 lines
 ```
 
 ### Ubuntu Version Selection
-Specify Ubuntu version when creating VMs:
+VMs default to **Ubuntu 26.04 LTS**. Specify a different Ubuntu version when creating VMs:
 ```bash
+azlin new --os 26.04         # Ubuntu 26.04 LTS (default)
 azlin new --os 25.10         # Ubuntu 25.10
+azlin new --os 24.04-lts     # Ubuntu 24.04 LTS
 ```
 
 ### Separate /tmp Disk Support
@@ -154,24 +151,20 @@ Every azlin VM comes pre-configured with:
 2. **Azure CLI (az)** - Azure management
 3. **GitHub CLI (gh)** - GitHub integration
 4. **Git** - Version control
-5. **Node.js** - JavaScript runtime with user-local npm configuration
-6. **Python 3.13+** - Python runtime + pip (latest stable version from deadsnakes PPA)
+5. **Node.js** - JavaScript runtime (24.x LTS via NodeSource) with user-local npm configuration
+6. **Python 3.14+** - Python runtime + pip (latest stable version from deadsnakes PPA)
 7. **Rust** - Systems programming language
 8. **Golang** - Go programming language
-9. **.NET 10 RC** - .NET development framework
-10. **GitHub Copilot CLI** - AI-powered coding assistant
-11. **OpenAI Codex CLI** - AI code generation
-12. **Claude Code CLI** - AI coding assistant
+9. **.NET 10** - .NET development framework
+10. **uv** - Fast Python package manager (Astral)
+11. **Chromium** - Headless browser for testing and automation
+12. **Claude Code CLI** - Anthropic's AI coding assistant
 
-### AI CLI Tools
+### AI Coding Assistant
 
-Three AI-powered coding assistants are pre-installed and ready to use:
+**Claude Code CLI** (`@anthropic-ai/claude-code`) — Anthropic's AI coding assistant — is pre-installed and ready to use on every VM. It is installed via the official installer into your user account, so it's immediately available in your PATH without requiring sudo permissions.
 
-- **GitHub Copilot CLI** (`@github/copilot`) - AI pair programmer from GitHub
-- **OpenAI Codex CLI** (`@openai/codex`) - Advanced AI code generation
-- **Claude Code CLI** (`@anthropic-ai/claude-code`) - Anthropic's AI coding assistant
-
-These tools are installed using npm's user-local configuration, so they're immediately available in your PATH without requiring sudo permissions.
+> Want to use GitHub Copilot or OpenAI Codex on a VM? azlin can forward your local GitHub Copilot and Claude credentials to a new VM (see [credential forwarding](docs/features/credential-forwarding.md)); install their CLIs with `npm install -g @github/copilot` or `@openai/codex` once connected.
 
 ### npm User-Local Configuration
 
@@ -183,18 +176,20 @@ Node.js is configured for user-local global package installations, which means:
 
 ### Verifying Installed Tool Versions
 
-All VMs automatically log installed versions of npm and ripgrep during provisioning:
+At the end of provisioning, every VM logs a verification block listing the
+installed core tool versions (gh, az, node, rustc, amplihack, azlin, dotnet):
 
 ```bash
-# View all tool versions logged during provisioning
-grep '[AZLIN_VERSION]' /var/log/cloud-init-output.log
+# View the provisioning log, including the final version-verification block
+grep '\[AZLIN\]' /var/log/cloud-init-output.log
 
-# Example output (actual versions may vary):
-# [AZLIN_VERSION] npm: 10.2.4
-# [AZLIN_VERSION] rg: 14.1.0
+# The block is emitted right after this line:
+# [AZLIN] Provisioning complete
 ```
 
-**Note**: The versions shown are examples. Actual versions depend on Ubuntu repository state at provision time. npm is bundled with Node.js 20.x LTS (installed via apt), not installed separately.
+**Note**: Actual versions depend on Ubuntu repository state and upstream
+installers at provision time. npm is bundled with Node.js 24.x LTS (installed
+via NodeSource), not installed separately.
 
 This provides an audit trail of exactly which tool versions were installed, useful for troubleshooting and compliance.
 
@@ -210,74 +205,8 @@ Before using azlin, ensure these tools are installed:
 - `uv`
 - `python`
 
-**macOS**: `brew install azure-cli gh git tmux`
-**Linux**: See platform-specific installation in Prerequisites module
-
-### Copy Files to/from VMs
-
-```bash
-azlin cp myfile.txt vm1:~/
-azlin cp vm1:~/data.txt ./
-```
-
-### Home Directory Sync
-
-Automatically sync your configuration files from `~/.azlin/home/` to all VMs:
-
-```bash
-# Setup: Place your dotfiles in ~/.azlin/home/
-mkdir -p ~/.azlin/home
-cp ~/.bashrc ~/.vimrc ~/.gitconfig ~/.azlin/home/
-
-# Auto-syncs on VM creation and login
-azlin new # Dotfiles automatically synced after provisioning
-
-# Manual sync to specific VM
-azlin sync --vm-name my-vm
-
-# Preview what would be synced
-azlin sync --dry-run
-```
-
-**Security**: Automatically blocks SSH keys, cloud credentials, .env files, and other secrets.
-
-### Bidirectional File Transfer
-
-Copy files between your local machine and VMs:
-
-```bash
-# Copy local file to VM
-azlin cp report.pdf vm1:~/documents/
-
-# Copy from VM to local
-azlin cp vm1:~/results.tar.gz ./
-
-# Preview transfer
-azlin cp --dry-run large-dataset.zip vm1:~/
-```
-
-### Azure Bastion (Secure Access)
-
-Connect to VMs securely without public IPs using Azure Bastion:
-
-```bash
-# List available Bastion hosts
-azlin bastion list
-
-# Connect to VM through Bastion (auto-detected when available)
-azlin connect my-vm
-
-# Configure VM to use specific Bastion
-azlin bastion configure my-vm --bastion-name my-bastion --resource-group my-rg
-```
-
-**Security Benefits**: Bastion eliminates internet-facing access to VMs, providing enhanced security through centralized access control, audit logging, and compliance with security policies requiring private-only VMs.
-
-**Cost**: ~$289/month per Bastion host (Standard SKU, shared across all VMs in the VNet).
-
-**Note**: azlin requires Standard SKU to enable CLI tunneling via `az network bastion tunnel`. Basic SKU only supports browser-based access.
-
-For complete documentation, see the [Azure Bastion](#azure-bastion-secure-vm-access) section.
+**macOS**: `brew install azure-cli gh git tmux uv python`
+**Linux**: Install the Azure CLI and GitHub CLI from their official apt/dnf repositories; `git`, `ssh`, `tmux`, and `python` are available from your distro's package manager.
 
 ## Authentication
 
@@ -504,7 +433,7 @@ Most azlin commands support these standard options:
 
 These options are available on nearly all commands that interact with Azure resources, including:
 - VM management: `new`, `list`, `start`, `stop`, `kill`, `destroy`, `status`
-- Maintenance: `update`, `os-update`, `prune`
+- Maintenance: `vm update-tools`, `os-update`, `prune`
 - Monitoring: `w`, `ps`, `top`, `cost`
 - File operations: `sync`, `cp`
 - Storage: `storage list`, `storage create`, `storage mount`, etc.
@@ -521,7 +450,7 @@ These options are available on nearly all commands that interact with Azure reso
 
 Create a fresh Azure Ubuntu VM with all development tools pre-installed.
 
-**Aliases**: `azlin vm`, `azlin create`
+**Aliases**: `azlin create`
 
 ```bash
 # Basic provisioning (interactive if VMs exist)
@@ -813,22 +742,6 @@ azlin killall --force
 **Defaults:**
 - `--prefix`: "azlin" (only deletes azlin-created VMs)
 
-### Deletion Commands Comparison
-
-| Feature | `kill` | `destroy` | `killall` |
-|---------|--------|-----------|-----------|
-| Delete single VM | ✓ | ✓ | ✗ |
-| Delete multiple VMs | ✗ | ✗ | ✓ |
-| Dry-run mode | ✗ | ✓ | ✗ |
-| Delete resource group | ✗ | ✓ | ✗ |
-| Confirmation | ✓ | ✓ | ✓ |
-| Force flag | ✓ | ✓ | ✓ |
-
-**When to use:**
-- `kill` - Simple, quick VM deletion
-- `destroy` - Advanced with dry-run and RG deletion
-- `killall` - Bulk cleanup of multiple VMs
-
 ### `azlin prune` - Automated VM cleanup
 
 Intelligently identify and delete idle or unused VMs based on age and activity.
@@ -881,34 +794,30 @@ azlin prune --force
 
 ## VM Maintenance
 
-### `azlin update` - Update development tools on a VM
+### `azlin vm update-tools` - Update development tools on a VM
 
-Update all programming tools and AI CLI tools that were installed during VM provisioning. **Default timeout: 300 seconds per tool.**
+Update the development toolchains that were installed during VM provisioning. **Default timeout: 300 seconds per update.**
 
 ```bash
 # Update tools on a VM by session name
-azlin update my-project
+azlin vm update-tools my-project
 
 # Update tools on a VM by name
-azlin update azlin-vm-12345 --resource-group my-rg
+azlin vm update-tools azlin-vm-12345 --resource-group my-rg
 
 # Update with longer timeout (default 300s)
-azlin update my-vm --timeout 600
+azlin vm update-tools my-vm --timeout 600
 ```
 
 **What gets updated**:
-- Node.js packages (npm, AI CLI tools)
-- Python packages (pip, uv, astral-uv)
-- Rust toolchain (rustup)
-- Go toolchain
-- Docker
-- GitHub CLI
-- Azure CLI
+- System packages (`apt-get update && apt-get upgrade`)
+- Rust toolchain (`rustup update`)
+- Python package manager (`pip install --upgrade pip`)
+- Node.js package manager (`npm install -g npm`)
 
 **Use cases**:
 - Keep development environments up-to-date
 - Apply security patches to dev tools
-- Get latest AI CLI features
 - Synchronize tool versions across VMs
 
 **Performance**: Updates typically complete in 2-5 minutes depending on available updates.
@@ -964,7 +873,7 @@ Many azlin commands accept a **VM identifier** in three formats:
    - Example: `azlin connect 20.1.2.3`
 
 **Commands that accept VM identifiers:**
-- `connect`, `update`, `os-update`, `stop`, `start`, `kill`, `destroy`
+- `connect`, `vm update-tools`, `os-update`, `stop`, `start`, `kill`, `destroy`
 
 **Tip:** Use session names for easy access:
 ```bash
@@ -1188,12 +1097,16 @@ See [GUI Forwarding Guide](docs/GUI_FORWARDING.md) for prerequisites, options, a
 
 ## Monitoring
 
+All monitoring commands (`azlin top`, `azlin w`, `azlin ps`) automatically
+discover your VMs via tag-based discovery — including custom-named VMs and
+compound `hostname:session` formats — so you never need to list them manually.
+
 ### `azlin top` - Distributed real-time monitoring
 
-Monitor CPU, memory, and processes across all VMs in a unified dashboard. Automatically discovers all azlin VMs using tag-based discovery, including VMs with custom names.
+Monitor CPU, memory, and processes across all VMs in a unified dashboard.
 
 ```bash
-# Default: 10 second refresh (discovers all azlin VMs including custom-named)
+# Default: 10 second refresh
 azlin top
 
 # Custom refresh rate (5 second refresh)
@@ -1215,16 +1128,12 @@ azlin top -i 15 -t 10
 - `--interval, -i SECONDS` - Refresh rate (default: 10 seconds)
 - `--timeout, -t SECONDS` - SSH timeout per VM (default: 5 seconds)
 
-**Output:** Real-time dashboard showing all VMs (including custom-named):
-- CPU usage per VM
-- Memory utilization
-- System load averages
-- Top processes
+**Output:** Real-time dashboard showing per-VM CPU usage, memory utilization,
+system load averages, and top processes.
 
 **Use cases:**
-- Monitor distributed workloads across custom-named VMs
+- Monitor distributed workloads across the fleet
 - Identify resource bottlenecks
-- Track performance across fleet (regardless of naming convention)
 - Real-time capacity planning
 
 Press Ctrl+C to exit.
@@ -1233,17 +1142,15 @@ Press Ctrl+C to exit.
 
 Run the `w` command on all VMs to see active users and their processes.
 
-**All monitoring commands (`azlin w`, `azlin ps`, `azlin top`) automatically discover VMs using tag-based discovery, supporting custom VM names including compound formats like "hostname:session".**
-
 ```bash
-# Run 'w' on all VMs (discovers all azlin VMs including custom-named)
+# Run 'w' on all VMs
 azlin w
 
 # Run on specific resource group
 azlin w --resource-group my-rg
 ```
 
-**Output** (showing custom-named VMs):
+**Output:**
 ```
 === VM: myhost:dev (20.12.34.56) ===
  12:34:56 up  2:15,  1 user,  load average: 0.52, 0.58, 0.59
@@ -1253,15 +1160,15 @@ azureuser pts/0   192.168.1.1      10:30    0.00s  0.04s  0.00s w
 
 **Use cases**:
 - Check if anyone is using a VM
-- Monitor system load across all VMs (including custom-named)
+- Monitor system load across all VMs
 - See active sessions
 
 ### `azlin ps` - Show running processes
 
-Run `ps aux` on all VMs to see all processes. Automatically discovers all azlin VMs using tag-based discovery.
+Run `ps aux` on all VMs to see all processes.
 
 ```bash
-# Show all processes on all VMs (discovers all azlin VMs including custom-named)
+# Show all processes on all VMs
 azlin ps
 
 # Show on specific resource group
@@ -1269,8 +1176,8 @@ azlin ps --resource-group my-rg
 ```
 
 **Use cases**:
-- Find runaway processes across fleet
-- Monitor resource usage (including custom-named VMs)
+- Find runaway processes across the fleet
+- Monitor resource usage
 - Debug performance issues
 
 ---
@@ -2378,7 +2285,7 @@ azlin ps  # Check for resource-heavy processes
 | `azlin stop` | Stop VM (save $) | `azlin stop my-vm` |
 | `azlin kill` | Delete VM | `azlin kill my-vm` |
 | `azlin destroy` | Advanced delete | `azlin destroy --dry-run` |
-| `azlin update` | Update dev tools | `azlin update my-vm` |
+| `azlin vm update-tools` | Update dev tools | `azlin vm update-tools my-vm` |
 | `azlin os-update` | Update Ubuntu packages | `azlin os-update my-vm` |
 | `azlin status` | Detailed status | `azlin status` |
 | `azlin top` | Real-time monitor | `azlin top` |

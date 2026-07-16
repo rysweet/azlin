@@ -6,25 +6,48 @@ on:
   pull_request:
     paths: ['rust/**']
 
+permissions: {}
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: rust
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
+          toolchain: stable
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: rust
       - name: Build
-        run: cargo build --release
+        run: cargo build --release --locked
       - name: Test
-        run: cargo test --all
+        run: cargo test --all --locked
         env:
           RUST_MIN_STACK: "8388608"
       - name: Clippy
-        run: cargo clippy --all -- -D warnings
+        run: cargo clippy --all --locked -- -D warnings
+
+  # Supply-chain gate: fail CI on any RustSec advisory not explicitly
+  # acknowledged in rust/.cargo/audit.toml. Reads the committed Cargo.lock.
+  cargo-audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@9bcaee1dcae34154180f412e2fa69355a7cda9f6 # v2.82.6
+        with:
+          tool: cargo-audit
+      - name: Run cargo audit
+        run: cargo audit

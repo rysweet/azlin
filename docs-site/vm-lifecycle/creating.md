@@ -253,7 +253,7 @@ Typical provisioning times:
 Every azlin VM comes with:
 
 **Development Tools:**
-- Python 3.13 (with uv package manager)
+- Python 3.14 (with uv package manager)
 - Docker & Docker Compose
 - Node.js & npm
 - Git & GitHub CLI (gh)
@@ -277,7 +277,7 @@ Every azlin VM comes with:
 
 ```bash
 # Check Azure quota
-azlin quota
+azlin list --quota
 
 # View detailed error logs
 azlin logs <vm-name>
@@ -313,7 +313,7 @@ azlin logs <vm-name>
 
 ```bash
 # Check current quota
-azlin quota
+azlin list --quota
 
 # Request quota increase via Azure Portal
 # Or try different region/size
