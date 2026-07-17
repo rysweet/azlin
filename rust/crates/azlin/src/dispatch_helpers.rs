@@ -245,7 +245,7 @@ pub(crate) async fn resolve_vm_targets(
 
 /// Build a shared SSH prefix for a resolved VM target, opening a bastion tunnel
 /// when required.
-pub(crate) fn build_routed_ssh_prefix(
+pub(crate) async fn build_routed_ssh_prefix(
     target: &VmSshTarget,
     connect_timeout: u64,
     key_override: Option<&std::path::Path>,
@@ -253,10 +253,10 @@ pub(crate) fn build_routed_ssh_prefix(
     Vec<String>,
     Option<crate::bastion_tunnel::ScopedBastionTunnel>,
 )> {
-    build_routed_ssh_prefix_with_mode(target, connect_timeout, key_override, true)
+    build_routed_ssh_prefix_with_mode(target, connect_timeout, key_override, true).await
 }
 
-pub(crate) fn build_routed_ssh_prefix_with_mode(
+pub(crate) async fn build_routed_ssh_prefix_with_mode(
     target: &VmSshTarget,
     connect_timeout: u64,
     key_override: Option<&std::path::Path>,
@@ -270,7 +270,8 @@ pub(crate) fn build_routed_ssh_prefix_with_mode(
             &bastion.bastion_name,
             &bastion.resource_group,
             &bastion.vm_resource_id,
-        )?;
+        )
+        .await?;
         let mut prefix = crate::ssh_arg_helpers::build_tunneled_ssh_prefix_with_mode(
             &target.user,
             tunnel.local_port,
@@ -365,7 +366,7 @@ pub(crate) fn build_routed_ssh_transport_with_mode(
 }
 
 /// Run a remote command through the shared SSH routing path with a hard timeout.
-pub(crate) fn run_target_command_with_timeout(
+pub(crate) async fn run_target_command_with_timeout(
     target: &VmSshTarget,
     remote_cmd: &str,
     timeout_secs: u64,
@@ -373,7 +374,7 @@ pub(crate) fn run_target_command_with_timeout(
 ) -> Result<(i32, String, String)> {
     let config = azlin_core::AzlinConfig::load().unwrap_or_default();
     let (mut prefix, _tunnel) =
-        build_routed_ssh_prefix(target, config.ssh_connect_timeout, key_override)?;
+        build_routed_ssh_prefix(target, config.ssh_connect_timeout, key_override).await?;
     prefix.push(remote_cmd.to_string());
     let arg_refs: Vec<&str> = prefix.iter().map(|arg| arg.as_str()).collect();
     azlin_azure::run_with_timeout("ssh", &arg_refs, timeout_secs)
@@ -502,8 +503,8 @@ mod tests {
         assert!(!transport.contains(" -i "));
     }
 
-    #[test]
-    fn build_routed_ssh_prefix_direct_without_fallback_omits_identity_key() {
+    #[tokio::test]
+    async fn build_routed_ssh_prefix_direct_without_fallback_omits_identity_key() {
         let target = VmSshTarget {
             vm_name: "opaque-ip".to_string(),
             ip: "203.0.113.10".to_string(),
@@ -513,7 +514,7 @@ mod tests {
             bastion: None,
         };
 
-        let (prefix, tunnel) = build_routed_ssh_prefix(&target, 30, None).unwrap();
+        let (prefix, tunnel) = build_routed_ssh_prefix(&target, 30, None).await.unwrap();
         assert!(tunnel.is_none());
         assert!(!prefix.iter().any(|arg| arg == "-i"));
         assert!(!prefix.iter().any(|arg| arg == "IdentitiesOnly=yes"));

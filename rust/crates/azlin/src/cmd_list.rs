@@ -205,7 +205,8 @@ pub(crate) async fn dispatch(
                     effective_verbose,
                     vm_manager.subscription_id(),
                     ssh_timeout,
-                );
+                )
+                .await;
                 pb.finish_and_clear();
                 sessions
             } else {

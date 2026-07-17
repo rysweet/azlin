@@ -205,6 +205,7 @@ nav:
 
   - Azure Bastion:
     - Bastion Setup: bastion/setup.md
+    - Native Tunnel: bastion/native-tunnel.md
     - Security: bastion/security.md
 
   - Monitoring:

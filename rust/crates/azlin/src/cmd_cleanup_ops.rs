@@ -238,7 +238,7 @@ pub(crate) fn handle_cleanup(
     Ok(())
 }
 
-pub(crate) fn handle_restore(
+pub(crate) async fn handle_restore(
     resource_group: Option<String>,
     verbose: bool,
     skip_health_check: bool,
@@ -317,7 +317,8 @@ pub(crate) fn handle_restore(
         verbose,
         vm_manager.subscription_id(),
         ssh_timeout,
-    );
+    )
+    .await;
 
     if tmux_sessions.is_empty() {
         println!("No active tmux sessions found on running VMs.");

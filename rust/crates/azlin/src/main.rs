@@ -107,12 +107,6 @@ struct BastionRoute {
     ssh_key_path: Option<std::path::PathBuf>,
 }
 
-/// A running `az network bastion tunnel` subprocess bound to a local port.
-struct BastionTunnel {
-    local_port: u16,
-    child: std::process::Child,
-}
-
 /// Ask the OS for a free local TCP port by binding to `127.0.0.1:0`.
 ///
 /// The listener is dropped immediately after reading the assigned port number.
@@ -134,6 +128,7 @@ fn pick_unused_local_port() -> Result<u16> {
 /// becomes ready the function bails immediately rather than waiting for the
 /// full timeout.  Returns `Ok(())` once a connection succeeds, or `Err` on
 /// timeout or early process death.
+#[cfg(test)]
 fn wait_for_local_port_listener(port: u16, pid: u32, timeout: std::time::Duration) -> Result<()> {
     let deadline = std::time::Instant::now() + timeout;
     while std::time::Instant::now() < deadline {
@@ -162,71 +157,6 @@ fn wait_for_local_port_listener(port: u16, pid: u32, timeout: std::time::Duratio
         pid,
         port
     );
-}
-
-/// Pool of bastion tunnels keyed by VM resource ID. Re-uses an existing tunnel when
-/// the same VM is queried twice, and tears down all tunnels on drop.
-struct BastionTunnelPool {
-    tunnels: std::collections::HashMap<String, BastionTunnel>,
-}
-
-impl BastionTunnelPool {
-    fn new() -> Self {
-        Self {
-            tunnels: std::collections::HashMap::new(),
-        }
-    }
-
-    fn get_or_create(&mut self, vm_resource_id: &str, bastion_name: &str, rg: &str) -> Result<u16> {
-        if let Some(tunnel) = self.tunnels.get(vm_resource_id) {
-            return Ok(tunnel.local_port);
-        }
-        let port = pick_unused_local_port()?;
-        let mut child = std::process::Command::new("az")
-            .args([
-                "network",
-                "bastion",
-                "tunnel",
-                "--name",
-                bastion_name,
-                "--resource-group",
-                rg,
-                "--target-resource-id",
-                vm_resource_id,
-                "--resource-port",
-                "22",
-                "--port",
-                &port.to_string(),
-            ])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()?;
-        if let Err(e) =
-            wait_for_local_port_listener(port, child.id(), std::time::Duration::from_secs(10))
-        {
-            // The az process was spawned but never became ready — kill it to avoid a leak.
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(e);
-        }
-        self.tunnels.insert(
-            vm_resource_id.to_string(),
-            BastionTunnel {
-                local_port: port,
-                child,
-            },
-        );
-        Ok(port)
-    }
-}
-
-impl Drop for BastionTunnelPool {
-    fn drop(&mut self) {
-        for (_, mut tunnel) in self.tunnels.drain() {
-            let _ = tunnel.child.kill();
-            let _ = tunnel.child.wait();
-        }
-    }
 }
 
 /// Encapsulates SSH connection info for a VM, supporting both direct and bastion routes.

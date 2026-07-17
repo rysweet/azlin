@@ -120,7 +120,8 @@ pub(crate) async fn dispatch(
         &target,
         config.ssh_connect_timeout,
         effective_key.as_deref(),
-    )?;
+    )
+    .await?;
 
     // Determine VNC mode
     let vnc_mode = if let Some(cmd) = app {
@@ -133,7 +134,7 @@ pub(crate) async fn dispatch(
 
     // Step 3: Check/install remote dependencies
     let pb = penguin_spinner("Checking remote dependencies...");
-    check_remote_deps(&target, effective_key.as_deref(), &vnc_mode)?;
+    check_remote_deps(&target, effective_key.as_deref(), &vnc_mode).await?;
     pb.finish_and_clear();
 
     // Step 4: Start VNC server on the remote VM
@@ -221,7 +222,7 @@ fn build_direct_ssh_prefix(ip: &str, user: &str, key: Option<&std::path::Path>) 
     prefix
 }
 
-fn build_gui_ssh_command_prefix(
+async fn build_gui_ssh_command_prefix(
     target: &VmSshTarget,
     connect_timeout: u64,
     key_override: Option<&std::path::Path>,
@@ -230,7 +231,7 @@ fn build_gui_ssh_command_prefix(
     Option<crate::bastion_tunnel::ScopedBastionTunnel>,
 )> {
     let (routed_prefix, tunnel) =
-        crate::dispatch_helpers::build_routed_ssh_prefix(target, connect_timeout, key_override)?;
+        crate::dispatch_helpers::build_routed_ssh_prefix(target, connect_timeout, key_override).await?;
     let mut ssh_cmd_prefix = Vec::with_capacity(routed_prefix.len() + 1);
     ssh_cmd_prefix.push("ssh".to_string());
     ssh_cmd_prefix.extend(routed_prefix);
@@ -269,6 +270,7 @@ fn build_dependency_setup_script(mode: &VncMode) -> String {
     format!("bash -lc {}", crate::shell_escape(&script))
 }
 
+#[cfg(test)]
 fn run_dependency_setup_with_runner<F>(
     mode: &VncMode,
     timeout_secs: u64,
@@ -315,19 +317,55 @@ where
     }
 }
 
-fn check_remote_deps(
+async fn check_remote_deps(
     target: &VmSshTarget,
     key_override: Option<&std::path::Path>,
     mode: &VncMode,
 ) -> Result<()> {
-    run_dependency_setup_with_runner(mode, GUI_SETUP_TIMEOUT_SECS, |script, timeout_secs| {
-        crate::dispatch_helpers::run_target_command_with_timeout(
-            target,
-            script,
-            timeout_secs,
-            key_override,
-        )
-    })
+    let script = build_dependency_setup_script(mode);
+    let timeout_secs = GUI_SETUP_TIMEOUT_SECS;
+    match crate::dispatch_helpers::run_target_command_with_timeout(
+        target,
+        &script,
+        timeout_secs,
+        key_override,
+    )
+    .await
+    {
+        Ok((0, _, _)) => Ok(()),
+        Ok((code, stdout, stderr)) => {
+            let detail = stderr.trim();
+            let detail = if detail.is_empty() {
+                stdout.trim()
+            } else {
+                detail
+            };
+            let detail = if detail.is_empty() {
+                format!("exit code {}", code)
+            } else {
+                azlin_core::sanitizer::sanitize(detail)
+            };
+            anyhow::bail!(
+                "GUI dependency/setup phase failed (exit {}): {}",
+                code,
+                detail
+            );
+        }
+        Err(err) => {
+            let msg = err.to_string();
+            if msg.contains("timed out") {
+                anyhow::bail!(
+                    "GUI dependency/setup phase timed out after {} minutes: {}",
+                    timeout_secs / 60,
+                    azlin_core::sanitizer::sanitize(&msg)
+                );
+            }
+            anyhow::bail!(
+                "GUI dependency/setup phase failed: {}",
+                azlin_core::sanitizer::sanitize(&msg)
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -681,8 +719,8 @@ mod tests {
         assert_eq!(prefix.last().unwrap(), "testuser@10.0.0.1");
     }
 
-    #[test]
-    fn test_gui_routed_ssh_command_prefix_starts_with_ssh_binary() {
+    #[tokio::test]
+    async fn test_gui_routed_ssh_command_prefix_starts_with_ssh_binary() {
         let target = VmSshTarget {
             vm_name: "simard".to_string(),
             ip: "1.2.3.4".to_string(),
@@ -692,7 +730,7 @@ mod tests {
             bastion: None,
         };
 
-        let (prefix, tunnel) = build_gui_ssh_command_prefix(&target, 30, None).unwrap();
+        let (prefix, tunnel) = build_gui_ssh_command_prefix(&target, 30, None).await.unwrap();
         assert!(tunnel.is_none());
         assert_eq!(prefix.first().map(String::as_str), Some("ssh"));
         assert!(prefix.contains(&"BatchMode=yes".to_string()));

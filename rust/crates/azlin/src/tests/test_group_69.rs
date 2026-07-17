@@ -269,19 +269,19 @@ fn test_tunnel_entry_roundtrip_json() {
 }
 
 #[test]
-fn test_tunnel_entry_bastion_helper_marker() {
-    // Bastion helper entries use remote_port=0 as a sentinel
+fn test_tunnel_entry_serde_round_trip_no_bastion_helper() {
+    // Native bastion tunnels no longer create synthetic __bastion__ helper entries.
+    // Verify a normal entry round-trips cleanly.
     let entry = crate::cmd_tunnel::TunnelEntry {
-        vm_name: "myvm__bastion__0".to_string(),
-        local_port: 50200,
-        remote_port: 0,
+        vm_name: "myvm".to_string(),
+        local_port: 8080,
+        remote_port: 3000,
         pid: 99999,
     };
-    assert_eq!(entry.remote_port, 0, "bastion helper uses remote_port=0");
-    assert!(
-        entry.vm_name.contains("__bastion__"),
-        "bastion helper vm_name contains __bastion__ marker"
-    );
+    let json = serde_json::to_string(&entry).unwrap();
+    let back: crate::cmd_tunnel::TunnelEntry = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.vm_name, "myvm");
+    assert!(!back.vm_name.contains("__bastion__"));
 }
 
 // ── Edge cases ─────────────────────────────────────────────────────

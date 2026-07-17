@@ -78,6 +78,9 @@ russh = "0.49"
 russh-keys = "0.49"
 wait-timeout = "0.2"
 openssl = { version = "0.10", features = ["vendored"] }
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-native-roots"] }
+futures-util = "0.3"
+urlencoding = "2"
 
 # Testing
 assert_cmd = "2"
