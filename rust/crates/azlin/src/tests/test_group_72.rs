@@ -24,6 +24,7 @@ fn test_tunnel_registry_entry_has_tunnel_type_field() {
         pid: 999,
         created_at: 1700000000,
         tunnel_type: "native".to_string(),
+        dns_name: String::new(),
     };
     assert_eq!(entry.tunnel_type, "native");
 }
@@ -62,6 +63,7 @@ fn test_tunnel_registry_mixed_types_round_trip() {
             pid: 100,
             created_at: 1700000000,
             tunnel_type: "native".to_string(),
+            dns_name: String::new(),
         },
     );
     registry.tunnels.insert(
@@ -74,6 +76,7 @@ fn test_tunnel_registry_mixed_types_round_trip() {
             pid: 200,
             created_at: 1700000000,
             tunnel_type: "legacy".to_string(),
+            dns_name: String::new(),
         },
     );
 
@@ -200,6 +203,7 @@ fn test_native_tunnel_entry_sets_type() {
         pid: std::process::id(),
         created_at: 0,
         tunnel_type: "native".to_string(),
+        dns_name: String::new(),
     };
     assert_eq!(entry.tunnel_type, "native");
     assert_eq!(entry.pid, std::process::id(), "native tunnels use own PID");
@@ -216,6 +220,7 @@ fn test_legacy_tunnel_entry_sets_type() {
         pid: 9999,
         created_at: 0,
         tunnel_type: "legacy".to_string(),
+        dns_name: String::new(),
     };
     assert_eq!(entry.tunnel_type, "legacy");
 }
@@ -265,6 +270,7 @@ fn test_tunnel_type_serialized_in_json() {
         pid: 1,
         created_at: 0,
         tunnel_type: "native".to_string(),
+        dns_name: String::new(),
     };
     let json = serde_json::to_string(&entry).unwrap();
     assert!(json.contains("tunnel_type"), "JSON must contain tunnel_type field");

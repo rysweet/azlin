@@ -105,7 +105,7 @@ pub async fn open_tunnel(
 
 | Parameter              | Description                                                    |
 |------------------------|----------------------------------------------------------------|
-| `bastion_endpoint`     | Resolved Bastion endpoint URL (Standard: `bastion.dnsName`; Developer: data pod URL from `/api/connection`) |
+| `bastion_endpoint`     | Resolved Bastion data-plane FQDN. Standard/Premium: the bastion's ARM `properties.dnsName` (`bst-<guid>.bastion.azure.com`) — **not** `{bastion_name}.bastion.azure.com`; Developer: data pod URL from `/api/connection`. See [Bastion Tunnel DNS Name Resolution](bastion-tunnel-dns-name-resolution.md). |
 | `target_resource_id`   | Azure resource ID of the target VM                             |
 | `resource_port`        | Port on the target VM to tunnel to (typically `22` for SSH)    |
 | `token`                | Azure AD bearer token with scope for the Bastion resource      |
@@ -295,8 +295,11 @@ use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // NOTE: bastion_endpoint MUST be the bastion's ARM data-plane dnsName
+    // (e.g. "bst-<guid>.bastion.azure.com"), NOT "{bastion_name}.bastion.azure.com".
+    // See docs/features/bastion-tunnel-dns-name-resolution.md.
     let (local_port, handle) = open_tunnel(
-        "my-bastion.bastion.azure.com",
+        "bst-7299861d-50e0-4142-8b50-2f8bc6f5b549.bastion.azure.com",
         "/subscriptions/xxx/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
         22,
         &azure_ad_token,

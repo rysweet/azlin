@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - VNC on localhost only with random per-session passwords
   - Works through Azure Bastion for private VMs
 
+### Fixed
+- **Native Bastion tunnel regression** (#1046): `azlin connect` failed for all
+  Standard/Premium SKU bastions. The native Rust tunnel (introduced in v2.6.83)
+  constructed the data-plane endpoint as `{name}.bastion.azure.com`, which does
+  not exist in DNS. It now resolves the bastion resource's real ARM
+  `properties.dnsName` and caches it per VM in the tunnel registry. The cached
+  value is re-validated before reuse to guard against registry tampering.
+
 ## [2.6.16]
 
 ### Fixed

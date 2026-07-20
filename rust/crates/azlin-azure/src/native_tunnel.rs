@@ -167,6 +167,24 @@ fn normalize_endpoint(endpoint: &str) -> Result<String, NativeTunnelError> {
     }
 }
 
+// ── Transport error transparency (issue #1046 hardening) ─────────────────
+//
+// reqwest's top-level `Display` for a transport failure is opaque
+// (`error sending request for url (...)`) and hides the real DNS/TLS/timeout
+// cause. `error_chain` walks `std::error::Error::source()` so the underlying
+// cause is surfaced in `TokenExchange` errors and cleanup warnings. It only
+// reads `Display`/`source()` — it never touches request headers or tokens.
+fn error_chain(err: &dyn std::error::Error) -> String {
+    let mut chain = err.to_string();
+    let mut source = err.source();
+    while let Some(cause) = source {
+        chain.push_str(": ");
+        chain.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    chain
+}
+
 // ── Token exchange ───────────────────────────────────────────────────────
 
 async fn exchange_token(
@@ -186,7 +204,9 @@ async fn exchange_token(
         .body(body)
         .send()
         .await
-        .map_err(|e| NativeTunnelError::TokenExchange(format!("request failed: {e}")))?;
+        .map_err(|e| {
+            NativeTunnelError::TokenExchange(format!("request failed: {}", error_chain(&e)))
+        })?;
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -209,11 +229,21 @@ async fn cleanup_token(
     node_id: &str,
 ) {
     let url = build_token_cleanup_url(endpoint, auth_token);
-    let _ = client
+    // The cleanup URL embeds the auth token as a path segment, and reqwest's
+    // error `Display` renders the full request URL (path included). Strip the
+    // URL from the error before logging so the token never reaches the log
+    // sink; the underlying cause chain is preserved for diagnostics.
+    if let Err(e) = client
         .delete(&url)
         .header(NODE_ID_HEADER, node_id)
         .send()
-        .await;
+        .await
+    {
+        warn!(
+            "bastion token cleanup failed for node {node_id}: {}",
+            error_chain(&e.without_url())
+        );
+    }
 }
 
 // ── Bidirectional forwarding ─────────────────────────────────────────────
@@ -453,4 +483,139 @@ pub async fn open_tunnel(
     });
 
     Ok((local_port, handle))
+}
+
+// ── Transport error transparency tests (issue #1046 hardening) ───────────────
+//
+// These tests define the `error_chain` contract (see the implementation above)
+// before it exists (TDD): the true DNS/TLS/timeout cause must be visible, and
+// the auth token must never leak from the cleanup path.
+
+#[cfg(test)]
+mod error_surface_tests {
+    use super::*;
+    use std::error::Error as StdError;
+    use std::fmt;
+
+    #[derive(Debug)]
+    struct DnsCause;
+    impl fmt::Display for DnsCause {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "failed to lookup address information: Name or service not known"
+            )
+        }
+    }
+    impl StdError for DnsCause {}
+
+    #[derive(Debug)]
+    struct SendError(DnsCause);
+    impl fmt::Display for SendError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "error sending request for url (https://x.bastion.azure.com/api/tokens)"
+            )
+        }
+    }
+    impl StdError for SendError {
+        fn source(&self) -> Option<&(dyn StdError + 'static)> {
+            Some(&self.0)
+        }
+    }
+
+    #[test]
+    fn test_error_chain_surfaces_underlying_dns_cause() {
+        let err = SendError(DnsCause);
+        let chain = error_chain(&err);
+        // The opaque top-level message is still present ...
+        assert!(chain.contains("error sending request for url"));
+        // ... but the real, previously-hidden cause is now visible.
+        assert!(
+            chain.contains("Name or service not known"),
+            "cause chain must surface the underlying DNS failure, got: {chain}"
+        );
+    }
+
+    #[test]
+    fn test_error_chain_single_error() {
+        let chain = error_chain(&DnsCause);
+        assert!(chain.contains("Name or service not known"));
+    }
+
+    #[test]
+    fn test_error_chain_walks_multiple_levels() {
+        #[derive(Debug)]
+        struct L3;
+        impl fmt::Display for L3 {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "connection refused")
+            }
+        }
+        impl StdError for L3 {}
+
+        #[derive(Debug)]
+        struct L2(L3);
+        impl fmt::Display for L2 {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "tls handshake failed")
+            }
+        }
+        impl StdError for L2 {
+            fn source(&self) -> Option<&(dyn StdError + 'static)> {
+                Some(&self.0)
+            }
+        }
+
+        #[derive(Debug)]
+        struct L1(L2);
+        impl fmt::Display for L1 {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "request failed")
+            }
+        }
+        impl StdError for L1 {
+            fn source(&self) -> Option<&(dyn StdError + 'static)> {
+                Some(&self.0)
+            }
+        }
+
+        let chain = error_chain(&L1(L2(L3)));
+        assert!(chain.contains("request failed"), "chain: {chain}");
+        assert!(chain.contains("tls handshake failed"), "chain: {chain}");
+        assert!(chain.contains("connection refused"), "chain: {chain}");
+    }
+
+    // Regression test for the cleanup-path token leak: the cleanup URL embeds
+    // the auth token as a path segment, and reqwest's error `Display` renders
+    // the full URL. `cleanup_token` logs `error_chain(&e.without_url())`, so the
+    // token must never appear in the logged string even though it is present in
+    // the raw error.
+    #[tokio::test]
+    async fn test_cleanup_error_without_url_does_not_leak_auth_token() {
+        const AUTH_TOKEN: &str = "SUPER-SECRET-AUTH-TOKEN-9f8e7d6c";
+        // `.invalid` is reserved (RFC 6761) and guarantees a resolution failure,
+        // so `send()` returns a URL-bearing transport error without any network.
+        let url = build_token_cleanup_url("host.invalid", AUTH_TOKEN);
+        let err = reqwest::Client::new()
+            .delete(&url)
+            .send()
+            .await
+            .expect_err("request to a .invalid host must fail");
+
+        // Sanity: the raw error would leak the token (this is exactly what the
+        // fix guards against).
+        assert!(
+            error_chain(&err).contains(AUTH_TOKEN),
+            "precondition: raw reqwest error is expected to carry the token in its URL"
+        );
+
+        // The logged form strips the URL, so the token must be gone.
+        let logged = error_chain(&err.without_url());
+        assert!(
+            !logged.contains(AUTH_TOKEN),
+            "auth token leaked into cleanup log line: {logged}"
+        );
+    }
 }
