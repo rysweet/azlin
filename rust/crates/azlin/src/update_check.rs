@@ -58,10 +58,14 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
-/// Query GitHub for the latest Rust release version string.
-/// Uses gh CLI first (authenticated), falls back to curl.
+/// Query GitHub for the latest **stable** Rust release version string.
+/// Uses gh CLI first (authenticated), falls back to curl. Prereleases and
+/// drafts are excluded and the highest semver is chosen (see
+/// [`crate::release_select`]) so the notice never points at a yanked
+/// prerelease.
 fn fetch_latest_version() -> Option<String> {
-    // Try gh CLI first (wrapped with timeout to prevent hanging)
+    // Try gh CLI first (wrapped with timeout to prevent hanging). Fetch the
+    // full release array (`--jq .`) so selection happens in Rust, not in jq.
     let output = std::process::Command::new("timeout")
         .args([
             "5",
@@ -69,7 +73,7 @@ fn fetch_latest_version() -> Option<String> {
             "api",
             &format!("repos/{}/releases", GITHUB_REPO),
             "--jq",
-            r#"[.[] | select(.tag_name | contains("-rust"))][0].tag_name"#,
+            ".",
         ])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -77,7 +81,7 @@ fn fetch_latest_version() -> Option<String> {
         .ok()
         .filter(|o| o.status.success())
         .or_else(|| {
-            // Fall back to curl + basic parsing
+            // Fall back to curl.
             std::process::Command::new("curl")
                 .args([
                     "-sS",
@@ -92,7 +96,7 @@ fn fetch_latest_version() -> Option<String> {
                     "-H",
                     "Accept: application/vnd.github+json",
                     &format!(
-                        "https://api.github.com/repos/{}/releases?per_page=10",
+                        "https://api.github.com/repos/{}/releases?per_page=30",
                         GITHUB_REPO
                     ),
                 ])
@@ -103,29 +107,11 @@ fn fetch_latest_version() -> Option<String> {
                 .filter(|o| o.status.success())
         })?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let trimmed = stdout.trim().trim_matches('"');
-
-    // If we got a single tag from jq
-    if !trimmed.is_empty() && !trimmed.starts_with('[') {
-        let tag = trimmed.strip_prefix('v').unwrap_or(trimmed);
-        if tag.contains("-rust") {
-            return Some(tag.to_string());
-        }
-    }
-
-    // If we got JSON array from curl, parse it
-    if let Ok(releases) = serde_json::from_str::<Vec<serde_json::Value>>(stdout.trim()) {
-        for release in &releases {
-            if let Some(tag) = release["tag_name"].as_str() {
-                if tag.contains("-rust") {
-                    return Some(tag.strip_prefix('v').unwrap_or(tag).to_string());
-                }
-            }
-        }
-    }
-
-    None
+    let releases: Vec<serde_json::Value> =
+        serde_json::from_slice(&output.stdout).ok()?;
+    let best = crate::release_select::best_stable_release(&releases, None)?;
+    let tag = best["tag_name"].as_str()?;
+    Some(tag.strip_prefix('v').unwrap_or(tag).to_string())
 }
 
 /// Compare version strings. Returns true if `latest` is newer than `current`.

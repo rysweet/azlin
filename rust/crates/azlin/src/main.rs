@@ -29,6 +29,7 @@ mod auth_forward;
 mod dispatch;
 mod dispatch_helpers;
 mod update_check;
+mod release_select;
 const ORPHANED_PUBLIC_IP_MONTHLY_COST: f64 = 3.65;
 
 /// Default admin username for Azure VMs.

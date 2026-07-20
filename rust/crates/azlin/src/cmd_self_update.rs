@@ -61,27 +61,28 @@ fn find_latest_release() -> Result<(String, String)> {
     let releases: Vec<serde_json::Value> =
         serde_json::from_slice(&output.stdout).context("Failed to parse GitHub releases JSON")?;
 
-    for release in &releases {
-        let tag = release["tag_name"].as_str().unwrap_or("");
-        if !tag.contains("-rust") {
-            continue;
-        }
-        let assets = release["assets"].as_array();
-        if let Some(assets) = assets {
-            for asset in assets {
-                let name = asset["name"].as_str().unwrap_or("");
-                if name.contains(suffix) && name.ends_with(".tar.gz") {
-                    let dl_url = asset["browser_download_url"]
-                        .as_str()
-                        .ok_or_else(|| anyhow::anyhow!("Missing download URL"))?;
-                    // Tag format: v2.5.0-rust.abc1234 — extract base version + commit
-                    let version = tag.strip_prefix('v').unwrap_or(tag).to_string();
-                    return Ok((dl_url.to_string(), version));
-                }
-            }
+    // Choose the highest-semver stable release that publishes a binary for this
+    // platform. Prereleases/drafts are excluded so `azlin update` never installs
+    // a yanked or incomplete build (see crate::release_select).
+    let release = crate::release_select::best_stable_release(&releases, Some(suffix))
+        .ok_or_else(|| anyhow::anyhow!("No stable release found for platform '{}'", suffix))?;
+
+    let tag = release["tag_name"].as_str().unwrap_or("");
+    let assets = release["assets"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("Release '{}' has no assets", tag))?;
+    for asset in assets {
+        let name = asset["name"].as_str().unwrap_or("");
+        if name.contains(suffix) && name.ends_with(".tar.gz") {
+            let dl_url = asset["browser_download_url"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Missing download URL"))?;
+            // Tag format: v2.5.0-rust.abc1234 — extract base version + commit
+            let version = tag.strip_prefix('v').unwrap_or(tag).to_string();
+            return Ok((dl_url.to_string(), version));
         }
     }
-    anyhow::bail!("No release found for platform '{}'", suffix)
+    anyhow::bail!("No matching asset for platform '{}' in release '{}'", suffix, tag)
 }
 
 /// Download and extract the binary, replacing the current executable.
