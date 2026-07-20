@@ -229,7 +229,10 @@ async fn cleanup_token(
     node_id: &str,
 ) {
     let url = build_token_cleanup_url(endpoint, auth_token);
-    // Surface the full cause chain (never the URL — it embeds the auth token).
+    // The cleanup URL embeds the auth token as a path segment, and reqwest's
+    // error `Display` renders the full request URL (path included). Strip the
+    // URL from the error before logging so the token never reaches the log
+    // sink; the underlying cause chain is preserved for diagnostics.
     if let Err(e) = client
         .delete(&url)
         .header(NODE_ID_HEADER, node_id)
@@ -238,7 +241,7 @@ async fn cleanup_token(
     {
         warn!(
             "bastion token cleanup failed for node {node_id}: {}",
-            error_chain(&e)
+            error_chain(&e.without_url())
         );
     }
 }
