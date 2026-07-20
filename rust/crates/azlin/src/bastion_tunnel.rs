@@ -617,10 +617,15 @@ pub async fn get_or_create_tunnel(
 
     // Cache the previously-resolved data-plane dnsName (if any) so a recreate
     // for this VM does not re-query ARM. Empty/legacy entries trigger a re-resolve.
+    // The registry file is treated as untrusted input: re-validate the cached host
+    // through parse_dns_name so a poisoned registry.json cannot smuggle a hostile
+    // host past the *.bastion.azure.com allowlist (issue #1046 hardening). A cached
+    // value that fails validation is discarded, forcing a fresh ARM re-resolve.
     let cached_dns_name = registry
         .get(vm_resource_id)
         .map(|e| e.dns_name.clone())
-        .filter(|d| !d.is_empty());
+        .filter(|d| !d.is_empty())
+        .and_then(|d| parse_dns_name(&d).ok());
 
     // Reuse existing tunnel if it is alive, uniquely mapped, and still listening.
     if let Some(entry) = registry.get(vm_resource_id).cloned() {
@@ -1211,5 +1216,23 @@ mod tests {
             r2.tunnels["/sub/rg/vm/y"].dns_name,
             "bst-abc123.bastion.azure.com"
         );
+    }
+
+    #[test]
+    fn test_cached_dns_name_is_revalidated_before_use() {
+        // Defense-in-depth (issue #1046 hardening): the registry file is untrusted
+        // input. A poisoned cached dns_name must be rejected by the same validator
+        // that gates fresh ARM output, so it can never bypass the *.bastion.azure.com
+        // allowlist. get_or_create_tunnel re-runs parse_dns_name on the cached value
+        // and discards it on failure (forcing a fresh ARM re-resolve).
+        let poisoned = "bst-abc.bastion.azure.com@evil.com";
+        assert!(
+            parse_dns_name(poisoned).is_err(),
+            "a poisoned cached host must not pass validation"
+        );
+
+        // A clean cached value still validates and is reused (no re-resolve).
+        let clean = "bst-abc123.bastion.azure.com";
+        assert_eq!(parse_dns_name(clean).unwrap(), clean);
     }
 }
