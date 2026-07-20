@@ -131,7 +131,15 @@ pub(crate) async fn dispatch(
 
             let pb = penguin_spinner(&format!("Looking up {}...", name));
             let vm = match vm_manager.get_vm(&rg, &name) {
-                Ok(vm) => vm,
+                Ok(vm) => {
+                    // Stop the spinner's steady-tick thread before proceeding to
+                    // the SSH handoff. Without this the penguin animation keeps
+                    // redrawing over the entire interactive session (regression
+                    // from the tmux-session fallback refactor, which only cleared
+                    // the spinner in the Err arm below).
+                    pb.finish_and_clear();
+                    vm
+                }
                 Err(get_vm_err) => {
                     pb.finish_and_clear();
                     // Fall back to tmux-session-name resolution only when the
