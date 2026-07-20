@@ -130,26 +130,28 @@ fn test_wss_url_encodes_special_chars_in_node_id() {
 // 3. Token exchange request building
 // ═══════════════════════════════════════════════════════════════════════
 
-/// Token exchange request body must contain the correct fields.
+/// Token exchange request must be form-encoded with the correct fields.
 #[test]
 fn test_token_exchange_request_body() {
-    let body = azlin_azure::native_tunnel::build_token_exchange_body(
+    let form = azlin_azure::native_tunnel::build_token_exchange_form(
         "/subscriptions/sub-1/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm1",
         22,
         "bearer-token-xyz",
     );
-    // Should be valid JSON with the required fields
-    let parsed: serde_json::Value = serde_json::from_str(&body)
-        .expect("token exchange body must be valid JSON");
+
+    let get = |k: &str| form.iter().find(|(key, _)| *key == k).map(|(_, v)| v.as_str());
+
     assert_eq!(
-        parsed["resourceId"],
-        "/subscriptions/sub-1/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm1"
+        get("resourceId"),
+        Some("/subscriptions/sub-1/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm1")
     );
-    assert_eq!(parsed["protocol"], "tcptunnel");
-    assert_eq!(parsed["workloadHostPort"], "22");
-    // aztoken and token fields must both be the bearer token
-    assert_eq!(parsed["aztoken"], "bearer-token-xyz");
-    assert_eq!(parsed["token"], "bearer-token-xyz");
+    assert_eq!(get("protocol"), Some("tcptunnel"));
+    assert_eq!(get("workloadHostPort"), Some("22"));
+    // The ARM token is carried in `aztoken`, NOT an Authorization header.
+    assert_eq!(get("aztoken"), Some("bearer-token-xyz"));
+    // The `token` field is omitted on the initial exchange (mirrors azext_bastion,
+    // which sends last_token=None). It must never carry the ARM bearer token.
+    assert_eq!(get("token"), None);
 }
 
 /// BastionTokenResponse must deserialize from the expected JSON shape.

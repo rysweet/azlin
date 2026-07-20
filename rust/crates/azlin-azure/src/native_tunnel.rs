@@ -115,20 +115,26 @@ pub fn build_token_cleanup_url(endpoint: &str, auth_token: &str) -> String {
     )
 }
 
-/// Build the JSON body for the token exchange POST request.
-pub fn build_token_exchange_body(
+/// Build the `application/x-www-form-urlencoded` parameters for the token
+/// exchange POST request.
+///
+/// The Azure Bastion data-plane expects a **form-encoded** body, not JSON
+/// (mirrors the `azext_bastion` Python extension). The ARM access token is
+/// carried in the `aztoken` field; auth is NOT sent as an `Authorization`
+/// header. The `token` field (a previously-issued auth token) is omitted on
+/// the initial exchange — `azext_bastion` sends `last_token=None`, which the
+/// Python `requests` form encoder drops entirely.
+pub fn build_token_exchange_form(
     target_resource_id: &str,
     resource_port: u16,
     token: &str,
-) -> String {
-    let body = serde_json::json!({
-        "resourceId": target_resource_id,
-        "protocol": "tcptunnel",
-        "workloadHostPort": resource_port.to_string(),
-        "aztoken": token,
-        "token": token,
-    });
-    body.to_string()
+) -> Vec<(&'static str, String)> {
+    vec![
+        ("resourceId", target_resource_id.to_string()),
+        ("protocol", "tcptunnel".to_string()),
+        ("workloadHostPort", resource_port.to_string()),
+        ("aztoken", token.to_string()),
+    ]
 }
 
 // ── Local listener ───────────────────────────────────────────────────────
@@ -195,13 +201,14 @@ async fn exchange_token(
     token: &str,
 ) -> Result<BastionTokenResponse, NativeTunnelError> {
     let url = build_token_exchange_url(endpoint);
-    let body = build_token_exchange_body(target_resource_id, resource_port, token);
+    let form = build_token_exchange_form(target_resource_id, resource_port, token);
 
+    // The Bastion data-plane expects `application/x-www-form-urlencoded` with
+    // the ARM token in the `aztoken` field (mirrors azext_bastion). Sending
+    // JSON or an `Authorization` header makes the service return HTTP 500.
     let resp = client
         .post(&url)
-        .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {}", token))
-        .body(body)
+        .form(&form)
         .send()
         .await
         .map_err(|e| {
