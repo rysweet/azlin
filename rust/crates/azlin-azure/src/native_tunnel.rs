@@ -167,6 +167,24 @@ fn normalize_endpoint(endpoint: &str) -> Result<String, NativeTunnelError> {
     }
 }
 
+// ── Transport error transparency (issue #1046 hardening) ─────────────────
+//
+// reqwest's top-level `Display` for a transport failure is opaque
+// (`error sending request for url (...)`) and hides the real DNS/TLS/timeout
+// cause. `error_chain` walks `std::error::Error::source()` so the underlying
+// cause is surfaced in `TokenExchange` errors and cleanup warnings. It only
+// reads `Display`/`source()` — it never touches request headers or tokens.
+fn error_chain(err: &dyn std::error::Error) -> String {
+    let mut chain = err.to_string();
+    let mut source = err.source();
+    while let Some(cause) = source {
+        chain.push_str(": ");
+        chain.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    chain
+}
+
 // ── Token exchange ───────────────────────────────────────────────────────
 
 async fn exchange_token(
@@ -186,7 +204,9 @@ async fn exchange_token(
         .body(body)
         .send()
         .await
-        .map_err(|e| NativeTunnelError::TokenExchange(format!("request failed: {e}")))?;
+        .map_err(|e| {
+            NativeTunnelError::TokenExchange(format!("request failed: {}", error_chain(&e)))
+        })?;
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -209,11 +229,18 @@ async fn cleanup_token(
     node_id: &str,
 ) {
     let url = build_token_cleanup_url(endpoint, auth_token);
-    let _ = client
+    // Surface the full cause chain (never the URL — it embeds the auth token).
+    if let Err(e) = client
         .delete(&url)
         .header(NODE_ID_HEADER, node_id)
         .send()
-        .await;
+        .await
+    {
+        warn!(
+            "bastion token cleanup failed for node {node_id}: {}",
+            error_chain(&e)
+        );
+    }
 }
 
 // ── Bidirectional forwarding ─────────────────────────────────────────────
@@ -453,4 +480,110 @@ pub async fn open_tunnel(
     });
 
     Ok((local_port, handle))
+}
+
+// ── Transport error transparency (issue #1046 hardening) ─────────────────────
+//
+// The regression surfaced as an opaque `error sending request for url (...)`
+// because the reqwest error's *source* chain (the real DNS/TLS/timeout cause)
+// was dropped. `error_chain` walks `std::error::Error::source()` so the true
+// underlying cause is visible in `TokenExchange` errors and cleanup warnings.
+//
+// These tests define that contract before the implementation exists (TDD).
+
+#[cfg(test)]
+mod error_surface_tests {
+    use super::*;
+    use std::error::Error as StdError;
+    use std::fmt;
+
+    #[derive(Debug)]
+    struct DnsCause;
+    impl fmt::Display for DnsCause {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "failed to lookup address information: Name or service not known"
+            )
+        }
+    }
+    impl StdError for DnsCause {}
+
+    #[derive(Debug)]
+    struct SendError(DnsCause);
+    impl fmt::Display for SendError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "error sending request for url (https://x.bastion.azure.com/api/tokens)"
+            )
+        }
+    }
+    impl StdError for SendError {
+        fn source(&self) -> Option<&(dyn StdError + 'static)> {
+            Some(&self.0)
+        }
+    }
+
+    #[test]
+    fn test_error_chain_surfaces_underlying_dns_cause() {
+        let err = SendError(DnsCause);
+        let chain = error_chain(&err);
+        // The opaque top-level message is still present ...
+        assert!(chain.contains("error sending request for url"));
+        // ... but the real, previously-hidden cause is now visible.
+        assert!(
+            chain.contains("Name or service not known"),
+            "cause chain must surface the underlying DNS failure, got: {chain}"
+        );
+    }
+
+    #[test]
+    fn test_error_chain_single_error() {
+        let chain = error_chain(&DnsCause);
+        assert!(chain.contains("Name or service not known"));
+    }
+
+    #[test]
+    fn test_error_chain_walks_multiple_levels() {
+        #[derive(Debug)]
+        struct L3;
+        impl fmt::Display for L3 {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "connection refused")
+            }
+        }
+        impl StdError for L3 {}
+
+        #[derive(Debug)]
+        struct L2(L3);
+        impl fmt::Display for L2 {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "tls handshake failed")
+            }
+        }
+        impl StdError for L2 {
+            fn source(&self) -> Option<&(dyn StdError + 'static)> {
+                Some(&self.0)
+            }
+        }
+
+        #[derive(Debug)]
+        struct L1(L2);
+        impl fmt::Display for L1 {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "request failed")
+            }
+        }
+        impl StdError for L1 {
+            fn source(&self) -> Option<&(dyn StdError + 'static)> {
+                Some(&self.0)
+            }
+        }
+
+        let chain = error_chain(&L1(L2(L3)));
+        assert!(chain.contains("request failed"), "chain: {chain}");
+        assert!(chain.contains("tls handshake failed"), "chain: {chain}");
+        assert!(chain.contains("connection refused"), "chain: {chain}");
+    }
 }

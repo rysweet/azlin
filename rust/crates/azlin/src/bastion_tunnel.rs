@@ -57,6 +57,12 @@ pub struct TunnelRegistryEntry {
     /// Defaults to "legacy" for backward compatibility with existing registry files.
     #[serde(default = "default_tunnel_type")]
     pub tunnel_type: String,
+    /// Resolved Azure Bastion data-plane FQDN (ARM `properties.dnsName`, e.g.
+    /// `bst-<uuid>.bastion.azure.com`). Cached so reused/repeat tunnels don't
+    /// re-query ARM. Defaults to empty for registry files written before this
+    /// field existed (empty triggers a one-time re-resolve).
+    #[serde(default)]
+    pub dns_name: String,
 }
 
 fn default_tunnel_type() -> String {
@@ -515,6 +521,87 @@ pub fn ensure_watchdog_running() {
 
 // ---- Public API ----
 
+/// Validate and normalize the Azure Bastion data-plane FQDN returned by
+/// `az network bastion show --query dnsName -o tsv`.
+///
+/// This is the pure, offline-testable seam for the issue #1046 fix. It fails
+/// closed: any output that isn't a single, clean `*.bastion.azure.com` host is
+/// rejected so a malformed/hostile ARM response can never be smuggled into a
+/// request URL (SSRF / authority-spoofing defense). There is NO fallback to the
+/// old `{name}.bastion.azure.com` construction.
+fn parse_dns_name(az_stdout: &str) -> Result<String> {
+    const SUFFIX: &str = ".bastion.azure.com";
+
+    // Take only the first line so a multiline response cannot smuggle a second host.
+    let host = az_stdout.lines().next().unwrap_or("").trim();
+
+    if host.is_empty() {
+        anyhow::bail!("bastion dnsName lookup returned empty output");
+    }
+    if host
+        .chars()
+        .any(|c| c.is_whitespace() || c.is_control() || c == '@' || c == '/' || c == '\\')
+    {
+        anyhow::bail!("bastion dnsName contains invalid characters: {host:?}");
+    }
+    if !host.ends_with(SUFFIX) || host.len() <= SUFFIX.len() || host.starts_with('.') {
+        anyhow::bail!(
+            "bastion dnsName {host:?} is not a valid *.bastion.azure.com data-plane host"
+        );
+    }
+
+    Ok(host.to_string())
+}
+
+/// Resolve the real Azure Bastion data-plane FQDN (ARM `properties.dnsName`)
+/// for a bastion resource. Runs `az network bastion show` on a blocking thread.
+///
+/// Fails closed with an actionable error (never falling back to a constructed
+/// `{name}.bastion.azure.com` host, which does not exist in DNS — issue #1046).
+async fn resolve_bastion_dns_name(bastion_name: &str, resource_group: &str) -> Result<String> {
+    let name = bastion_name.to_string();
+    let rg = resource_group.to_string();
+
+    let output = tokio::task::spawn_blocking(move || {
+        std::process::Command::new("az")
+            .args([
+                "network",
+                "bastion",
+                "show",
+                "--name",
+                &name,
+                "--resource-group",
+                &rg,
+                "--query",
+                "dnsName",
+                "-o",
+                "tsv",
+            ])
+            .output()
+    })
+    .await
+    .context("bastion dnsName lookup task panicked")?
+    .with_context(|| {
+        format!(
+            "failed to run 'az network bastion show' for bastion {bastion_name:?} in resource group {resource_group:?}"
+        )
+    })?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "az network bastion show failed for bastion {bastion_name:?} in resource group {resource_group:?}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_dns_name(&stdout).with_context(|| {
+        format!(
+            "could not resolve a valid data-plane dnsName for bastion {bastion_name:?} in resource group {resource_group:?}"
+        )
+    })
+}
+
 /// Get or create a bastion tunnel for a VM. Reuses existing tunnels from the registry.
 ///
 /// Returns the local port the tunnel is bound to.
@@ -527,6 +614,13 @@ pub async fn get_or_create_tunnel(
 
     let mut registry = TunnelRegistry::load();
     registry.prune();
+
+    // Cache the previously-resolved data-plane dnsName (if any) so a recreate
+    // for this VM does not re-query ARM. Empty/legacy entries trigger a re-resolve.
+    let cached_dns_name = registry
+        .get(vm_resource_id)
+        .map(|e| e.dns_name.clone())
+        .filter(|d| !d.is_empty());
 
     // Reuse existing tunnel if it is alive, uniquely mapped, and still listening.
     if let Some(entry) = registry.get(vm_resource_id).cloned() {
@@ -587,8 +681,14 @@ pub async fn get_or_create_tunnel(
     let config = azlin_core::AzlinConfig::load().unwrap_or_default();
     let timeout = std::time::Duration::from_secs(config.bastion_tunnel_timeout);
 
-    // Resolve bastion endpoint (use bastion DNS name)
-    let bastion_endpoint = format!("{}.bastion.azure.com", bastion_name);
+    // Resolve the REAL Azure Bastion data-plane FQDN from ARM (`properties.dnsName`).
+    // The old `format!("{}.bastion.azure.com", bastion_name)` construction does not
+    // exist in DNS and broke every Standard/Premium connect (issue #1046). Reuse the
+    // cached value when available to avoid a repeat ARM query.
+    let bastion_endpoint = match cached_dns_name {
+        Some(dns_name) => dns_name,
+        None => resolve_bastion_dns_name(bastion_name, resource_group).await?,
+    };
 
     // Open native tunnel (NodeScoped = Standard/Premium SKU, the common case for .bastion.azure.com)
     let (port, handle) = azlin_azure::native_tunnel::open_tunnel(
@@ -618,6 +718,7 @@ pub async fn get_or_create_tunnel(
         pid: std::process::id(),
         created_at: now,
         tunnel_type: "native".to_string(),
+        dns_name: bastion_endpoint,
     });
     registry.save()?;
 
@@ -799,6 +900,7 @@ mod tests {
             pid: 99999,
             created_at: 1000,
             tunnel_type: "legacy".to_string(),
+            dns_name: String::new(),
         });
 
         let json = serde_json::to_string(&r).unwrap();
@@ -818,6 +920,7 @@ mod tests {
             pid: 999999999,
             created_at: 1000,
             tunnel_type: "legacy".to_string(),
+            dns_name: String::new(),
         });
         r.prune();
         assert!(r.tunnels.is_empty(), "dead PID should be pruned");
@@ -945,6 +1048,7 @@ mod tests {
             pid: 1,
             created_at: 1,
             tunnel_type: "legacy".to_string(),
+            dns_name: String::new(),
         });
         registry.insert(TunnelRegistryEntry {
             vm_resource_id: "/vm/b".to_string(),
@@ -954,6 +1058,7 @@ mod tests {
             pid: 2,
             created_at: 2,
             tunnel_type: "legacy".to_string(),
+            dns_name: String::new(),
         });
         registry.insert(TunnelRegistryEntry {
             vm_resource_id: "/vm/c".to_string(),
@@ -963,6 +1068,7 @@ mod tests {
             pid: 3,
             created_at: 3,
             tunnel_type: "legacy".to_string(),
+            dns_name: String::new(),
         });
 
         let removed = purge_registry_entries_for_port(&mut registry, 50200);
@@ -973,5 +1079,137 @@ mod tests {
         assert!(!registry.tunnels.contains_key("/vm/a"));
         assert!(!registry.tunnels.contains_key("/vm/b"));
         assert!(registry.tunnels.contains_key("/vm/c"));
+    }
+
+    // ── Regression tests: bastion data-plane dnsName resolution (issue #1046) ──
+    //
+    // The regression (v2.6.83): get_or_create_tunnel built the data-plane host as
+    // `format!("{}.bastion.azure.com", bastion_name)`, which does not exist in DNS.
+    // The fix resolves the REAL ARM `properties.dnsName` (e.g. `bst-<uuid>.bastion.azure.com`)
+    // and feeds it, validated, to the native tunnel. These tests pin that contract.
+    //
+    // `parse_dns_name` is the pure, offline-testable validation/normalization seam
+    // applied to `az network bastion show --query dnsName -o tsv` output.
+
+    #[test]
+    fn test_parse_dns_name_accepts_real_arm_form() {
+        // ARM returns the real data-plane FQDN with a `bst-<uuid>` prefix.
+        let out = "bst-7299861d-50e0-4142-8b50-2f8bc6f5b549.bastion.azure.com";
+        assert_eq!(parse_dns_name(out).unwrap(), out);
+    }
+
+    #[test]
+    fn test_parse_dns_name_trims_trailing_newline_and_spaces() {
+        // `-o tsv` output typically carries a trailing newline; surrounding
+        // whitespace must be trimmed to yield a clean host.
+        let out = "  bst-abc123.bastion.azure.com \n";
+        assert_eq!(parse_dns_name(out).unwrap(), "bst-abc123.bastion.azure.com");
+    }
+
+    #[test]
+    fn test_parse_dns_name_rejects_empty() {
+        // Empty ARM output must fail closed (no fallback to a constructed host).
+        assert!(parse_dns_name("").is_err());
+    }
+
+    #[test]
+    fn test_parse_dns_name_rejects_whitespace_only() {
+        assert!(parse_dns_name("   \n\t ").is_err());
+    }
+
+    #[test]
+    fn test_parse_dns_name_rejects_wrong_suffix() {
+        // SSRF/tamper defense: only genuine `.bastion.azure.com` hosts are allowed.
+        assert!(parse_dns_name("evil.example.com").is_err());
+        assert!(parse_dns_name("bst-abc.bastion.azure.com.evil.com").is_err());
+    }
+
+    #[test]
+    fn test_parse_dns_name_rejects_at_injection() {
+        // A userinfo-style '@' must never survive into the host (URL authority spoofing).
+        assert!(parse_dns_name("bst-abc.bastion.azure.com@evil.com").is_err());
+    }
+
+    #[test]
+    fn test_parse_dns_name_rejects_path_and_control_chars() {
+        assert!(parse_dns_name("bst-abc.bastion.azure.com/api/tokens").is_err());
+        assert!(parse_dns_name("bst-abc\t.bastion.azure.com").is_err());
+    }
+
+    #[test]
+    fn test_parse_dns_name_takes_first_line_and_drops_injected_tail() {
+        // Hostile multiline output must not smuggle a second host past validation.
+        let hostile = "bst-good.bastion.azure.com\nevil.example.com";
+        let parsed = parse_dns_name(hostile).unwrap();
+        assert_eq!(parsed, "bst-good.bastion.azure.com");
+        assert!(!parsed.contains("evil"));
+        assert!(!parsed.contains('\n'));
+    }
+
+    #[test]
+    fn test_resolved_endpoint_is_arm_dns_name_not_constructed() {
+        // Core regression guard: the endpoint fed to the tunnel is the ARM dnsName,
+        // NOT the buggy `{name}.bastion.azure.com` construction.
+        let bastion_name = "azlin-bastion-southcentralus";
+        let arm_output = "bst-7299861d-50e0-4142-8b50-2f8bc6f5b549.bastion.azure.com\n";
+
+        let resolved = parse_dns_name(arm_output).unwrap();
+        assert_eq!(
+            resolved,
+            "bst-7299861d-50e0-4142-8b50-2f8bc6f5b549.bastion.azure.com"
+        );
+
+        let regressed = format!("{bastion_name}.bastion.azure.com");
+        assert_ne!(
+            resolved, regressed,
+            "endpoint must be the ARM dnsName, never {{name}}.bastion.azure.com (issue #1046)"
+        );
+    }
+
+    // ── Registry back-compat: TunnelRegistryEntry.dns_name caching ──
+
+    #[test]
+    fn test_registry_entry_dns_name_defaults_for_old_files() {
+        // registry.json written before the `dns_name` field must still deserialize,
+        // yielding an empty dns_name (which triggers a one-time ARM re-resolve).
+        let old_json = r#"{
+            "tunnels": {
+                "/sub/rg/vm/x": {
+                    "vm_resource_id": "/sub/rg/vm/x",
+                    "bastion_name": "b",
+                    "resource_group": "rg",
+                    "local_port": 50200,
+                    "pid": 1234,
+                    "created_at": 1000,
+                    "tunnel_type": "native"
+                }
+            }
+        }"#;
+        let reg: TunnelRegistry = serde_json::from_str(old_json).unwrap();
+        assert_eq!(reg.tunnels["/sub/rg/vm/x"].dns_name, "");
+    }
+
+    #[test]
+    fn test_registry_roundtrip_preserves_dns_name() {
+        // A resolved dnsName must survive a save/load cycle so reused tunnels and
+        // repeat connects do not re-query ARM.
+        let mut r = TunnelRegistry::default();
+        r.insert(TunnelRegistryEntry {
+            vm_resource_id: "/sub/rg/vm/y".to_string(),
+            bastion_name: "b".to_string(),
+            resource_group: "rg".to_string(),
+            local_port: 50210,
+            pid: 4321,
+            created_at: 2000,
+            tunnel_type: "native".to_string(),
+            dns_name: "bst-abc123.bastion.azure.com".to_string(),
+        });
+
+        let json = serde_json::to_string(&r).unwrap();
+        let r2: TunnelRegistry = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            r2.tunnels["/sub/rg/vm/y"].dns_name,
+            "bst-abc123.bastion.azure.com"
+        );
     }
 }
