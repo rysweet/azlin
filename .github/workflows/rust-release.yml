@@ -265,7 +265,13 @@ jobs:
 
   # ── Create GitHub Release ─────────────────────────────────────────────
   release:
-    needs: [version-bump, build]
+    # MUST depend on `wheels` as well as `build`: the release job downloads
+    # all artifacts and attaches whatever exists at that moment. Without the
+    # `wheels` dependency the release can finish before the wheel jobs upload
+    # their artifacts (a timing race), publishing a release with the platform
+    # tarballs but NO wheels — silently breaking the documented
+    # `pip install azlin-rs --find-links .../releases/latest` path.
+    needs: [version-bump, build, wheels]
     runs-on: ubuntu-latest
     permissions:
       contents: write
