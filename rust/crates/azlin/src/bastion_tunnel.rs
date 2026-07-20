@@ -572,6 +572,8 @@ async fn resolve_bastion_dns_name(bastion_name: &str, resource_group: &str) -> R
                 &name,
                 "--resource-group",
                 &rg,
+                // `az` flattens the ARM resource, so the data-plane FQDN is
+                // queried as `dnsName` (not `properties.dnsName`).
                 "--query",
                 "dnsName",
                 "-o",

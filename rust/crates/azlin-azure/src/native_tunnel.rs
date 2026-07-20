@@ -485,14 +485,11 @@ pub async fn open_tunnel(
     Ok((local_port, handle))
 }
 
-// ── Transport error transparency (issue #1046 hardening) ─────────────────────
+// ── Transport error transparency tests (issue #1046 hardening) ───────────────
 //
-// The regression surfaced as an opaque `error sending request for url (...)`
-// because the reqwest error's *source* chain (the real DNS/TLS/timeout cause)
-// was dropped. `error_chain` walks `std::error::Error::source()` so the true
-// underlying cause is visible in `TokenExchange` errors and cleanup warnings.
-//
-// These tests define that contract before the implementation exists (TDD).
+// These tests define the `error_chain` contract (see the implementation above)
+// before it exists (TDD): the true DNS/TLS/timeout cause must be visible, and
+// the auth token must never leak from the cleanup path.
 
 #[cfg(test)]
 mod error_surface_tests {
@@ -588,5 +585,37 @@ mod error_surface_tests {
         assert!(chain.contains("request failed"), "chain: {chain}");
         assert!(chain.contains("tls handshake failed"), "chain: {chain}");
         assert!(chain.contains("connection refused"), "chain: {chain}");
+    }
+
+    // Regression test for the cleanup-path token leak: the cleanup URL embeds
+    // the auth token as a path segment, and reqwest's error `Display` renders
+    // the full URL. `cleanup_token` logs `error_chain(&e.without_url())`, so the
+    // token must never appear in the logged string even though it is present in
+    // the raw error.
+    #[tokio::test]
+    async fn test_cleanup_error_without_url_does_not_leak_auth_token() {
+        const AUTH_TOKEN: &str = "SUPER-SECRET-AUTH-TOKEN-9f8e7d6c";
+        // `.invalid` is reserved (RFC 6761) and guarantees a resolution failure,
+        // so `send()` returns a URL-bearing transport error without any network.
+        let url = build_token_cleanup_url("host.invalid", AUTH_TOKEN);
+        let err = reqwest::Client::new()
+            .delete(&url)
+            .send()
+            .await
+            .expect_err("request to a .invalid host must fail");
+
+        // Sanity: the raw error would leak the token (this is exactly what the
+        // fix guards against).
+        assert!(
+            error_chain(&err).contains(AUTH_TOKEN),
+            "precondition: raw reqwest error is expected to carry the token in its URL"
+        );
+
+        // The logged form strips the URL, so the token must be gone.
+        let logged = error_chain(&err.without_url());
+        assert!(
+            !logged.contains(AUTH_TOKEN),
+            "auth token leaked into cleanup log line: {logged}"
+        );
     }
 }
