@@ -117,6 +117,27 @@ jobs:
             fi
           done
 
+          # Fail loudly if any Rust-versioned file was NOT bumped to
+          # NEW_VERSION. These files must track the Rust release version, but
+          # the seds above key off ${CURRENT} (read from rust/Cargo.toml); if a
+          # file ever falls behind, its sed silently stops matching and it
+          # drifts forever (this is exactly how rust/pyproject.toml and
+          # src/azlin/__init__.py got stuck at 2.6.83 while releases marched on,
+          # mislabelling every published wheel). Verifying here turns that
+          # silent drift into a hard failure. NOTE: the repo-root pyproject.toml
+          # is intentionally on a SEPARATE version lineage (it is the Python
+          # `azlin` package, not the Rust build) and is deliberately excluded.
+          for vf in rust/Cargo.toml rust/pyproject.toml; do
+            if ! grep -q "^version = \"${NEW_VERSION}\"" "${vf}"; then
+              echo "::error::${vf} was not bumped to ${NEW_VERSION}. It has drifted out of sync with the Rust release version — re-sync its 'version' field to the current version so the bump sed matches again." >&2
+              exit 1
+            fi
+          done
+          if ! grep -q "^__version__ = \"${NEW_VERSION}\"" src/azlin/__init__.py; then
+            echo "::error::src/azlin/__init__.py __version__ was not bumped to ${NEW_VERSION}. It has drifted out of sync with the Rust release version — re-sync it to the current version so the bump sed matches again." >&2
+            exit 1
+          fi
+
           # ── Commit and push ───────────────────────────────────────────
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
