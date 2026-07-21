@@ -455,6 +455,8 @@ impl AzlinConfig {
         "resource_group_cache_ttl",
         "resource_group_query_timeout",
         "bastion_detection_timeout",
+        "bastion_tunnel_timeout",
+        "bastion_connect_timeout",
         "ssh_connect_timeout",
         "scp_transfer_timeout",
         "az_cli_timeout",
