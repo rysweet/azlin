@@ -136,6 +136,11 @@ pub struct AzlinConfig {
     /// Timeout in seconds for native bastion tunnel setup (token exchange + WSS connect).
     /// Default: 30 seconds. Also used as the wait-for-listener timeout.
     pub bastion_tunnel_timeout: u64,
+    /// Timeout in seconds for the TCP connect phase of the native bastion tunnel.
+    /// Default: 30 seconds. Separated from `bastion_tunnel_timeout` so operators
+    /// can fail fast on unreachable bastions (issue #1045) without shortening the
+    /// overall setup budget. Backward-compatible: absent configs use the default.
+    pub bastion_connect_timeout: u64,
     /// Timeout in seconds for SSH/SCP connect operations.
     /// Default: 30 seconds.
     pub ssh_connect_timeout: u64,
@@ -178,6 +183,7 @@ impl Default for AzlinConfig {
             resource_group_query_timeout: 30,
             bastion_detection_timeout: 60,
             bastion_tunnel_timeout: 30,
+            bastion_connect_timeout: 30,
             ssh_connect_timeout: 30,
             scp_transfer_timeout: 120,
             az_cli_timeout: 120,
