@@ -20,7 +20,7 @@ use std::io::ErrorKind;
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tracing::{debug, warn};
+use tracing::{debug, warn, Instrument};
 
 /// Whether the keepalive watchdog has been started.
 static WATCHDOG_STARTED: AtomicBool = AtomicBool::new(false);
@@ -644,8 +644,7 @@ pub async fn get_or_create_tunnel(
         } else {
             // For legacy tunnels, check if the PID-based process owns the port
             process_is_running(entry.pid)
-                && local_port_owned_by_process_tree(entry.local_port, entry.pid)
-                    .unwrap_or(false)
+                && local_port_owned_by_process_tree(entry.local_port, entry.pid).unwrap_or(false)
         };
 
         if is_alive && !duplicate_port {
@@ -670,7 +669,14 @@ pub async fn get_or_create_tunnel(
     // Get Azure AD token via az CLI on a blocking thread to avoid stalling the runtime
     let token = tokio::task::spawn_blocking(|| -> Result<String> {
         let token_output = std::process::Command::new("az")
-            .args(["account", "get-access-token", "--query", "accessToken", "-o", "tsv"])
+            .args([
+                "account",
+                "get-access-token",
+                "--query",
+                "accessToken",
+                "-o",
+                "tsv",
+            ])
             .output()
             .context("failed to get Azure AD token for bastion tunnel")?;
         if !token_output.status.success() {
@@ -679,7 +685,9 @@ pub async fn get_or_create_tunnel(
                 String::from_utf8_lossy(&token_output.stderr).trim()
             );
         }
-        Ok(String::from_utf8_lossy(&token_output.stdout).trim().to_string())
+        Ok(String::from_utf8_lossy(&token_output.stdout)
+            .trim()
+            .to_string())
     })
     .await
     .context("token task panicked")??;
@@ -687,6 +695,7 @@ pub async fn get_or_create_tunnel(
     // Load config for timeout
     let config = azlin_core::AzlinConfig::load().unwrap_or_default();
     let timeout = std::time::Duration::from_secs(config.bastion_tunnel_timeout);
+    let connect_timeout = std::time::Duration::from_secs(config.bastion_connect_timeout);
 
     // Resolve the REAL Azure Bastion data-plane FQDN from ARM (`properties.dnsName`).
     // The old `format!("{}.bastion.azure.com", bastion_name)` construction does not
@@ -697,16 +706,33 @@ pub async fn get_or_create_tunnel(
         None => resolve_bastion_dns_name(bastion_name, resource_group).await?,
     };
 
-    // Open native tunnel (NodeScoped = Standard/Premium SKU, the common case for .bastion.azure.com)
-    let (port, handle) = azlin_azure::native_tunnel::open_tunnel(
+    // Open native tunnel (NodeScoped = Standard/Premium SKU, the common case for
+    // .bastion.azure.com). Wrapped in a span so token-exchange failures (issue
+    // #1045) are correlated in logs, and the classified `[KIND: hint]` remediation
+    // carried in the error text is surfaced to the operator on failure.
+    let tunnel_span = tracing::info_span!(
+        "bastion_open_tunnel",
+        bastion = %bastion_name,
+        resource_group = %resource_group,
+        vm_resource_id = %vm_resource_id,
+    );
+    let (port, handle) = azlin_azure::native_tunnel::open_tunnel_with_timeouts(
         &bastion_endpoint,
         vm_resource_id,
         22,
         &token,
         azlin_azure::native_tunnel::WssUrlMode::NodeScoped,
         timeout,
+        connect_timeout,
     )
+    .instrument(tunnel_span)
     .await
+    .map_err(|e| {
+        // The error text already embeds the classified remediation hint; log it
+        // at the caller so operators see actionable guidance, not just a stack.
+        warn!("native bastion tunnel setup failed: {e}");
+        e
+    })
     .context("failed to open native bastion tunnel")?;
 
     // Detach the background task (it runs until the process exits)
@@ -770,7 +796,11 @@ pub struct ScopedBastionTunnel {
 
 impl ScopedBastionTunnel {
     /// Get or create a bastion tunnel. The tunnel persists beyond this handle's lifetime.
-    pub async fn new(bastion_name: &str, resource_group: &str, vm_resource_id: &str) -> Result<Self> {
+    pub async fn new(
+        bastion_name: &str,
+        resource_group: &str,
+        vm_resource_id: &str,
+    ) -> Result<Self> {
         let local_port = get_or_create_tunnel(bastion_name, resource_group, vm_resource_id).await?;
         Ok(Self {
             local_port,

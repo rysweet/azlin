@@ -21,7 +21,7 @@ use tokio::net::TcpListener as TokioTcpListener;
 use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 
 /// Header name for node ID in cleanup requests.
 pub const NODE_ID_HEADER: &str = "X-Node-Id";
@@ -191,8 +191,134 @@ fn error_chain(err: &dyn std::error::Error) -> String {
     chain
 }
 
+// ── Transport failure classification (issue #1045) ───────────────────────
+//
+// The #1045 incident surfaced as an opaque `token exchange failed: request
+// failed: error sending request for url (...)` with no underlying cause
+// (`source() == None`) — a TCP connect failure the operator could not act on.
+// `TunnelFailureKind` maps transport errors and HTTP statuses to a small,
+// actionable set of kinds plus a static, secret-free remediation hint.
+//
+// The classifier is pure, total, and panic-free: it only reads `Display` /
+// `source()` and never touches tokens, headers, or request bodies.
+
+/// Actionable category of a bastion tunnel setup failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TunnelFailureKind {
+    /// TCP connection could not be established (refused/unreachable), or an
+    /// opaque transport failure with no underlying cause. This is the #1045
+    /// incident kind.
+    Connect,
+    /// DNS name resolution failed.
+    Dns,
+    /// TLS handshake or certificate validation failed.
+    Tls,
+    /// The operation exceeded its timeout.
+    Timeout,
+    /// The server returned a non-success HTTP status (non-auth).
+    Http,
+    /// The server rejected the request with 401/403 (auth/permission).
+    Auth,
+    /// The response could not be parsed.
+    Parse,
+}
+
+impl std::fmt::Display for TunnelFailureKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            TunnelFailureKind::Connect => "CONNECT",
+            TunnelFailureKind::Dns => "DNS",
+            TunnelFailureKind::Tls => "TLS",
+            TunnelFailureKind::Timeout => "TIMEOUT",
+            TunnelFailureKind::Http => "HTTP",
+            TunnelFailureKind::Auth => "AUTH",
+            TunnelFailureKind::Parse => "PARSE",
+        };
+        f.write_str(s)
+    }
+}
+
+/// A static, secret-free remediation hint for the operator.
+///
+/// Hints are constant strings — they never interpolate tokens, URLs, or any
+/// request data, so they are always safe to log and to embed in error text.
+pub fn remediation_hint(kind: TunnelFailureKind) -> &'static str {
+    match kind {
+        TunnelFailureKind::Connect => {
+            "could not reach the bastion data-plane; verify the bastion is running, the target VM is started, and NSG/firewall rules allow the tunnel"
+        }
+        TunnelFailureKind::Dns => {
+            "bastion hostname did not resolve; check DNS/VPN connectivity and that the bastion data-plane FQDN is correct"
+        }
+        TunnelFailureKind::Tls => {
+            "TLS handshake failed; check the system clock, CA trust store, and any TLS-inspecting proxy"
+        }
+        TunnelFailureKind::Timeout => {
+            "the tunnel setup timed out; retry, or raise bastion_tunnel_timeout / bastion_connect_timeout in ~/.azlin/config.toml"
+        }
+        TunnelFailureKind::Http => {
+            "the bastion service returned an error status; retry and check Azure Bastion service health"
+        }
+        TunnelFailureKind::Auth => {
+            "Azure rejected the token; run `az login` and confirm you have access to the bastion and target VM"
+        }
+        TunnelFailureKind::Parse => {
+            "the bastion response could not be parsed; the service may be degraded — retry shortly"
+        }
+    }
+}
+
+/// Classify a transport-layer error from `reqwest`'s `send()` into an
+/// actionable [`TunnelFailureKind`].
+///
+/// Pure and total: it walks the `source()` chain via `Display` only and never
+/// panics or inspects secrets. The classification is deliberately conservative
+/// — a transport failure is never mapped to [`TunnelFailureKind::Auth`], which
+/// is reserved for explicit HTTP 401/403 statuses (see [`classify_http_status`]).
+/// Unrecognized transport failures (including the #1045 opaque no-`source()`
+/// case) fall through to [`TunnelFailureKind::Connect`].
+pub fn classify_transport_error(err: &dyn std::error::Error) -> TunnelFailureKind {
+    let chain = error_chain(err).to_lowercase();
+
+    // Order matters: check the most specific signals first.
+    if chain.contains("timed out") || chain.contains("timeout") {
+        return TunnelFailureKind::Timeout;
+    }
+    if chain.contains("failed to lookup address")
+        || chain.contains("name or service not known")
+        || chain.contains("nodename nor servname")
+        || chain.contains("dns error")
+        || chain.contains("no such host")
+        || chain.contains("temporary failure in name resolution")
+    {
+        return TunnelFailureKind::Dns;
+    }
+    if chain.contains("tls")
+        || chain.contains("ssl")
+        || chain.contains("certificate")
+        || chain.contains("handshake")
+    {
+        return TunnelFailureKind::Tls;
+    }
+    // Connect signals and the #1045 opaque case (generic "error sending
+    // request" transport failure with no source) both resolve to Connect.
+    TunnelFailureKind::Connect
+}
+
+/// Classify a non-success HTTP status code into a [`TunnelFailureKind`].
+///
+/// Only 401/403 map to [`TunnelFailureKind::Auth`]; every other non-success
+/// status maps to [`TunnelFailureKind::Http`].
+pub fn classify_http_status(status: u16) -> TunnelFailureKind {
+    match status {
+        401 | 403 => TunnelFailureKind::Auth,
+        _ => TunnelFailureKind::Http,
+    }
+}
+
 // ── Token exchange ───────────────────────────────────────────────────────
 
+#[instrument(skip(client, token))]
 async fn exchange_token(
     client: &reqwest::Client,
     endpoint: &str,
@@ -206,35 +332,39 @@ async fn exchange_token(
     // The Bastion data-plane expects `application/x-www-form-urlencoded` with
     // the ARM token in the `aztoken` field (mirrors azext_bastion). Sending
     // JSON or an `Authorization` header makes the service return HTTP 500.
-    let resp = client
-        .post(&url)
-        .form(&form)
-        .send()
-        .await
-        .map_err(|e| {
-            NativeTunnelError::TokenExchange(format!("request failed: {}", error_chain(&e)))
-        })?;
+    let resp = client.post(&url).form(&form).send().await.map_err(|e| {
+        let kind = classify_transport_error(&e);
+        NativeTunnelError::TokenExchange(format!(
+            "request failed: {} [{}: {}]",
+            error_chain(&e),
+            kind,
+            remediation_hint(kind),
+        ))
+    })?;
 
     if !resp.status().is_success() {
         let status = resp.status();
+        let kind = classify_http_status(status.as_u16());
         let body_text = resp.text().await.unwrap_or_default();
         return Err(NativeTunnelError::TokenExchange(format!(
-            "HTTP {status}: {body_text}"
+            "HTTP {status}: {body_text} [{}: {}]",
+            kind,
+            remediation_hint(kind),
         )));
     }
 
-    resp.json::<BastionTokenResponse>()
-        .await
-        .map_err(|e| NativeTunnelError::TokenExchange(format!("failed to parse response: {e}")))
+    resp.json::<BastionTokenResponse>().await.map_err(|e| {
+        let kind = TunnelFailureKind::Parse;
+        NativeTunnelError::TokenExchange(format!(
+            "failed to parse response: {e} [{}: {}]",
+            kind,
+            remediation_hint(kind),
+        ))
+    })
 }
 
 /// Best-effort token cleanup via DELETE.
-async fn cleanup_token(
-    client: &reqwest::Client,
-    endpoint: &str,
-    auth_token: &str,
-    node_id: &str,
-) {
+async fn cleanup_token(client: &reqwest::Client, endpoint: &str, auth_token: &str, node_id: &str) {
     let url = build_token_cleanup_url(endpoint, auth_token);
     // The cleanup URL embeds the auth token as a path segment, and reqwest's
     // error `Display` renders the full request URL (path included). Strip the
@@ -261,9 +391,7 @@ async fn cleanup_token(
 /// WSS binary frames → TCP bytes. Runs until either side closes or errors.
 pub async fn forward_tcp_to_ws(
     tcp_stream: TcpStream,
-    ws_stream: tokio_tungstenite::WebSocketStream<
-        tokio_tungstenite::MaybeTlsStream<TcpStream>,
-    >,
+    ws_stream: tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>,
 ) {
     let (mut ws_sink, mut ws_source) = ws_stream.split();
     let (mut tcp_reader, mut tcp_writer) = tcp_stream.into_split();
@@ -275,11 +403,7 @@ pub async fn forward_tcp_to_ws(
                 Ok(0) => break,
                 Ok(n) => {
                     let data = buf[..n].to_vec();
-                    if ws_sink
-                        .send(Message::Binary(data.into()))
-                        .await
-                        .is_err()
-                    {
+                    if ws_sink.send(Message::Binary(data.into())).await.is_err() {
                         break;
                     }
                 }
@@ -336,15 +460,12 @@ async fn handle_client(
 
     // Step 2: Build WSS URL based on transport mode
     let wss_url = match url_mode {
-        WssUrlMode::NodeScoped => build_wss_url_standard(
-            &endpoint,
-            &token_resp.websocket_token,
-            &token_resp.node_id,
-        ),
-        WssUrlMode::EndpointScoped => build_wss_url_developer(
-            &endpoint,
-            &token_resp.websocket_token,
-        ),
+        WssUrlMode::NodeScoped => {
+            build_wss_url_standard(&endpoint, &token_resp.websocket_token, &token_resp.node_id)
+        }
+        WssUrlMode::EndpointScoped => {
+            build_wss_url_developer(&endpoint, &token_resp.websocket_token)
+        }
     };
 
     // Step 3: Connect WSS
@@ -390,6 +511,10 @@ async fn handle_client(
 /// task handle. Each inbound TCP connection triggers a fresh token exchange +
 /// WSS connect (matching the Python reference behavior).
 ///
+/// This is a thin wrapper over [`open_tunnel_with_timeouts`] that uses a single
+/// `timeout` for both the overall setup and the TCP connect phase. Callers that
+/// want a distinct connect timeout should call [`open_tunnel_with_timeouts`].
+///
 /// # Arguments
 /// - `bastion_endpoint` — Bastion DNS name or data pod URL (bare hostname or with scheme)
 /// - `target_resource_id` — Full ARM resource ID of the target VM
@@ -409,6 +534,40 @@ pub async fn open_tunnel(
     token: &str,
     url_mode: WssUrlMode,
     timeout: Duration,
+) -> Result<(u16, JoinHandle<()>), NativeTunnelError> {
+    open_tunnel_with_timeouts(
+        bastion_endpoint,
+        target_resource_id,
+        resource_port,
+        token,
+        url_mode,
+        timeout,
+        timeout,
+    )
+    .await
+}
+
+/// Open a native bastion tunnel with separate overall and connect timeouts.
+///
+/// Identical to [`open_tunnel`], but lets the caller configure the TCP
+/// `connect_timeout` independently of the overall request `timeout`. This backs
+/// the optional `bastion_connect_timeout` config knob (issue #1045) without
+/// changing the stable [`open_tunnel`] signature.
+///
+/// # Arguments
+/// - `connect_timeout` — Timeout for establishing the TCP connection to the
+///   bastion data-plane. Defaults (via [`open_tunnel`]) to `timeout`.
+///
+/// See [`open_tunnel`] for the remaining arguments and security notes.
+#[allow(clippy::too_many_arguments)]
+pub async fn open_tunnel_with_timeouts(
+    bastion_endpoint: &str,
+    target_resource_id: &str,
+    resource_port: u16,
+    token: &str,
+    url_mode: WssUrlMode,
+    timeout: Duration,
+    connect_timeout: Duration,
 ) -> Result<(u16, JoinHandle<()>), NativeTunnelError> {
     // Validate inputs
     if resource_port == 0 {
@@ -436,7 +595,7 @@ pub async fn open_tunnel(
     // Build HTTP client with timeout
     let client = reqwest::Client::builder()
         .timeout(timeout)
-        .connect_timeout(timeout)
+        .connect_timeout(connect_timeout)
         .build()
         .map_err(|e| NativeTunnelError::Http(format!("failed to create HTTP client: {e}")))?;
 
@@ -478,7 +637,8 @@ pub async fn open_tunnel(
                     let rid = owned_resource_id.clone();
                     let tok = owned_token.clone();
                     tokio::spawn(async move {
-                        handle_client(tcp_stream, client, ep, rid, resource_port, tok, url_mode).await;
+                        handle_client(tcp_stream, client, ep, rid, resource_port, tok, url_mode)
+                            .await;
                     });
                 }
                 Err(e) => {
@@ -624,5 +784,125 @@ mod error_surface_tests {
             !logged.contains(AUTH_TOKEN),
             "auth token leaked into cleanup log line: {logged}"
         );
+    }
+}
+
+// ── Transport failure classification tests (issue #1045) ─────────────────────
+//
+// The 7-case contract matrix for `TunnelFailureKind`. Doubles model the shapes
+// reqwest produces without needing a live network: the #1045 incident is an
+// opaque transport error with `source() == None`.
+
+#[cfg(test)]
+mod classifier_tests {
+    use super::*;
+    use std::error::Error as StdError;
+    use std::fmt;
+
+    /// Error double: a `Display` string with no underlying `source()`.
+    #[derive(Debug)]
+    struct Opaque(&'static str);
+    impl fmt::Display for Opaque {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str(self.0)
+        }
+    }
+    impl StdError for Opaque {}
+
+    /// Error double carrying an underlying cause via `source()`.
+    #[derive(Debug)]
+    struct Wrapped(&'static str, Opaque);
+    impl fmt::Display for Wrapped {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str(self.0)
+        }
+    }
+    impl StdError for Wrapped {
+        fn source(&self) -> Option<&(dyn StdError + 'static)> {
+            Some(&self.1)
+        }
+    }
+
+    // 1. The #1045 incident: opaque transport error, `source() == None` → Connect.
+    #[test]
+    fn incident_1045_opaque_no_source_is_connect() {
+        let err = Opaque("error sending request for url (https://x.bastion.azure.com/api/tokens)");
+        assert!(
+            err.source().is_none(),
+            "incident double must have no source"
+        );
+        assert_eq!(classify_transport_error(&err), TunnelFailureKind::Connect);
+    }
+
+    // 2. DNS resolution failure → Dns.
+    #[test]
+    fn dns_failure_is_dns() {
+        let err = Wrapped(
+            "error sending request for url (https://x.bastion.azure.com/api/tokens)",
+            Opaque("failed to lookup address information: Name or service not known"),
+        );
+        assert_eq!(classify_transport_error(&err), TunnelFailureKind::Dns);
+    }
+
+    // 3. TLS handshake failure → Tls.
+    #[test]
+    fn tls_failure_is_tls() {
+        let err = Wrapped(
+            "error sending request",
+            Opaque("invalid certificate: tls handshake eof"),
+        );
+        assert_eq!(classify_transport_error(&err), TunnelFailureKind::Tls);
+    }
+
+    // 4. Timeout → Timeout.
+    #[test]
+    fn timeout_is_timeout() {
+        let err = Opaque("operation timed out");
+        assert_eq!(classify_transport_error(&err), TunnelFailureKind::Timeout);
+    }
+
+    // 5. Connection refused → Connect.
+    #[test]
+    fn connection_refused_is_connect() {
+        let err = Wrapped(
+            "error sending request",
+            Opaque("tcp connect error: Connection refused (os error 111)"),
+        );
+        assert_eq!(classify_transport_error(&err), TunnelFailureKind::Connect);
+    }
+
+    // 6. HTTP status mapping; a transport failure is never classified as Auth.
+    #[test]
+    fn http_status_classification() {
+        assert_eq!(classify_http_status(401), TunnelFailureKind::Auth);
+        assert_eq!(classify_http_status(403), TunnelFailureKind::Auth);
+        assert_eq!(classify_http_status(500), TunnelFailureKind::Http);
+        assert_eq!(classify_http_status(404), TunnelFailureKind::Http);
+        let err = Opaque("error sending request for url (...)");
+        assert_ne!(classify_transport_error(&err), TunnelFailureKind::Auth);
+    }
+
+    // 7. Every kind yields a non-empty, secret-free remediation hint, and the
+    //    rendered `[KIND: hint]` suffix never contains a token value.
+    #[test]
+    fn remediation_hints_are_present_and_leak_free() {
+        const TOKEN: &str = "SUPER-SECRET-TOKEN-abc123";
+        for kind in [
+            TunnelFailureKind::Connect,
+            TunnelFailureKind::Dns,
+            TunnelFailureKind::Tls,
+            TunnelFailureKind::Timeout,
+            TunnelFailureKind::Http,
+            TunnelFailureKind::Auth,
+            TunnelFailureKind::Parse,
+        ] {
+            let hint = remediation_hint(kind);
+            assert!(!hint.is_empty(), "hint for {kind} must not be empty");
+            let rendered = format!("[{kind}: {hint}]");
+            assert!(
+                !rendered.contains(TOKEN),
+                "rendered hint must be secret-free: {rendered}"
+            );
+        }
     }
 }
