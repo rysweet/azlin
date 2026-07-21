@@ -63,7 +63,8 @@ pub(crate) async fn handle_sync(
                 )
                 .await?;
                 let ssh_cmd = format!(
-                    "ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -p {}",
+                    "ssh {} -o BatchMode=yes -p {}",
+                    crate::bastion_tunnel::BASTION_LOOPBACK_SSH_OPTS_STR,
                     tunnel.local_port
                 );
                 let dest = format!("{}@127.0.0.1:~/", target.user);
@@ -196,16 +197,18 @@ pub(crate) async fn handle_cp(
                     dest.clone()
                 };
 
-                let mut scp_args = vec![
-                    "-o".to_string(),
-                    "StrictHostKeyChecking=accept-new".to_string(),
+                let mut scp_args: Vec<String> = crate::bastion_tunnel::bastion_loopback_ssh_opts()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
+                scp_args.extend([
                     "-o".to_string(),
                     timeout_val.clone(),
                     "-o".to_string(),
                     "BatchMode=yes".to_string(),
                     "-P".to_string(),
                     port_str,
-                ];
+                ]);
                 if let Some(ref key) = bastion.ssh_key_path {
                     scp_args.push("-i".to_string());
                     scp_args.push(key.to_string_lossy().to_string());

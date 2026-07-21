@@ -226,36 +226,6 @@ fn test_legacy_tunnel_entry_sets_type() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 5. bastion_ssh_args still works (no regression)
-// ═══════════════════════════════════════════════════════════════════════
-
-/// bastion_ssh_args must still produce correct SSH arguments.
-#[test]
-fn test_bastion_ssh_args_unchanged() {
-    let args = crate::bastion_tunnel::bastion_ssh_args("azureuser", 12345, "whoami", 30);
-    assert!(args.contains(&"-p".to_string()));
-    assert!(args.contains(&"12345".to_string()));
-    assert!(args.contains(&"azureuser@127.0.0.1".to_string()));
-    assert!(args.contains(&"whoami".to_string()));
-}
-
-/// bastion_scp_args must still produce correct SCP arguments.
-#[test]
-fn test_bastion_scp_args_unchanged() {
-    let args = crate::bastion_tunnel::bastion_scp_args(
-        "azureuser",
-        12345,
-        &["file.txt"],
-        "/home/user/",
-        30,
-        false,
-    );
-    assert!(args.contains(&"-P".to_string()));
-    assert!(args.contains(&"12345".to_string()));
-    assert!(args.contains(&"file.txt".to_string()));
-}
-
-// ═══════════════════════════════════════════════════════════════════════
 // 6. Edge cases
 // ═══════════════════════════════════════════════════════════════════════
 

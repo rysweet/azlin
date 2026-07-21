@@ -374,17 +374,18 @@ pub(crate) fn build_bastion_ssh_args(
     user: &str,
     key: Option<&std::path::Path>,
 ) -> Vec<String> {
-    let mut args = vec![
-        "-N".to_string(),
-        "-o".to_string(),
-        "StrictHostKeyChecking=no".to_string(),
-        "-o".to_string(),
-        "UserKnownHostsFile=/dev/null".to_string(),
+    let mut args = vec!["-N".to_string()];
+    args.extend(
+        crate::bastion_tunnel::bastion_loopback_ssh_opts()
+            .iter()
+            .map(|s| s.to_string()),
+    );
+    args.extend([
         "-p".to_string(),
         bastion_local_port.to_string(),
         "-L".to_string(),
         format!("{}:localhost:{}", lport, remote_port),
-    ];
+    ]);
     if let Some(k) = key {
         args.push("-i".to_string());
         args.push(k.display().to_string());

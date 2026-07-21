@@ -809,78 +809,45 @@ impl ScopedBastionTunnel {
     }
 }
 
-/// Build SSH args that route through a bastion tunnel (127.0.0.1 on a local port).
-pub fn bastion_ssh_args(
-    user: &str,
-    local_port: u16,
-    cmd: &str,
-    connect_timeout: u64,
-) -> Vec<String> {
-    vec![
-        "-o".to_string(),
-        "StrictHostKeyChecking=accept-new".to_string(),
-        "-o".to_string(),
-        format!("ConnectTimeout={}", connect_timeout),
-        "-o".to_string(),
-        "BatchMode=yes".to_string(),
-        "-p".to_string(),
-        local_port.to_string(),
-        format!("{}@127.0.0.1", user),
-        cmd.to_string(),
+/// Canonical SSH `-o` options for connecting through a bastion tunnel on
+/// 127.0.0.1, as separate argv tokens.
+///
+/// A bastion tunnel is an ephemeral loopback listener whose local port is
+/// assigned by the OS and therefore reused across different VMs over time.
+/// Recording the VM's host key against `[127.0.0.1]:port` in the user's
+/// `known_hosts` means the NEXT connection that happens to reuse that port for
+/// a DIFFERENT VM sees a mismatched key and SSH aborts with
+/// "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!" — even though the real
+/// host is fine. The tunnel itself is already TLS-secured end-to-end to Azure
+/// Bastion, so pinning a host key on the throwaway loopback port adds no real
+/// protection. Disable host-key persistence entirely for these connections by
+/// using `StrictHostKeyChecking=no` and discarding known_hosts via
+/// `UserKnownHostsFile=/dev/null`. `LogLevel=Error` suppresses the
+/// "Warning: Permanently added ..." line SSH would otherwise print.
+///
+/// These are exactly the options the Azure CLI native bastion client uses
+/// (`az network bastion ssh` → `azext_bastion/custom.py`:
+/// `ssh username@localhost -p <port> -o StrictHostKeyChecking=no
+/// -o UserKnownHostsFile=/dev/null -o LogLevel=Error`).
+///
+/// This is the single source of truth for every 127.0.0.1 bastion SSH/SCP call
+/// site; keep new bastion connections routed through it (or
+/// [`BASTION_LOOPBACK_SSH_OPTS_STR`]) rather than re-hardcoding the options.
+pub(crate) fn bastion_loopback_ssh_opts() -> [&'static str; 6] {
+    [
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+        "-o",
+        "LogLevel=Error",
     ]
 }
 
-/// Build SCP args that route through a bastion tunnel.
-pub fn bastion_scp_args(
-    user: &str,
-    local_port: u16,
-    sources: &[&str],
-    remote_path: &str,
-    connect_timeout: u64,
-    recursive: bool,
-) -> Vec<String> {
-    let mut args = Vec::new();
-    if recursive {
-        args.push("-r".to_string());
-    }
-    args.extend_from_slice(&[
-        "-o".to_string(),
-        "StrictHostKeyChecking=accept-new".to_string(),
-        "-o".to_string(),
-        format!("ConnectTimeout={}", connect_timeout),
-        "-o".to_string(),
-        "BatchMode=yes".to_string(),
-        "-P".to_string(),
-        local_port.to_string(),
-    ]);
-    for src in sources {
-        args.push(src.to_string());
-    }
-    args.push(format!("{}@127.0.0.1:{}", user, remote_path));
-    args
-}
-
-/// Build SCP args for downloading from VM through bastion tunnel.
-pub fn bastion_scp_download_args(
-    user: &str,
-    local_port: u16,
-    remote_path: &str,
-    local_dest: &str,
-    connect_timeout: u64,
-) -> Vec<String> {
-    vec![
-        "-o".to_string(),
-        "StrictHostKeyChecking=accept-new".to_string(),
-        "-o".to_string(),
-        format!("ConnectTimeout={}", connect_timeout),
-        "-o".to_string(),
-        "BatchMode=yes".to_string(),
-        "-P".to_string(),
-        local_port.to_string(),
-        format!("{}@127.0.0.1:{}", user, remote_path),
-        local_dest.to_string(),
-    ]
-}
+/// The same options as [`bastion_loopback_ssh_opts`], pre-joined for embedding
+/// inside an rsync `-e "ssh ..."` transport string.
+pub(crate) const BASTION_LOOPBACK_SSH_OPTS_STR: &str =
+    "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=Error";
 
 #[cfg(test)]
 mod tests {
@@ -888,36 +855,27 @@ mod tests {
     use std::net::TcpListener;
 
     #[test]
-    fn test_bastion_ssh_args_format() {
-        let args = bastion_ssh_args("admin", 50200, "uptime", 30);
-        assert!(args.contains(&"-p".to_string()));
-        assert!(args.contains(&"50200".to_string()));
-        assert!(args.contains(&"admin@127.0.0.1".to_string()));
-        assert!(args.contains(&"ConnectTimeout=30".to_string()));
-        assert_eq!(args.last().unwrap(), "uptime");
+    fn test_bastion_loopback_ssh_opts_disable_known_hosts() {
+        let opts = bastion_loopback_ssh_opts();
+        // Must disable host-key persistence so reused 127.0.0.1 tunnel ports
+        // across different VMs never trigger "REMOTE HOST IDENTIFICATION
+        // CHANGED".
+        assert!(opts.contains(&"StrictHostKeyChecking=no"));
+        assert!(opts.contains(&"UserKnownHostsFile=/dev/null"));
+        // LogLevel=Error suppresses the "Permanently added" warning, matching
+        // the Azure CLI native bastion client.
+        assert!(opts.contains(&"LogLevel=Error"));
+        // Must NOT use accept-new, which would still record per-port keys.
+        assert!(!opts.contains(&"StrictHostKeyChecking=accept-new"));
     }
 
     #[test]
-    fn test_bastion_scp_args_format() {
-        let args = bastion_scp_args("admin", 50201, &["/tmp/file.txt"], "~/", 30, false);
-        assert!(args.contains(&"-P".to_string()));
-        assert!(args.contains(&"50201".to_string()));
-        assert!(args.contains(&"/tmp/file.txt".to_string()));
-        assert!(args.contains(&"admin@127.0.0.1:~/".to_string()));
-        assert!(!args.contains(&"-r".to_string()));
-    }
-
-    #[test]
-    fn test_bastion_scp_args_recursive() {
-        let args = bastion_scp_args("user", 50202, &["/tmp/dir"], "~/dest/", 10, true);
-        assert_eq!(args[0], "-r");
-    }
-
-    #[test]
-    fn test_bastion_scp_download_args() {
-        let args = bastion_scp_download_args("admin", 50203, "~/file.txt", "/tmp/file.txt", 30);
-        assert!(args.contains(&"admin@127.0.0.1:~/file.txt".to_string()));
-        assert!(args.contains(&"/tmp/file.txt".to_string()));
+    fn test_bastion_loopback_ssh_opts_str_matches_tokens() {
+        // The rsync `-e` string form must stay in sync with the token form.
+        assert_eq!(
+            BASTION_LOOPBACK_SSH_OPTS_STR,
+            bastion_loopback_ssh_opts().join(" ")
+        );
     }
 
     #[test]
