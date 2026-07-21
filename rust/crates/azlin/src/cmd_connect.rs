@@ -302,11 +302,14 @@ pub(crate) async fn dispatch(
                     // Ensure an SSH key exists; auto-generate if missing.
                     let ssh_key = resolve_key_and_push(&key, &rg, &name, &username)?;
                     let mut args = vec![
-                        "-o".to_string(),
-                        "StrictHostKeyChecking=accept-new".to_string(),
                         "-p".to_string(),
                         tunnel.local_port.to_string(),
                     ];
+                    args.extend(
+                        crate::bastion_tunnel::bastion_loopback_ssh_opts()
+                            .iter()
+                            .map(|s| s.to_string()),
+                    );
                     if let Some(ref k) = ssh_key {
                         args.push("-i".to_string());
                         args.push(k.to_string_lossy().to_string());

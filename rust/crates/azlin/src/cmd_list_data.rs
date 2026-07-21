@@ -173,7 +173,8 @@ pub(crate) async fn collect_tmux_sessions(
                 // Bastion SSH via pre-created tunnel
                 join_set.spawn(async move {
                     let mut cmd = tokio::process::Command::new("ssh");
-                    cmd.args(["-o", "StrictHostKeyChecking=accept-new", "-o", &timeout_arg, "-o", "BatchMode=yes"]);
+                    cmd.args(crate::bastion_tunnel::bastion_loopback_ssh_opts());
+                    cmd.args(["-o", &timeout_arg, "-o", "BatchMode=yes"]);
                     cmd.args(["-p", &port.to_string()]);
                     if let Some(ref key) = ssh_key {
                         cmd.args(["-i", key.to_str().unwrap_or("")]);
