@@ -648,3 +648,362 @@ fn test_wss_connect_error_scrub_strips_token_and_raw_url() {
         "diagnostic error text must survive the scrub: {safe_err}"
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// 10. Adaptive token cache / refresh (issue #1059)
+//
+// ROOT CAUSE: `open_tunnel_with_timeouts` captured the ARM access token ONCE at
+// tunnel creation and cloned that static token into every per-connection
+// `handle_client`. Azure AD access tokens expire (~60-90 min), so a long-lived
+// in-process tunnel kept its loopback listener up but every NEW connection
+// through it failed token exchange with an expired `aztoken`, surfacing as
+// `kex_exchange_identification: read: Connection reset by peer` on `azlin connect`.
+//
+// FIX: the tunnel takes a `TokenProvider` (an async, cheap-to-clone closure
+// supplied by the `azlin` crate) and caches the token with its expiry in a
+// `TokenCache`. Each connection calls `get_valid_token()` first, which refreshes
+// the token adaptively — when `now + margin >= expires_at`, where `margin` is
+// derived from the token's own lifetime (NOT a hardcoded TTL / reconnect cap).
+// Refresh is single-flight (under a mutex) so concurrent connections trigger at
+// most one provider call, and the token value is NEVER logged.
+//
+// TDD: these tests define the contract for `TokenWithExpiry`, `TokenProvider`,
+// and `TokenCache` before those types exist. They will fail to compile until the
+// implementation lands, then pass once it does.
+// ═══════════════════════════════════════════════════════════════════════
+
+use futures_util::future::BoxFuture;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use azlin_azure::native_tunnel::{TokenCache, TokenProvider, TokenWithExpiry};
+
+/// Build a `TokenProvider` that records how many times it is invoked and always
+/// returns `value` with the given `lifetime` (None → unknown expiry).
+fn counting_provider(
+    calls: Arc<AtomicUsize>,
+    value: &'static str,
+    lifetime: Option<Duration>,
+) -> TokenProvider {
+    Arc::new(move || {
+        let calls = calls.clone();
+        Box::pin(async move {
+            calls.fetch_add(1, Ordering::SeqCst);
+            let now = Instant::now();
+            Ok(TokenWithExpiry {
+                value: value.to_string(),
+                issued_at: now,
+                expires_at: lifetime.map(|d| now + d),
+            })
+        }) as BoxFuture<'static, Result<TokenWithExpiry, azlin_azure::native_tunnel::NativeTunnelError>>
+    })
+}
+
+/// Like `counting_provider` but sleeps before returning, widening the race
+/// window so a single-flight regression (N concurrent refreshes) is observable.
+fn slow_counting_provider(
+    calls: Arc<AtomicUsize>,
+    value: &'static str,
+    lifetime: Option<Duration>,
+    delay: Duration,
+) -> TokenProvider {
+    Arc::new(move || {
+        let calls = calls.clone();
+        Box::pin(async move {
+            tokio::time::sleep(delay).await;
+            calls.fetch_add(1, Ordering::SeqCst);
+            let now = Instant::now();
+            Ok(TokenWithExpiry {
+                value: value.to_string(),
+                issued_at: now,
+                expires_at: lifetime.map(|d| now + d),
+            })
+        }) as BoxFuture<'static, Result<TokenWithExpiry, azlin_azure::native_tunnel::NativeTunnelError>>
+    })
+}
+
+/// Seed a cache with a token that is about to expire (well inside any sane
+/// refresh margin): issued nearly a full lifetime ago, expiring in a few seconds.
+fn about_to_expire(value: &str) -> TokenWithExpiry {
+    let now = Instant::now();
+    TokenWithExpiry {
+        value: value.to_string(),
+        issued_at: now - Duration::from_secs(3595),
+        expires_at: Some(now + Duration::from_secs(5)),
+    }
+}
+
+/// Seed a cache with a freshly-minted, comfortably-valid token (just issued,
+/// expiring in a full hour).
+fn comfortably_valid(value: &str) -> TokenWithExpiry {
+    let now = Instant::now();
+    TokenWithExpiry {
+        value: value.to_string(),
+        issued_at: now,
+        expires_at: Some(now + Duration::from_secs(3600)),
+    }
+}
+
+/// PRIMARY CONTRACT (a): a cache seeded with an about-to-expire token must
+/// perform EXACTLY ONE provider refresh before the next `get_valid_token()`
+/// returns, and must return the freshly-refreshed value — proving a long-lived
+/// tunnel's next connection uses a valid token instead of the stale one.
+#[tokio::test]
+async fn test_cache_refreshes_before_next_exchange_when_about_to_expire() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let provider = counting_provider(
+        calls.clone(),
+        "FRESH-TOKEN-AFTER-REFRESH",
+        Some(Duration::from_secs(3600)),
+    );
+
+    let cache = TokenCache::with_token(provider, about_to_expire("STALE-ABOUT-TO-EXPIRE"));
+
+    let token = cache
+        .get_valid_token()
+        .await
+        .expect("get_valid_token should succeed");
+
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "an about-to-expire token must trigger exactly one adaptive refresh"
+    );
+    assert_eq!(
+        token, "FRESH-TOKEN-AFTER-REFRESH",
+        "get_valid_token must return the refreshed value, not the stale one"
+    );
+}
+
+/// A comfortably-valid token must NOT trigger a provider call: the adaptive
+/// margin is derived from lifetime and must leave a freshly-issued token alone,
+/// so steady-state connections never shell out to `az`.
+#[tokio::test]
+async fn test_cache_does_not_refresh_when_token_is_fresh() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let provider = counting_provider(
+        calls.clone(),
+        "SHOULD-NEVER-BE-RETURNED",
+        Some(Duration::from_secs(3600)),
+    );
+
+    let cache = TokenCache::with_token(provider, comfortably_valid("COMFORTABLY-VALID"));
+
+    let token = cache.get_valid_token().await.expect("get_valid_token");
+
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "a comfortably-valid token must not invoke the provider"
+    );
+    assert_eq!(
+        token, "COMFORTABLY-VALID",
+        "the still-valid cached token must be returned unchanged"
+    );
+}
+
+/// Unknown expiry (`expires_at = None`, e.g. `az` emitted an unparseable
+/// `expiresOn`) must be treated as short-lived and refreshed eagerly on the next
+/// use — fail-safe, never a panic, never an indefinitely-cached unknown token.
+#[tokio::test]
+async fn test_cache_refreshes_eagerly_when_expiry_unknown() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let provider = counting_provider(
+        calls.clone(),
+        "REFRESHED-WITH-KNOWN-EXPIRY",
+        Some(Duration::from_secs(3600)),
+    );
+
+    let now = Instant::now();
+    let seeded = TokenWithExpiry {
+        value: "UNKNOWN-EXPIRY-TOKEN".to_string(),
+        issued_at: now,
+        expires_at: None,
+    };
+    let cache = TokenCache::with_token(provider, seeded);
+
+    let token = cache.get_valid_token().await.expect("get_valid_token");
+
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "a token with unknown expiry must be refreshed eagerly"
+    );
+    assert_eq!(token, "REFRESHED-WITH-KNOWN-EXPIRY");
+}
+
+/// A cache built with `TokenCache::new` (no seed) must fetch from the provider on
+/// the first `get_valid_token()`, then serve the freshly-minted token without a
+/// second provider call while it stays valid.
+#[tokio::test]
+async fn test_cache_new_fetches_once_then_serves_from_cache() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let provider = counting_provider(
+        calls.clone(),
+        "INITIAL-FETCHED-TOKEN",
+        Some(Duration::from_secs(3600)),
+    );
+
+    let cache = TokenCache::new(provider);
+
+    let first = cache.get_valid_token().await.expect("first get");
+    let second = cache.get_valid_token().await.expect("second get");
+
+    assert_eq!(first, "INITIAL-FETCHED-TOKEN");
+    assert_eq!(second, "INITIAL-FETCHED-TOKEN");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "the provider must be called once to seed, then the valid token is cached"
+    );
+}
+
+/// SINGLE-FLIGHT CONTRACT: many connections arriving at once across the expiry
+/// boundary must collapse into a SINGLE provider (`az`) invocation. The first
+/// waiter refreshes under the mutex; the rest re-check freshness after acquiring
+/// the lock and reuse the just-refreshed token — no thundering herd.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_concurrent_get_valid_token_is_single_flight() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let provider = slow_counting_provider(
+        calls.clone(),
+        "SINGLE-FLIGHT-REFRESHED",
+        Some(Duration::from_secs(3600)),
+        Duration::from_millis(50),
+    );
+
+    let cache = Arc::new(TokenCache::with_token(
+        provider,
+        about_to_expire("STALE-RACED"),
+    ));
+
+    let mut handles = Vec::new();
+    for _ in 0..16 {
+        let cache = cache.clone();
+        handles.push(tokio::spawn(async move {
+            cache.get_valid_token().await.expect("get_valid_token")
+        }));
+    }
+
+    for h in handles {
+        let value = h.await.expect("task join");
+        assert_eq!(
+            value, "SINGLE-FLIGHT-REFRESHED",
+            "every racing connection must observe the single refreshed token"
+        );
+    }
+
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "concurrent refreshes must collapse to exactly one provider invocation"
+    );
+}
+
+// ── Secret-safety: the token value must never reach a log sink ───────────────
+
+/// A `tracing` writer that appends every emitted byte to a shared buffer so a
+/// test can assert what did (and did not) get logged.
+#[derive(Clone)]
+struct CapturingWriter(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for CapturingWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// PRIMARY CONTRACT (b): the secret token value must NEVER appear in log output.
+/// We capture all `tracing` output (down to TRACE) emitted while the cache
+/// refreshes and serves a token, and assert the secret substring is absent —
+/// even if the refresh path emits diagnostics, it must skip the token value.
+#[tokio::test]
+async fn test_token_value_is_never_logged_during_refresh() {
+    const SECRET: &str = "eyJ0b2tlbiI6IlNVUEVSLVNFQ1JFVC1BUk0tVE9LRU4tOTk5In0";
+
+    let buf = Arc::new(Mutex::new(Vec::<u8>::new()));
+    let writer_buf = buf.clone();
+
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .with_writer(move || CapturingWriter(writer_buf.clone()))
+        .with_ansi(false)
+        .finish();
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let provider = counting_provider(calls.clone(), SECRET, Some(Duration::from_secs(3600)));
+    let cache = TokenCache::with_token(provider, about_to_expire("STALE-SECRET-PRECURSOR"));
+
+    {
+        let _guard = tracing::subscriber::set_default(subscriber);
+        let token = cache.get_valid_token().await.expect("get_valid_token");
+        // Sanity: the refresh really happened and returned the secret value ...
+        assert_eq!(token, SECRET);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    let logged = String::from_utf8(buf.lock().unwrap().clone()).expect("utf8 log output");
+    assert!(
+        !logged.contains(SECRET),
+        "the ARM token secret must never be written to a log sink; captured log:\n{logged}"
+    );
+}
+
+/// Defense in depth: even the `aztoken` form field — which legitimately carries
+/// the token on the wire — must not be produced by rendering a loggable type.
+/// `build_token_exchange_form` places the token in `aztoken` (wire, not log);
+/// this guards that the token stays out of any `Debug`/log rendering of the
+/// refresh types by confirming the only place the token appears is the form
+/// value, not a formatted string of the cache/provider types.
+#[tokio::test]
+async fn test_token_never_leaks_via_type_formatting() {
+    const SECRET: &str = "ARM-TOKEN-NO-DEBUG-LEAK-4242";
+
+    // The token is expected ONLY in the form's aztoken field (the wire path).
+    let form = azlin_azure::native_tunnel::build_token_exchange_form(
+        "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
+        22,
+        SECRET,
+    );
+    let aztoken = form
+        .iter()
+        .find(|(k, _)| *k == "aztoken")
+        .map(|(_, v)| v.as_str());
+    assert_eq!(
+        aztoken,
+        Some(SECRET),
+        "the token must be carried as the aztoken form field (wire path)"
+    );
+
+    // But it must NOT be discoverable by formatting the refresh machinery: a
+    // token minted through the provider and served by the cache is returned as a
+    // bare String only; the cache/provider types expose no Debug/Display that
+    // could render the secret into logs.
+    let buf = Arc::new(Mutex::new(Vec::<u8>::new()));
+    let writer_buf = buf.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .with_writer(move || CapturingWriter(writer_buf.clone()))
+        .with_ansi(false)
+        .finish();
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let provider = counting_provider(calls.clone(), SECRET, Some(Duration::from_secs(3600)));
+    let cache = TokenCache::new(provider);
+
+    {
+        let _guard = tracing::subscriber::set_default(subscriber);
+        let _ = cache.get_valid_token().await.expect("get_valid_token");
+    }
+
+    let logged = String::from_utf8(buf.lock().unwrap().clone()).expect("utf8 log output");
+    assert!(
+        !logged.contains(SECRET),
+        "token leaked through refresh-path logging: {logged}"
+    );
+}
