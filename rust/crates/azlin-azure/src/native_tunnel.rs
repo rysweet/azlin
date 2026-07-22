@@ -12,13 +12,16 @@
 //! 3. **Bidirectional forwarding**: Binary frames between TCP client and WSS.
 //! 4. **Cleanup**: `DELETE https://{endpoint}/api/tokens/{authToken}` with `X-Node-Id` header.
 
+use futures_util::future::BoxFuture;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener as TokioTcpListener;
 use tokio::net::TcpStream;
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, instrument, warn};
@@ -61,6 +64,179 @@ pub enum NativeTunnelError {
 
     #[error("HTTP request failed: {0}")]
     Http(String),
+}
+
+// ── Adaptive token cache (issue #1059) ───────────────────────────────────
+//
+// ROOT CAUSE (#1059): the tunnel captured the ARM access token ONCE at creation
+// and cloned that static string into every per-connection token exchange. Azure
+// AD access tokens expire (~60-90 min), so a long-lived in-process tunnel kept
+// its loopback listener up but every NEW connection failed the `aztoken`
+// exchange, surfacing as `kex_exchange_identification: read: Connection reset by
+// peer` on `azlin connect`.
+//
+// FIX: the tunnel takes a `TokenProvider` (an async, cheap-to-clone closure the
+// `azlin` crate supplies — it knows how to shell out to `az account
+// get-access-token`, keeping `azlin-azure` CLI-agnostic). The token is cached
+// with its expiry in a `TokenCache`. Each connection calls `get_valid_token()`
+// first, which refreshes adaptively when `now + margin >= expires_at`, where
+// `margin` is derived from the token's own lifetime (NOT a hardcoded TTL or a
+// reconnect cap). Refresh is single-flight (under an async mutex) and the token
+// value is NEVER logged.
+
+/// A token value paired with the instants it was issued and expires.
+///
+/// SECRET SAFETY: this type intentionally derives **no** `Debug`, `Display`,
+/// `Serialize`, or `Clone`-into-log path — `value` is a bearer secret and must
+/// never be rendered into a `tracing` sink. Fields are public so the `azlin`
+/// provider closure can construct it directly.
+pub struct TokenWithExpiry {
+    /// The ARM bearer token (secret).
+    pub value: String,
+    /// When the token was issued (monotonic clock).
+    pub issued_at: Instant,
+    /// When the token expires, if known. `None` means the expiry could not be
+    /// determined (e.g. `az` emitted an unparseable `expiresOn`) and the token
+    /// is treated as short-lived — refreshed eagerly on next use (fail-safe).
+    pub expires_at: Option<Instant>,
+}
+
+/// An async, cheap-to-clone source of fresh [`TokenWithExpiry`] values.
+///
+/// Supplied by the `azlin` crate so `azlin-azure` never shells out to `az`
+/// directly (decoupling). Invoked whenever the cached token is about to expire.
+pub type TokenProvider =
+    Arc<dyn Fn() -> BoxFuture<'static, Result<TokenWithExpiry, NativeTunnelError>> + Send + Sync>;
+
+/// Fraction of a token's own lifetime used as the pre-expiry refresh margin.
+///
+/// Adaptive by design (proportional to lifetime), NOT an arbitrary fixed cap:
+/// a 60-minute token refreshes ~12 minutes early, a 90-minute token ~18 minutes
+/// early. This keeps long-lived tunnels working indefinitely without ever
+/// forcing a reconnect at a hardcoded interval.
+const REFRESH_FRACTION: f64 = 0.2;
+
+/// Absolute floor for the refresh margin, so very short-lived tokens still get a
+/// small safety window. This is a lower bound on the *adaptive* margin above,
+/// not a fixed TTL.
+const MIN_REFRESH_MARGIN: Duration = Duration::from_secs(30);
+
+/// Internal cached token state.
+struct CachedToken {
+    value: String,
+    issued_at: Instant,
+    expires_at: Option<Instant>,
+}
+
+impl CachedToken {
+    /// Adaptive pre-expiry margin derived from this token's own lifetime.
+    fn refresh_margin(&self, expires_at: Instant) -> Duration {
+        let lifetime = expires_at.saturating_duration_since(self.issued_at);
+        lifetime.mul_f64(REFRESH_FRACTION).max(MIN_REFRESH_MARGIN)
+    }
+
+    /// Whether the token should be refreshed before it is handed out again.
+    /// Unknown expiry → always refresh (fail-safe).
+    fn needs_refresh(&self) -> bool {
+        match self.expires_at {
+            None => true,
+            Some(expires_at) => {
+                let margin = self.refresh_margin(expires_at);
+                Instant::now() + margin >= expires_at
+            }
+        }
+    }
+
+    /// Whether the token is past its actual expiry (no margin). Used to decide
+    /// whether a still-cached token may be reused when a refresh attempt fails.
+    fn hard_expired(&self) -> bool {
+        match self.expires_at {
+            None => true,
+            Some(expires_at) => Instant::now() >= expires_at,
+        }
+    }
+}
+
+/// Caches an ARM access token and refreshes it adaptively via a [`TokenProvider`].
+///
+/// Cheap to clone (all state is behind `Arc`); clone one into each per-connection
+/// task. `get_valid_token()` is single-flight: concurrent callers block on the
+/// async mutex, so a batch of connections arriving across the expiry boundary
+/// triggers at most one provider (`az`) invocation.
+#[derive(Clone)]
+pub struct TokenCache {
+    provider: TokenProvider,
+    inner: Arc<AsyncMutex<Option<CachedToken>>>,
+}
+
+impl TokenCache {
+    /// Create an empty cache; the first `get_valid_token()` fetches from the
+    /// provider to seed it.
+    pub fn new(provider: TokenProvider) -> Self {
+        Self {
+            provider,
+            inner: Arc::new(AsyncMutex::new(None)),
+        }
+    }
+
+    /// Create a cache pre-seeded with an already-obtained token.
+    pub fn with_token(provider: TokenProvider, initial: TokenWithExpiry) -> Self {
+        Self {
+            provider,
+            inner: Arc::new(AsyncMutex::new(Some(CachedToken {
+                value: initial.value,
+                issued_at: initial.issued_at,
+                expires_at: initial.expires_at,
+            }))),
+        }
+    }
+
+    /// Return a valid token value, refreshing via the provider if the cached
+    /// token is missing or about to expire.
+    ///
+    /// Single-flight: the async mutex is held across the provider await, so
+    /// concurrent callers that lose the race re-check freshness after acquiring
+    /// the lock and reuse the just-refreshed token instead of triggering another
+    /// provider call.
+    ///
+    /// SECRET SAFETY: the returned `String` is the only place the token value
+    /// surfaces; this method never logs the value.
+    pub async fn get_valid_token(&self) -> Result<String, NativeTunnelError> {
+        let mut guard = self.inner.lock().await;
+
+        // Fast path: a cached token that is still comfortably valid.
+        if let Some(cached) = guard.as_ref() {
+            if !cached.needs_refresh() {
+                return Ok(cached.value.clone());
+            }
+        }
+
+        // Refresh under the lock (single-flight).
+        match (self.provider)().await {
+            Ok(fresh) => {
+                let value = fresh.value.clone();
+                *guard = Some(CachedToken {
+                    value: fresh.value,
+                    issued_at: fresh.issued_at,
+                    expires_at: fresh.expires_at,
+                });
+                Ok(value)
+            }
+            Err(e) => {
+                // Fail-safe: if we still hold a token that has not hard-expired,
+                // reuse it for this connection rather than tearing the tunnel
+                // down on a transient `az` hiccup. The error is never dropped
+                // silently — it is either logged (reuse) or surfaced (no token).
+                if let Some(cached) = guard.as_ref() {
+                    if !cached.hard_expired() {
+                        warn!("bastion token refresh failed, reusing still-valid cached token: {e}");
+                        return Ok(cached.value.clone());
+                    }
+                }
+                Err(e)
+            }
+        }
+    }
 }
 
 // ── Token exchange types ─────────────────────────────────────────────────
@@ -486,9 +662,20 @@ async fn handle_client(
     endpoint: String,
     target_resource_id: String,
     resource_port: u16,
-    token: String,
+    token_cache: TokenCache,
     url_mode: WssUrlMode,
 ) {
+    // Step 0: Obtain a valid (refreshed if needed) ARM token. This is what makes
+    // long-lived tunnels self-heal (issue #1059): the cache refreshes adaptively
+    // instead of reusing the static token captured at tunnel creation.
+    let token = match token_cache.get_valid_token().await {
+        Ok(t) => t,
+        Err(e) => {
+            warn!("bastion token refresh failed, dropping connection: {e}");
+            return;
+        }
+    };
+
     // Step 1: Token exchange
     let token_resp = match exchange_token(
         &client,
@@ -588,16 +775,44 @@ pub async fn open_tunnel(
     url_mode: WssUrlMode,
     timeout: Duration,
 ) -> Result<(u16, JoinHandle<()>), NativeTunnelError> {
+    // Reject an empty token here so the stable `open_tunnel(&str)` contract keeps
+    // its validation. The provider path (below) has no static token to validate.
+    if token.is_empty() {
+        return Err(NativeTunnelError::InvalidEndpoint(
+            "token must not be empty".to_string(),
+        ));
+    }
     open_tunnel_with_timeouts(
         bastion_endpoint,
         target_resource_id,
         resource_port,
-        token,
+        static_token_provider(token),
         url_mode,
         timeout,
         timeout,
     )
     .await
+}
+
+/// Wrap a static token literal in a trivial [`TokenProvider`].
+///
+/// Used by the stable [`open_tunnel`] wrapper: the token is fixed and cannot be
+/// refreshed to anything different, so its expiry is reported as unknown
+/// (`None`). Real, refreshable callers pass a live provider to
+/// [`open_tunnel_with_timeouts`] instead.
+fn static_token_provider(token: &str) -> TokenProvider {
+    let token = token.to_string();
+    Arc::new(move || {
+        let token = token.clone();
+        Box::pin(async move {
+            let now = Instant::now();
+            Ok(TokenWithExpiry {
+                value: token,
+                issued_at: now,
+                expires_at: None,
+            })
+        })
+    })
 }
 
 /// Open a native bastion tunnel with separate overall and connect timeouts.
@@ -607,7 +822,15 @@ pub async fn open_tunnel(
 /// the optional `bastion_connect_timeout` config knob (issue #1045) without
 /// changing the stable [`open_tunnel`] signature.
 ///
+/// # Token refresh (issue #1059)
+/// Instead of a static token, callers supply a [`TokenProvider`]. The tunnel
+/// caches the token with its expiry and refreshes it adaptively, so a long-lived
+/// in-process tunnel keeps working past the ARM access token's lifetime instead
+/// of failing every new connection's token exchange once the captured token
+/// expires.
+///
 /// # Arguments
+/// - `provider` — async source of fresh ARM tokens (supplied by `azlin`)
 /// - `connect_timeout` — Timeout for establishing the TCP connection to the
 ///   bastion data-plane. Defaults (via [`open_tunnel`]) to `timeout`.
 ///
@@ -617,7 +840,7 @@ pub async fn open_tunnel_with_timeouts(
     bastion_endpoint: &str,
     target_resource_id: &str,
     resource_port: u16,
-    token: &str,
+    provider: TokenProvider,
     url_mode: WssUrlMode,
     timeout: Duration,
     connect_timeout: Duration,
@@ -626,11 +849,6 @@ pub async fn open_tunnel_with_timeouts(
     if resource_port == 0 {
         return Err(NativeTunnelError::InvalidEndpoint(
             "resource_port must not be 0".to_string(),
-        ));
-    }
-    if token.is_empty() {
-        return Err(NativeTunnelError::InvalidEndpoint(
-            "token must not be empty".to_string(),
         ));
     }
 
@@ -652,11 +870,26 @@ pub async fn open_tunnel_with_timeouts(
         .build()
         .map_err(|e| NativeTunnelError::Http(format!("failed to create HTTP client: {e}")))?;
 
-    // Verify connectivity with a quick token exchange + cleanup
-    let test_result = tokio::time::timeout(
-        timeout,
-        exchange_token(&client, &endpoint, target_resource_id, resource_port, token),
-    )
+    // Adaptive token cache shared across every connection (issue #1059).
+    let token_cache = TokenCache::new(provider);
+
+    // Verify connectivity with a quick token exchange + cleanup. This also seeds
+    // the token cache with a fresh, valid token.
+    let verify_cache = token_cache.clone();
+    let verify_endpoint = endpoint.clone();
+    let verify_client = client.clone();
+    let verify_resource_id = target_resource_id.to_string();
+    let test_result = tokio::time::timeout(timeout, async move {
+        let token = verify_cache.get_valid_token().await?;
+        exchange_token(
+            &verify_client,
+            &verify_endpoint,
+            &verify_resource_id,
+            resource_port,
+            &token,
+        )
+        .await
+    })
     .await;
 
     match test_result {
@@ -679,7 +912,6 @@ pub async fn open_tunnel_with_timeouts(
     // Spawn the accept loop
     let owned_endpoint = endpoint.clone();
     let owned_resource_id = target_resource_id.to_string();
-    let owned_token = token.to_string();
     let handle = tokio::spawn(async move {
         loop {
             match listener.accept().await {
@@ -688,9 +920,9 @@ pub async fn open_tunnel_with_timeouts(
                     let client = client.clone();
                     let ep = owned_endpoint.clone();
                     let rid = owned_resource_id.clone();
-                    let tok = owned_token.clone();
+                    let cache = token_cache.clone();
                     tokio::spawn(async move {
-                        handle_client(tcp_stream, client, ep, rid, resource_port, tok, url_mode)
+                        handle_client(tcp_stream, client, ep, rid, resource_port, cache, url_mode)
                             .await;
                     });
                 }

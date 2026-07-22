@@ -604,6 +604,113 @@ async fn resolve_bastion_dns_name(bastion_name: &str, resource_group: &str) -> R
     })
 }
 
+/// Fetch a fresh ARM access token together with its expiry via `az`.
+///
+/// This is the token provider body for the native bastion tunnel (issue #1059):
+/// the tunnel calls it whenever its cached token is about to expire, so a
+/// long-lived in-process tunnel keeps working past the ~60-90 min token
+/// lifetime instead of failing every new connection's token exchange.
+///
+/// Runs `az` on a blocking thread and asks for both `accessToken` and
+/// `expiresOn` in one invocation so the cache learns the token's real lifetime.
+///
+/// SECRET SAFETY: the returned token value is never logged; error paths only
+/// surface `az` stderr / parser positions, never stdout (which carries the token).
+async fn fetch_arm_token_with_expiry(
+) -> std::result::Result<azlin_azure::native_tunnel::TokenWithExpiry, azlin_azure::native_tunnel::NativeTunnelError>
+{
+    use azlin_azure::native_tunnel::{NativeTunnelError, TokenWithExpiry};
+
+    let output = tokio::task::spawn_blocking(|| {
+        std::process::Command::new("az")
+            .args([
+                "account",
+                "get-access-token",
+                "--query",
+                "{t:accessToken,e:expiresOn}",
+                "-o",
+                "json",
+            ])
+            .output()
+    })
+    .await
+    .map_err(|e| NativeTunnelError::Http(format!("az token task panicked: {e}")))?
+    .map_err(|e| {
+        NativeTunnelError::Http(format!("failed to run az account get-access-token: {e}"))
+    })?;
+
+    if !output.status.success() {
+        return Err(NativeTunnelError::TokenExchange(format!(
+            "az account get-access-token failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).map_err(|e| {
+        // The serde error carries only a byte position, never the token text.
+        NativeTunnelError::TokenExchange(format!("failed to parse az token JSON: {e}"))
+    })?;
+
+    let value = parsed
+        .get("t")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    if value.is_empty() {
+        return Err(NativeTunnelError::TokenExchange(
+            "az account get-access-token returned an empty accessToken".to_string(),
+        ));
+    }
+
+    let issued_at = std::time::Instant::now();
+    let expires_at = parsed
+        .get("e")
+        .and_then(|v| v.as_str())
+        .and_then(|s| parse_expires_on_to_instant(s, issued_at));
+
+    Ok(TokenWithExpiry {
+        value,
+        issued_at,
+        expires_at,
+    })
+}
+
+/// Convert an `az`-emitted `expiresOn` string into a monotonic [`Instant`],
+/// relative to `issued_at`.
+///
+/// `az` emits `expiresOn` as a **local-time naive** string on this platform
+/// (e.g. `2026-07-22 10:20:00.000000`); newer CLIs may emit RFC3339 with an
+/// offset. We parse the local-naive form first, then fall back to RFC3339. The
+/// wall-clock expiry is projected onto the monotonic clock via
+/// `issued_at + (expires - now)`.
+///
+/// Returns `None` if the string is unparseable or already in the past, so the
+/// cache treats the token as short-lived and refreshes eagerly (fail-safe).
+fn parse_expires_on_to_instant(
+    expires_on: &str,
+    issued_at: std::time::Instant,
+) -> Option<std::time::Instant> {
+    use chrono::{DateTime, Local, NaiveDateTime};
+
+    let local_now = Local::now();
+
+    let when: DateTime<Local> = NaiveDateTime::parse_from_str(expires_on, "%Y-%m-%d %H:%M:%S%.f")
+        .ok()
+        .and_then(|ndt| ndt.and_local_timezone(Local).single())
+        .or_else(|| {
+            DateTime::parse_from_rfc3339(expires_on)
+                .ok()
+                .map(|dt| dt.with_timezone(&Local))
+        })?;
+
+    let delta_ms = when.signed_duration_since(local_now).num_milliseconds();
+    if delta_ms <= 0 {
+        return None;
+    }
+    Some(issued_at + std::time::Duration::from_millis(delta_ms as u64))
+}
+
 /// Get or create a bastion tunnel for a VM. Reuses existing tunnels from the registry.
 ///
 /// Returns the local port the tunnel is bound to.
@@ -666,31 +773,16 @@ pub async fn get_or_create_tunnel(
         }
     }
 
-    // Get Azure AD token via az CLI on a blocking thread to avoid stalling the runtime
-    let token = tokio::task::spawn_blocking(|| -> Result<String> {
-        let token_output = std::process::Command::new("az")
-            .args([
-                "account",
-                "get-access-token",
-                "--query",
-                "accessToken",
-                "-o",
-                "tsv",
-            ])
-            .output()
-            .context("failed to get Azure AD token for bastion tunnel")?;
-        if !token_output.status.success() {
-            anyhow::bail!(
-                "az account get-access-token failed: {}",
-                String::from_utf8_lossy(&token_output.stderr).trim()
-            );
-        }
-        Ok(String::from_utf8_lossy(&token_output.stdout)
-            .trim()
-            .to_string())
-    })
-    .await
-    .context("token task panicked")??;
+    // Build a reusable ARM token provider (issue #1059). A long-lived native
+    // tunnel is an in-process background task; the ARM access token it was
+    // created with expires (~60-90 min), so previously every NEW connection
+    // through an old tunnel failed the `aztoken` exchange. The provider lets the
+    // tunnel refresh the token adaptively for as long as it lives. It shells out
+    // to `az` on a blocking thread and parses `expiresOn` so the cache knows the
+    // token's real lifetime. `azlin-azure` stays CLI-agnostic — the closure
+    // lives here in the `azlin` crate.
+    let token_provider: azlin_azure::native_tunnel::TokenProvider =
+        std::sync::Arc::new(|| Box::pin(fetch_arm_token_with_expiry()));
 
     // Load config for timeout
     let config = azlin_core::AzlinConfig::load().unwrap_or_default();
@@ -720,7 +812,7 @@ pub async fn get_or_create_tunnel(
         &bastion_endpoint,
         vm_resource_id,
         22,
-        &token,
+        token_provider,
         azlin_azure::native_tunnel::WssUrlMode::NodeScoped,
         timeout,
         connect_timeout,

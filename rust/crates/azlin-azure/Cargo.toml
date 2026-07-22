@@ -26,3 +26,5 @@ reqwest = { workspace = true }
 urlencoding = { workspace = true }
 
 [dev-dependencies]
+tracing-subscriber = { workspace = true }
+futures-util = { workspace = true }
