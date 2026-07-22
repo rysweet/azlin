@@ -122,10 +122,24 @@ const REFRESH_FRACTION: f64 = 0.2;
 const MIN_REFRESH_MARGIN: Duration = Duration::from_secs(30);
 
 /// Internal cached token state.
+///
+/// Field-identical to the public [`TokenWithExpiry`] DTO but private, so the
+/// cache-policy methods (`needs_refresh`, `hard_expired`) stay off the public
+/// API surface. Convert from the DTO via `From` at the single seed/refresh sites.
 struct CachedToken {
     value: String,
     issued_at: Instant,
     expires_at: Option<Instant>,
+}
+
+impl From<TokenWithExpiry> for CachedToken {
+    fn from(t: TokenWithExpiry) -> Self {
+        Self {
+            value: t.value,
+            issued_at: t.issued_at,
+            expires_at: t.expires_at,
+        }
+    }
 }
 
 impl CachedToken {
@@ -183,11 +197,7 @@ impl TokenCache {
     pub fn with_token(provider: TokenProvider, initial: TokenWithExpiry) -> Self {
         Self {
             provider,
-            inner: Arc::new(AsyncMutex::new(Some(CachedToken {
-                value: initial.value,
-                issued_at: initial.issued_at,
-                expires_at: initial.expires_at,
-            }))),
+            inner: Arc::new(AsyncMutex::new(Some(initial.into()))),
         }
     }
 
@@ -215,11 +225,7 @@ impl TokenCache {
         match (self.provider)().await {
             Ok(fresh) => {
                 let value = fresh.value.clone();
-                *guard = Some(CachedToken {
-                    value: fresh.value,
-                    issued_at: fresh.issued_at,
-                    expires_at: fresh.expires_at,
-                });
+                *guard = Some(fresh.into());
                 Ok(value)
             }
             Err(e) => {
@@ -794,12 +800,23 @@ pub async fn open_tunnel(
     .await
 }
 
+/// Nominal lifetime reported for a static (non-refreshable) token.
+///
+/// A static token is fixed for the life of the process, so re-invoking its
+/// provider only ever yields the same value. Reporting a long, bounded lifetime
+/// (rather than `None`) lets [`TokenCache`]'s fast path serve it from cache
+/// instead of re-invoking the provider, re-cloning the string, and re-writing
+/// the cache on every connection. The value is bounded well below any `Instant`
+/// overflow risk. Behavior is identical either way — the same token is always
+/// handed out — this simply avoids per-connection redundant work.
+const STATIC_TOKEN_LIFETIME: Duration = Duration::from_secs(365 * 24 * 3600);
+
 /// Wrap a static token literal in a trivial [`TokenProvider`].
 ///
 /// Used by the stable [`open_tunnel`] wrapper: the token is fixed and cannot be
-/// refreshed to anything different, so its expiry is reported as unknown
-/// (`None`). Real, refreshable callers pass a live provider to
-/// [`open_tunnel_with_timeouts`] instead.
+/// refreshed to anything different, so it is reported with a long, bounded
+/// [`STATIC_TOKEN_LIFETIME`] so the cache actually caches it. Real, refreshable
+/// callers pass a live provider to [`open_tunnel_with_timeouts`] instead.
 fn static_token_provider(token: &str) -> TokenProvider {
     let token = token.to_string();
     Arc::new(move || {
@@ -809,7 +826,7 @@ fn static_token_provider(token: &str) -> TokenProvider {
             Ok(TokenWithExpiry {
                 value: token,
                 issued_at: now,
-                expires_at: None,
+                expires_at: Some(now + STATIC_TOKEN_LIFETIME),
             })
         })
     })
