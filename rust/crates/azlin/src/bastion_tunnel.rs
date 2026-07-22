@@ -616,9 +616,10 @@ async fn resolve_bastion_dns_name(bastion_name: &str, resource_group: &str) -> R
 ///
 /// SECRET SAFETY: the returned token value is never logged; error paths only
 /// surface `az` stderr / parser positions, never stdout (which carries the token).
-async fn fetch_arm_token_with_expiry(
-) -> std::result::Result<azlin_azure::native_tunnel::TokenWithExpiry, azlin_azure::native_tunnel::NativeTunnelError>
-{
+async fn fetch_arm_token_with_expiry() -> std::result::Result<
+    azlin_azure::native_tunnel::TokenWithExpiry,
+    azlin_azure::native_tunnel::NativeTunnelError,
+> {
     use azlin_azure::native_tunnel::{NativeTunnelError, TokenWithExpiry};
 
     let output = tokio::task::spawn_blocking(|| {
@@ -945,6 +946,73 @@ pub(crate) const BASTION_LOOPBACK_SSH_OPTS_STR: &str =
 mod tests {
     use super::*;
     use std::net::TcpListener;
+
+    // ── parse_expires_on_to_instant table tests (issue #1059 fast-follow, F3) ──
+    //
+    // The timezone heuristic (parse local-naive first, fall back to RFC3339) was
+    // previously untested. The safety property under test: a past or unparseable
+    // `expiresOn` must return None so the cache refreshes eagerly, and a naive
+    // string is interpreted as LOCAL time (az's documented shape on this
+    // platform) — never silently over-extended.
+
+    #[test]
+    fn test_parse_expires_on_local_naive_future_maps_to_local_time() {
+        let issued_at = std::time::Instant::now();
+        // A local-naive timestamp one hour ahead (az's documented shape here).
+        let future = chrono::Local::now() + chrono::Duration::hours(1);
+        let s = future.format("%Y-%m-%d %H:%M:%S%.f").to_string();
+
+        let parsed = parse_expires_on_to_instant(&s, issued_at)
+            .expect("a future local-naive expiresOn must parse");
+
+        let delta = parsed.saturating_duration_since(issued_at);
+        assert!(
+            delta >= std::time::Duration::from_secs(3540)
+                && delta <= std::time::Duration::from_secs(3660),
+            "a local-naive expiry must map to ~1h ahead with no timezone over-extension, got {delta:?}"
+        );
+    }
+
+    #[test]
+    fn test_parse_expires_on_rfc3339_offset_future_parses_via_fallback() {
+        use chrono::SecondsFormat;
+        let issued_at = std::time::Instant::now();
+        let future = chrono::Local::now() + chrono::Duration::minutes(30);
+        // RFC3339 with an explicit offset (never 'Z'), forcing the fallback arm.
+        let s = future.to_rfc3339_opts(SecondsFormat::Secs, false);
+
+        let parsed = parse_expires_on_to_instant(&s, issued_at)
+            .expect("a future RFC3339 expiresOn must parse via the fallback");
+
+        let delta = parsed.saturating_duration_since(issued_at);
+        assert!(
+            delta >= std::time::Duration::from_secs(1740)
+                && delta <= std::time::Duration::from_secs(1860),
+            "an RFC3339 expiry must map to ~30m ahead, got {delta:?}"
+        );
+    }
+
+    #[test]
+    fn test_parse_expires_on_past_returns_none_failsafe() {
+        let issued_at = std::time::Instant::now();
+        let past = chrono::Local::now() - chrono::Duration::hours(1);
+        let s = past.format("%Y-%m-%d %H:%M:%S%.f").to_string();
+        assert!(
+            parse_expires_on_to_instant(&s, issued_at).is_none(),
+            "an already-past expiresOn must return None so the cache refreshes eagerly"
+        );
+    }
+
+    #[test]
+    fn test_parse_expires_on_unparseable_returns_none() {
+        let issued_at = std::time::Instant::now();
+        for s in ["", "not-a-timestamp", "2026/07/22 10:00", "20260722T100000"] {
+            assert!(
+                parse_expires_on_to_instant(s, issued_at).is_none(),
+                "unparseable expiresOn {s:?} must fail closed to None"
+            );
+        }
+    }
 
     #[test]
     fn test_bastion_loopback_ssh_opts_disable_known_hosts() {
