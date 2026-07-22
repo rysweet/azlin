@@ -1007,3 +1007,73 @@ async fn test_token_never_leaks_via_type_formatting() {
         "token leaked through refresh-path logging: {logged}"
     );
 }
+
+// ── Fail-safe / fail-closed contract on provider failure ─────────────────────
+
+/// A `TokenProvider` that always fails, recording how many times it was invoked.
+fn failing_provider(calls: Arc<AtomicUsize>) -> TokenProvider {
+    Arc::new(move || {
+        let calls = calls.clone();
+        Box::pin(async move {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err(azlin_azure::native_tunnel::NativeTunnelError::TokenExchange(
+                "simulated az failure".to_string(),
+            ))
+        }) as BoxFuture<'static, Result<TokenWithExpiry, azlin_azure::native_tunnel::NativeTunnelError>>
+    })
+}
+
+/// FAIL-SAFE: a transient provider (`az`) failure while the cached token is
+/// about-to-expire but NOT yet hard-expired must reuse the still-valid cached
+/// token rather than tear the tunnel down — one connection's `az` hiccup must
+/// not break connections that a valid credential could still serve.
+#[tokio::test]
+async fn test_provider_failure_reuses_still_valid_cached_token() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let cache = TokenCache::with_token(
+        failing_provider(calls.clone()),
+        about_to_expire("STILL-VALID-CACHED"),
+    );
+
+    let token = cache
+        .get_valid_token()
+        .await
+        .expect("a not-yet-hard-expired token must be reused when refresh fails");
+
+    assert_eq!(
+        token, "STILL-VALID-CACHED",
+        "the still-valid cached token must be reused on transient refresh failure"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "exactly one (failed) refresh attempt must have been made"
+    );
+}
+
+/// FAIL-CLOSED: when the cached token is hard-expired AND the provider fails,
+/// `get_valid_token` must surface an error — never hand out an expired secret
+/// or fall back to an unauthenticated path.
+#[tokio::test]
+async fn test_provider_failure_with_hard_expired_token_fails_closed() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let now = Instant::now();
+    let hard_expired = TokenWithExpiry {
+        value: "EXPIRED-MUST-NOT-BE-SERVED".to_string(),
+        issued_at: now - Duration::from_secs(3600),
+        expires_at: Some(now - Duration::from_secs(1)),
+    };
+    let cache = TokenCache::with_token(failing_provider(calls.clone()), hard_expired);
+
+    let result = cache.get_valid_token().await;
+
+    assert!(
+        result.is_err(),
+        "a hard-expired token with a failing provider must fail closed, not serve the expired secret"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "exactly one (failed) refresh attempt must have been made before failing closed"
+    );
+}
