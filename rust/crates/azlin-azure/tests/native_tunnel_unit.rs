@@ -37,7 +37,7 @@ async fn test_open_tunnel_function_signature_exists() {
     // Verify the function exists and is callable with correct arg types.
     // We pass invalid inputs so it returns an error immediately (no real bastion needed).
     let result = azlin_azure::native_tunnel::open_tunnel(
-        "",  // empty endpoint → InvalidEndpoint error
+        "", // empty endpoint → InvalidEndpoint error
         "test-resource-id",
         22,
         "test-token",
@@ -55,9 +55,7 @@ async fn test_open_tunnel_function_signature_exists() {
 /// Token exchange URL must be https://{endpoint}/api/tokens
 #[test]
 fn test_token_exchange_url_construction() {
-    let url = azlin_azure::native_tunnel::build_token_exchange_url(
-        "bastion-host.example.com",
-    );
+    let url = azlin_azure::native_tunnel::build_token_exchange_url("bastion-host.example.com");
     assert_eq!(url, "https://bastion-host.example.com/api/tokens");
 }
 
@@ -139,7 +137,11 @@ fn test_token_exchange_request_body() {
         "bearer-token-xyz",
     );
 
-    let get = |k: &str| form.iter().find(|(key, _)| *key == k).map(|(_, v)| v.as_str());
+    let get = |k: &str| {
+        form.iter()
+            .find(|(key, _)| *key == k)
+            .map(|(_, v)| v.as_str())
+    };
 
     assert_eq!(
         get("resourceId"),
@@ -189,7 +191,7 @@ fn test_bastion_token_response_rejects_missing_fields() {
 #[tokio::test]
 async fn test_reject_http_endpoint() {
     let result = azlin_azure::native_tunnel::open_tunnel(
-        "http://bastion.example.com",  // http:// not https://
+        "http://bastion.example.com", // http:// not https://
         "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
         22,
         "token",
@@ -201,7 +203,9 @@ async fn test_reject_http_endpoint() {
     let err = result.unwrap_err();
     let msg = format!("{}", err);
     assert!(
-        msg.to_lowercase().contains("tls") || msg.to_lowercase().contains("https") || msg.to_lowercase().contains("scheme"),
+        msg.to_lowercase().contains("tls")
+            || msg.to_lowercase().contains("https")
+            || msg.to_lowercase().contains("scheme"),
         "error message should mention TLS/HTTPS requirement, got: {}",
         msg
     );
@@ -253,8 +257,8 @@ async fn test_bare_hostname_treated_as_https() {
 async fn test_local_listener_binds_loopback_only() {
     // We can't easily test this without a real tunnel, but we can test the
     // helper function that creates the listener.
-    let listener = azlin_azure::native_tunnel::bind_local_listener()
-        .expect("must bind local listener");
+    let listener =
+        azlin_azure::native_tunnel::bind_local_listener().expect("must bind local listener");
     let addr = listener.local_addr().expect("must have local addr");
     assert!(
         addr.ip().is_loopback(),
@@ -271,20 +275,20 @@ async fn test_local_listener_binds_loopback_only() {
 /// NativeTunnelError must have a TokenExchange variant.
 #[test]
 fn test_error_has_token_exchange_variant() {
-    let err = azlin_azure::native_tunnel::NativeTunnelError::TokenExchange(
-        "mock failure".to_string(),
-    );
+    let err =
+        azlin_azure::native_tunnel::NativeTunnelError::TokenExchange("mock failure".to_string());
     let msg = format!("{}", err);
-    assert!(msg.contains("mock failure") || msg.contains("token"),
-        "TokenExchange error should contain context");
+    assert!(
+        msg.contains("mock failure") || msg.contains("token"),
+        "TokenExchange error should contain context"
+    );
 }
 
 /// NativeTunnelError must have a WebSocket variant.
 #[test]
 fn test_error_has_websocket_variant() {
-    let err = azlin_azure::native_tunnel::NativeTunnelError::WebSocket(
-        "connection reset".to_string(),
-    );
+    let err =
+        azlin_azure::native_tunnel::NativeTunnelError::WebSocket("connection reset".to_string());
     let msg = format!("{}", err);
     assert!(!msg.is_empty());
 }
@@ -292,9 +296,8 @@ fn test_error_has_websocket_variant() {
 /// NativeTunnelError must have a Timeout variant.
 #[test]
 fn test_error_has_timeout_variant() {
-    let err = azlin_azure::native_tunnel::NativeTunnelError::Timeout(
-        std::time::Duration::from_secs(30),
-    );
+    let err =
+        azlin_azure::native_tunnel::NativeTunnelError::Timeout(std::time::Duration::from_secs(30));
     let msg = format!("{}", err);
     assert!(msg.contains("30") || msg.to_lowercase().contains("timeout"));
 }
@@ -302,9 +305,8 @@ fn test_error_has_timeout_variant() {
 /// NativeTunnelError must have an InvalidEndpoint variant for SEC-3.
 #[test]
 fn test_error_has_invalid_endpoint_variant() {
-    let err = azlin_azure::native_tunnel::NativeTunnelError::InvalidEndpoint(
-        "http://bad".to_string(),
-    );
+    let err =
+        azlin_azure::native_tunnel::NativeTunnelError::InvalidEndpoint("http://bad".to_string());
     let msg = format!("{}", err);
     assert!(!msg.is_empty());
 }
@@ -341,10 +343,7 @@ async fn test_forward_bidirectional_with_echo() {
 fn test_token_cleanup_url_includes_node_id_header_name() {
     // The cleanup must send X-Node-Id header. We test that the header constant
     // is correct by checking the module exports it.
-    assert_eq!(
-        azlin_azure::native_tunnel::NODE_ID_HEADER,
-        "X-Node-Id"
-    );
+    assert_eq!(azlin_azure::native_tunnel::NODE_ID_HEADER, "X-Node-Id");
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -357,7 +356,7 @@ async fn test_reject_resource_port_zero() {
     let result = azlin_azure::native_tunnel::open_tunnel(
         "bastion.example.com",
         "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
-        0,  // invalid port
+        0, // invalid port
         "token",
         azlin_azure::native_tunnel::WssUrlMode::NodeScoped,
         std::time::Duration::from_secs(1),
@@ -388,7 +387,7 @@ async fn test_reject_empty_token() {
         "bastion.example.com",
         "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm",
         22,
-        "",  // empty token
+        "", // empty token
         azlin_azure::native_tunnel::WssUrlMode::NodeScoped,
         std::time::Duration::from_secs(1),
     )
@@ -408,19 +407,28 @@ fn test_node_scoped_url_uses_webtunnelv2_path() {
         "ws-tok",
         "node-1",
     );
-    assert!(url.contains("/webtunnelv2/"), "NodeScoped must use /webtunnelv2/ path");
-    assert!(url.contains("X-Node-Id="), "NodeScoped must include X-Node-Id query param");
+    assert!(
+        url.contains("/webtunnelv2/"),
+        "NodeScoped must use /webtunnelv2/ path"
+    );
+    assert!(
+        url.contains("X-Node-Id="),
+        "NodeScoped must include X-Node-Id query param"
+    );
 }
 
 /// EndpointScoped mode must produce a /omni/webtunnel/ URL without X-Node-Id.
 #[test]
 fn test_endpoint_scoped_url_uses_omni_path() {
-    let url = azlin_azure::native_tunnel::build_wss_url_developer(
-        "datapod.example.com",
-        "ws-tok",
+    let url = azlin_azure::native_tunnel::build_wss_url_developer("datapod.example.com", "ws-tok");
+    assert!(
+        url.contains("/omni/webtunnel/"),
+        "EndpointScoped must use /omni/webtunnel/ path"
     );
-    assert!(url.contains("/omni/webtunnel/"), "EndpointScoped must use /omni/webtunnel/ path");
-    assert!(!url.contains("X-Node-Id"), "EndpointScoped must not include X-Node-Id");
+    assert!(
+        !url.contains("X-Node-Id"),
+        "EndpointScoped must not include X-Node-Id"
+    );
 }
 
 /// WssUrlMode enum must have exactly NodeScoped and EndpointScoped variants.
@@ -457,11 +465,7 @@ fn test_wss_url_mode_variants_exist() {
 #[test]
 fn test_redact_wss_url_never_leaks_websocket_token() {
     const TOKEN: &str = "SUPER-SECRET-WS-TOKEN-9f8e7d6c";
-    let url = azlin_azure::native_tunnel::build_wss_url_standard(
-        "host.example",
-        TOKEN,
-        "node-42",
-    );
+    let url = azlin_azure::native_tunnel::build_wss_url_standard("host.example", TOKEN, "node-42");
 
     // Precondition: the raw URL carries the token (this is exactly what the
     // fix guards against being logged).
@@ -527,11 +531,7 @@ fn test_redact_wss_url_developer_sku_masks_token() {
 #[test]
 fn test_redact_wss_url_masks_encoded_special_char_token() {
     const TOKEN: &str = "tok/with+weird=chars&and space";
-    let url = azlin_azure::native_tunnel::build_wss_url_standard(
-        "host.example",
-        TOKEN,
-        "node-7",
-    );
+    let url = azlin_azure::native_tunnel::build_wss_url_standard("host.example", TOKEN, "node-7");
     let encoded = urlencoding::encode(TOKEN).into_owned();
 
     // Precondition: the encoded token is what actually lands in the URL.
@@ -581,11 +581,7 @@ fn test_redact_wss_url_fail_closed_on_malformed_input() {
 #[test]
 fn test_redact_wss_url_does_not_mutate_source_url() {
     const TOKEN: &str = "LIVE-CONNECTION-TOKEN-0011";
-    let url = azlin_azure::native_tunnel::build_wss_url_standard(
-        "host.example",
-        TOKEN,
-        "node-9",
-    );
+    let url = azlin_azure::native_tunnel::build_wss_url_standard("host.example", TOKEN, "node-9");
     let before = url.clone();
     let _ = azlin_azure::native_tunnel::redact_wss_url(&url);
     assert_eq!(
@@ -608,7 +604,10 @@ fn test_redact_wss_url_is_idempotent_and_secret_free() {
     let once = azlin_azure::native_tunnel::redact_wss_url(&url);
     let twice = azlin_azure::native_tunnel::redact_wss_url(&once);
 
-    assert_eq!(once, twice, "redaction must be idempotent: {once} != {twice}");
+    assert_eq!(
+        once, twice,
+        "redaction must be idempotent: {once} != {twice}"
+    );
     assert!(
         !twice.contains(TOKEN),
         "re-redacting an already-redacted URL must stay secret-free: {twice}"
@@ -677,7 +676,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use azlin_azure::native_tunnel::{TokenCache, TokenProvider, TokenWithExpiry};
+use azlin_azure::native_tunnel::{NativeTunnelError, TokenCache, TokenProvider, TokenWithExpiry};
 
 /// Build a `TokenProvider` that records how many times it is invoked and always
 /// returns `value` with the given `lifetime` (None → unknown expiry).
@@ -696,7 +695,11 @@ fn counting_provider(
                 issued_at: now,
                 expires_at: lifetime.map(|d| now + d),
             })
-        }) as BoxFuture<'static, Result<TokenWithExpiry, azlin_azure::native_tunnel::NativeTunnelError>>
+        })
+            as BoxFuture<
+                'static,
+                Result<TokenWithExpiry, azlin_azure::native_tunnel::NativeTunnelError>,
+            >
     })
 }
 
@@ -719,7 +722,55 @@ fn slow_counting_provider(
                 issued_at: now,
                 expires_at: lifetime.map(|d| now + d),
             })
-        }) as BoxFuture<'static, Result<TokenWithExpiry, azlin_azure::native_tunnel::NativeTunnelError>>
+        })
+            as BoxFuture<
+                'static,
+                Result<TokenWithExpiry, azlin_azure::native_tunnel::NativeTunnelError>,
+            >
+    })
+}
+
+/// A `TokenProvider` that always fails, recording how many times it is invoked.
+/// Models a transient `az` hiccup so tests can exercise the fail-safe reuse path.
+fn failing_provider(calls: Arc<AtomicUsize>) -> TokenProvider {
+    Arc::new(move || {
+        let calls = calls.clone();
+        Box::pin(async move {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err(
+                azlin_azure::native_tunnel::NativeTunnelError::TokenExchange(
+                    "simulated az failure".to_string(),
+                ),
+            )
+        })
+            as BoxFuture<
+                'static,
+                Result<TokenWithExpiry, azlin_azure::native_tunnel::NativeTunnelError>,
+            >
+    })
+}
+
+/// A `TokenProvider` that hangs far longer than any test's refresh timeout,
+/// recording invocation so the timeout path (a wedged `az`) can be exercised
+/// without the provider ever returning.
+fn hanging_provider(calls: Arc<AtomicUsize>) -> TokenProvider {
+    Arc::new(move || {
+        let calls = calls.clone();
+        Box::pin(async move {
+            calls.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_secs(3600)).await;
+            // Never reached within a test's refresh timeout; typed so the async
+            // block resolves to the provider's Result output.
+            Err(
+                azlin_azure::native_tunnel::NativeTunnelError::TokenExchange(
+                    "hanging_provider must never return within a test".to_string(),
+                ),
+            )
+        })
+            as BoxFuture<
+                'static,
+                Result<TokenWithExpiry, azlin_azure::native_tunnel::NativeTunnelError>,
+            >
     })
 }
 
@@ -742,6 +793,17 @@ fn comfortably_valid(value: &str) -> TokenWithExpiry {
         value: value.to_string(),
         issued_at: now,
         expires_at: Some(now + Duration::from_secs(3600)),
+    }
+}
+
+/// Seed a cache with a token that is already past its hard expiry, so a failed
+/// or timed-out refresh has no reusable token and must surface the error.
+fn already_expired(value: &str) -> TokenWithExpiry {
+    let now = Instant::now();
+    TokenWithExpiry {
+        value: value.to_string(),
+        issued_at: now - Duration::from_secs(3600),
+        expires_at: Some(now - Duration::from_secs(1)),
     }
 }
 
@@ -901,8 +963,157 @@ async fn test_concurrent_get_valid_token_is_single_flight() {
     );
 }
 
-// ── Secret-safety: the token value must never reach a log sink ───────────────
+// ── Fail-safe reuse & liveness (issue #1059 fast-follow) ─────────────────────
 
+/// FAIL-SAFE REUSE (F2): when a refresh fails but the cached token has NOT
+/// hard-expired, `get_valid_token` must reuse the still-valid cached value
+/// rather than tear the connection down on a transient `az` hiccup. The provider
+/// is invoked (the token was inside its refresh margin) but its failure is
+/// absorbed.
+#[tokio::test]
+async fn test_refresh_failure_reuses_still_valid_cached_token() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let provider = failing_provider(calls.clone());
+
+    // about_to_expire is inside the refresh margin (triggers a refresh attempt)
+    // but NOT past hard expiry (still reusable on failure).
+    let cache = TokenCache::with_token(provider, about_to_expire("STILL-VALID-ON-FAILURE"));
+
+    let token = cache
+        .get_valid_token()
+        .await
+        .expect("a failed refresh must fall back to the still-valid cached token");
+
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "the failing provider must have been attempted exactly once"
+    );
+    assert_eq!(
+        token, "STILL-VALID-ON-FAILURE",
+        "the not-yet-hard-expired cached token must be reused when refresh fails"
+    );
+}
+
+/// FAIL-SAFE BOUNDARY (F2): when the cached token is ALSO hard-expired, a refresh
+/// failure has no usable fallback and MUST surface the error instead of handing
+/// out a dead token.
+#[tokio::test]
+async fn test_refresh_failure_surfaces_error_when_cached_token_hard_expired() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let provider = failing_provider(calls.clone());
+
+    let cache = TokenCache::with_token(provider, already_expired("DEAD-TOKEN"));
+
+    let result = cache.get_valid_token().await;
+
+    assert!(
+        result.is_err(),
+        "a refresh failure with no reusable (hard-expired) token must surface an error, got: {result:?}"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "the failing provider must have been attempted exactly once"
+    );
+}
+
+/// LIVENESS (F1): a hung provider (a wedged `az`) must not hold the single-flight
+/// lock forever. With no reusable token, the bounded refresh must elapse and
+/// surface a `Timeout` error in ~the refresh timeout — NOT hang for the
+/// provider's full (3600 s) sleep.
+#[tokio::test]
+async fn test_hung_provider_times_out_and_surfaces_error() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let provider = hanging_provider(calls.clone());
+
+    let cache = TokenCache::with_token(provider, already_expired("DEAD-TOKEN"))
+        .with_refresh_timeout(Duration::from_millis(100));
+
+    let started = Instant::now();
+    let result = cache.get_valid_token().await;
+    let elapsed = started.elapsed();
+
+    assert!(
+        matches!(result, Err(NativeTunnelError::Timeout(_))),
+        "a hung refresh with no reusable token must surface a Timeout, got: {result:?}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "the hung provider must be abandoned at the refresh timeout, not awaited to completion (elapsed {elapsed:?})"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "the provider was invoked once"
+    );
+}
+
+/// LIVENESS + FAIL-SAFE (F1): a hung provider must be abandoned at the timeout,
+/// but if the cached token is still valid the connection proceeds on it — one
+/// wedged `az` degrades to reuse instead of a stall.
+#[tokio::test]
+async fn test_hung_provider_times_out_then_reuses_valid_token() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let provider = hanging_provider(calls.clone());
+
+    let cache = TokenCache::with_token(provider, about_to_expire("STILL-VALID-DESPITE-HANG"))
+        .with_refresh_timeout(Duration::from_millis(100));
+
+    let started = Instant::now();
+    let token = cache
+        .get_valid_token()
+        .await
+        .expect("a hung refresh must fall back to the still-valid cached token");
+    let elapsed = started.elapsed();
+
+    assert_eq!(
+        token, "STILL-VALID-DESPITE-HANG",
+        "the still-valid cached token must be reused when the refresh hangs"
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "reuse must happen at the refresh timeout, not the provider's full hang (elapsed {elapsed:?})"
+    );
+}
+
+/// LIVENESS (F1): critically, a hung refresh must RELEASE the single-flight lock
+/// so OTHER connections are not wedged. After a hung attempt on a cache with a
+/// still-valid token, a subsequent `get_valid_token` must return promptly.
+#[tokio::test]
+async fn test_hung_refresh_releases_lock_for_other_waiters() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let provider = hanging_provider(calls.clone());
+
+    let cache = Arc::new(
+        TokenCache::with_token(provider, about_to_expire("STILL-VALID-CONCURRENT"))
+            .with_refresh_timeout(Duration::from_millis(100)),
+    );
+
+    // First waiter triggers the hung refresh (absorbed via reuse at the timeout).
+    let first = cache
+        .get_valid_token()
+        .await
+        .expect("first waiter reuses token");
+    assert_eq!(first, "STILL-VALID-CONCURRENT");
+
+    // A second call must not be blocked by the first's abandoned refresh: the
+    // lock was released, so this returns promptly (reusing the still-valid token).
+    let started = Instant::now();
+    let second = cache
+        .get_valid_token()
+        .await
+        .expect("second waiter must not be wedged by the earlier hung refresh");
+    let elapsed = started.elapsed();
+
+    assert_eq!(second, "STILL-VALID-CONCURRENT");
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "the single-flight lock must be released after a hung refresh so waiters proceed (elapsed {elapsed:?})"
+    );
+}
+
+// ── Secret-safety: the token value must never reach a log sink ───────────────
 /// A `tracing` writer that appends every emitted byte to a shared buffer so a
 /// test can assert what did (and did not) get logged.
 #[derive(Clone)]
@@ -1005,75 +1216,5 @@ async fn test_token_never_leaks_via_type_formatting() {
     assert!(
         !logged.contains(SECRET),
         "token leaked through refresh-path logging: {logged}"
-    );
-}
-
-// ── Fail-safe / fail-closed contract on provider failure ─────────────────────
-
-/// A `TokenProvider` that always fails, recording how many times it was invoked.
-fn failing_provider(calls: Arc<AtomicUsize>) -> TokenProvider {
-    Arc::new(move || {
-        let calls = calls.clone();
-        Box::pin(async move {
-            calls.fetch_add(1, Ordering::SeqCst);
-            Err(azlin_azure::native_tunnel::NativeTunnelError::TokenExchange(
-                "simulated az failure".to_string(),
-            ))
-        }) as BoxFuture<'static, Result<TokenWithExpiry, azlin_azure::native_tunnel::NativeTunnelError>>
-    })
-}
-
-/// FAIL-SAFE: a transient provider (`az`) failure while the cached token is
-/// about-to-expire but NOT yet hard-expired must reuse the still-valid cached
-/// token rather than tear the tunnel down — one connection's `az` hiccup must
-/// not break connections that a valid credential could still serve.
-#[tokio::test]
-async fn test_provider_failure_reuses_still_valid_cached_token() {
-    let calls = Arc::new(AtomicUsize::new(0));
-    let cache = TokenCache::with_token(
-        failing_provider(calls.clone()),
-        about_to_expire("STILL-VALID-CACHED"),
-    );
-
-    let token = cache
-        .get_valid_token()
-        .await
-        .expect("a not-yet-hard-expired token must be reused when refresh fails");
-
-    assert_eq!(
-        token, "STILL-VALID-CACHED",
-        "the still-valid cached token must be reused on transient refresh failure"
-    );
-    assert_eq!(
-        calls.load(Ordering::SeqCst),
-        1,
-        "exactly one (failed) refresh attempt must have been made"
-    );
-}
-
-/// FAIL-CLOSED: when the cached token is hard-expired AND the provider fails,
-/// `get_valid_token` must surface an error — never hand out an expired secret
-/// or fall back to an unauthenticated path.
-#[tokio::test]
-async fn test_provider_failure_with_hard_expired_token_fails_closed() {
-    let calls = Arc::new(AtomicUsize::new(0));
-    let now = Instant::now();
-    let hard_expired = TokenWithExpiry {
-        value: "EXPIRED-MUST-NOT-BE-SERVED".to_string(),
-        issued_at: now - Duration::from_secs(3600),
-        expires_at: Some(now - Duration::from_secs(1)),
-    };
-    let cache = TokenCache::with_token(failing_provider(calls.clone()), hard_expired);
-
-    let result = cache.get_valid_token().await;
-
-    assert!(
-        result.is_err(),
-        "a hard-expired token with a failing provider must fail closed, not serve the expired secret"
-    );
-    assert_eq!(
-        calls.load(Ordering::SeqCst),
-        1,
-        "exactly one (failed) refresh attempt must have been made before failing closed"
     );
 }

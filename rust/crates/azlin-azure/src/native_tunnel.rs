@@ -121,6 +121,18 @@ const REFRESH_FRACTION: f64 = 0.2;
 /// not a fixed TTL.
 const MIN_REFRESH_MARGIN: Duration = Duration::from_secs(30);
 
+/// Default upper bound on how long a single provider (`az`) invocation may run
+/// while holding the single-flight refresh lock.
+///
+/// This is a **liveness guard, not a token-lifetime or reconnect cap** (issue
+/// #1059 fast-follow): because the refresh runs under the async mutex, a hung
+/// provider — e.g. a wedged `az` subprocess — would otherwise hold the lock
+/// forever and stall *every* connection, not just the one triggering the
+/// refresh. Bounding the await lets one hung refresh fail cleanly (releasing the
+/// mutex) while other waiters proceed. Callers may override via
+/// [`TokenCache::with_refresh_timeout`].
+const DEFAULT_REFRESH_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// Internal cached token state.
 ///
 /// Field-identical to the public [`TokenWithExpiry`] DTO but private, so the
@@ -181,6 +193,11 @@ impl CachedToken {
 pub struct TokenCache {
     provider: TokenProvider,
     inner: Arc<AsyncMutex<Option<CachedToken>>>,
+    /// Liveness bound on a single provider invocation (see
+    /// [`DEFAULT_REFRESH_TIMEOUT`]). Held-lock refreshes are wrapped in a
+    /// `tokio::time::timeout` of this length so a hung provider cannot wedge the
+    /// single-flight mutex for every connection.
+    refresh_timeout: Duration,
 }
 
 impl TokenCache {
@@ -190,6 +207,7 @@ impl TokenCache {
         Self {
             provider,
             inner: Arc::new(AsyncMutex::new(None)),
+            refresh_timeout: DEFAULT_REFRESH_TIMEOUT,
         }
     }
 
@@ -198,7 +216,20 @@ impl TokenCache {
         Self {
             provider,
             inner: Arc::new(AsyncMutex::new(Some(initial.into()))),
+            refresh_timeout: DEFAULT_REFRESH_TIMEOUT,
         }
+    }
+
+    /// Override the per-refresh liveness timeout (default
+    /// [`DEFAULT_REFRESH_TIMEOUT`]).
+    ///
+    /// Bounds how long a single provider invocation may hold the single-flight
+    /// lock before it is abandoned, so a hung provider cannot stall every
+    /// connection. Zero is treated as "no timeout would ever fire" and is clamped
+    /// up to a 1 ms floor so the bound stays meaningful.
+    pub fn with_refresh_timeout(mut self, timeout: Duration) -> Self {
+        self.refresh_timeout = timeout.max(Duration::from_millis(1));
+        self
     }
 
     /// Return a valid token value, refreshing via the provider if the cached
@@ -208,6 +239,12 @@ impl TokenCache {
     /// concurrent callers that lose the race re-check freshness after acquiring
     /// the lock and reuse the just-refreshed token instead of triggering another
     /// provider call.
+    ///
+    /// LIVENESS: the provider await is bounded by `refresh_timeout` so a hung
+    /// provider cannot hold the single-flight lock indefinitely and stall every
+    /// connection (issue #1059 fast-follow). A timeout is handled exactly like a
+    /// provider error — the fail-safe path below reuses a not-yet-hard-expired
+    /// cached token and only surfaces an error when none remains.
     ///
     /// SECRET SAFETY: the returned `String` is the only place the token value
     /// surfaces; this method never logs the value.
@@ -221,8 +258,16 @@ impl TokenCache {
             }
         }
 
-        // Refresh under the lock (single-flight).
-        match (self.provider)().await {
+        // Refresh under the lock (single-flight), bounded by `refresh_timeout`.
+        // A hung provider (e.g. a wedged `az` subprocess) that outlasts the bound
+        // is abandoned here so the lock is released and other waiters proceed;
+        // the dropped future's blocking work (if any) detaches harmlessly.
+        let refreshed = match tokio::time::timeout(self.refresh_timeout, (self.provider)()).await {
+            Ok(result) => result,
+            Err(_elapsed) => Err(NativeTunnelError::Timeout(self.refresh_timeout)),
+        };
+
+        match refreshed {
             Ok(fresh) => {
                 let value = fresh.value.clone();
                 *guard = Some(fresh.into());
@@ -231,11 +276,14 @@ impl TokenCache {
             Err(e) => {
                 // Fail-safe: if we still hold a token that has not hard-expired,
                 // reuse it for this connection rather than tearing the tunnel
-                // down on a transient `az` hiccup. The error is never dropped
-                // silently — it is either logged (reuse) or surfaced (no token).
+                // down on a transient `az` hiccup or a single hung refresh. The
+                // error is never dropped silently — it is either logged (reuse)
+                // or surfaced (no token).
                 if let Some(cached) = guard.as_ref() {
                     if !cached.hard_expired() {
-                        warn!("bastion token refresh failed, reusing still-valid cached token: {e}");
+                        warn!(
+                            "bastion token refresh failed, reusing still-valid cached token: {e}"
+                        );
                         return Ok(cached.value.clone());
                     }
                 }
@@ -887,8 +935,10 @@ pub async fn open_tunnel_with_timeouts(
         .build()
         .map_err(|e| NativeTunnelError::Http(format!("failed to create HTTP client: {e}")))?;
 
-    // Adaptive token cache shared across every connection (issue #1059).
-    let token_cache = TokenCache::new(provider);
+    // Adaptive token cache shared across every connection (issue #1059). The
+    // refresh is bounded by the configured setup timeout so a hung `az` cannot
+    // hold the single-flight lock and stall every connection (fast-follow).
+    let token_cache = TokenCache::new(provider).with_refresh_timeout(timeout);
 
     // Verify connectivity with a quick token exchange + cleanup. This also seeds
     // the token cache with a fresh, valid token.
