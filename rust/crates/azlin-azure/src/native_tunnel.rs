@@ -122,10 +122,24 @@ const REFRESH_FRACTION: f64 = 0.2;
 const MIN_REFRESH_MARGIN: Duration = Duration::from_secs(30);
 
 /// Internal cached token state.
+///
+/// Field-identical to the public [`TokenWithExpiry`] DTO but private, so the
+/// cache-policy methods (`needs_refresh`, `hard_expired`) stay off the public
+/// API surface. Convert from the DTO via `From` at the single seed/refresh sites.
 struct CachedToken {
     value: String,
     issued_at: Instant,
     expires_at: Option<Instant>,
+}
+
+impl From<TokenWithExpiry> for CachedToken {
+    fn from(t: TokenWithExpiry) -> Self {
+        Self {
+            value: t.value,
+            issued_at: t.issued_at,
+            expires_at: t.expires_at,
+        }
+    }
 }
 
 impl CachedToken {
@@ -183,11 +197,7 @@ impl TokenCache {
     pub fn with_token(provider: TokenProvider, initial: TokenWithExpiry) -> Self {
         Self {
             provider,
-            inner: Arc::new(AsyncMutex::new(Some(CachedToken {
-                value: initial.value,
-                issued_at: initial.issued_at,
-                expires_at: initial.expires_at,
-            }))),
+            inner: Arc::new(AsyncMutex::new(Some(initial.into()))),
         }
     }
 
@@ -215,11 +225,7 @@ impl TokenCache {
         match (self.provider)().await {
             Ok(fresh) => {
                 let value = fresh.value.clone();
-                *guard = Some(CachedToken {
-                    value: fresh.value,
-                    issued_at: fresh.issued_at,
-                    expires_at: fresh.expires_at,
-                });
+                *guard = Some(fresh.into());
                 Ok(value)
             }
             Err(e) => {
