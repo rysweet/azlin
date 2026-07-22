@@ -800,12 +800,23 @@ pub async fn open_tunnel(
     .await
 }
 
+/// Nominal lifetime reported for a static (non-refreshable) token.
+///
+/// A static token is fixed for the life of the process, so re-invoking its
+/// provider only ever yields the same value. Reporting a long, bounded lifetime
+/// (rather than `None`) lets [`TokenCache`]'s fast path serve it from cache
+/// instead of re-invoking the provider, re-cloning the string, and re-writing
+/// the cache on every connection. The value is bounded well below any `Instant`
+/// overflow risk. Behavior is identical either way — the same token is always
+/// handed out — this simply avoids per-connection redundant work.
+const STATIC_TOKEN_LIFETIME: Duration = Duration::from_secs(365 * 24 * 3600);
+
 /// Wrap a static token literal in a trivial [`TokenProvider`].
 ///
 /// Used by the stable [`open_tunnel`] wrapper: the token is fixed and cannot be
-/// refreshed to anything different, so its expiry is reported as unknown
-/// (`None`). Real, refreshable callers pass a live provider to
-/// [`open_tunnel_with_timeouts`] instead.
+/// refreshed to anything different, so it is reported with a long, bounded
+/// [`STATIC_TOKEN_LIFETIME`] so the cache actually caches it. Real, refreshable
+/// callers pass a live provider to [`open_tunnel_with_timeouts`] instead.
 fn static_token_provider(token: &str) -> TokenProvider {
     let token = token.to_string();
     Arc::new(move || {
@@ -815,7 +826,7 @@ fn static_token_provider(token: &str) -> TokenProvider {
             Ok(TokenWithExpiry {
                 value: token,
                 issued_at: now,
-                expires_at: None,
+                expires_at: Some(now + STATIC_TOKEN_LIFETIME),
             })
         })
     })
