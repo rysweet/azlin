@@ -430,3 +430,221 @@ fn test_wss_url_mode_variants_exist() {
     let _es = azlin_azure::native_tunnel::WssUrlMode::EndpointScoped;
     assert_ne!(_ns, _es);
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// 9. WSS URL redaction (issue #1056)
+//
+// The `wss://` tunnel URL embeds the short-lived `websocketToken` as a path
+// segment (Standard/Premium) or as the final path segment (Developer). Before
+// this fix, a failed WSS connect/reconnect/close rendered the `tungstenite`
+// error (which embeds the full URL) straight into a `tracing` sink, leaking the
+// bearer secret into log files and OTel exporters.
+//
+// `redact_wss_url(&str) -> String` returns a log-safe rendering that masks the
+// token while preserving scheme, host, and the non-secret `X-Node-Id`. It is
+// fail-closed: input that does not match a known tunnel URL shape is masked to
+// `wss://<redacted>`. The live connection is unaffected — `connect_async` still
+// receives the real, unredacted URL.
+//
+// These tests mirror `test_cleanup_error_without_url_does_not_leak_auth_token`
+// in `src/native_tunnel.rs` (the cleanup-path token-leak regression test) but
+// cover the WSS-connect leak site.
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Primary contract (issue #1056): the redacted form of a Standard/Premium SKU
+/// WSS URL must never contain the `websocketToken`, raw or URL-encoded, while
+/// keeping scheme, host, node id, and a `***` mask marker.
+#[test]
+fn test_redact_wss_url_never_leaks_websocket_token() {
+    const TOKEN: &str = "SUPER-SECRET-WS-TOKEN-9f8e7d6c";
+    let url = azlin_azure::native_tunnel::build_wss_url_standard(
+        "host.example",
+        TOKEN,
+        "node-42",
+    );
+
+    // Precondition: the raw URL carries the token (this is exactly what the
+    // fix guards against being logged).
+    let encoded = urlencoding::encode(TOKEN).into_owned();
+    assert!(
+        url.contains(TOKEN) || url.contains(&encoded),
+        "precondition: raw wss_url is expected to embed the websocket token"
+    );
+
+    let redacted = azlin_azure::native_tunnel::redact_wss_url(&url);
+
+    // The redacted form must never contain the token (raw or encoded).
+    assert!(
+        !redacted.contains(TOKEN),
+        "websocket token leaked (raw) into redacted url: {redacted}"
+    );
+    assert!(
+        !redacted.contains(encoded.as_str()),
+        "websocket token leaked (url-encoded) into redacted url: {redacted}"
+    );
+
+    // Non-secret structure is preserved for diagnostic value.
+    assert!(
+        redacted.starts_with("wss://host.example/webtunnelv2/"),
+        "redacted url must preserve scheme/host/path shape: {redacted}"
+    );
+    assert!(
+        redacted.contains("X-Node-Id=node-42"),
+        "redacted url must retain the non-secret node id: {redacted}"
+    );
+    assert!(
+        redacted.contains("***"),
+        "redacted url must include the mask marker: {redacted}"
+    );
+}
+
+/// Developer/QuickConnect (EndpointScoped) SKU: `wss://host/omni/webtunnel/<TOKEN>`
+/// must have its final-segment token masked; there is no node id to preserve.
+#[test]
+fn test_redact_wss_url_developer_sku_masks_token() {
+    const TOKEN: &str = "DEV-WS-TOKEN-abcdef123456";
+    let url = azlin_azure::native_tunnel::build_wss_url_developer("datapod.example", TOKEN);
+
+    let redacted = azlin_azure::native_tunnel::redact_wss_url(&url);
+
+    assert!(
+        !redacted.contains(TOKEN),
+        "developer-sku websocket token leaked into redacted url: {redacted}"
+    );
+    assert!(
+        redacted.starts_with("wss://datapod.example/omni/webtunnel/"),
+        "redacted developer url must preserve scheme/host/path shape: {redacted}"
+    );
+    assert!(
+        redacted.contains("***"),
+        "redacted developer url must include the mask marker: {redacted}"
+    );
+}
+
+/// URL-encoding aware: a token with special characters (which
+/// `build_wss_url_standard` percent-encodes per SEC-2) must not slip through in
+/// either its raw or its percent-encoded form.
+#[test]
+fn test_redact_wss_url_masks_encoded_special_char_token() {
+    const TOKEN: &str = "tok/with+weird=chars&and space";
+    let url = azlin_azure::native_tunnel::build_wss_url_standard(
+        "host.example",
+        TOKEN,
+        "node-7",
+    );
+    let encoded = urlencoding::encode(TOKEN).into_owned();
+
+    // Precondition: the encoded token is what actually lands in the URL.
+    assert!(
+        url.contains(&encoded),
+        "precondition: encoded token should be present in the raw url"
+    );
+
+    let redacted = azlin_azure::native_tunnel::redact_wss_url(&url);
+
+    assert!(
+        !redacted.contains(TOKEN),
+        "raw special-char token leaked into redacted url: {redacted}"
+    );
+    assert!(
+        !redacted.contains(encoded.as_str()),
+        "encoded special-char token leaked into redacted url: {redacted}"
+    );
+    assert!(
+        redacted.contains("X-Node-Id=node-7"),
+        "redacted url must retain the node id: {redacted}"
+    );
+}
+
+/// Fail-closed: input that does not parse as a known tunnel URL shape must be
+/// masked aggressively to `wss://<redacted>` rather than echoed back.
+#[test]
+fn test_redact_wss_url_fail_closed_on_malformed_input() {
+    for garbage in [
+        "not-a-url",
+        "https://host/api/tokens/some-secret",
+        "wss://host/unexpected/path/SECRET-LEAK",
+        "",
+    ] {
+        let redacted = azlin_azure::native_tunnel::redact_wss_url(garbage);
+        assert_eq!(
+            redacted, "wss://<redacted>",
+            "malformed input must fail closed to a fixed masked sentinel, got: {redacted}"
+        );
+    }
+}
+
+/// The redaction must be a logging-only control: it must not mutate or shorten
+/// the real URL used for the live connection. We assert the real builder output
+/// is unchanged by confirming the token is still present in the source URL after
+/// redaction (redaction takes `&str` and returns a new String).
+#[test]
+fn test_redact_wss_url_does_not_mutate_source_url() {
+    const TOKEN: &str = "LIVE-CONNECTION-TOKEN-0011";
+    let url = azlin_azure::native_tunnel::build_wss_url_standard(
+        "host.example",
+        TOKEN,
+        "node-9",
+    );
+    let before = url.clone();
+    let _ = azlin_azure::native_tunnel::redact_wss_url(&url);
+    assert_eq!(
+        url, before,
+        "redact_wss_url must not mutate the caller's real, token-bearing url"
+    );
+    assert!(
+        url.contains(TOKEN),
+        "the real url handed to connect_async must still carry the token"
+    );
+}
+
+/// Redaction is idempotent: re-scrubbing an already-redacted URL is stable and
+/// still leaks nothing, so a double-log path can never expose the token.
+#[test]
+fn test_redact_wss_url_is_idempotent_and_secret_free() {
+    const TOKEN: &str = "IDEMPOTENT-WS-TOKEN-55aa";
+    let url = azlin_azure::native_tunnel::build_wss_url_standard("host.example", TOKEN, "node-3");
+
+    let once = azlin_azure::native_tunnel::redact_wss_url(&url);
+    let twice = azlin_azure::native_tunnel::redact_wss_url(&once);
+
+    assert_eq!(once, twice, "redaction must be idempotent: {once} != {twice}");
+    assert!(
+        !twice.contains(TOKEN),
+        "re-redacting an already-redacted URL must stay secret-free: {twice}"
+    );
+}
+
+/// The exact WSS-connect `warn!` scrub performed in `handle_client`:
+///   let redacted_url = redact_wss_url(&wss_url);
+///   let safe_err = e.to_string().replace(&wss_url, &redacted_url);
+/// A `tungstenite` error `Display` may echo the full connect URL verbatim; the
+/// scrub must strip both the raw URL and the token from the emitted log line
+/// while keeping the diagnostic error text.
+#[test]
+fn test_wss_connect_error_scrub_strips_token_and_raw_url() {
+    const TOKEN: &str = "CONNECT-ERR-WS-TOKEN-77dd";
+    let wss_url =
+        azlin_azure::native_tunnel::build_wss_url_standard("host.example", TOKEN, "node-5");
+    let raw_error = format!("WebSocket connection to '{wss_url}' failed: handshake error");
+    assert!(
+        raw_error.contains(TOKEN),
+        "precondition: the raw error render leaks the token"
+    );
+
+    let redacted_url = azlin_azure::native_tunnel::redact_wss_url(&wss_url);
+    let safe_err = raw_error.replace(&wss_url, &redacted_url);
+
+    assert!(
+        !safe_err.contains(TOKEN),
+        "scrubbed connect-failure log line must NOT contain the token: {safe_err}"
+    );
+    assert!(
+        !safe_err.contains(&wss_url),
+        "scrubbed connect-failure log line must NOT contain the raw URL: {safe_err}"
+    );
+    assert!(
+        safe_err.contains("handshake error"),
+        "diagnostic error text must survive the scrub: {safe_err}"
+    );
+}

@@ -8,6 +8,7 @@
 ## Reference
 
 - [API Reference](./API_REFERENCE.md) — Programmatic API for automation
+- [WSS URL Redaction](./WSS_URL_REDACTION.md) — Log-safe bastion tunnel URLs (`redact_wss_url`)
 - [CLI Command Reference](./reference/cli-python-parity.md) — All CLI flags, defaults, and migration notes
 - [Logs Command](./reference/logs-command.md) — View and stream VM log files
 - [Restore Command](./reference/cli-help-restore.md) — Restore terminal sessions

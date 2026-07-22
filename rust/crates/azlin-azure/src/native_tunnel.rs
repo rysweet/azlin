@@ -106,6 +106,54 @@ pub fn build_wss_url_developer(endpoint: &str, ws_token: &str) -> String {
     )
 }
 
+/// Return a log-safe rendering of a `wss://` bastion tunnel URL with the
+/// embedded `websocketToken` replaced by `***` (issue #1056).
+///
+/// The tunnel URL carries the short-lived `websocketToken` — a bearer secret —
+/// as a path segment (`/webtunnelv2/<TOKEN>` for Standard/Premium,
+/// `/omni/webtunnel/<TOKEN>` for Developer/QuickConnect). Rendering the raw URL
+/// (or a `tungstenite` error that embeds it) into a `tracing` sink leaks that
+/// secret into log files and OpenTelemetry exporters.
+///
+/// This helper masks the token segment while preserving scheme, host, and the
+/// non-secret `X-Node-Id` query parameter so logs stay diagnostically useful.
+/// It is **fail-closed**: any input that does not match a known tunnel URL shape
+/// is masked to the fixed sentinel `wss://<redacted>` rather than echoed back.
+///
+/// This is a logging-only control. The real, token-bearing URL returned by
+/// [`build_wss_url_standard`] / [`build_wss_url_developer`] is still passed
+/// verbatim to `connect_async`; `redact_wss_url` takes `&str` and returns a new
+/// `String`, so it never mutates the caller's live URL.
+pub fn redact_wss_url(url: &str) -> String {
+    /// Mask marker substituted for the secret token segment.
+    const MASK: &str = "***";
+    /// Fixed sentinel returned for any unrecognized / malformed input.
+    const REDACTED: &str = "wss://<redacted>";
+
+    // Only `wss://` tunnel URLs of a known shape are structurally redacted.
+    let Some(rest) = url.strip_prefix("wss://") else {
+        return REDACTED.to_string();
+    };
+
+    // Try each known tunnel path marker. `host` is everything before the marker
+    // (must be a bare authority with no `/`); the token segment after the marker
+    // is dropped and any trailing `?query` (e.g. `X-Node-Id`) is preserved.
+    for marker in ["/webtunnelv2/", "/omni/webtunnel/"] {
+        if let Some(idx) = rest.find(marker) {
+            let host = &rest[..idx];
+            if host.is_empty() || host.contains('/') {
+                continue;
+            }
+            let after = &rest[idx + marker.len()..];
+            let query = after.find('?').map(|q| &after[q..]).unwrap_or("");
+            return format!("wss://{host}{marker}{MASK}{query}");
+        }
+    }
+
+    // Fail-closed: unrecognized shape → do not echo any part of the input.
+    REDACTED.to_string()
+}
+
 /// Build the token cleanup URL: `https://{endpoint}/api/tokens/{auth_token}`
 pub fn build_token_cleanup_url(endpoint: &str, auth_token: &str) -> String {
     format!(
@@ -473,7 +521,12 @@ async fn handle_client(
     let (ws_stream, _) = match ws_result {
         Ok(pair) => pair,
         Err(e) => {
-            warn!("bastion WSS connect failed: {e}");
+            // The `tungstenite` error `Display` embeds the full connect URL,
+            // which carries the `websocketToken` secret. Scrub the URL from the
+            // rendered error and log the redacted form only (issue #1056).
+            let redacted_url = redact_wss_url(&wss_url);
+            let safe_err = e.to_string().replace(&wss_url, &redacted_url);
+            warn!(url = %redacted_url, "bastion WSS connect failed: {safe_err}");
             // Best-effort cleanup
             cleanup_token(
                 &client,
@@ -904,5 +957,213 @@ mod classifier_tests {
                 "rendered hint must be secret-free: {rendered}"
             );
         }
+    }
+}
+
+// ── WSS URL redaction tests (issue #1056) ────────────────────────────────────
+//
+// TDD (write-tests-first) contract for `redact_wss_url` and the WSS-connect
+// `warn!` scrubbing pipeline. The bastion tunnel URL carries the short-lived
+// `websocketToken` bearer secret as a PATH SEGMENT (`/webtunnelv2/<TOKEN>` for
+// Standard/Premium, `/omni/webtunnel/<TOKEN>` for Developer/QuickConnect). A
+// failed `connect_async` produces a `tungstenite` error whose `Display` can
+// embed the full connect URL; rendering it into a `tracing`/OTel sink would
+// leak the token. These tests pin the guarantee that the token can NEVER reach
+// a log sink regardless of upstream `Display` behaviour:
+//
+//   * `redact_wss_url` masks the token segment for every known tunnel shape,
+//   * it is FAIL-CLOSED: any unrecognized input is masked to the fixed sentinel
+//     `wss://<redacted>` and never echoed back (no partial leak),
+//   * the call-site scrub (`err.replace(&wss_url, &redact_wss_url(&wss_url))`)
+//     removes the token from a rendered error that embeds the raw URL,
+//   * host/`X-Node-Id` diagnostics are preserved so logs stay useful.
+//
+// The token-absence assertions also serve as regression guards: any future
+// change that re-introduces the raw token into the redacted/logged output
+// turns these RED.
+#[cfg(test)]
+mod redaction_tests {
+    use super::*;
+
+    /// A recognizable, structurally-simple secret so any leak is unambiguous in
+    /// assertion output. Contains no URL-reserved characters, so it survives
+    /// `urlencoding::encode` verbatim and appears literally in the built URL.
+    const TOKEN: &str = "SUPERSECRETwebsocketTOKEN0123456789abcdef";
+    const ENDPOINT: &str = "bst-abc123.bastion.azure.com";
+    const NODE_ID: &str = "node-42";
+
+    /// Fixed sentinel the fail-closed path must emit for unrecognized input.
+    const SENTINEL: &str = "wss://<redacted>";
+
+    // 1. Standard/Premium URL: the token segment is masked while scheme, host,
+    //    and the non-secret `X-Node-Id` query parameter survive for diagnostics.
+    #[test]
+    fn redacts_standard_url_token_but_keeps_host_and_node_id() {
+        let url = build_wss_url_standard(ENDPOINT, TOKEN, NODE_ID);
+        // Precondition: the raw URL really does carry the secret (guards the test).
+        assert!(
+            url.contains(TOKEN),
+            "precondition: raw standard URL must embed the token"
+        );
+
+        let redacted = redact_wss_url(&url);
+
+        assert!(
+            !redacted.contains(TOKEN),
+            "token leaked into redacted standard URL: {redacted}"
+        );
+        assert!(
+            redacted.contains(ENDPOINT),
+            "host must be preserved for diagnostics: {redacted}"
+        );
+        assert!(
+            redacted.contains("X-Node-Id="),
+            "non-secret X-Node-Id query must be preserved: {redacted}"
+        );
+        assert!(
+            redacted.starts_with("wss://") && redacted.contains("/webtunnelv2/"),
+            "redacted URL must keep its recognizable tunnel shape: {redacted}"
+        );
+        assert_ne!(redacted, SENTINEL, "a known shape must not fail closed");
+    }
+
+    // 2. Developer/QuickConnect URL: the token segment is masked; host survives.
+    #[test]
+    fn redacts_developer_url_token_but_keeps_host() {
+        let url = build_wss_url_developer(ENDPOINT, TOKEN);
+        assert!(
+            url.contains(TOKEN),
+            "precondition: raw developer URL must embed the token"
+        );
+
+        let redacted = redact_wss_url(&url);
+
+        assert!(
+            !redacted.contains(TOKEN),
+            "token leaked into redacted developer URL: {redacted}"
+        );
+        assert!(
+            redacted.contains(ENDPOINT),
+            "host must be preserved: {redacted}"
+        );
+        assert!(
+            redacted.contains("/omni/webtunnel/"),
+            "redacted URL must keep its recognizable tunnel shape: {redacted}"
+        );
+        assert_ne!(redacted, SENTINEL, "a known shape must not fail closed");
+    }
+
+    // 3. FAIL-CLOSED: a non-`wss://` scheme (e.g. the auth token cleanup URL,
+    //    or anything else) is masked to the sentinel with no part echoed back.
+    #[test]
+    fn non_wss_scheme_fails_closed_to_sentinel() {
+        let url = format!("https://{ENDPOINT}/api/tokens/{TOKEN}");
+        let redacted = redact_wss_url(&url);
+        assert_eq!(
+            redacted, SENTINEL,
+            "non-wss input must fail closed to the sentinel"
+        );
+        assert!(
+            !redacted.contains(TOKEN) && !redacted.contains(ENDPOINT),
+            "fail-closed sentinel must echo NOTHING from the input: {redacted}"
+        );
+    }
+
+    // 4. FAIL-CLOSED: a `wss://` URL of an UNKNOWN path shape (no known tunnel
+    //    marker) must not be partially echoed — it collapses to the sentinel.
+    #[test]
+    fn unknown_wss_shape_fails_closed_to_sentinel() {
+        let url = format!("wss://{ENDPOINT}/some/other/path/{TOKEN}");
+        let redacted = redact_wss_url(&url);
+        assert_eq!(
+            redacted, SENTINEL,
+            "unrecognized wss shape must fail closed"
+        );
+        assert!(
+            !redacted.contains(TOKEN),
+            "unrecognized wss shape must not leak the token: {redacted}"
+        );
+    }
+
+    // 5. FAIL-CLOSED against path-injection: if the "host" position contains a
+    //    `/` (i.e. the marker was found but the authority is not a bare host),
+    //    the input is rejected rather than emitting a malformed/partial URL.
+    #[test]
+    fn marker_with_non_bare_host_fails_closed() {
+        // `/webtunnelv2/` appears but is preceded by a path, so `host` contains `/`.
+        let url = format!("wss://{ENDPOINT}/evil/webtunnelv2/{TOKEN}");
+        let redacted = redact_wss_url(&url);
+        assert_eq!(
+            redacted, SENTINEL,
+            "a non-bare host before the marker must fail closed"
+        );
+        assert!(
+            !redacted.contains(TOKEN),
+            "path-injection shape must not leak the token: {redacted}"
+        );
+    }
+
+    // 6. Idempotence: redacting an already-redacted URL is stable and never
+    //    reintroduces or exposes a secret.
+    #[test]
+    fn redaction_is_idempotent() {
+        let url = build_wss_url_standard(ENDPOINT, TOKEN, NODE_ID);
+        let once = redact_wss_url(&url);
+        let twice = redact_wss_url(&once);
+        assert_eq!(
+            once, twice,
+            "redaction must be idempotent: {once} != {twice}"
+        );
+        assert!(!twice.contains(TOKEN), "re-redaction must stay leak-free");
+    }
+
+    // 7. Call-site scrub pipeline (native_tunnel WSS-connect `warn!`, line ~528):
+    //    a `tungstenite`-style error whose `Display` embeds the full connect URL
+    //    must have the raw URL replaced by its redacted form so the rendered,
+    //    to-be-logged string carries NO token — regardless of upstream Display.
+    #[test]
+    fn call_site_scrub_removes_token_from_rendered_error() {
+        for url in [
+            build_wss_url_standard(ENDPOINT, TOKEN, NODE_ID),
+            build_wss_url_developer(ENDPOINT, TOKEN),
+        ] {
+            // Model the worst case: the transport error Display echoes the URL.
+            let raw_error_display =
+                format!("WebSocket protocol error: Connection refused for url ({url})");
+            assert!(
+                raw_error_display.contains(TOKEN),
+                "precondition: worst-case error Display embeds the token"
+            );
+
+            // This mirrors the exact scrub applied at the `warn!` call site.
+            let redacted_url = redact_wss_url(&url);
+            let safe_err = raw_error_display.replace(&url, &redacted_url);
+
+            assert!(
+                !safe_err.contains(TOKEN),
+                "websocket_token leaked into the WSS-connect warn! output: {safe_err}"
+            );
+            // The diagnostic shell of the error is retained.
+            assert!(
+                safe_err.contains("Connection refused"),
+                "scrub must preserve the non-secret error context: {safe_err}"
+            );
+        }
+    }
+
+    // 8. Defense-in-depth: even if the upstream error Display does NOT contain
+    //    the URL at all (so `.replace` is a no-op), the token must still be
+    //    absent from what gets logged — i.e. the raw error alone is token-free.
+    #[test]
+    fn error_without_url_display_is_already_token_free() {
+        let url = build_wss_url_standard(ENDPOINT, TOKEN, NODE_ID);
+        // A realistic opaque tungstenite error that never renders the URL.
+        let raw_error_display = "IO error: Connection reset by peer (os error 104)".to_string();
+        let redacted_url = redact_wss_url(&url);
+        let safe_err = raw_error_display.replace(&url, &redacted_url);
+        assert!(
+            !safe_err.contains(TOKEN),
+            "token must never appear when the error omits the URL: {safe_err}"
+        );
     }
 }
