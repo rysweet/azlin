@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Bastion WSS URL redaction** — the `wss://` tunnel URL embeds the short-lived
+  `websocketToken` bearer secret as a path segment. On a failed WSS connect the
+  `warn!` now logs a redacted URL (`redact_wss_url`) and scrubs the token from
+  the rendered `tungstenite` error, so the token can never reach a `tracing`/OTel
+  sink regardless of upstream `Display` behavior. Fail-closed: unrecognized URL
+  shapes collapse to `wss://<redacted>`. Defense-in-depth; no confirmed leak (#1056)
+  - New docs: `docs/WSS_URL_REDACTION.md`
+
 ### Added
 - **GUI Forwarding**: Run remote Linux GUI applications locally (#828)
   - `azlin connect --x11` / `-X` — X11 forwarding for lightweight GUI apps (gitk, meld, xeyes)
