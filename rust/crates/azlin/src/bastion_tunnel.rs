@@ -1314,11 +1314,24 @@ mod tests {
 
     #[test]
     fn test_pick_unused_local_port_returns_bindable_port() {
-        let port = pick_unused_local_port().unwrap();
-        let bind_ok = TcpListener::bind(("127.0.0.1", port)).is_ok();
+        // `pick_unused_local_port` binds port 0, reads the ephemeral port, then
+        // drops the listener — so a test running in parallel can legitimately
+        // grab that just-freed port before we re-bind it. Retry with a fresh
+        // pick rather than flaking; a working allocator succeeds within a few
+        // attempts.
+        let mut bound = false;
+        let mut last_port = 0u16;
+        for _ in 0..16 {
+            let port = pick_unused_local_port().unwrap();
+            last_port = port;
+            if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+                bound = true;
+                break;
+            }
+        }
         assert!(
-            bind_ok,
-            "pick_unused_local_port returned port {port} which could not be bound"
+            bound,
+            "pick_unused_local_port never returned a bindable port (last: {last_port})"
         );
     }
 
