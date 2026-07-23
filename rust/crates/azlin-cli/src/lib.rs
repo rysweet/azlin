@@ -1169,6 +1169,29 @@ pub enum Commands {
         #[arg(short, long, default_value = "20")]
         count: u32,
     },
+
+    /// Internal: own a detached bastion tunnel that outlives `azlin code`.
+    ///
+    /// Hidden implementation detail (issue #1063). `azlin code <vm>` spawns this
+    /// fully detached so the native in-process bastion tunnel PERSISTS after the
+    /// short-lived `azlin code` invocation exits, letting VS Code Remote-SSH make
+    /// its multiple, long-lived connections through `127.0.0.1:<port>`. The host
+    /// records its own pid in the tunnel registry and blocks until terminated
+    /// (SIGTERM/SIGINT or `azlin tunnel close`).
+    #[command(name = "__tunnel-host", hide = true)]
+    TunnelHost {
+        /// Azure Bastion host name routing to the VM.
+        #[arg(long)]
+        bastion_name: String,
+
+        /// Resource group of the Bastion host and VM.
+        #[arg(long)]
+        resource_group: String,
+
+        /// Full ARM resource id of the target VM.
+        #[arg(long)]
+        vm_resource_id: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -5026,5 +5049,73 @@ mod tests {
         } else {
             panic!("Expected Tunnel Open command");
         }
+    }
+
+    // ── __tunnel-host hidden subcommand (issue #1063) ─────────────────────
+    //
+    // TDD contract for the detached bastion tunnel-owner process. `azlin code`
+    // spawns `azlin __tunnel-host ...` fully detached so the native in-process
+    // tunnel OUTLIVES the short-lived `azlin code` invocation. These tests pin
+    // the CLI surface (variant shape, required args, hidden flag) and MUST fail
+    // until the `TunnelHost` variant exists.
+
+    #[test]
+    fn test_tunnel_host_command_parses() {
+        let vm_rid = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/myvm";
+        let cli = Cli::parse_from([
+            "azlin",
+            "__tunnel-host",
+            "--bastion-name",
+            "my-bastion",
+            "--resource-group",
+            "my-rg",
+            "--vm-resource-id",
+            vm_rid,
+        ]);
+        if let Commands::TunnelHost {
+            bastion_name,
+            resource_group,
+            vm_resource_id,
+        } = cli.command
+        {
+            assert_eq!(bastion_name, "my-bastion");
+            assert_eq!(resource_group, "my-rg");
+            assert_eq!(vm_resource_id, vm_rid);
+        } else {
+            panic!("Expected TunnelHost command");
+        }
+    }
+
+    #[test]
+    fn test_tunnel_host_requires_all_args() {
+        // All three arguments are mandatory; omitting any must be a parse error.
+        assert!(
+            Cli::try_parse_from(["azlin", "__tunnel-host", "--bastion-name", "b"]).is_err(),
+            "__tunnel-host must require --resource-group and --vm-resource-id"
+        );
+        assert!(
+            Cli::try_parse_from([
+                "azlin",
+                "__tunnel-host",
+                "--resource-group",
+                "rg",
+                "--vm-resource-id",
+                "rid",
+            ])
+            .is_err(),
+            "__tunnel-host must require --bastion-name"
+        );
+    }
+
+    #[test]
+    fn test_tunnel_host_is_hidden_from_help() {
+        // The variant must exist but be marked `hide = true` so it never appears
+        // in top-level `--help`. `render_long_help` is the text clap prints.
+        use clap::CommandFactory;
+        let help = Cli::command().render_long_help().to_string();
+        assert!(
+            !help.contains("__tunnel-host"),
+            "__tunnel-host must be hidden from top-level help output"
+        );
     }
 }
