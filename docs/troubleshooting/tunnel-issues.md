@@ -78,6 +78,40 @@ lsof -i :8080
 4. **Permissions?** — You need `Microsoft.Network/bastionHosts/connect/action`
    on the bastion resource
 
+### VS Code Remote-SSH: "Connection closed by remote host"
+
+**Symptoms:** `azlin code <vm>` opens VS Code, but the Remote-SSH window fails
+with one of:
+
+```
+Connection to 127.0.0.1 closed by remote host.
+$PLATFORM is undefined.
+Failed to parse remote port from server output.
+```
+
+**Root cause (regression, fixed):** The bastion tunnel used to die when
+`azlin code` exited, leaving VS Code connecting to a dead loopback port. As of
+the persistent-tunnel fix, `azlin code` owns the tunnel in a detached
+`__tunnel-host` process that outlives the command.
+
+**Verify the tunnel is persistent:**
+
+```bash
+azlin code my-vm
+# The detached __tunnel-host outlives azlin code; it shows up in tunnel list:
+azlin tunnel list                          # my-vm entry with a live PID
+PORT=$(azlin tunnel list | awk '$1=="my-vm"{print $2}')
+ss -ltn | grep ":$PORT"                    # must show LISTEN after azlin exits
+```
+
+If the listener is **not** present after `azlin code` returns, the detached host
+failed to start. Re-run with `-v`, confirm `az account show` works, and check
+`bastion_tunnel_timeout` is high enough for a slow network. Close any stuck
+tunnel with `azlin tunnel close my-vm` (or `kill <pid>` using the pid from
+`~/.azlin/tunnels/registry.json`) and retry.
+
+See [Persistent Bastion Tunnel for `azlin code`](../features/vscode-persistent-bastion-tunnel.md).
+
 ### Stale Tunnel State
 
 **Symptoms:** `azlin tunnel list` shows tunnels that are not actually running,

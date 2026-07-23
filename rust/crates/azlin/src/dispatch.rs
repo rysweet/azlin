@@ -135,6 +135,18 @@ pub(crate) async fn dispatch_command(cli: azlin_cli::Cli) -> Result<()> {
         azlin_cli::Commands::History { action, count } => {
             crate::cmd_history::handle_history(action, count)?;
         }
+        azlin_cli::Commands::TunnelHost {
+            bastion_name,
+            resource_group,
+            vm_resource_id,
+        } => {
+            crate::bastion_tunnel::run_tunnel_host(
+                &bastion_name,
+                &resource_group,
+                &vm_resource_id,
+            )
+            .await?;
+        }
         azlin_cli::Commands::AzlinHelp { command_name } => {
             println!("{}", handlers::build_extended_help(command_name.as_deref()));
         }

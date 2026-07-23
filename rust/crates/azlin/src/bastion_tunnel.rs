@@ -27,7 +27,13 @@ static WATCHDOG_STARTED: AtomicBool = AtomicBool::new(false);
 
 /// Directory for tunnel state files.
 /// Uses `~/.azlin/tunnels/` instead of `/tmp` to avoid world-readable race conditions.
+/// Honors `AZLIN_TUNNEL_DIR` when set (used by tests to isolate the registry).
 fn tunnel_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("AZLIN_TUNNEL_DIR") {
+        if !dir.is_empty() {
+            return PathBuf::from(dir);
+        }
+    }
     dirs::home_dir()
         .unwrap_or_else(|| {
             warn!("$HOME is unset — falling back to /tmp for tunnel state; tunnel registry will be world-readable");
@@ -878,6 +884,230 @@ pub fn cleanup_tunnel(vm_resource_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Clean up bastion tunnels whose VM resource id ends with `/virtualMachines/<vm_name>`.
+/// Kills each owning (non-self) process and drops the registry entry. Returns the
+/// number of tunnels closed. Used by `azlin tunnel close <vm>` to stop a detached
+/// tunnel-host (issue #1063).
+pub fn cleanup_tunnels_for_vm_name(vm_name: &str) -> u32 {
+    let suffix = format!("/virtualMachines/{vm_name}");
+    let mut registry = TunnelRegistry::load();
+    let matching: Vec<String> = registry
+        .tunnels
+        .keys()
+        .filter(|id| id.ends_with(&suffix) || id.as_str() == vm_name)
+        .cloned()
+        .collect();
+    let mut closed = 0u32;
+    for id in matching {
+        if registry.remove(&id).is_some() {
+            closed += 1;
+        }
+    }
+    if closed > 0 {
+        let _ = registry.save();
+    }
+    closed
+}
+
+// ---- Detached tunnel-host (issue #1063) ----
+//
+// `azlin code <vm>` is short-lived: it opens a tunnel, launches VS Code, and
+// exits. A NATIVE tunnel is an in-process tokio task, so it dies the instant the
+// spawning process exits — leaving VS Code Remote-SSH connecting to a dead
+// 127.0.0.1 port. The fix is to run the tunnel in a SEPARATE, fully DETACHED
+// process (`azlin __tunnel-host`) that outlives `azlin code`. The registry
+// already supports cross-process native tunnels (reuse checks `process_is_running`,
+// close/cleanup kill non-self-owned pids), so a detached owner fits cleanly.
+//
+// Lifecycle policy (documented, intentionally simple — no arbitrary TTL):
+//   * reuse — `azlin code` reuses a live host's port instead of spawning another;
+//   * prune — the keepalive watchdog drops registry entries for dead pids;
+//   * explicit close — `azlin tunnel close` kills the detached host by pid.
+// There is deliberately NO idle self-exit in v1: reliably detecting "no active
+// VS Code connection" is fragile and an over-eager exit would kill a live session.
+
+/// Return an existing live tunnel's local port for `vm_resource_id`, if one is
+/// registered, its owning process is still running, AND the loopback port is
+/// actually listening. Used by `azlin code` to reuse a detached tunnel-host
+/// instead of spawning a redundant one.
+pub fn existing_live_tunnel_port(vm_resource_id: &str) -> Option<u16> {
+    let registry = TunnelRegistry::load();
+    let entry = registry.get(vm_resource_id)?;
+    if process_is_running(entry.pid) && tcp_port_listening(entry.local_port) {
+        Some(entry.local_port)
+    } else {
+        None
+    }
+}
+
+/// True when a TCP connect to `127.0.0.1:port` succeeds (the tunnel listener is up).
+fn tcp_port_listening(port: u16) -> bool {
+    std::net::TcpStream::connect_timeout(
+        &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+        std::time::Duration::from_millis(500),
+    )
+    .is_ok()
+}
+
+/// Spawn `azlin __tunnel-host ...` as a fully DETACHED, long-lived child process
+/// that owns the native bastion tunnel. The child does not inherit our stdio (so
+/// `azlin code` returns cleanly to the shell) and survives our exit.
+///
+/// * Unix: `setsid()` in a `pre_exec` hook puts the child in a new session so a
+///   terminal `SIGHUP` / parent exit does not take it down; stdio → `/dev/null`.
+/// * Windows: `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW`
+///   so no console is attached and Ctrl-C on the parent shell is not forwarded.
+///
+/// Returns the child's pid so the caller can poll the registry for its tunnel.
+pub fn spawn_detached_tunnel_host(
+    bastion_name: &str,
+    resource_group: &str,
+    vm_resource_id: &str,
+) -> Result<u32> {
+    let exe = std::env::current_exe().context("resolving current executable path")?;
+    let mut cmd = std::process::Command::new(exe);
+    cmd.args([
+        "__tunnel-host",
+        "--bastion-name",
+        bastion_name,
+        "--resource-group",
+        resource_group,
+        "--vm-resource-id",
+        vm_resource_id,
+    ])
+    .stdin(std::process::Stdio::null())
+    .stdout(std::process::Stdio::null())
+    .stderr(std::process::Stdio::null());
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: setsid is async-signal-safe and the only call made in the child
+        // between fork and exec. Detaches the child into its own session/pgrp.
+        unsafe {
+            cmd.pre_exec(|| {
+                // Ignore EPERM (already a session leader) — detachment still holds.
+                libc::setsid();
+                Ok(())
+            });
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+    }
+
+    let child = cmd.spawn().context("spawning detached azlin __tunnel-host")?;
+    Ok(child.id())
+}
+
+/// Poll the registry until `expected_pid` (the tunnel-host we spawned) has
+/// registered a LISTENING local port for `vm_resource_id`, or the process dies,
+/// or `timeout` elapses. Returns the ready local port.
+///
+/// `timeout` is derived from configuration (never an arbitrary constant) by the
+/// caller so slow ARM/WSS setups are accommodated adaptively.
+pub fn wait_for_host_tunnel(
+    vm_resource_id: &str,
+    expected_pid: u32,
+    timeout: std::time::Duration,
+) -> Result<u16> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if !process_is_running(expected_pid) {
+            anyhow::bail!(
+                "tunnel-host process {expected_pid} exited before establishing the bastion tunnel"
+            );
+        }
+        if let Some(entry) = TunnelRegistry::load().get(vm_resource_id) {
+            if entry.pid == expected_pid && tcp_port_listening(entry.local_port) {
+                return Ok(entry.local_port);
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            anyhow::bail!(
+                "timed out after {:?} waiting for tunnel-host {expected_pid} to open the bastion tunnel for {vm_resource_id}",
+                timeout
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
+}
+
+/// Entry point for the hidden `azlin __tunnel-host` subcommand.
+///
+/// Opens (or reuses) the native bastion tunnel — recording THIS process's pid in
+/// the registry — confirms the loopback listener is up, then blocks until a
+/// termination signal arrives. On shutdown it removes its own registry entry so
+/// the tunnel does not linger as a stale record. The in-process tokio accept
+/// loop (kept alive by `get_or_create_tunnel`'s `mem::forget`) stays running for
+/// the entire lifetime of this process.
+pub async fn run_tunnel_host(
+    bastion_name: &str,
+    resource_group: &str,
+    vm_resource_id: &str,
+) -> Result<()> {
+    let port = get_or_create_tunnel(bastion_name, resource_group, vm_resource_id)
+        .await
+        .context("tunnel-host failed to open bastion tunnel")?;
+
+    // Confirm the listener bound by this process is actually accepting before we
+    // consider ourselves ready. Bounded by the configured setup timeout.
+    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+    let ready_timeout = std::time::Duration::from_secs(config.bastion_tunnel_timeout);
+    wait_for_local_port_listener(port, std::process::id(), ready_timeout)
+        .context("tunnel-host bound port never became ready")?;
+
+    debug!(
+        "tunnel-host ready for {vm_resource_id} on 127.0.0.1:{port} (pid {})",
+        std::process::id()
+    );
+
+    wait_for_shutdown_signal().await;
+
+    // Clean up our own registry entry (only if it is still ours — a reuse by a
+    // newer host may have replaced it).
+    let mut registry = TunnelRegistry::load();
+    if registry
+        .get(vm_resource_id)
+        .is_some_and(|e| e.pid == std::process::id())
+    {
+        registry.tunnels.remove(vm_resource_id);
+        let _ = registry.save();
+    }
+    debug!("tunnel-host for {vm_resource_id} shutting down cleanly");
+    Ok(())
+}
+
+/// Block until the process receives a termination signal (SIGTERM/SIGINT on
+/// Unix, Ctrl-C on Windows), so `azlin tunnel close` / cleanup can stop the host.
+async fn wait_for_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut term = match signal(SignalKind::terminate()) {
+            Ok(s) => s,
+            Err(_) => {
+                let _ = tokio::signal::ctrl_c().await;
+                return;
+            }
+        };
+        tokio::select! {
+            _ = term.recv() => {}
+            _ = tokio::signal::ctrl_c() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
+}
+
 // ---- Backward-compatible ScopedBastionTunnel ----
 
 /// A bastion tunnel handle. Dropping this does NOT kill the tunnel; the daemon
@@ -946,6 +1176,7 @@ pub(crate) const BASTION_LOOPBACK_SSH_OPTS_STR: &str =
 mod tests {
     use super::*;
     use std::net::TcpListener;
+    use std::time::Duration;
 
     // ── parse_expires_on_to_instant table tests (issue #1059 fast-follow, F3) ──
     //
@@ -1384,5 +1615,128 @@ mod tests {
         // A clean cached value still validates and is reused (no re-resolve).
         let clean = "bst-abc123.bastion.azure.com";
         assert_eq!(parse_dns_name(clean).unwrap(), clean);
+    }
+
+    // ── Detached tunnel-host lifetime logic (issue #1063) ────────────────────
+    //
+    // These exercise the reuse + port-ready-wait logic in isolation (no Azure).
+    // They relocate the registry via AZLIN_TUNNEL_DIR and serialize on a mutex
+    // because that env var and the registry file are process-global.
+
+    static REGISTRY_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Run `body` with the tunnel registry isolated to a fresh temp dir.
+    fn with_isolated_registry<T>(body: impl FnOnce() -> T) -> T {
+        let guard = REGISTRY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().expect("temp dir");
+        let prev = std::env::var_os("AZLIN_TUNNEL_DIR");
+        std::env::set_var("AZLIN_TUNNEL_DIR", dir.path());
+        let result = body();
+        match prev {
+            Some(v) => std::env::set_var("AZLIN_TUNNEL_DIR", v),
+            None => std::env::remove_var("AZLIN_TUNNEL_DIR"),
+        }
+        drop(guard);
+        result
+    }
+
+    fn insert_live_entry(vm_rid: &str, port: u16, pid: u32) {
+        let mut registry = TunnelRegistry::load();
+        registry.insert(TunnelRegistryEntry {
+            vm_resource_id: vm_rid.to_string(),
+            bastion_name: "b".to_string(),
+            resource_group: "rg".to_string(),
+            local_port: port,
+            pid,
+            created_at: 0,
+            tunnel_type: "native".to_string(),
+            dns_name: String::new(),
+        });
+        registry.save().expect("save registry");
+    }
+
+    #[test]
+    fn test_tcp_port_listening_detects_live_and_dead() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(tcp_port_listening(port), "bound port must report listening");
+        drop(listener);
+        // After the listener is dropped the port is no longer accepting.
+        assert!(
+            !tcp_port_listening(port),
+            "released port must report not listening"
+        );
+    }
+
+    #[test]
+    fn test_existing_live_tunnel_port_reuses_live_and_ignores_dead() {
+        with_isolated_registry(|| {
+            // Live: a real listener stands in for the tunnel socket and the pid is
+            // our own process, so both liveness checks pass.
+            let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let vm = "/sub/rg/providers/Microsoft.Compute/virtualMachines/reuse-vm";
+            insert_live_entry(vm, port, std::process::id());
+            assert_eq!(
+                existing_live_tunnel_port(vm),
+                Some(port),
+                "a live, listening tunnel-host entry must be reused"
+            );
+
+            // Dead: an impossible pid must not be reused (even if a port were up).
+            let dead = "/sub/rg/providers/Microsoft.Compute/virtualMachines/dead-vm";
+            insert_live_entry(dead, port, 999_999_999);
+            assert_eq!(
+                existing_live_tunnel_port(dead),
+                None,
+                "a dead tunnel-host entry must NOT be reused"
+            );
+        });
+    }
+
+    #[test]
+    fn test_wait_for_host_tunnel_returns_ready_port() {
+        with_isolated_registry(|| {
+            // A real listener stands in for the tunnel's loopback socket; keep it
+            // alive for the duration so tcp_port_listening succeeds.
+            let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let vm = "/sub/rg/providers/Microsoft.Compute/virtualMachines/ready-vm";
+            insert_live_entry(vm, port, std::process::id());
+
+            let got = wait_for_host_tunnel(vm, std::process::id(), Duration::from_secs(5))
+                .expect("must return the ready port");
+            assert_eq!(got, port, "must return the registered, listening port");
+        });
+    }
+
+    #[test]
+    fn test_wait_for_host_tunnel_bails_when_host_dead() {
+        with_isolated_registry(|| {
+            let vm = "/sub/rg/providers/Microsoft.Compute/virtualMachines/nohost-vm";
+            // No registry entry and an impossible pid: must fail fast, not hang.
+            let err = wait_for_host_tunnel(vm, 999_999_999, Duration::from_secs(2))
+                .expect_err("dead host pid must produce an error");
+            assert!(
+                err.to_string().contains("exited before"),
+                "error must explain the host process is gone: {err}"
+            );
+        });
+    }
+
+    #[test]
+    fn test_cleanup_tunnels_for_vm_name_matches_by_suffix() {
+        with_isolated_registry(|| {
+            // A dead entry (impossible pid) so cleanup does not try to kill a real
+            // process; we only assert the registry entry is removed by VM name.
+            let vm = "/sub/rg/providers/Microsoft.Compute/virtualMachines/close-me";
+            insert_live_entry(vm, 51299, 999_999_999);
+            let closed = cleanup_tunnels_for_vm_name("close-me");
+            assert_eq!(closed, 1, "must close the matching bastion tunnel by name");
+            assert!(
+                TunnelRegistry::load().get(vm).is_none(),
+                "registry entry must be gone after cleanup"
+            );
+        });
     }
 }

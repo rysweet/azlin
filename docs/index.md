@@ -46,6 +46,7 @@
 - [Session Restore](./features/session-restore.md)
 - [Tmux Session Status](./features/tmux-session-status.md)
 - [VM Lifecycle Automation](./features/vm-lifecycle-automation.md)
+- [Persistent Bastion Tunnel for `azlin code`](./features/vscode-persistent-bastion-tunnel.md)
 
 ## Monitoring
 

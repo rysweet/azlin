@@ -58,6 +58,16 @@ azlin code my-dev-vm --workspace /home/azureuser/projects --no-extensions
 azlin code my-dev-vm --rg my-resource-group
 ```
 
+### Bastion tunnel lifetime
+
+For bastion-routed VMs, `azlin code` establishes a **persistent** bastion
+tunnel that outlives the command. The tunnel is owned by a detached
+`__tunnel-host` helper process (not by `azlin code` itself), so VS Code's
+multiple long-lived Remote-SSH connections keep working after `azlin code`
+returns to the shell. The tunnel is reused across invocations and closed with
+`azlin tunnel close <vm>`. See
+[Persistent Bastion Tunnel for `azlin code`](../features/vscode-persistent-bastion-tunnel.md).
+
 ### Configuration
 
 VS Code settings are read from `~/.azlin/vscode/`:

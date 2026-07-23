@@ -454,6 +454,17 @@ fn cmd_tunnel_close(vm_identifier: Option<String>, all: bool) -> Result<()> {
 
     save_tunnels(&kept)?;
 
+    // Also tear down persistent bastion tunnels (issue #1063). `azlin code`
+    // leaves a DETACHED `azlin __tunnel-host` owning a native tunnel recorded in
+    // the bastion registry, which is separate from tunnels.json handled above.
+    // `--all` clears every bastion tunnel; a named VM clears only its entries.
+    if all {
+        crate::bastion_tunnel::cleanup_all_tunnels();
+    } else if let Some(vm) = vm_identifier.as_deref() {
+        let closed_bastion = crate::bastion_tunnel::cleanup_tunnels_for_vm_name(vm);
+        closed += closed_bastion;
+    }
+
     if closed == 0 {
         println!("No matching tunnels found.");
     }
