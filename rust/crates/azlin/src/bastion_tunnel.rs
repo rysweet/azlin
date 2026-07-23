@@ -1657,13 +1657,28 @@ mod tests {
 
     #[test]
     fn test_tcp_port_listening_detects_live_and_dead() {
+        // A bound listener must report as listening.
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         assert!(tcp_port_listening(port), "bound port must report listening");
         drop(listener);
-        // After the listener is dropped the port is no longer accepting.
+
+        // After the listener is dropped the port should no longer accept. The
+        // ephemeral port can, however, be immediately grabbed by another test
+        // running in parallel, so retry with a fresh port if that happens
+        // rather than flaking. A truly closed loopback port refuses instantly.
+        let mut detected_dead = false;
+        for _ in 0..16 {
+            let l = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let p = l.local_addr().unwrap().port();
+            drop(l);
+            if !tcp_port_listening(p) {
+                detected_dead = true;
+                break;
+            }
+        }
         assert!(
-            !tcp_port_listening(port),
+            detected_dead,
             "released port must report not listening"
         );
     }
