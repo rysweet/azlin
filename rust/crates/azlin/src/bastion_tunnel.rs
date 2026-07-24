@@ -927,16 +927,35 @@ pub fn cleanup_tunnels_for_vm_name(vm_name: &str) -> u32 {
 // VS Code connection" is fragile and an over-eager exit would kill a live session.
 
 /// Return an existing live tunnel's local port for `vm_resource_id`, if one is
-/// registered, its owning process is still running, AND the loopback port is
-/// actually listening. Used by `azlin code` to reuse a detached tunnel-host
-/// instead of spawning a redundant one.
+/// registered, its owning process is still running, the loopback port is
+/// actually listening, AND (when determinable) the listener is owned by the
+/// recorded pid's process tree. Used by `azlin code` to reuse a detached
+/// tunnel-host instead of spawning a redundant one.
+///
+/// The process-tree ownership check defends against a stale registry entry: if
+/// the original host died and the OS recycled its pid onto an unrelated live
+/// process while some other local process happens to be listening on the
+/// recorded port, a pid-alive + port-listening check alone would wrongly reuse
+/// a port we do not control and write SSH config pointing at it. Where listener
+/// ownership cannot be inspected (no `ss`/`lsof`/`/proc` — e.g. some Windows
+/// hosts) we fall back to the weaker pid-alive + port-listening guarantee
+/// rather than refuse reuse outright.
 pub fn existing_live_tunnel_port(vm_resource_id: &str) -> Option<u16> {
     let registry = TunnelRegistry::load();
     let entry = registry.get(vm_resource_id)?;
-    if process_is_running(entry.pid) && tcp_port_listening(entry.local_port) {
-        Some(entry.local_port)
-    } else {
-        None
+    if !(process_is_running(entry.pid) && tcp_port_listening(entry.local_port)) {
+        return None;
+    }
+    match local_port_owned_by_process_tree(entry.local_port, entry.pid) {
+        // Listener ownership is determinable and confirms the recorded host owns
+        // the port — safe to reuse.
+        Ok(true) => Some(entry.local_port),
+        // Determinable but the port is owned by an unrelated process tree
+        // (stale/recycled pid, hijacked port): do NOT reuse.
+        Ok(false) => None,
+        // Ownership could not be inspected on this platform; keep the weaker
+        // pid-alive + port-listening guarantee already verified above.
+        Err(_) => Some(entry.local_port),
     }
 }
 
@@ -1314,11 +1333,24 @@ mod tests {
 
     #[test]
     fn test_pick_unused_local_port_returns_bindable_port() {
-        let port = pick_unused_local_port().unwrap();
-        let bind_ok = TcpListener::bind(("127.0.0.1", port)).is_ok();
+        // `pick_unused_local_port` binds port 0, reads the ephemeral port, then
+        // drops the listener — so a test running in parallel can legitimately
+        // grab that just-freed port before we re-bind it. Retry with a fresh
+        // pick rather than flaking; a working allocator succeeds within a few
+        // attempts.
+        let mut bound = false;
+        let mut last_port = 0u16;
+        for _ in 0..16 {
+            let port = pick_unused_local_port().unwrap();
+            last_port = port;
+            if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+                bound = true;
+                break;
+            }
+        }
         assert!(
-            bind_ok,
-            "pick_unused_local_port returned port {port} which could not be bound"
+            bound,
+            "pick_unused_local_port never returned a bindable port (last: {last_port})"
         );
     }
 
@@ -1657,13 +1689,28 @@ mod tests {
 
     #[test]
     fn test_tcp_port_listening_detects_live_and_dead() {
+        // A bound listener must report as listening.
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         assert!(tcp_port_listening(port), "bound port must report listening");
         drop(listener);
-        // After the listener is dropped the port is no longer accepting.
+
+        // After the listener is dropped the port should no longer accept. The
+        // ephemeral port can, however, be immediately grabbed by another test
+        // running in parallel, so retry with a fresh port if that happens
+        // rather than flaking. A truly closed loopback port refuses instantly.
+        let mut detected_dead = false;
+        for _ in 0..16 {
+            let l = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let p = l.local_addr().unwrap().port();
+            drop(l);
+            if !tcp_port_listening(p) {
+                detected_dead = true;
+                break;
+            }
+        }
         assert!(
-            !tcp_port_listening(port),
+            detected_dead,
             "released port must report not listening"
         );
     }
