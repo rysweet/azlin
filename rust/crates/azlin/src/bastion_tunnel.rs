@@ -1742,6 +1742,49 @@ mod tests {
     }
 
     #[test]
+    fn test_existing_live_tunnel_port_rejects_unowned_listener() {
+        // Regression guard for the stale/recycled-pid hijack the ownership check
+        // in `existing_live_tunnel_port` was added to defend against: the port is
+        // listening AND the recorded pid is alive, but the process actually
+        // listening on the loopback port is NOT in that pid's process tree. The
+        // weaker pid-alive + port-listening check alone would wrongly reuse it.
+        with_isolated_registry(|| {
+            // Our own process owns the loopback listener for `port`.
+            let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let port = listener.local_addr().unwrap().port();
+
+            // Credit the entry to a DIFFERENT, still-alive process that does not
+            // own the port. A spawned child's downward process tree cannot
+            // contain our (parent) pid, so ownership resolves to "not owned".
+            let mut child = std::process::Command::new("sleep")
+                .arg("30")
+                .spawn()
+                .expect("spawn unrelated live helper process");
+            let unrelated_pid = child.id();
+            let vm = "/sub/rg/providers/Microsoft.Compute/virtualMachines/hijacked-vm";
+            insert_live_entry(vm, port, unrelated_pid);
+
+            let result = existing_live_tunnel_port(vm);
+
+            let _ = child.kill();
+            let _ = child.wait();
+
+            // Only assert the rejection where listener ownership is actually
+            // inspectable (ss/lsof//proc). Where it is not, the documented
+            // fallback deliberately keeps the weaker guarantee, so skip.
+            let ownership_determinable = listener_owner_pids(port)
+                .map(|pids| !pids.is_empty())
+                .unwrap_or(false);
+            if ownership_determinable {
+                assert_eq!(
+                    result, None,
+                    "a listening port owned by an unrelated process tree must NOT be reused"
+                );
+            }
+        });
+    }
+
+    #[test]
     fn test_wait_for_host_tunnel_returns_ready_port() {
         with_isolated_registry(|| {
             // A real listener stands in for the tunnel's loopback socket; keep it
