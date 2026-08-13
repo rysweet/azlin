@@ -331,18 +331,23 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
             URL=$(curl -fsSL https://api.github.com/repos/rysweet/amplihack-rs/releases/latest | grep browser_download_url | grep $ARCH-unknown-linux-gnu.tar.gz\\\" | head -1 | cut -d\\\"  -f4) && \
             mkdir -p /tmp/amplihack-install && cd /tmp/amplihack-install && \
             curl -fsSL $URL -o amplihack.tar.gz && tar xzf amplihack.tar.gz && \
-            mkdir -p ~/.cargo/bin && cp amplihack amplihack-hooks ~/.cargo/bin/ 2>/dev/null; \
-            chmod +x ~/.cargo/bin/amplihack ~/.cargo/bin/amplihack-hooks 2>/dev/null; \
-            rm -rf /tmp/amplihack-install && \
+            mkdir -p ~/.cargo/bin && cp amplihack amplihack-hooks ~/.cargo/bin/ && \
+            chmod +x ~/.cargo/bin/amplihack ~/.cargo/bin/amplihack-hooks && \
+            cd ~ && rm -rf /tmp/amplihack-install && \
             ~/.cargo/bin/amplihack install' || echo 'WARNING: amplihack-rs installation failed'", u = username),
-        // azlin CLI (pre-built binary from latest GitHub release)
+        // azlin CLI (pre-built binary from latest GitHub release).
+        // Release archives ship platform-suffixed members (azlin-linux-x86_64,
+        // azdoit-linux-x86_64, ay-linux-x86_64), so each is renamed on copy.
         format!("su - {u} -c 'ARCH=$(uname -m | sed s/aarch64/aarch64/ | sed s/x86_64/x86_64/) && \
             URL=$(curl -fsSL https://api.github.com/repos/rysweet/azlin/releases/latest | grep browser_download_url | grep linux-$ARCH.tar.gz\\\" | head -1 | cut -d\\\"  -f4) && \
             mkdir -p /tmp/azlin-install && cd /tmp/azlin-install && \
             curl -fsSL $URL -o azlin.tar.gz && tar xzf azlin.tar.gz && \
-            mkdir -p ~/.cargo/bin && cp azlin ~/.cargo/bin/ 2>/dev/null; \
-            chmod +x ~/.cargo/bin/azlin 2>/dev/null; \
-            rm -rf /tmp/azlin-install' || echo 'WARNING: azlin installation failed'", u = username),
+            mkdir -p ~/.cargo/bin && \
+            cp azlin-linux-$ARCH ~/.cargo/bin/azlin && \
+            cp azdoit-linux-$ARCH ~/.cargo/bin/azdoit && \
+            cp ay-linux-$ARCH ~/.cargo/bin/ay && \
+            chmod +x ~/.cargo/bin/azlin ~/.cargo/bin/azdoit ~/.cargo/bin/ay && \
+            cd ~ && rm -rf /tmp/azlin-install' || echo 'WARNING: azlin installation failed'", u = username),
         // Go
         "wget -q https://go.dev/dl/go1.26.4.linux-amd64.tar.gz -O /tmp/go.tar.gz && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz".to_string(),
         // .NET 10 SDK
@@ -563,6 +568,89 @@ mod tests {
             cmds.iter()
                 .any(|c| c.contains("cloud-init provisioning complete")),
             "default_dev_setup_commands must emit the final provisioning marker"
+        );
+    }
+
+    #[test]
+    fn test_default_dev_setup_commands_install_azlin_binaries_by_archive_member_name() {
+        let cmds = default_dev_setup_commands("azureuser");
+        let azlin_cmd = cmds
+            .iter()
+            .find(|c| c.contains("/tmp/azlin-install"))
+            .expect("default_dev_setup_commands must install the azlin CLI");
+
+        // Release archives contain platform-suffixed members, not bare `azlin`.
+        for (member, dest) in [
+            ("azlin-linux-$ARCH", "azlin"),
+            ("azdoit-linux-$ARCH", "azdoit"),
+            ("ay-linux-$ARCH", "ay"),
+        ] {
+            assert!(
+                azlin_cmd.contains(&format!("cp {member} ~/.cargo/bin/{dest}")),
+                "azlin install must copy archive member {member} to ~/.cargo/bin/{dest}, got: {azlin_cmd}"
+            );
+        }
+        assert!(
+            !azlin_cmd.contains("cp azlin ~/.cargo/bin/"),
+            "azlin install must not reference a bare `azlin` member that the archive does not contain"
+        );
+    }
+
+    #[test]
+    fn test_default_dev_setup_commands_install_failures_are_not_swallowed() {
+        let cmds = default_dev_setup_commands("azureuser");
+        for marker in ["/tmp/azlin-install", "/tmp/amplihack-install"] {
+            let cmd = cmds
+                .iter()
+                .find(|c| c.contains(marker))
+                .unwrap_or_else(|| panic!("missing install command for {marker}"));
+            assert!(
+                !cmd.contains("2>/dev/null"),
+                "{marker} install must not discard errors and continue past them: {cmd}"
+            );
+            assert!(
+                !cmd.contains(';'),
+                "{marker} install must chain with && so a failed step reaches the WARNING branch: {cmd}"
+            );
+            assert!(
+                cmd.contains("|| echo 'WARNING:"),
+                "{marker} install must report failure: {cmd}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_default_dev_setup_commands_leave_working_directory_before_cleanup() {
+        let cmds = default_dev_setup_commands("azureuser");
+        for dir in ["/tmp/azlin-install", "/tmp/amplihack-install"] {
+            let cmd = cmds
+                .iter()
+                .find(|c| c.contains(dir))
+                .unwrap_or_else(|| panic!("missing install command for {dir}"));
+            assert!(
+                cmd.contains(&format!("cd ~ && rm -rf {dir}")),
+                "install must leave {dir} before deleting it, otherwise later steps run from a deleted CWD: {cmd}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_default_dev_setup_commands_amplihack_setup_runs_from_valid_cwd() {
+        let cmds = default_dev_setup_commands("azureuser");
+        let cmd = cmds
+            .iter()
+            .find(|c| c.contains("/tmp/amplihack-install"))
+            .expect("missing amplihack install command");
+        let cleanup = cmd
+            .find("rm -rf /tmp/amplihack-install")
+            .expect("amplihack install must clean up its staging directory");
+        let cd_home = cmd.find("cd ~ &&").expect("amplihack install must cd home");
+        let framework_setup = cmd
+            .find("~/.cargo/bin/amplihack install")
+            .expect("amplihack install must run framework setup");
+        assert!(
+            cd_home < cleanup && cleanup < framework_setup,
+            "`amplihack install` must run after cd-ing out of the deleted staging dir: {cmd}"
         );
     }
 
