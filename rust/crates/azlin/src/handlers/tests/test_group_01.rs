@@ -253,12 +253,3 @@ fn test_resolve_os_update_target_no_ip() {
     assert!(err.to_string().contains("No IP found"));
 }
 
-// ── Destroy dry-run tests ───────────────────────────────────────────
-
-#[test]
-fn test_format_destroy_dry_run() {
-    let output = format_destroy_dry_run("my-vm", "my-rg");
-    assert!(output.contains("my-vm"));
-    assert!(output.contains("my-rg"));
-    assert!(output.contains("Dry run"));
-}

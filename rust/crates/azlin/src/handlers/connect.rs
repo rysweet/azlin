@@ -120,16 +120,6 @@ pub fn resolve_os_update_target(
     Ok((ip, user))
 }
 
-// ── Destroy handler (dry-run) ───────────────────────────────────────────
-
-/// Format the dry-run output for destroy.
-pub fn format_destroy_dry_run(vm_name: &str, resource_group: &str) -> String {
-    format!(
-        "Dry run -- would delete:\n  VM: {}\n  Resource group: {}",
-        vm_name, resource_group
-    )
-}
-
 // ── Code handler (resolve target) ───────────────────────────────────────
 
 /// Resolve the target for VS Code remote connection. Returns (ip, username).

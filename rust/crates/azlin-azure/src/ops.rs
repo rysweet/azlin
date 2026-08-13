@@ -52,6 +52,34 @@ pub trait AzureOps {
 
     /// Create a new VM.
     fn create_vm(&self, params: &CreateVmParams) -> Result<VmInfo>;
+
+    // ── Network teardown ───────────────────────────────────────────────
+    //
+    // Needed because `az vm delete` leaves the Public IP and NSG behind.
+
+    /// List managed disks in a resource group as raw `az` JSON.
+    fn list_disks_json(&self, resource_group: &str) -> Result<String>;
+
+    /// List NICs in a resource group as raw `az` JSON.
+    fn list_nics_json(&self, resource_group: &str) -> Result<String>;
+
+    /// List public IPs in a resource group as raw `az` JSON.
+    fn list_public_ips_json(&self, resource_group: &str) -> Result<String>;
+
+    /// List network security groups in a resource group as raw `az` JSON.
+    fn list_nsgs_json(&self, resource_group: &str) -> Result<String>;
+
+    /// Delete a managed disk. Must succeed if the disk is already gone.
+    fn delete_disk(&self, resource_group: &str, name: &str) -> Result<()>;
+
+    /// Delete a NIC, waiting for completion. Must succeed if already gone.
+    fn delete_nic(&self, resource_group: &str, name: &str) -> Result<()>;
+
+    /// Delete a public IP. Must succeed if already gone.
+    fn delete_public_ip(&self, resource_group: &str, name: &str) -> Result<()>;
+
+    /// Delete a network security group. Must succeed if already gone.
+    fn delete_nsg(&self, resource_group: &str, name: &str) -> Result<()>;
 }
 
 /// Blanket implementation for `VmManager`.
@@ -106,6 +134,38 @@ impl AzureOps for super::VmManager {
 
     fn create_vm(&self, params: &CreateVmParams) -> Result<VmInfo> {
         self.create_vm(params)
+    }
+
+    fn list_disks_json(&self, resource_group: &str) -> Result<String> {
+        self.list_disks_json(resource_group)
+    }
+
+    fn list_nics_json(&self, resource_group: &str) -> Result<String> {
+        self.list_nics_json(resource_group)
+    }
+
+    fn list_public_ips_json(&self, resource_group: &str) -> Result<String> {
+        self.list_public_ips_json(resource_group)
+    }
+
+    fn list_nsgs_json(&self, resource_group: &str) -> Result<String> {
+        self.list_nsgs_json(resource_group)
+    }
+
+    fn delete_disk(&self, resource_group: &str, name: &str) -> Result<()> {
+        self.delete_disk(resource_group, name)
+    }
+
+    fn delete_nic(&self, resource_group: &str, name: &str) -> Result<()> {
+        self.delete_nic(resource_group, name)
+    }
+
+    fn delete_public_ip(&self, resource_group: &str, name: &str) -> Result<()> {
+        self.delete_public_ip(resource_group, name)
+    }
+
+    fn delete_nsg(&self, resource_group: &str, name: &str) -> Result<()> {
+        self.delete_nsg(resource_group, name)
     }
 }
 

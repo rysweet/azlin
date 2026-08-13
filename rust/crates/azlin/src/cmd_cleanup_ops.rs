@@ -68,16 +68,15 @@ pub(crate) fn handle_cleanup(
     }
 
     // 3) Orphaned public IPs
+    //
+    // Shares `public_ip_is_unassociated` with the teardown planner so the two
+    // paths cannot drift apart.
     let pip_json = az_list(&["network", "public-ip", "list"])
         .context("Failed to list public IPs for orphan detection")?;
     let ips: Vec<serde_json::Value> =
         serde_json::from_str(&pip_json).context("Failed to parse public IP list JSON")?;
     for ip in &ips {
-        let attached = ip
-            .get("ipConfiguration")
-            .map(|v| !v.is_null())
-            .unwrap_or(false);
-        if !attached {
+        if azlin_azure::teardown::public_ip_is_unassociated(ip) {
             if let Some(name) = ip.get("name").and_then(|n| n.as_str()) {
                 let ip_rg = ip
                     .get("resourceGroup")
@@ -94,22 +93,14 @@ pub(crate) fn handle_cleanup(
     }
 
     // 4) Orphaned NSGs
+    //
+    // Shares `nsg_is_unassociated` with the teardown planner.
     let nsg_json =
         az_list(&["network", "nsg", "list"]).context("Failed to list NSGs for orphan detection")?;
     let nsgs: Vec<serde_json::Value> =
         serde_json::from_str(&nsg_json).context("Failed to parse NSG list JSON")?;
     for nsg in &nsgs {
-        let has_nics = nsg
-            .get("networkInterfaces")
-            .and_then(|v| v.as_array())
-            .map(|a| !a.is_empty())
-            .unwrap_or(false);
-        let has_subnets = nsg
-            .get("subnets")
-            .and_then(|v| v.as_array())
-            .map(|a| !a.is_empty())
-            .unwrap_or(false);
-        if !has_nics && !has_subnets {
+        if azlin_azure::teardown::nsg_is_unassociated(nsg) {
             if let Some(name) = nsg.get("name").and_then(|n| n.as_str()) {
                 let nsg_rg = nsg
                     .get("resourceGroup")

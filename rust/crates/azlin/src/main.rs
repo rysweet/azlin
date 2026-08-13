@@ -25,12 +25,16 @@ use ratatui::{
 use tracing_subscriber::EnvFilter;
 
 /// Estimated monthly cost for an orphaned Azure Standard public IP address.
+///
+/// Single source of truth shared by `cleanup` and the teardown planner, so the
+/// two paths can never quote different savings for the same resource.
+use azlin_azure::teardown::ORPHANED_PUBLIC_IP_MONTHLY_COST;
+
 mod auth_forward;
 mod dispatch;
 mod dispatch_helpers;
 mod update_check;
 mod release_select;
-const ORPHANED_PUBLIC_IP_MONTHLY_COST: f64 = 3.65;
 
 /// Default admin username for Azure VMs.
 const DEFAULT_ADMIN_USERNAME: &str = "azureuser";
