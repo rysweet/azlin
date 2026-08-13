@@ -15,6 +15,11 @@ pub(super) struct MockAzureOps {
     pub(super) nic_json: String,
     pub(super) pip_json: String,
     pub(super) nsg_json: String,
+    /// Public IP / NSG JSON served *after* a NIC has been deleted. Real Azure
+    /// drops the association at that point, which is exactly what the teardown
+    /// re-check pass depends on; a static mock cannot express it.
+    pub(super) pip_json_after_nic_delete: Option<String>,
+    pub(super) nsg_json_after_nic_delete: Option<String>,
     /// Resource names whose deletion should fail with a "not found" error,
     /// simulating a resource Azure already removed.
     pub(super) missing_on_delete: Vec<String>,
@@ -32,6 +37,8 @@ impl MockAzureOps {
             nic_json: "[]".to_string(),
             pip_json: "[]".to_string(),
             nsg_json: "[]".to_string(),
+            pip_json_after_nic_delete: None,
+            nsg_json_after_nic_delete: None,
             missing_on_delete: Vec::new(),
             failing_on_delete: Vec::new(),
         }
@@ -64,6 +71,12 @@ impl MockAzureOps {
             return Ok(());
         }
         Ok(())
+    }
+
+    /// Whether any NIC has been deleted yet, used to decide which snapshot of
+    /// the network state to serve.
+    fn any_nic_deleted(&self) -> bool {
+        self.call_log().iter().any(|c| c.starts_with("delete_nic:"))
     }
 
     /// Index of a recorded call, for ordering assertions.
@@ -157,12 +170,18 @@ impl AzureOps for MockAzureOps {
 
     fn list_public_ips_json(&self, _resource_group: &str) -> Result<String> {
         self.record("list_public_ips_json");
-        Ok(self.pip_json.clone())
+        match self.pip_json_after_nic_delete {
+            Some(ref after) if self.any_nic_deleted() => Ok(after.clone()),
+            _ => Ok(self.pip_json.clone()),
+        }
     }
 
     fn list_nsgs_json(&self, _resource_group: &str) -> Result<String> {
         self.record("list_nsgs_json");
-        Ok(self.nsg_json.clone())
+        match self.nsg_json_after_nic_delete {
+            Some(ref after) if self.any_nic_deleted() => Ok(after.clone()),
+            _ => Ok(self.nsg_json.clone()),
+        }
     }
 
     fn delete_disk(&self, _resource_group: &str, name: &str) -> Result<()> {

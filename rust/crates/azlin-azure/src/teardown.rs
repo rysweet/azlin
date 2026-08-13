@@ -110,6 +110,9 @@ pub struct TeardownPlan {
     pub skipped: Vec<SkippedResource>,
     /// Whether the target VM was found in Azure.
     pub vm_exists: bool,
+    /// The `azlin-session` tag this plan matched on, retained so a follow-up
+    /// re-check can apply the identical ownership rule.
+    pub session_tag: Option<String>,
 }
 
 impl TeardownPlan {
@@ -229,6 +232,7 @@ pub fn plan_teardown(inputs: &TeardownInputs) -> Result<TeardownPlan> {
     let rg = inputs.resource_group;
     let mut plan = TeardownPlan {
         vm_exists: inputs.vm_exists,
+        session_tag: inputs.session_tag.map(str::to_string),
         ..Default::default()
     };
 
@@ -277,15 +281,16 @@ pub fn plan_teardown(inputs: &TeardownInputs) -> Result<TeardownPlan> {
         if !attached {
             continue;
         }
-        if let Some((name, nic_rg)) = name_and_group(&nic, rg) {
-            target_nic_names.push(name.to_string());
-            plan.resources.push(TeardownResource {
-                name: name.to_string(),
-                kind: TeardownKind::Nic,
-                resource_group: nic_rg.to_string(),
-                estimated_monthly_cost: 0.0,
-            });
-        }
+        let Some((name, nic_rg)) = name_and_group(&nic, rg) else {
+            continue;
+        };
+        target_nic_names.push(name.to_string());
+        plan.resources.push(TeardownResource {
+            name: name.to_string(),
+            kind: TeardownKind::Nic,
+            resource_group: nic_rg.to_string(),
+            estimated_monthly_cost: 0.0,
+        });
     }
 
     // True when every association points at a NIC this teardown already
@@ -381,6 +386,77 @@ enum Candidate {
     /// Belongs to a different session, or to no azlin session at all — not our
     /// business and not worth reporting.
     Ignore,
+}
+
+/// Re-evaluate resources that the plan skipped as [`SkipReason::InUse`].
+///
+/// The teardown plan is computed once, before anything is deleted, from a
+/// single snapshot of Azure state. A Public IP or NSG that is still bound to
+/// the session's NIC at that moment is correctly identified as in-use, but the
+/// first-pass escape hatch (`bound only to a NIC we are about to delete`) is
+/// only as good as the association data Azure returns at snapshot time. If it
+/// misreports — a lagging back-reference, an association recorded against a
+/// resource the snapshot did not include — the resource is skipped permanently
+/// and leaks, billing indefinitely.
+///
+/// This second pass closes that hole: after the NICs are gone, re-read the
+/// Public IPs and NSGs and delete the ones that are *now* provably free. The
+/// safety rules are unchanged and strictly narrower than the first pass — the
+/// resource must still carry an exactly-matching `azlin-session` tag, must
+/// have been part of the plan, and must have no association whatsoever.
+pub fn plan_recheck(
+    skipped: &[SkippedResource],
+    session_tag: Option<&str>,
+    resource_group: &str,
+    pip_json: &str,
+    nsg_json: &str,
+) -> Result<Vec<TeardownResource>> {
+    let was_skipped_in_use = |name: &str, kind: TeardownKind| {
+        skipped
+            .iter()
+            .any(|s| s.name == name && s.kind == kind && s.reason == SkipReason::InUse)
+    };
+
+    let mut freed = Vec::new();
+
+    for ip in parse_list(pip_json, "public IP")? {
+        let Some((name, ip_rg)) = name_and_group(&ip, resource_group) else {
+            continue;
+        };
+        if !was_skipped_in_use(name, TeardownKind::PublicIp) {
+            continue;
+        }
+        if session_tag_of(&ip) != session_tag || !public_ip_is_unassociated(&ip) {
+            continue;
+        }
+        freed.push(TeardownResource {
+            name: name.to_string(),
+            kind: TeardownKind::PublicIp,
+            resource_group: ip_rg.to_string(),
+            estimated_monthly_cost: ORPHANED_PUBLIC_IP_MONTHLY_COST,
+        });
+    }
+
+    for nsg in parse_list(nsg_json, "NSG")? {
+        let Some((name, nsg_rg)) = name_and_group(&nsg, resource_group) else {
+            continue;
+        };
+        if !was_skipped_in_use(name, TeardownKind::Nsg) {
+            continue;
+        }
+        if session_tag_of(&nsg) != session_tag || !nsg_is_unassociated(&nsg) {
+            continue;
+        }
+        freed.push(TeardownResource {
+            name: name.to_string(),
+            kind: TeardownKind::Nsg,
+            resource_group: nsg_rg.to_string(),
+            estimated_monthly_cost: 0.0,
+        });
+    }
+
+    freed.sort_by_key(|r| (r.kind.deletion_order(), r.name.clone()));
+    Ok(freed)
 }
 
 /// Decide the fate of a Public IP or NSG.
@@ -901,6 +977,7 @@ mod tests {
                 reason: SkipReason::Untagged,
             }],
             vm_exists: true,
+            session_tag: Some(SESSION.to_string()),
         };
         let out = format_teardown_plan(&plan, VM, RG);
         assert!(out.contains("Not deleted"));
@@ -922,5 +999,178 @@ mod tests {
         assert_eq!(resource_name_from_id("/a/b/c"), Some("c"));
         assert_eq!(resource_name_from_id("/a/b/c/"), Some("c"));
         assert_eq!(resource_name_from_id(""), None);
+    }
+
+    // ── The NSG leak: association must be re-evaluated after NIC deletion ─
+
+    /// The exact shape observed in the live provision test: an NSG whose only
+    /// association is the NIC being torn down must be planned for deletion.
+    #[test]
+    fn nsg_bound_only_to_target_nic_is_deleted() {
+        let plan = default_plan();
+        assert_eq!(plan.of_kind(TeardownKind::Nsg).len(), 1);
+        assert!(plan.skipped.is_empty());
+    }
+
+    /// `subnets: null` is what Azure actually returns for an unassociated
+    /// subnet list, not `[]`. It must not be read as an association.
+    #[test]
+    fn nsg_with_null_subnets_and_target_nic_is_deleted() {
+        let (d, n, p, _) = full_inputs();
+        let nsgs = format!(
+            r#"[{{"name":"{VM}NSG","resourceGroup":"{RG}","subnets":null,
+                  "networkInterfaces":[{{"id":"{}","resourceGroup":"{RG}"}}],
+                  "tags":{{"azlin-session":"{SESSION}"}}}}]"#,
+            nic_id(&format!("{VM}VMNic"))
+        );
+        let plan = plan_with(&d, &n, &p, &nsgs);
+        assert_eq!(plan.of_kind(TeardownKind::Nsg).len(), 1);
+    }
+
+    /// An NSG shared with a live NIC outside this session must survive.
+    #[test]
+    fn nsg_bound_to_unrelated_live_nic_is_skipped() {
+        let (d, n, p, _) = full_inputs();
+        let nics = format!(
+            r#"[{{"name":"{VM}VMNic","resourceGroup":"{RG}","virtualMachine":{{"id":"{}"}}}},
+                 {{"name":"someone-elses-nic","resourceGroup":"{RG}",
+                   "virtualMachine":{{"id":"{}"}}}}]"#,
+            vm_id(VM),
+            vm_id("someone-elses-vm")
+        );
+        let nsgs = format!(
+            r#"[{{"name":"{VM}NSG","resourceGroup":"{RG}","subnets":null,
+                  "networkInterfaces":[{{"id":"{}"}},{{"id":"{}"}}],
+                  "tags":{{"azlin-session":"{SESSION}"}}}}]"#,
+            nic_id(&format!("{VM}VMNic")),
+            nic_id("someone-elses-nic")
+        );
+        let plan = plan_with(&d, &nics, &p, &nsgs);
+        assert!(plan.of_kind(TeardownKind::Nsg).is_empty());
+        assert!(plan
+            .skipped
+            .iter()
+            .any(|s| s.kind == TeardownKind::Nsg && s.reason == SkipReason::InUse));
+    }
+
+    /// A subnet association is shared infrastructure and always disqualifying,
+    /// even when the NIC side is entirely ours.
+    #[test]
+    fn nsg_bound_to_subnet_is_skipped() {
+        let (d, n, p, _) = full_inputs();
+        let nsgs = format!(
+            r#"[{{"name":"{VM}NSG","resourceGroup":"{RG}",
+                  "subnets":[{{"id":"/subscriptions/s/resourceGroups/{RG}/providers/Microsoft.Network/virtualNetworks/v/subnets/default"}}],
+                  "networkInterfaces":[{{"id":"{}"}}],
+                  "tags":{{"azlin-session":"{SESSION}"}}}}]"#,
+            nic_id(&format!("{VM}VMNic"))
+        );
+        let plan = plan_with(&d, &n, &p, &nsgs);
+        assert!(plan.of_kind(TeardownKind::Nsg).is_empty());
+        assert!(plan
+            .skipped
+            .iter()
+            .any(|s| s.kind == TeardownKind::Nsg && s.reason == SkipReason::InUse));
+    }
+
+    // ── plan_recheck: the second pass that closes the leak ───────────────
+
+    fn skipped_nsg() -> Vec<SkippedResource> {
+        vec![SkippedResource {
+            name: format!("{VM}NSG"),
+            kind: TeardownKind::Nsg,
+            reason: SkipReason::InUse,
+        }]
+    }
+
+    /// The live failure, end to end: an NSG skipped as in-use, which the NIC
+    /// deletion then frees, must be picked up and deleted by the re-check.
+    #[test]
+    fn recheck_deletes_nsg_freed_by_nic_deletion() {
+        let nsgs = format!(
+            r#"[{{"name":"{VM}NSG","resourceGroup":"{RG}","subnets":null,
+                  "networkInterfaces":null,"tags":{{"azlin-session":"{SESSION}"}}}}]"#
+        );
+        let freed = plan_recheck(&skipped_nsg(), Some(SESSION), RG, "[]", &nsgs).unwrap();
+        assert_eq!(freed.len(), 1);
+        assert_eq!(freed[0].kind, TeardownKind::Nsg);
+        assert_eq!(freed[0].name, format!("{VM}NSG"));
+    }
+
+    /// The re-check must never widen ownership: an NSG that is now free but
+    /// belongs to another session stays untouched.
+    #[test]
+    fn recheck_ignores_other_sessions_nsg() {
+        let nsgs = format!(
+            r#"[{{"name":"{VM}NSG","resourceGroup":"{RG}","subnets":null,
+                  "networkInterfaces":null,"tags":{{"azlin-session":"someone-else"}}}}]"#
+        );
+        let freed = plan_recheck(&skipped_nsg(), Some(SESSION), RG, "[]", &nsgs).unwrap();
+        assert!(freed.is_empty());
+    }
+
+    /// Still genuinely associated after the NICs are gone — leave it alone.
+    #[test]
+    fn recheck_leaves_still_associated_nsg() {
+        let nsgs = format!(
+            r#"[{{"name":"{VM}NSG","resourceGroup":"{RG}","subnets":null,
+                  "networkInterfaces":[{{"id":"{}"}}],
+                  "tags":{{"azlin-session":"{SESSION}"}}}}]"#,
+            nic_id("someone-elses-nic")
+        );
+        let freed = plan_recheck(&skipped_nsg(), Some(SESSION), RG, "[]", &nsgs).unwrap();
+        assert!(freed.is_empty());
+    }
+
+    /// The re-check only ever revisits what the plan itself skipped as in-use;
+    /// an unrelated free NSG in the same group is not swept up.
+    #[test]
+    fn recheck_ignores_resources_not_in_the_plan() {
+        let nsgs = format!(
+            r#"[{{"name":"unrelated-nsg","resourceGroup":"{RG}","subnets":null,
+                  "networkInterfaces":null,"tags":{{"azlin-session":"{SESSION}"}}}}]"#
+        );
+        let freed = plan_recheck(&skipped_nsg(), Some(SESSION), RG, "[]", &nsgs).unwrap();
+        assert!(freed.is_empty());
+    }
+
+    /// Untagged skips are a different failure mode and must not be revisited.
+    #[test]
+    fn recheck_ignores_untagged_skips() {
+        let skipped = vec![SkippedResource {
+            name: format!("{VM}NSG"),
+            kind: TeardownKind::Nsg,
+            reason: SkipReason::Untagged,
+        }];
+        let nsgs = format!(
+            r#"[{{"name":"{VM}NSG","resourceGroup":"{RG}","subnets":null,
+                  "networkInterfaces":null,"tags":{{"azlin-session":"{SESSION}"}}}}]"#
+        );
+        let freed = plan_recheck(&skipped, Some(SESSION), RG, "[]", &nsgs).unwrap();
+        assert!(freed.is_empty());
+    }
+
+    /// The same second-pass guarantee applies to a Public IP.
+    #[test]
+    fn recheck_deletes_public_ip_freed_by_nic_deletion() {
+        let skipped = vec![SkippedResource {
+            name: format!("{VM}PublicIP"),
+            kind: TeardownKind::PublicIp,
+            reason: SkipReason::InUse,
+        }];
+        let pips = format!(
+            r#"[{{"name":"{VM}PublicIP","resourceGroup":"{RG}","ipConfiguration":null,
+                  "tags":{{"azlin-session":"{SESSION}"}}}}]"#
+        );
+        let freed = plan_recheck(&skipped, Some(SESSION), RG, &pips, "[]").unwrap();
+        assert_eq!(freed.len(), 1);
+        assert_eq!(freed[0].kind, TeardownKind::PublicIp);
+    }
+
+    /// The plan carries the tag it matched on, so the re-check can apply the
+    /// identical ownership rule without re-deriving it.
+    #[test]
+    fn plan_retains_session_tag_for_recheck() {
+        assert_eq!(default_plan().session_tag.as_deref(), Some(SESSION));
     }
 }

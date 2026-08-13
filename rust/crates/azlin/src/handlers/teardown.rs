@@ -11,8 +11,8 @@
 
 use anyhow::{Context, Result};
 use azlin_azure::teardown::{
-    format_teardown_plan, plan_teardown, TeardownKind, TeardownInputs, TeardownPlan,
-    SESSION_TAG_KEY,
+    format_teardown_plan, plan_recheck, plan_teardown, SkipReason, TeardownInputs, TeardownKind,
+    TeardownPlan, TeardownResource, SESSION_TAG_KEY,
 };
 use azlin_azure::AzureOps;
 
@@ -87,7 +87,7 @@ pub fn format_destroy_dry_run_live(
 /// resource cannot strand the rest and re-leak them. Deletes are 404-tolerant,
 /// making the whole operation idempotent and safe to re-run.
 pub fn execute_teardown(ops: &dyn AzureOps, resource_group: &str, vm_name: &str) -> Result<String> {
-    let plan = build_teardown_plan(ops, resource_group, vm_name)?;
+    let mut plan = build_teardown_plan(ops, resource_group, vm_name)?;
 
     if plan.resources.is_empty() {
         let mut msg = if plan.vm_exists {
@@ -115,6 +115,26 @@ pub fn execute_teardown(ops: &dyn AzureOps, resource_group: &str, vm_name: &str)
             Err(e) => failures.push(format!("{} '{}': {}", r.kind, r.name, e)),
         }
     }
+
+    // Anything skipped as in-use was judged against a snapshot taken before a
+    // single resource was deleted. Now that the NICs are gone, re-read Azure
+    // and delete whatever is provably free — otherwise a Public IP or NSG that
+    // was merely held by this session's own NIC leaks and bills forever.
+    let recheck = recheck_freed_resources(ops, resource_group, &plan);
+    for r in &recheck {
+        let outcome = match r.kind {
+            TeardownKind::PublicIp => ops.delete_public_ip(&r.resource_group, &r.name),
+            TeardownKind::Nsg => ops.delete_nsg(&r.resource_group, &r.name),
+            _ => continue,
+        };
+        match outcome {
+            Ok(()) => deleted += 1,
+            Err(e) => failures.push(format!("{} '{}': {}", r.kind, r.name, e)),
+        }
+    }
+    plan.resources.extend(recheck.iter().cloned());
+    plan.skipped
+        .retain(|s| !recheck.iter().any(|r| r.name == s.name && r.kind == s.kind));
 
     if !failures.is_empty() {
         anyhow::bail!(
@@ -151,4 +171,40 @@ fn format_skipped_warning(plan: &TeardownPlan) -> String {
     }
     out.push_str("\n  Run 'azlin cleanup' to review and reclaim orphaned resources.");
     out
+}
+
+/// Re-read Azure after the NICs are gone and return the previously in-use
+/// Public IPs and NSGs that are now provably free.
+///
+/// Best-effort by design: a failure here must never mask the teardown that
+/// already succeeded, so read errors yield an empty list and the resources
+/// stay reported as skipped.
+fn recheck_freed_resources(
+    ops: &dyn AzureOps,
+    resource_group: &str,
+    plan: &TeardownPlan,
+) -> Vec<TeardownResource> {
+    let needs_recheck = plan
+        .skipped
+        .iter()
+        .any(|s| s.reason == SkipReason::InUse);
+    if !needs_recheck {
+        return Vec::new();
+    }
+
+    let (Ok(pip_json), Ok(nsg_json)) = (
+        ops.list_public_ips_json(resource_group),
+        ops.list_nsgs_json(resource_group),
+    ) else {
+        return Vec::new();
+    };
+
+    plan_recheck(
+        &plan.skipped,
+        plan.session_tag.as_deref(),
+        resource_group,
+        &pip_json,
+        &nsg_json,
+    )
+    .unwrap_or_default()
 }

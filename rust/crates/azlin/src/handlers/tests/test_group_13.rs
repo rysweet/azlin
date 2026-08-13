@@ -358,3 +358,101 @@ fn test_delete_rg_rejection_explains_the_danger() {
         "offer the targeted alternative: {msg}"
     );
 }
+
+// ── The NSG that survived the live provision test ───────────────────
+
+/// Reproduces the leak observed against real Azure: `destroy` removed the VM,
+/// disks, NIC and Public IP, but reported
+/// `skipping <vm>NSG: still associated with another resource` — and an
+/// independent `az network nsg show` immediately afterwards returned
+/// `networkInterfaces: null, subnets: null`, proving the NSG was by then
+/// associated with nothing at all.
+///
+/// The plan is computed from one snapshot taken before anything is deleted, so
+/// whenever that snapshot makes an NSG look in-use, the resource is skipped
+/// permanently and leaks. Here the snapshot reports an association the plan
+/// cannot attribute to this teardown (a NIC in another resource group), which
+/// is the conservative, correct first-pass answer; deleting the NIC then frees
+/// the NSG, and the re-check pass must notice and remove it.
+fn mock_with_nsg_that_only_looks_in_use() -> MockAzureOps {
+    let mut mock = mock_with_full_session();
+    // First snapshot: the NSG reports an association the planner cannot match
+    // to a NIC it is deleting, so it is (correctly) skipped as in-use.
+    mock.nsg_json = format!(
+        r#"[{{"name":"{VM}NSG","resourceGroup":"{RG}","subnets":null,
+              "networkInterfaces":[{{"id":"{}"}}],
+              "tags":{{"azlin-session":"{VM}"}}}}]"#,
+        "/subscriptions/s/resourceGroups/other-rg/providers/Microsoft.Network/networkInterfaces/unknown-nic"
+    );
+    // After the NIC is deleted, Azure reports the NSG as free — the exact
+    // state observed live.
+    mock.nsg_json_after_nic_delete = Some(format!(
+        r#"[{{"name":"{VM}NSG","resourceGroup":"{RG}","subnets":null,
+              "networkInterfaces":null,"tags":{{"azlin-session":"{VM}"}}}}]"#
+    ));
+    mock
+}
+
+#[test]
+fn test_nsg_freed_by_nic_deletion_is_deleted_by_recheck() {
+    let mock = mock_with_nsg_that_only_looks_in_use();
+    let msg = handle_delete(&mock, RG, VM).unwrap();
+    let log = mock.call_log();
+    assert!(
+        log.contains(&format!("delete_nsg:{VM}NSG")),
+        "NSG freed by the NIC deletion must be deleted, not leaked: {log:?}"
+    );
+    assert!(
+        !msg.contains("still associated"),
+        "a resource the re-check deleted must not still be reported as skipped: {msg}"
+    );
+}
+
+#[test]
+fn test_recheck_runs_only_after_nic_deletion() {
+    let mock = mock_with_nsg_that_only_looks_in_use();
+    handle_delete(&mock, RG, VM).unwrap();
+    let nic_delete = mock
+        .call_index(&format!("delete_nic:{VM}VMNic"))
+        .expect("NIC must be deleted");
+    let nsg_delete = mock
+        .call_index(&format!("delete_nsg:{VM}NSG"))
+        .expect("NSG must be deleted");
+    assert!(
+        nic_delete < nsg_delete,
+        "Azure refuses to delete an NSG while a NIC still references it"
+    );
+}
+
+#[test]
+fn test_recheck_never_deletes_another_sessions_nsg() {
+    let mut mock = mock_with_nsg_that_only_looks_in_use();
+    // A sibling session's NSG, free after our NIC goes but not ours to delete.
+    mock.nsg_json_after_nic_delete = Some(format!(
+        r#"[{{"name":"{SIBLING}NSG","resourceGroup":"{RG}","subnets":null,
+              "networkInterfaces":null,"tags":{{"azlin-session":"{SIBLING}"}}}}]"#
+    ));
+    handle_delete(&mock, RG, VM).unwrap();
+    let log = mock.call_log();
+    assert!(
+        !log.contains(&format!("delete_nsg:{SIBLING}NSG")),
+        "the re-check must not widen ownership beyond the target session: {log:?}"
+    );
+}
+
+#[test]
+fn test_no_recheck_when_nothing_was_skipped_as_in_use() {
+    let mock = mock_with_full_session();
+    handle_delete(&mock, RG, VM).unwrap();
+    // Two list calls per resource kind would mean a needless second round-trip
+    // to Azure on the common path where the plan already covered everything.
+    let nsg_lists = mock
+        .call_log()
+        .iter()
+        .filter(|c| *c == "list_nsgs_json")
+        .count();
+    assert_eq!(
+        nsg_lists, 1,
+        "the re-check must not re-read Azure when no resource was skipped as in-use"
+    );
+}
