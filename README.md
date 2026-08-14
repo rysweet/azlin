@@ -1083,13 +1083,18 @@ azlin connect --x11 my-vm
 # VNC desktop: full remote desktop session
 azlin gui my-vm
 azlin gui my-vm --resolution 2560x1440
+
+# Containerised desktop: for VMs whose repos lack a desktop stack, or for RDP
+azlin gui install my-vm
+azlin gui install my-vm --protocol rdp
 ```
 
 - **X11 forwarding** (`--x11`) tunnels individual app windows over SSH. Best for lightweight tools like gitk, meld, and xeyes.
 - **VNC desktop** (`azlin gui`) launches a full XFCE desktop, auto-installs dependencies, and opens your local VNC viewer. VNC runs on localhost only with random per-session passwords -- all traffic is encrypted through the SSH or bastion tunnel.
+- **Containerised desktop** (`azlin gui install`) takes the whole desktop stack -- X server, window manager and the VNC or RDP server -- from a pinned container image on the VM's Docker. Use it when the VM's package repositories carry no desktop stack, or when you want RDP. The port is published on the VM's loopback interface only; no NSG rule is ever created.
 - **First-run GUI setup** uses the same `--user` and `--key` values as the tunnel, runs non-interactively, and exits with the setup error if dependency installation cannot finish.
 
-Both approaches work transparently through Azure Bastion.
+All approaches work transparently through Azure Bastion.
 
 See [GUI Forwarding Guide](docs/GUI_FORWARDING.md) for prerequisites, options, and troubleshooting.
 

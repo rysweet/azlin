@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod error;
+pub mod gui_container;
 pub mod models;
 pub mod sanitizer;
 

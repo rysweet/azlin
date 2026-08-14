@@ -1051,6 +1051,7 @@ mod cmd_connect;
 mod cmd_context;
 mod cmd_env;
 mod cmd_gui;
+mod cmd_gui_install;
 #[allow(dead_code)]
 mod cmd_history;
 mod cmd_infra;
