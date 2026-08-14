@@ -41,7 +41,7 @@ azlin destroy my-vm-name --force
 | `--config` | Path to custom config file |
 | `--force` | Skip confirmation prompt |
 | `--dry-run` | Show what would be deleted without actually deleting |
-| `--delete-rg` | Delete the entire resource group (DANGEROUS) |
+| `--delete-rg` | **Rejected.** `destroy` refuses this flag outright — see [Resource Group Deletion](#resource-group-deletion) below. |
 
 ## What Gets Deleted
 
@@ -50,17 +50,31 @@ azlin destroy my-vm-name --force
 Resources are deleted in the followin' order to handle dependencies:
 
 1. **Virtual Machine** - The VM instance itself
-2. **Network Interfaces (NICs)** - All network interfaces attached to the VM
-3. **Network Security Groups (NSGs)** - NSGs discovered from each NIC **[NEW]**
-4. **OS and Data Disks** - All disks attached to the VM
-5. **Public IP Addresses** - Public IPs associated with NICs (if any)
+2. **OS and Data Disks** - All disks owned by the VM
+3. **Network Interfaces (NICs)** - All network interfaces attached to the VM
+4. **Public IP Addresses** - Public IPs associated with the VM's NIC(s)
+5. **Network Security Groups (NSGs)** - NSGs associated with the VM's NIC(s)
 
-### NSG Deletion Behavior **[NEW]**
+The NIC must be fully deleted before its Public IP or NSG can be — Azure
+refuses to delete either while a NIC still references it. That's why NICs are
+torn down third and the Public IP/NSG come last, not the other way around.
 
-- NSGs be discovered by querying each NIC attached to the VM
-- NSG deletion be best-effort (graceful if NSG doesn't exist or already deleted)
-- Multiple NICs may share the same NSG (only deleted once)
-- No errors if NSG not found (handles race conditions)
+### NSG and Public IP Deletion Behavior
+
+- The Public IP and NSG are discovered by querying the resource group,
+  scoped to the `azlin-session` tag so a sibling session's resources are
+  never touched
+- Deletion is idempotent and best-effort per resource: a resource Azure has
+  already removed (404) counts as success, and one failed resource does not
+  abort the rest
+- Azure's association data can lag briefly after a NIC delete (a stale or
+  "ghost" reference — see [Microsoft's troubleshooting
+  guidance](https://learn.microsoft.com/en-us/answers/questions/691897/cannot-delete-nsg-associted-with-with-non-existent)).
+  `destroy` re-checks anything it had to skip as still-in-use once the NIC
+  delete has settled, and deletes it then if it's now genuinely free
+- A Public IP or NSG with no `azlin-session` tag at all is never deleted
+  automatically — ownership can't be proven. `destroy` reports it instead and
+  points at `azlin cleanup`
 
 ## Examples
 
@@ -86,12 +100,12 @@ Are you sure you want to delete this VM? [y/N]: y
 
 Deleting VM: azlin-vm-20250112-120000
   ✓ Deleted VM
-  ✓ Deleted NIC: azlin-vm-nic
-  ✓ Deleted NSG: azlin-vm-nsg
   ✓ Deleted disk: azlin-vm-osdisk
+  ✓ Deleted NIC: azlin-vm-nic
   ✓ Deleted Public IP: azlin-vm-ip
+  ✓ Deleted NSG: azlin-vm-nsg
 
-Successfully deleted azlin-vm-20250112-120000 and all associated resources.
+Deleted azlin-vm-20250112-120000 and 4 associated resource(s) (~$3.65/month reclaimed)
 ```
 
 ### Example 2: Dry-Run Mode
@@ -216,15 +230,30 @@ If multiple VMs share a Network Security Group:
 azlin destroy my-vm --delete-rg --force
 ```
 
-**WARNING:** This deletes the ENTIRE resource group, not just the VM. All resources in the group be permanently lost.
+**This is rejected.** `--delete-rg` is parsed but always refused with an
+error — it is *not* a supported way to delete a resource group. Resource
+groups routinely hold hand-made VMs, VNets and Public IPs alongside azlin
+sessions, so honoring the flag could destroy unrelated data with no way back.
+`destroy` only ever removes the named VM and its own disks, NIC, Public IP
+and NSG.
+
+If you really do want to delete the whole resource group, run the Azure CLI
+directly and accept that responsibility explicitly:
+
+```bash
+az group delete --name my-resource-group
+```
+
+To reclaim other leftovers in a resource group without deleting the group
+itself, use `azlin cleanup --resource-group my-resource-group`.
 
 ## Comparison with killall
 
 | Command | Purpose | Confirmation |
 |---------|---------|--------------|
 | `azlin destroy <vm-name>` | Delete single VM | Per-VM prompt |
-| `azlin killall` | Delete all VMs in RG | Single bulk prompt |
-| `azlin destroy --delete-rg` | Delete entire RG | Extra warning |
+| `azlin killall` | Delete all VMs matching a prefix in a resource group | Single bulk prompt |
+| `azlin destroy --delete-rg` | **Rejected** — not supported | n/a |
 
 ## Related Commands
 

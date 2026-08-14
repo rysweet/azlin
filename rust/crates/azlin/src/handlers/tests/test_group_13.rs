@@ -456,3 +456,96 @@ fn test_no_recheck_when_nothing_was_skipped_as_in_use() {
         "the re-check must not re-read Azure when no resource was skipped as in-use"
     );
 }
+
+// ── Pooled sessions: recovering a member's orphan after the VM is gone ──
+//
+// `azlin new --name my-dev-pool --pool 3` tags every member's Public IP and
+// NSG with `azlin-session=my-dev-pool` (the pool's base name), not the
+// member's own VM name (`my-dev-pool-1`, `my-dev-pool-2`, ...). Once a pool
+// member's VM is already deleted, `build_teardown_plan` cannot read its real
+// tag live and can only guess `session_tag = vm_name` — which never equals
+// the pool tag. Without the `also_match_by_name` fallback this leaves the
+// member's own Public IP/NSG permanently and silently orphaned: not deleted,
+// not even reported, since a tag that belongs to *some* other-looking
+// session is otherwise treated as none of this teardown's business.
+
+const POOL_VM: &str = "my-dev-pool-1";
+const POOL_SIBLING: &str = "my-dev-pool-2";
+const POOL_TAG: &str = "my-dev-pool";
+
+#[test]
+fn test_pool_member_orphan_is_recovered_after_vm_already_deleted() {
+    let mut mock = MockAzureOps::new(vec![]); // the VM is already gone
+    mock.pip_json = format!(
+        r#"[{{"name":"{POOL_VM}PublicIP","resourceGroup":"{RG}","ipConfiguration":null,
+              "tags":{{"azlin-session":"{POOL_TAG}"}}}}]"#
+    );
+    mock.nsg_json = format!(
+        r#"[{{"name":"{POOL_VM}NSG","resourceGroup":"{RG}","subnets":[],
+              "networkInterfaces":[],"tags":{{"azlin-session":"{POOL_TAG}"}}}}]"#
+    );
+
+    let msg = handle_delete(&mock, RG, POOL_VM).unwrap();
+    let log = mock.call_log();
+    assert!(
+        log.contains(&format!("delete_public_ip:{POOL_VM}PublicIP")),
+        "a pool member's own leaked public IP must be reclaimed even though \
+         its azlin-session tag is the pool name, not the VM name: {log:?}"
+    );
+    assert!(
+        log.contains(&format!("delete_nsg:{POOL_VM}NSG")),
+        "a pool member's own leaked NSG must be reclaimed the same way: {log:?}"
+    );
+    assert!(msg.contains("month"), "the reclaimed saving should be reported: {msg}");
+}
+
+/// When the VM never existed in the plan, there is no `Vm` entry to
+/// subtract, so the reported count must equal every resource actually
+/// deleted, not one fewer.
+#[test]
+fn test_success_message_reports_correct_count_when_vm_already_gone() {
+    let mut mock = MockAzureOps::new(vec![]);
+    mock.pip_json = format!(
+        r#"[{{"name":"{POOL_VM}PublicIP","resourceGroup":"{RG}","ipConfiguration":null,
+              "tags":{{"azlin-session":"{POOL_TAG}"}}}}]"#
+    );
+    mock.nsg_json = format!(
+        r#"[{{"name":"{POOL_VM}NSG","resourceGroup":"{RG}","subnets":[],
+              "networkInterfaces":[],"tags":{{"azlin-session":"{POOL_TAG}"}}}}]"#
+    );
+    let msg = handle_delete(&mock, RG, POOL_VM).unwrap();
+    assert!(
+        msg.contains("2 orphaned resource"),
+        "two resources (public IP + NSG) were deleted and no VM was ever in \
+         the plan to subtract: {msg}"
+    );
+}
+
+#[test]
+fn test_pool_sibling_orphan_is_not_touched_by_another_members_destroy() {
+    let mut mock = MockAzureOps::new(vec![]);
+    // Both this VM's own leftover and a sibling pool member's leftover share
+    // the identical `azlin-session` tag (the pool base name) — only the
+    // sibling's resource *name* distinguishes it.
+    mock.pip_json = format!(
+        r#"[
+          {{"name":"{POOL_VM}PublicIP","resourceGroup":"{RG}","ipConfiguration":null,
+            "tags":{{"azlin-session":"{POOL_TAG}"}}}},
+          {{"name":"{POOL_SIBLING}PublicIP","resourceGroup":"{RG}","ipConfiguration":null,
+            "tags":{{"azlin-session":"{POOL_TAG}"}}}}
+        ]"#
+    );
+    mock.nsg_json = "[]".to_string();
+
+    handle_delete(&mock, RG, POOL_VM).unwrap();
+    let log = mock.call_log();
+    assert!(
+        log.contains(&format!("delete_public_ip:{POOL_VM}PublicIP")),
+        "this member's own orphan must still be reclaimed: {log:?}"
+    );
+    assert!(
+        !log.iter().any(|c| c.contains(POOL_SIBLING)),
+        "a sibling pool member's orphan must never be touched, even though \
+         it carries the exact same session tag: {log:?}"
+    );
+}

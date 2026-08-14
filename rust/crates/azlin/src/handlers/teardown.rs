@@ -28,18 +28,31 @@ pub fn build_teardown_plan(
     // partially-completed teardown, which is exactly the leak scenario.
     let vm = ops.get_vm(resource_group, vm_name).ok();
     let vm_exists = vm.is_some();
-    let session_tag = match vm.as_ref() {
-        Some(vm) => vm
-            .tags
-            .get(SESSION_TAG_KEY)
-            .filter(|s| !s.is_empty())
-            .cloned(),
+    let (session_tag, name_hints): (Option<String>, Vec<String>) = match vm.as_ref() {
+        Some(vm) => (
+            vm.tags
+                .get(SESSION_TAG_KEY)
+                .filter(|s| !s.is_empty())
+                .cloned(),
+            Vec::new(),
+        ),
         // The VM is already gone, so its tag cannot be read — but its Public
-        // IP and NSG may still be orphaned and billing. `az vm create` stamps
-        // `azlin-session` with the session name, which is the VM name, so fall
-        // back to that. Matching stays exact tag equality, so a prefix-adjacent
-        // sibling session can still never be matched.
-        None => Some(vm_name.to_string()),
+        // IP and NSG may still be orphaned and billing. For a single VM
+        // (not part of a pool), `azlin-session` is stamped with the VM's own
+        // name, so guessing that as the tag is usually right. But pooled
+        // sessions (`azlin new --name X --pool N`) stamp every member's tag
+        // with the pool's base name `X`, not the member's own name (`X-1`,
+        // `X-2`, ...; see `resolve_session_identity` in `create_helpers.rs`).
+        // For those, this guess never matches the real tag, and tag-only
+        // matching would silently leak the member's own Public IP/NSG
+        // forever with no warning. `also_match_by_name` closes that gap: a
+        // resource still needs *some* azlin-session tag, but no longer needs
+        // it to equal this guess, as long as its own name is the
+        // Azure-default name for exactly this VM.
+        None => (
+            Some(vm_name.to_string()),
+            vec![format!("{vm_name}PublicIP"), format!("{vm_name}NSG")],
+        ),
     };
 
     let disk_json = ops
@@ -64,6 +77,7 @@ pub fn build_teardown_plan(
         nic_json: &nic_json,
         pip_json: &pip_json,
         nsg_json: &nsg_json,
+        also_match_by_name: &name_hints,
     })
 }
 
@@ -147,8 +161,19 @@ pub fn execute_teardown(ops: &dyn AzureOps, resource_group: &str, vm_name: &str)
         );
     }
 
+    // The VM itself is only ever in the plan when it still existed at
+    // discovery time — e.g. re-running destroy to mop up a pool member's
+    // leftover Public IP/NSG after its VM is already gone has no `Vm` entry
+    // at all. Subtracting 1 unconditionally would then undercount every
+    // associated resource actually deleted.
+    let had_vm = plan.resources.iter().any(|r| r.kind == TeardownKind::Vm);
+    let associated = if had_vm { deleted.saturating_sub(1) } else { deleted };
     let savings = plan.estimated_monthly_savings();
-    let mut msg = format!("Deleted {vm_name} and {} associated resource(s)", deleted - 1);
+    let mut msg = if had_vm {
+        format!("Deleted {vm_name} and {associated} associated resource(s)")
+    } else {
+        format!("VM '{vm_name}' was already gone; reclaimed {associated} orphaned resource(s)")
+    };
     if savings > 0.0 {
         msg.push_str(&format!(" (~${savings:.2}/month reclaimed)"));
     }
@@ -205,6 +230,7 @@ fn recheck_freed_resources(
         resource_group,
         &pip_json,
         &nsg_json,
+        &plan.also_match_by_name,
     )
     .unwrap_or_default()
 }

@@ -28,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the estimated monthly saving, instead of printing a static string
   - `killall` now matches session VMs by exact name rather than a JMESPath name
     prefix, so destroying `foo` can no longer match `foobar`
+  - Pooled sessions (`azlin new --name X --pool N`) tag every member's Public
+    IP/NSG with the pool's base name, not that member's own VM name. Recovering
+    a member's orphaned Public IP/NSG after its VM is already gone now falls
+    back to Azure's default per-VM resource naming (`also_match_by_name`) when
+    the guessed session tag cannot match, so a pool member's leak is no longer
+    silently unrecoverable
 
 ### Security
 - **Bastion WSS URL redaction** — the `wss://` tunnel URL embeds the short-lived

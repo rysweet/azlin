@@ -113,6 +113,10 @@ pub struct TeardownPlan {
     /// The `azlin-session` tag this plan matched on, retained so a follow-up
     /// re-check can apply the identical ownership rule.
     pub session_tag: Option<String>,
+    /// Exact resource names that prove ownership independently of the tag
+    /// value, retained so a follow-up re-check can apply the identical rule.
+    /// See [`TeardownInputs::also_match_by_name`].
+    pub also_match_by_name: Vec<String>,
 }
 
 impl TeardownPlan {
@@ -144,6 +148,26 @@ pub struct TeardownInputs<'a> {
     pub nic_json: &'a str,
     pub pip_json: &'a str,
     pub nsg_json: &'a str,
+    /// Exact resource names known to belong to this VM by Azure's own default
+    /// per-VM naming convention (`<vm>PublicIP`, `<vm>NSG`), used as a
+    /// fallback ownership signal that does not depend on `session_tag`
+    /// matching exactly.
+    ///
+    /// Needed because pooled sessions (`azlin new --name X --pool N`) stamp
+    /// *every* pool member's `azlin-session` tag with the pool's base name
+    /// `X`, not the member's own VM name (`X-1`, `X-2`, …; see
+    /// `resolve_session_identity`). When VM `X-1` no longer exists, its tag
+    /// cannot be read live, so `session_tag` can only be guessed — and
+    /// guessing `X-1` never equals the real tag `X`. Without this escape
+    /// hatch that guess-mismatch makes `classify` silently `Ignore` the
+    /// member's own orphaned Public IP/NSG (not even a warning), leaking it
+    /// forever. A resource is only ever matched this way if it also carries
+    /// *some* non-empty `azlin-session` tag — an untagged resource with a
+    /// coincidentally matching name is still never touched.
+    ///
+    /// Empty when the VM exists and its tag was read live: exact tag
+    /// equality is authoritative in that case and needs no name fallback.
+    pub also_match_by_name: &'a [String],
 }
 
 /// Extract the final segment of an Azure resource ID.
@@ -220,9 +244,11 @@ fn parse_list(json: &str, what: &str) -> Result<Vec<serde_json::Value>> {
 ///   (`managedBy` / `virtualMachine.id`), which is authoritative and needs no
 ///   tag.
 /// * **Public IPs and NSGs** are selected only when their `azlin-session` tag
-///   exactly equals the VM's. Untagged candidates are skipped and reported —
-///   ownership cannot be proven, and deleting them could destroy another
-///   session's resources.
+///   exactly equals the VM's, or — see `TeardownInputs::also_match_by_name`
+///   — when they are tagged for *some* azlin session and their own name is
+///   the Azure-default name for this exact VM. Untagged candidates are
+///   skipped and reported — ownership cannot be proven, and deleting them
+///   could destroy another session's resources.
 /// * A Public IP or NSG still bound to something *outside* this teardown is
 ///   skipped as in-use. Being bound to this VM's own NIC does not disqualify
 ///   it, since that NIC is deleted first.
@@ -233,6 +259,7 @@ pub fn plan_teardown(inputs: &TeardownInputs) -> Result<TeardownPlan> {
     let mut plan = TeardownPlan {
         vm_exists: inputs.vm_exists,
         session_tag: inputs.session_tag.map(str::to_string),
+        also_match_by_name: inputs.also_match_by_name.to_vec(),
         ..Default::default()
     };
 
@@ -318,8 +345,9 @@ pub fn plan_teardown(inputs: &TeardownInputs) -> Result<TeardownPlan> {
                 .and_then(|id| id.rsplit_once("/ipConfigurations/").map(|(nic, _)| nic))
                 .map(|nic_id| bound_only_to_target_nics(&[nic_id]))
                 .unwrap_or(false);
+        let name_hint = inputs.also_match_by_name.iter().any(|n| n == name);
 
-        match classify(session_tag_of(&ip), inputs.session_tag, free) {
+        match classify(session_tag_of(&ip), inputs.session_tag, free, name_hint) {
             Candidate::Delete => plan.resources.push(TeardownResource {
                 name: name.to_string(),
                 kind: TeardownKind::PublicIp,
@@ -357,8 +385,9 @@ pub fn plan_teardown(inputs: &TeardownInputs) -> Result<TeardownPlan> {
             .unwrap_or_default();
         let free = !subnet_bound
             && (nsg_is_unassociated(&nsg) || bound_only_to_target_nics(&nic_ids));
+        let name_hint = inputs.also_match_by_name.iter().any(|n| n == name);
 
-        match classify(session_tag_of(&nsg), inputs.session_tag, free) {
+        match classify(session_tag_of(&nsg), inputs.session_tag, free, name_hint) {
             Candidate::Delete => plan.resources.push(TeardownResource {
                 name: name.to_string(),
                 kind: TeardownKind::Nsg,
@@ -410,11 +439,19 @@ pub fn plan_recheck(
     resource_group: &str,
     pip_json: &str,
     nsg_json: &str,
+    also_match_by_name: &[String],
 ) -> Result<Vec<TeardownResource>> {
     let was_skipped_in_use = |name: &str, kind: TeardownKind| {
         skipped
             .iter()
             .any(|s| s.name == name && s.kind == kind && s.reason == SkipReason::InUse)
+    };
+    // Same ownership rule as the first pass: an exact tag match, or a
+    // resource that is tagged for *some* azlin session and whose own name
+    // proves it belongs to this VM (see `TeardownInputs::also_match_by_name`).
+    let is_owned = |resource_tag: Option<&str>, name: &str| {
+        resource_tag == session_tag
+            || (resource_tag.is_some() && also_match_by_name.iter().any(|n| n == name))
     };
 
     let mut freed = Vec::new();
@@ -426,7 +463,7 @@ pub fn plan_recheck(
         if !was_skipped_in_use(name, TeardownKind::PublicIp) {
             continue;
         }
-        if session_tag_of(&ip) != session_tag || !public_ip_is_unassociated(&ip) {
+        if !is_owned(session_tag_of(&ip), name) || !public_ip_is_unassociated(&ip) {
             continue;
         }
         freed.push(TeardownResource {
@@ -444,7 +481,7 @@ pub fn plan_recheck(
         if !was_skipped_in_use(name, TeardownKind::Nsg) {
             continue;
         }
-        if session_tag_of(&nsg) != session_tag || !nsg_is_unassociated(&nsg) {
+        if !is_owned(session_tag_of(&nsg), name) || !nsg_is_unassociated(&nsg) {
             continue;
         }
         freed.push(TeardownResource {
@@ -465,13 +502,32 @@ pub fn plan_recheck(
 /// tag exactly equals the target session's. Exact equality means a
 /// prefix-adjacent sibling session (`copilot-test-…` vs `copilot-test2-…`)
 /// can never be matched by accident.
+///
+/// `name_hint` is a narrow escape hatch for `also_match_by_name`: when true,
+/// the resource's own name has already been proven (by the caller) to be the
+/// Azure-default name for *this exact* VM, so a mismatched tag value no
+/// longer disqualifies it — only used for the pooled-session case where the
+/// real tag can differ from any single member's VM name. A resource still
+/// needs *some* `azlin-session` tag to be eligible; `name_hint` never
+/// overrides the untagged case.
 fn classify(
     resource_tag: Option<&str>,
     target_session: Option<&str>,
     is_free: bool,
+    name_hint: bool,
 ) -> Candidate {
     match (resource_tag, target_session) {
         (Some(tag), Some(target)) if tag == target => {
+            if is_free {
+                Candidate::Delete
+            } else {
+                Candidate::Skip(SkipReason::InUse)
+            }
+        }
+        // Tag didn't match exactly, but the resource's own name proves it
+        // belongs to this VM (e.g. a pool member whose `azlin-session` tag is
+        // the pool's base name, not its own VM name).
+        (Some(_), _) if name_hint => {
             if is_free {
                 Candidate::Delete
             } else {
@@ -579,6 +635,7 @@ mod tests {
             nic_json: nics,
             pip_json: pips,
             nsg_json: nsgs,
+            also_match_by_name: &[],
         })
         .unwrap()
     }
@@ -813,6 +870,7 @@ mod tests {
             nic_json: &n,
             pip_json: &p,
             nsg_json: &g,
+            also_match_by_name: &[],
         })
         .unwrap();
         assert!(plan.of_kind(TeardownKind::PublicIp).is_empty());
@@ -858,6 +916,7 @@ mod tests {
             nic_json: "[]",
             pip_json: &pips,
             nsg_json: "[]",
+            also_match_by_name: &[],
         })
         .unwrap();
         assert!(!plan.vm_exists);
@@ -886,6 +945,7 @@ mod tests {
             nic_json: "[]",
             pip_json: "[]",
             nsg_json: "[]",
+            also_match_by_name: &[],
         })
         .is_err());
     }
@@ -978,6 +1038,7 @@ mod tests {
             }],
             vm_exists: true,
             session_tag: Some(SESSION.to_string()),
+            also_match_by_name: Vec::new(),
         };
         let out = format_teardown_plan(&plan, VM, RG);
         assert!(out.contains("Not deleted"));
@@ -1091,7 +1152,7 @@ mod tests {
             r#"[{{"name":"{VM}NSG","resourceGroup":"{RG}","subnets":null,
                   "networkInterfaces":null,"tags":{{"azlin-session":"{SESSION}"}}}}]"#
         );
-        let freed = plan_recheck(&skipped_nsg(), Some(SESSION), RG, "[]", &nsgs).unwrap();
+        let freed = plan_recheck(&skipped_nsg(), Some(SESSION), RG, "[]", &nsgs, &[]).unwrap();
         assert_eq!(freed.len(), 1);
         assert_eq!(freed[0].kind, TeardownKind::Nsg);
         assert_eq!(freed[0].name, format!("{VM}NSG"));
@@ -1105,7 +1166,7 @@ mod tests {
             r#"[{{"name":"{VM}NSG","resourceGroup":"{RG}","subnets":null,
                   "networkInterfaces":null,"tags":{{"azlin-session":"someone-else"}}}}]"#
         );
-        let freed = plan_recheck(&skipped_nsg(), Some(SESSION), RG, "[]", &nsgs).unwrap();
+        let freed = plan_recheck(&skipped_nsg(), Some(SESSION), RG, "[]", &nsgs, &[]).unwrap();
         assert!(freed.is_empty());
     }
 
@@ -1118,7 +1179,7 @@ mod tests {
                   "tags":{{"azlin-session":"{SESSION}"}}}}]"#,
             nic_id("someone-elses-nic")
         );
-        let freed = plan_recheck(&skipped_nsg(), Some(SESSION), RG, "[]", &nsgs).unwrap();
+        let freed = plan_recheck(&skipped_nsg(), Some(SESSION), RG, "[]", &nsgs, &[]).unwrap();
         assert!(freed.is_empty());
     }
 
@@ -1130,7 +1191,7 @@ mod tests {
             r#"[{{"name":"unrelated-nsg","resourceGroup":"{RG}","subnets":null,
                   "networkInterfaces":null,"tags":{{"azlin-session":"{SESSION}"}}}}]"#
         );
-        let freed = plan_recheck(&skipped_nsg(), Some(SESSION), RG, "[]", &nsgs).unwrap();
+        let freed = plan_recheck(&skipped_nsg(), Some(SESSION), RG, "[]", &nsgs, &[]).unwrap();
         assert!(freed.is_empty());
     }
 
@@ -1146,7 +1207,7 @@ mod tests {
             r#"[{{"name":"{VM}NSG","resourceGroup":"{RG}","subnets":null,
                   "networkInterfaces":null,"tags":{{"azlin-session":"{SESSION}"}}}}]"#
         );
-        let freed = plan_recheck(&skipped, Some(SESSION), RG, "[]", &nsgs).unwrap();
+        let freed = plan_recheck(&skipped, Some(SESSION), RG, "[]", &nsgs, &[]).unwrap();
         assert!(freed.is_empty());
     }
 
@@ -1162,7 +1223,7 @@ mod tests {
             r#"[{{"name":"{VM}PublicIP","resourceGroup":"{RG}","ipConfiguration":null,
                   "tags":{{"azlin-session":"{SESSION}"}}}}]"#
         );
-        let freed = plan_recheck(&skipped, Some(SESSION), RG, &pips, "[]").unwrap();
+        let freed = plan_recheck(&skipped, Some(SESSION), RG, &pips, "[]", &[]).unwrap();
         assert_eq!(freed.len(), 1);
         assert_eq!(freed[0].kind, TeardownKind::PublicIp);
     }
@@ -1172,5 +1233,136 @@ mod tests {
     #[test]
     fn plan_retains_session_tag_for_recheck() {
         assert_eq!(default_plan().session_tag.as_deref(), Some(SESSION));
+    }
+
+    // ── Pooled sessions: name-hint fallback when the VM is already gone ──
+    //
+    // `azlin new --name my-dev-pool --pool 3` tags every member's Public IP
+    // and NSG with `azlin-session=my-dev-pool` — the pool's base name, not
+    // the member's own VM name (`my-dev-pool-1`, `my-dev-pool-2`, ...). See
+    // `resolve_session_identity` in `azlin/src/create_helpers.rs`. When a
+    // pool member's VM has already been deleted, its true tag cannot be read
+    // live, so the caller can only *guess* `session_tag = vm_name` — which
+    // never equals the real pool tag. `also_match_by_name` is the escape
+    // hatch that recovers ownership from the resource's own Azure-default
+    // name instead.
+
+    const POOL_VM: &str = "my-dev-pool-1";
+    const POOL_TAG: &str = "my-dev-pool";
+
+    #[test]
+    fn pool_member_orphan_is_recovered_by_name_hint_when_vm_absent_and_tag_mismatches() {
+        let pips = format!(
+            r#"[{{"name":"{POOL_VM}PublicIP","resourceGroup":"{RG}","ipConfiguration":null,
+                  "tags":{{"azlin-session":"{POOL_TAG}"}}}}]"#
+        );
+        let nsgs = format!(
+            r#"[{{"name":"{POOL_VM}NSG","resourceGroup":"{RG}","subnets":[],
+                  "networkInterfaces":[],"tags":{{"azlin-session":"{POOL_TAG}"}}}}]"#
+        );
+        let hints = vec![format!("{POOL_VM}PublicIP"), format!("{POOL_VM}NSG")];
+        let plan = plan_teardown(&TeardownInputs {
+            vm_name: POOL_VM,
+            resource_group: RG,
+            // The caller's best guess once the VM is gone: never equal to the
+            // real pool tag `POOL_TAG`.
+            session_tag: Some(POOL_VM),
+            vm_exists: false,
+            disk_json: "[]",
+            nic_json: "[]",
+            pip_json: &pips,
+            nsg_json: &nsgs,
+            also_match_by_name: &hints,
+        })
+        .unwrap();
+        assert_eq!(
+            plan.of_kind(TeardownKind::PublicIp).len(),
+            1,
+            "the pool member's own public IP must be recovered despite the tag mismatch"
+        );
+        assert_eq!(
+            plan.of_kind(TeardownKind::Nsg).len(),
+            1,
+            "the pool member's own NSG must be recovered despite the tag mismatch"
+        );
+        assert!(
+            plan.skipped.is_empty(),
+            "a correctly name-matched, free resource is deleted outright, not warned about"
+        );
+    }
+
+    #[test]
+    fn pool_sibling_is_not_matched_by_another_members_name_hint() {
+        // `my-dev-pool-2` shares the same `azlin-session` tag as `my-dev-pool-1`
+        // (both are members of the same pool), but its resources are outside
+        // this teardown's `also_match_by_name` hints, which only ever name
+        // `my-dev-pool-1`'s own resources.
+        let pips = format!(
+            r#"[{{"name":"my-dev-pool-2PublicIP","resourceGroup":"{RG}","ipConfiguration":null,
+                  "tags":{{"azlin-session":"{POOL_TAG}"}}}}]"#
+        );
+        let hints = vec![format!("{POOL_VM}PublicIP"), format!("{POOL_VM}NSG")];
+        let plan = plan_teardown(&TeardownInputs {
+            vm_name: POOL_VM,
+            resource_group: RG,
+            session_tag: Some(POOL_VM),
+            vm_exists: false,
+            disk_json: "[]",
+            nic_json: "[]",
+            pip_json: &pips,
+            nsg_json: "[]",
+            also_match_by_name: &hints,
+        })
+        .unwrap();
+        assert!(
+            plan.of_kind(TeardownKind::PublicIp).is_empty(),
+            "a sibling pool member's public IP must never be swept up"
+        );
+        assert!(plan.skipped.is_empty());
+    }
+
+    #[test]
+    fn name_hint_does_not_rescue_a_genuinely_untagged_resource() {
+        // A coincidentally-named, hand-made resource with no azlin tag at
+        // all must stay conservative: reported, never deleted.
+        let pips = format!(
+            r#"[{{"name":"{POOL_VM}PublicIP","resourceGroup":"{RG}","ipConfiguration":null}}]"#
+        );
+        let hints = vec![format!("{POOL_VM}PublicIP")];
+        let plan = plan_teardown(&TeardownInputs {
+            vm_name: POOL_VM,
+            resource_group: RG,
+            session_tag: Some(POOL_VM),
+            vm_exists: false,
+            disk_json: "[]",
+            nic_json: "[]",
+            pip_json: &pips,
+            nsg_json: "[]",
+            also_match_by_name: &hints,
+        })
+        .unwrap();
+        assert!(
+            plan.of_kind(TeardownKind::PublicIp).is_empty(),
+            "name alone is not proof of azlin ownership"
+        );
+        assert_eq!(plan.skipped[0].reason, SkipReason::Untagged);
+    }
+
+    #[test]
+    fn recheck_deletes_pool_member_nsg_via_name_hint_despite_tag_mismatch() {
+        let skipped = vec![SkippedResource {
+            name: format!("{POOL_VM}NSG"),
+            kind: TeardownKind::Nsg,
+            reason: SkipReason::InUse,
+        }];
+        let nsgs = format!(
+            r#"[{{"name":"{POOL_VM}NSG","resourceGroup":"{RG}","subnets":null,
+                  "networkInterfaces":null,"tags":{{"azlin-session":"{POOL_TAG}"}}}}]"#
+        );
+        let hints = vec![format!("{POOL_VM}NSG")];
+        let freed =
+            plan_recheck(&skipped, Some(POOL_VM), RG, "[]", &nsgs, &hints).unwrap();
+        assert_eq!(freed.len(), 1);
+        assert_eq!(freed[0].name, format!("{POOL_VM}NSG"));
     }
 }
