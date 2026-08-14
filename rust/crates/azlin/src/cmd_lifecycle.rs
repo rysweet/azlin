@@ -161,8 +161,37 @@ pub(crate) async fn dispatch(
             ..
         } => {
             let rg = resolve_resource_group(resource_group)?;
+
+            // List every VM in the resource group first (read-only) so we can
+            // tell "resource group is empty" apart from "prefix matched
+            // nothing", and so the confirmation names the actual VMs.
+            let all_query = crate::lifecycle_helpers::killall_all_names_query();
+            let list_pb = penguin_spinner("Listing VMs...");
+            let list_out = std::process::Command::new("az")
+                .args(crate::lifecycle_helpers::killall_list_args(&rg, all_query))
+                .output()?;
+            list_pb.finish_and_clear();
+            if !list_out.status.success() {
+                anyhow::bail!("Failed to list VMs.");
+            }
+            let names_raw = String::from_utf8_lossy(&list_out.stdout);
+            let all_names: Vec<String> = crate::lifecycle_helpers::parse_vm_ids(&names_raw)
+                .into_iter()
+                .map(str::to_string)
+                .collect();
+            let (matching, unmatched) =
+                crate::lifecycle_helpers::partition_by_prefix(&all_names, &prefix);
+
+            if matching.is_empty() {
+                println!(
+                    "{}",
+                    crate::lifecycle_helpers::killall_no_match_message(&prefix, &rg, &unmatched)
+                );
+                return Ok(());
+            }
+
             if !safe_confirm(
-                &crate::lifecycle_helpers::killall_confirm_prompt(&prefix, &rg),
+                &crate::lifecycle_helpers::killall_confirm_prompt(&prefix, &rg, &matching),
                 force,
             )? {
                 println!("Cancelled.");
@@ -184,12 +213,18 @@ pub(crate) async fn dispatch(
             }
 
             let names_raw = String::from_utf8_lossy(&output.stdout);
-            let names = crate::lifecycle_helpers::parse_vm_ids(&names_raw);
+            // Re-listing picks up VMs deleted elsewhere since the enumeration,
+            // but must never widen the set: the confirmation named specific
+            // VMs, so anything not in that list is not ours to delete.
+            let listed = crate::lifecycle_helpers::parse_vm_ids(&names_raw);
+            let names = crate::lifecycle_helpers::narrow_to_confirmed(&listed, &matching);
             if names.is_empty() {
+                // Only reachable if the matched VMs disappeared between the
+                // enumeration above and this query; report it the same way.
                 pb.finish_and_clear();
                 println!(
                     "{}",
-                    crate::lifecycle_helpers::killall_empty_message(&prefix)
+                    crate::lifecycle_helpers::killall_no_match_message(&prefix, &rg, &unmatched)
                 );
             } else {
                 // Tear each VM down individually rather than batching

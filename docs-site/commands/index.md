@@ -50,7 +50,7 @@ Complete reference for all azlin commands organized by category.
 - `azlin vm update-tools` - Update development tools
 - `azlin destroy` - Delete a VM
 - `azlin kill` - Delete VM and resources
-- `azlin killall` - Delete all VMs
+- `azlin killall` - Delete VMs matching a name prefix
 - `azlin prune` - Delete idle VMs
 
 ### AI-Powered Features
