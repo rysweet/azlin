@@ -24,6 +24,17 @@
 //! * The desktop always has a password. The password is generated on the VM and
 //!   passed to Docker through a `0600` env-file, so it never appears in a process
 //!   listing or in `docker inspect` output.
+//! * Images are pinned by tag **and** verified by digest after every pull: the
+//!   install script compares the `RepoDigests` entry Docker records for the
+//!   pulled image against [`GuiImage::amd64_digest`] and refuses to run the
+//!   container (removing the pulled image and exiting non-zero) on a mismatch.
+//!   A tag is mutable — a compromised or careless registry can repoint
+//!   `consol/debian-xfce-vnc:v2.0.4` to different bytes without changing the
+//!   string azlin pulls — so the tag alone is not a provenance guarantee. The
+//!   digest check is skipped (not failed) when Docker reports no `RepoDigests`
+//!   at all, which happens only for images that were not pulled from a
+//!   registry; every image `azlin gui install` runs is freshly pulled, so this
+//!   is a defensive fallback, not the expected path.
 //!
 //! # Password strength, stated honestly
 //!
@@ -112,8 +123,15 @@ const REQUIRED_FREE_KIB: u64 = 4 * 1024 * 1024;
 pub struct GuiImage {
     /// Fully qualified image reference including the pinned tag.
     pub reference: &'static str,
-    /// Digest of the `linux/amd64` manifest at the time of pinning, recorded so
-    /// that a tag which silently moves can be detected.
+    /// Digest of the `linux/amd64` manifest at the time of pinning. The install
+    /// script (see [`build_install_script`]) checks the digest of the image it
+    /// actually pulled against this value and refuses to run on a mismatch, so
+    /// a tag that silently moves on the registry is detected and rejected
+    /// rather than silently trusted.
+    ///
+    /// This assumes the VM is `linux/amd64`: azlin currently provisions only
+    /// D-series/E-series v5 VMs, which are x86_64. If an ARM VM family is ever
+    /// added, this field and the verification must become architecture-aware.
     pub amd64_digest: &'static str,
     /// Port the desktop server listens on inside the container.
     pub container_port: u16,
@@ -492,6 +510,11 @@ pub fn build_install_script(plan: &GuiInstallPlan) -> String {
          if [ -n \"$CUR\" ]; then docker rm -f {name} >/dev/null 2>&1 || true; fi; \
          if ! PULL_OUT=$(docker pull {image} 2>&1); then \
            echo \"azlin-error: failed to pull the desktop container image: $PULL_OUT\" >&2; exit 4; fi; \
+         PULLED_DIGEST=$(docker inspect -f '{{{{index .RepoDigests 0}}}}' {image} 2>/dev/null || true); \
+         PULLED_DIGEST=${{PULLED_DIGEST#*@}}; \
+         if [ -n \"$PULLED_DIGEST\" ] && [ \"$PULLED_DIGEST\" != {expected_digest} ]; then \
+           docker rmi {image} >/dev/null 2>&1 || true; \
+           echo \"azlin-error: pulled image digest $PULLED_DIGEST for {image} does not match the digest azlin pinned ({expected_digest}); the tag may have moved on the registry, refusing to run an unverified image\" >&2; exit 10; fi; \
          if command -v openssl >/dev/null 2>&1; then AZLIN_GUI_PW=$(openssl rand -hex 16); \
          else AZLIN_GUI_PW=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \\n'); fi; \
          if [ -z \"$AZLIN_GUI_PW\" ]; then \
@@ -509,6 +532,7 @@ pub fn build_install_script(plan: &GuiInstallPlan) -> String {
         image = image,
         protocol = sq(protocol),
         required_kib = REQUIRED_FREE_KIB,
+        expected_digest = sq(plan.image.amd64_digest),
         publish = publish_quoted,
         publish_plain = publish_plain,
         env_lines = env_lines,
@@ -557,6 +581,7 @@ pub fn describe_install_failure(exit_code: i32, stderr: &str) -> String {
         7 => "Free disk space on the VM (the desktop image needs roughly 2-4 GiB) and re-run.",
         8 => "Another process is already listening on that loopback port. Stop it, or remove the stale container with 'docker rm -f azlin-gui'.",
         9 => "Inspect the container logs on the VM:\n  docker logs azlin-gui",
+        10 => "The image azlin pulled does not match the digest it has pinned for this tag. This can mean the upstream tag moved (a legitimate new release, or a registry compromise) or that the VM is not linux/amd64. Do not retry blindly: compare the reported digest against the registry yourself before deciding whether to update azlin's pinned digest.",
         _ => "Re-run with --verbose for the full remote output.",
     };
 
@@ -624,6 +649,27 @@ mod tests {
                 .1;
             assert_ne!(tag, "latest", "{} must not float on :latest", image.reference);
             assert!(image.amd64_digest.starts_with("sha256:"));
+        }
+    }
+
+    #[test]
+    fn install_verifies_the_pulled_digest_against_the_pinned_digest_and_fails_closed() {
+        for plan in [vnc_plan(), rdp_plan()] {
+            let script = build_install_script(&plan);
+            assert!(
+                script.contains(&sq(plan.image.amd64_digest)),
+                "install script must compare against the pinned digest: {script}"
+            );
+            assert!(
+                script.contains("RepoDigests"),
+                "install script must inspect the pulled image's RepoDigests: {script}"
+            );
+            assert!(
+                script.contains("exit 10"),
+                "a digest mismatch must be a distinct, fail-closed exit code: {script}"
+            );
+            // On mismatch the unverified image must not be left around to run later.
+            assert!(script.contains(&format!("docker rmi {}", sq(plan.image.reference))));
         }
     }
 
@@ -781,7 +827,7 @@ mod tests {
     #[test]
     fn every_install_failure_mode_has_a_distinct_exit_code() {
         let script = build_install_script(&vnc_plan());
-        for code in [2, 3, 4, 5, 7, 8, 9] {
+        for code in [2, 3, 4, 5, 7, 8, 9, 10] {
             assert!(
                 script.contains(&format!("exit {code}")),
                 "install script is missing exit {code}"
@@ -903,6 +949,7 @@ mod tests {
             (7, "Free disk space"),
             (8, "already listening"),
             (9, "docker logs azlin-gui"),
+            (10, "does not match the digest"),
         ];
         for (code, needle) in cases {
             let msg = describe_install_failure(code, "azlin-error: something went wrong\n");

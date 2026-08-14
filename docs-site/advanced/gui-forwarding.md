@@ -187,9 +187,13 @@ path described above, unchanged.
 | `vnc` | `consol/debian-xfce-vnc:v2.0.4` | 5901 | TigerVNC, real RFB -- works with any standard VNC viewer |
 | `rdp` | `lscr.io/linuxserver/rdesktop:ubuntu-xfce` | 3389 | xrdp, works with `xfreerdp`, `mstsc`, Microsoft Remote Desktop |
 
-Both images are pinned by tag and carry XFCE. `linuxserver/webtop` is deliberately
-**not** used: it serves KasmVNC over WebSockets rather than RFB, so a standard VNC
-client cannot connect to it.
+Both images are pinned by tag and carry XFCE. The install script also verifies
+the digest of the image it actually pulls against a digest recorded at pinning
+time, and refuses to run the container if they don't match -- a tag is a
+mutable pointer, so this catches a tag that has moved on the registry rather
+than trusting it. `linuxserver/webtop` is deliberately **not** used: it serves
+KasmVNC over WebSockets rather than RFB, so a standard VNC client cannot
+connect to it.
 
 ### Requirements
 
