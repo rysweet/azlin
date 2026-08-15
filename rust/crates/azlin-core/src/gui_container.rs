@@ -26,8 +26,14 @@
 //!   listing or in `docker inspect` output.
 //! * Images are pinned by tag **and** verified by digest after every pull: the
 //!   install script compares the `RepoDigests` entry Docker records for the
-//!   pulled image against [`GuiImage::amd64_digest`] and refuses to run the
+//!   pulled image against [`GuiImage::index_digest`] — accepting
+//!   [`GuiImage::amd64_digest`] as an alternative — and refuses to run the
 //!   container (removing the pulled image and exiting non-zero) on a mismatch.
+//!   `docker pull <tag>` on a multi-arch repository records the digest of the
+//!   *manifest list / OCI index*, not of the platform-specific child manifest,
+//!   so the index digest is the value the check must normally expect; the
+//!   child digest is accepted too because a pull by an explicit
+//!   single-platform reference legitimately records that instead.
 //!   A tag is mutable — a compromised or careless registry can repoint
 //!   `consol/debian-xfce-vnc:v2.0.4` to different bytes without changing the
 //!   string azlin pulls — so the tag alone is not a provenance guarantee. The
@@ -123,11 +129,20 @@ const REQUIRED_FREE_KIB: u64 = 4 * 1024 * 1024;
 pub struct GuiImage {
     /// Fully qualified image reference including the pinned tag.
     pub reference: &'static str,
-    /// Digest of the `linux/amd64` manifest at the time of pinning. The install
-    /// script (see [`build_install_script`]) checks the digest of the image it
-    /// actually pulled against this value and refuses to run on a mismatch, so
-    /// a tag that silently moves on the registry is detected and rejected
-    /// rather than silently trusted.
+    /// Digest of the multi-arch manifest list / OCI index at the time of
+    /// pinning. This is the value `docker pull <tag>` records in `RepoDigests`,
+    /// so it is what the install script (see [`build_install_script`]) normally
+    /// compares against; a tag that silently moves on the registry is thereby
+    /// detected and rejected rather than silently trusted.
+    pub index_digest: &'static str,
+    /// Digest of the `linux/amd64` child manifest inside [`Self::index_digest`]
+    /// at the time of pinning.
+    ///
+    /// Recorded so the pinning is unambiguous about which platform image azlin
+    /// expects to run, and accepted by the install script as an alternative to
+    /// the index digest: pulling by an explicit single-platform reference (or a
+    /// future single-arch tag) legitimately records the child digest instead.
+    /// Any other value still fails closed.
     ///
     /// This assumes the VM is `linux/amd64`: azlin currently provisions only
     /// D-series/E-series v5 VMs, which are x86_64. If an ARM VM family is ever
@@ -150,6 +165,7 @@ pub struct GuiImage {
 /// WebSockets, which a standard RFB viewer cannot speak.
 pub const VNC_IMAGE: GuiImage = GuiImage {
     reference: "consol/debian-xfce-vnc:v2.0.4",
+    index_digest: "sha256:72f53a2a809fdfc362f1127c9bad23d18e6e240eec894d405d0823f95ac54f45",
     amd64_digest: "sha256:b6d53e9f797bb4b4e3b7b317ec07e4242f33c7e3061af16d18685f6866295e58",
     container_port: 5901,
     client_support: "any standard VNC viewer (TigerVNC RFB)",
@@ -162,6 +178,7 @@ pub const VNC_IMAGE: GuiImage = GuiImage {
 /// published.
 pub const RDP_IMAGE: GuiImage = GuiImage {
     reference: "lscr.io/linuxserver/rdesktop:ubuntu-xfce",
+    index_digest: "sha256:cbf4ee807472acdea1c8d8483c7801c2a0e9a6ad155d1c103fa6c39b5768fb7b",
     amd64_digest: "sha256:85f5e20fbed17a13be2619aafffedd6df2c3c68076693caf951176f133765062",
     container_port: 3389,
     client_support: "any standard RDP client (xfreerdp, mstsc, Microsoft Remote Desktop)",
@@ -512,9 +529,9 @@ pub fn build_install_script(plan: &GuiInstallPlan) -> String {
            echo \"azlin-error: failed to pull the desktop container image: $PULL_OUT\" >&2; exit 4; fi; \
          PULLED_DIGEST=$(docker inspect -f '{{{{index .RepoDigests 0}}}}' {image} 2>/dev/null || true); \
          PULLED_DIGEST=${{PULLED_DIGEST#*@}}; \
-         if [ -n \"$PULLED_DIGEST\" ] && [ \"$PULLED_DIGEST\" != {expected_digest} ]; then \
+         if [ -n \"$PULLED_DIGEST\" ] && [ \"$PULLED_DIGEST\" != {index_digest} ] && [ \"$PULLED_DIGEST\" != {amd64_digest} ]; then \
            docker rmi {image} >/dev/null 2>&1 || true; \
-           echo \"azlin-error: pulled image digest $PULLED_DIGEST for {image} does not match the digest azlin pinned ({expected_digest}); the tag may have moved on the registry, refusing to run an unverified image\" >&2; exit 10; fi; \
+           echo \"azlin-error: pulled image digest $PULLED_DIGEST for {image} does not match the digest azlin pinned ({index_digest}, or the linux/amd64 manifest {amd64_digest}); the tag may have moved on the registry, refusing to run an unverified image\" >&2; exit 10; fi; \
          if command -v openssl >/dev/null 2>&1; then AZLIN_GUI_PW=$(openssl rand -hex 16); \
          else AZLIN_GUI_PW=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \\n'); fi; \
          if [ -z \"$AZLIN_GUI_PW\" ]; then \
@@ -532,7 +549,8 @@ pub fn build_install_script(plan: &GuiInstallPlan) -> String {
         image = image,
         protocol = sq(protocol),
         required_kib = REQUIRED_FREE_KIB,
-        expected_digest = sq(plan.image.amd64_digest),
+        index_digest = sq(plan.image.index_digest),
+        amd64_digest = sq(plan.image.amd64_digest),
         publish = publish_quoted,
         publish_plain = publish_plain,
         env_lines = env_lines,
@@ -581,7 +599,7 @@ pub fn describe_install_failure(exit_code: i32, stderr: &str) -> String {
         7 => "Free disk space on the VM (the desktop image needs roughly 2-4 GiB) and re-run.",
         8 => "Another process is already listening on that loopback port. Stop it, or remove the stale container with 'docker rm -f azlin-gui'.",
         9 => "Inspect the container logs on the VM:\n  docker logs azlin-gui",
-        10 => "The image azlin pulled does not match the digest it has pinned for this tag. This can mean the upstream tag moved (a legitimate new release, or a registry compromise) or that the VM is not linux/amd64. Do not retry blindly: compare the reported digest against the registry yourself before deciding whether to update azlin's pinned digest.",
+        10 => "The image azlin pulled does not match the digest it has pinned for this tag — neither the multi-arch index digest that `docker pull` normally records, nor the linux/amd64 child manifest digest. This usually means the upstream tag moved: a legitimate new release, or a registry compromise. Do not retry blindly: compare the reported digest against the registry yourself before deciding whether to update azlin's pinned digests.",
         _ => "Re-run with --verbose for the full remote output.",
     };
 
@@ -648,7 +666,15 @@ mod tests {
                 .expect("image reference must carry an explicit tag")
                 .1;
             assert_ne!(tag, "latest", "{} must not float on :latest", image.reference);
-            assert!(image.amd64_digest.starts_with("sha256:"));
+            for digest in [image.index_digest, image.amd64_digest] {
+                assert!(digest.starts_with("sha256:"));
+                assert_eq!(digest.len(), "sha256:".len() + 64);
+            }
+            assert_ne!(
+                image.index_digest, image.amd64_digest,
+                "{} pins a multi-arch index; its digest differs from the amd64 child",
+                image.reference
+            );
         }
     }
 
@@ -657,8 +683,13 @@ mod tests {
         for plan in [vnc_plan(), rdp_plan()] {
             let script = build_install_script(&plan);
             assert!(
+                script.contains(&sq(plan.image.index_digest)),
+                "install script must compare against the pinned index digest, which is what \
+                 `docker pull <tag>` records in RepoDigests: {script}"
+            );
+            assert!(
                 script.contains(&sq(plan.image.amd64_digest)),
-                "install script must compare against the pinned digest: {script}"
+                "install script must also accept the pinned linux/amd64 child digest: {script}"
             );
             assert!(
                 script.contains("RepoDigests"),
