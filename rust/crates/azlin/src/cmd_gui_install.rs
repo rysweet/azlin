@@ -1,8 +1,13 @@
-//! `azlin gui install` — install a containerised remote desktop on a VM.
+//! `azlin gui install` — install the containerised remote desktop on a VM.
 //!
 //! `azlin gui` installs a desktop with the VM's package manager, which only
 //! works when the VM's repositories carry one. This command is the alternative:
 //! the whole desktop stack runs as a pinned container on the VM's Docker.
+//!
+//! The install is **protocol-agnostic**: it provisions the desktop *and both*
+//! protocol servers, because which one will be used is not known until the user
+//! connects. The protocol is chosen at connect time with
+//! `azlin gui <vm> --protocol vnc|rdp`.
 //!
 //! This module is deliberately thin. Every decision — which image, which port,
 //! how the container is created, how failures are classified — lives in
@@ -21,7 +26,7 @@ use super::*;
 use anyhow::Result;
 use azlin_core::gui_container::{
     build_install_script, build_uninstall_script, describe_install_failure, DesktopGeometry,
-    GuiInstallPlan,
+    GuiInstallPlan, RDP_BRIDGE_PORT,
 };
 
 /// Hard timeout for the install phase. Pulling a desktop image is the slow part.
@@ -37,7 +42,6 @@ pub(crate) async fn dispatch(
 ) -> Result<()> {
     let azlin_cli::GuiAction::Install {
         vm_identifier,
-        protocol,
         uninstall,
         resource_group,
         user,
@@ -45,7 +49,23 @@ pub(crate) async fn dispatch(
         resolution,
         depth,
         yes: _yes,
+        protocol: deprecated_protocol,
     } = action;
+
+    // `azlin gui install --protocol <x>` shipped in a release. It no longer
+    // means anything — one install serves both protocols — but silently
+    // breaking a flag that worked yesterday is worse than carrying a warning.
+    if let Some(protocol) = deprecated_protocol {
+        let name = match protocol {
+            azlin_cli::GuiProtocolArg::Vnc => "vnc",
+            azlin_cli::GuiProtocolArg::Rdp => "rdp",
+        };
+        eprintln!(
+            "warning: `--protocol {name}` is deprecated on `gui install` and has no effect.\n\
+             \x20        The install now provides both VNC and RDP; choose the protocol when you \
+             connect:\n           azlin gui <vm> --protocol {name}"
+        );
+    }
 
     if !crate::cmd_gui::is_valid_resolution(&resolution) {
         anyhow::bail!(
@@ -55,7 +75,7 @@ pub(crate) async fn dispatch(
     }
 
     let Some(name) = vm_identifier else {
-        anyhow::bail!("VM name is required. Usage: azlin gui install <vm-name> [--protocol vnc|rdp]")
+        anyhow::bail!("VM name is required. Usage: azlin gui install <vm-name>")
     };
 
     let rg = resolve_resource_group(resource_group)?;
@@ -71,21 +91,21 @@ pub(crate) async fn dispatch(
         return run_uninstall(&target, effective_key.as_deref()).await;
     }
 
-    let plan = GuiInstallPlan::new(
-        protocol.to_core(),
-        DesktopGeometry {
-            resolution: resolution.clone(),
-            depth,
-        },
-    );
+    let plan = GuiInstallPlan::new(DesktopGeometry {
+        resolution: resolution.clone(),
+        depth,
+    });
 
     println!(
-        "Installing the {} desktop on {} using {}",
-        plan.protocol, name, plan.image.reference
+        "Installing the desktop on {} using {}",
+        name, plan.image.reference
     );
     println!(
-        "  port {} is published on the VM's loopback interface only; connect with `azlin gui {}`",
-        plan.host_port, name
+        "  ports {} (VNC) and {} (RDP) are published on the VM's loopback interface only; \
+         connect with `azlin gui {}`",
+        plan.host_port,
+        RDP_BRIDGE_PORT,
+        name
     );
 
     let pb = penguin_spinner("Installing remote desktop container (this can take a few minutes)...");
@@ -99,17 +119,25 @@ pub(crate) async fn dispatch(
     pb.finish_and_clear();
 
     match classify_install_result(result, GUI_INSTALL_TIMEOUT_SECS)? {
-        InstallOutcome::AlreadyInstalled => println!(
-            "Remote desktop already installed ({}, {}).",
-            plan.protocol, plan.image.reference
-        ),
-        InstallOutcome::Installed => println!(
-            "Remote desktop installed ({}, {}).",
-            plan.protocol, plan.image.reference
-        ),
+        InstallOutcome::AlreadyInstalled => {
+            println!("Remote desktop already installed ({}).", plan.image.reference)
+        }
+        InstallOutcome::Installed => {
+            println!("Remote desktop installed ({}).", plan.image.reference)
+        }
+        InstallOutcome::InstalledVncOnly => {
+            println!("Remote desktop installed ({}).", plan.image.reference);
+            eprintln!(
+                "warning: the RDP bridge could not be set up, so only VNC is available on this \
+                 VM.\n         Re-run this command to retry it; `azlin gui {} --protocol vnc` \
+                 works now.",
+                name
+            );
+        }
     }
     println!("  clients: {}", plan.image.client_support);
-    println!("  connect: azlin gui {}", name);
+    println!("  connect: azlin gui {}            (VNC, the default)", name);
+    println!("  connect: azlin gui {} --protocol rdp", name);
 
     Ok(())
 }
@@ -121,6 +149,10 @@ pub(crate) enum InstallOutcome {
     AlreadyInstalled,
     /// The container was created.
     Installed,
+    /// The desktop was created but the RDP bridge could not be built or
+    /// started. VNC works; RDP does not. Degrading here rather than failing is
+    /// deliberate — a desktop that serves one protocol beats no desktop.
+    InstalledVncOnly,
 }
 
 /// Classify the outcome of running the install script on the VM.
@@ -161,6 +193,9 @@ pub(crate) fn parse_install_success(stdout: &str) -> Result<InstallOutcome> {
         match line.trim() {
             "azlin-result: already-installed" => return Ok(InstallOutcome::AlreadyInstalled),
             "azlin-result: installed" => return Ok(InstallOutcome::Installed),
+            "azlin-result: installed-vnc-only" => {
+                return Ok(InstallOutcome::InstalledVncOnly)
+            }
             _ => {}
         }
     }
@@ -207,10 +242,9 @@ pub(crate) fn wrap_for_shell(script: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use azlin_core::gui_container::GuiProtocol;
 
     fn plan() -> GuiInstallPlan {
-        GuiInstallPlan::new(GuiProtocol::Vnc, DesktopGeometry::default())
+        GuiInstallPlan::new(DesktopGeometry::default())
     }
 
     fn ok(stdout: &str) -> Result<(i32, String, String)> {
@@ -231,6 +265,13 @@ mod tests {
     fn a_matching_container_reports_already_installed() {
         let outcome = classify_install_result(ok("azlin-result: already-installed\n"), 60).unwrap();
         assert_eq!(outcome, InstallOutcome::AlreadyInstalled);
+    }
+
+    /// A bridge failure must degrade, not fail: the user still has a desktop.
+    #[test]
+    fn a_failed_bridge_reports_a_vnc_only_install_rather_than_an_error() {
+        let outcome = classify_install_result(ok("azlin-result: installed-vnc-only\n"), 60).unwrap();
+        assert_eq!(outcome, InstallOutcome::InstalledVncOnly);
     }
 
     #[test]

@@ -90,13 +90,16 @@ pub enum VmFamily {
     E,
 }
 
-/// Remote-desktop wire protocol for the containerised desktop.
+/// Remote-desktop wire protocol used to connect to an installed desktop.
+///
+/// This is a connect-time choice only: both protocols reach the same desktop
+/// session, so nothing about installing the desktop depends on it.
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GuiProtocolArg {
-    /// TigerVNC RFB on 5901, usable from any standard VNC viewer (default)
+    /// RFB on the VM's loopback 5901, usable from any standard VNC viewer (default)
     #[default]
     Vnc,
-    /// xrdp on 3389, usable from any standard RDP client
+    /// RDP on the VM's loopback 3389, bridged into the same desktop by xrdp
     Rdp,
 }
 
@@ -539,6 +542,15 @@ pub enum Commands {
 
         /// VM name or identifier
         vm_identifier: Option<String>,
+
+        /// Remote-desktop protocol to connect with.
+        ///
+        /// Both protocols reach the same desktop session: VNC connects to the
+        /// VM's loopback RFB endpoint directly, RDP goes through the xrdp
+        /// bridge that `azlin gui install` sets up on the VM. Nothing about
+        /// the desktop itself depends on this choice.
+        #[arg(long, value_enum, default_value_t = GuiProtocolArg::Vnc)]
+        protocol: GuiProtocolArg,
 
         /// Resource group
         #[arg(long, alias = "rg")]
@@ -1229,21 +1241,27 @@ pub enum Commands {
 /// `azlin gui` subcommands.
 #[derive(Subcommand, Debug)]
 pub enum GuiAction {
-    /// Install a containerised remote desktop (VNC or RDP) on a VM
+    /// Install the containerised remote desktop on a VM
     ///
-    /// The desktop, window manager and VNC/RDP server all come from a pinned
-    /// container image running on the VM's Docker, so this works on
-    /// distributions whose package repositories carry no desktop stack. The
-    /// desktop port is published on the VM's loopback interface only and is
+    /// The desktop, its X server and its window manager come from a single
+    /// pinned container image running on the VM's Docker, so this works on
+    /// distributions whose package repositories carry no desktop stack.
+    ///
+    /// The install is deliberately **protocol-agnostic**: it sets up both the
+    /// desktop container and an xrdp bridge container alongside it, and both
+    /// protocols reach this one desktop over the same loopback RFB endpoint.
+    /// Choose the protocol when you connect, with
+    /// `azlin gui <vm> --protocol vnc|rdp`.
+    ///
+    /// Nothing here is provisioned by cloud-init, so VMs that never run this
+    /// command pay none of the desktop's cost.
+    ///
+    /// The desktop port is published on the VM's loopback interface only and is
     /// reached through azlin's existing SSH/bastion tunnel; no network security
     /// group rule is created or modified.
     Install {
         /// VM name or identifier
         vm_identifier: Option<String>,
-
-        /// Remote-desktop protocol to install
-        #[arg(long, value_enum, default_value_t = GuiProtocolArg::Vnc)]
-        protocol: GuiProtocolArg,
 
         /// Remove the containerised desktop instead of installing it
         #[arg(long)]
@@ -1272,6 +1290,13 @@ pub enum GuiAction {
         /// Compatibility flag; the install is already non-interactive
         #[arg(short, long)]
         yes: bool,
+
+        /// Deprecated and ignored: the install now provisions both VNC and RDP,
+        /// and the protocol is chosen when you connect (`azlin gui <vm>
+        /// --protocol rdp`). Accepted so that scripts written against the
+        /// earlier release keep working; it emits a warning and has no effect.
+        #[arg(long, hide = true)]
+        protocol: Option<GuiProtocolArg>,
     },
 }
 
@@ -5197,36 +5222,46 @@ mod tests {
     // ── gui install subcommand ────────────────────────────────────────────
 
     #[test]
-    fn test_gui_without_action_is_connect() {
+    fn test_gui_without_action_is_connect_and_defaults_to_vnc() {
         let cli = Cli::parse_from(["azlin", "gui", "my-vm"]);
         match cli.command {
             Commands::Gui {
                 action,
                 vm_identifier,
+                protocol,
                 ..
             } => {
                 assert!(action.is_none(), "bare `gui <vm>` must not select a subcommand");
                 assert_eq!(vm_identifier.as_deref(), Some("my-vm"));
+                assert_eq!(protocol, GuiProtocolArg::Vnc, "VNC must remain the default");
             }
             _ => panic!("Expected Gui command"),
         }
     }
 
+    /// The protocol is chosen when connecting, never when installing.
     #[test]
-    fn test_gui_install_defaults_to_vnc() {
+    fn test_gui_connect_accepts_rdp_protocol() {
+        let cli = Cli::parse_from(["azlin", "gui", "my-vm", "--protocol", "rdp"]);
+        match cli.command {
+            Commands::Gui { protocol, .. } => assert_eq!(protocol, GuiProtocolArg::Rdp),
+            _ => panic!("Expected Gui command"),
+        }
+    }
+
+    #[test]
+    fn test_gui_install_is_protocol_agnostic() {
         let cli = Cli::parse_from(["azlin", "gui", "install", "my-vm"]);
         match cli.command {
             Commands::Gui { action, .. } => match action {
                 Some(GuiAction::Install {
                     vm_identifier,
-                    protocol,
                     uninstall,
                     user,
                     resolution,
                     ..
                 }) => {
                     assert_eq!(vm_identifier.as_deref(), Some("my-vm"));
-                    assert_eq!(protocol, GuiProtocolArg::Vnc, "VNC must remain the default");
                     assert!(!uninstall);
                     assert_eq!(user, "azureuser");
                     assert_eq!(resolution, "1920x1080");
@@ -5235,15 +5270,17 @@ mod tests {
             },
             _ => panic!("Expected Gui command"),
         }
-    }
 
-    #[test]
-    fn test_gui_install_accepts_rdp_protocol() {
-        let cli = Cli::parse_from(["azlin", "gui", "install", "my-vm", "--protocol", "rdp"]);
+        // The install no longer *uses* a protocol, but `azlin gui install
+        // --protocol rdp` shipped in a release, so it must keep parsing rather
+        // than breaking someone's script. It is accepted, hidden from --help,
+        // and ignored with a warning.
+        let cli =
+            Cli::try_parse_from(["azlin", "gui", "install", "my-vm", "--protocol", "rdp"]).unwrap();
         match cli.command {
             Commands::Gui { action, .. } => match action {
                 Some(GuiAction::Install { protocol, .. }) => {
-                    assert_eq!(protocol, GuiProtocolArg::Rdp);
+                    assert_eq!(protocol, Some(GuiProtocolArg::Rdp));
                 }
                 other => panic!("Expected Install action, got {other:?}"),
             },
@@ -5265,8 +5302,8 @@ mod tests {
 
     #[test]
     fn test_gui_rejects_unknown_protocol() {
-        let err = Cli::try_parse_from(["azlin", "gui", "install", "my-vm", "--protocol", "kasm"])
-            .unwrap_err();
+        let err =
+            Cli::try_parse_from(["azlin", "gui", "my-vm", "--protocol", "kasm"]).unwrap_err();
         assert!(err.to_string().contains("kasm"));
     }
 
