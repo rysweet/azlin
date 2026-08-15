@@ -331,18 +331,23 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
             URL=$(curl -fsSL https://api.github.com/repos/rysweet/amplihack-rs/releases/latest | grep browser_download_url | grep $ARCH-unknown-linux-gnu.tar.gz\\\" | head -1 | cut -d\\\"  -f4) && \
             mkdir -p /tmp/amplihack-install && cd /tmp/amplihack-install && \
             curl -fsSL $URL -o amplihack.tar.gz && tar xzf amplihack.tar.gz && \
-            mkdir -p ~/.cargo/bin && cp amplihack amplihack-hooks ~/.cargo/bin/ 2>/dev/null; \
-            chmod +x ~/.cargo/bin/amplihack ~/.cargo/bin/amplihack-hooks 2>/dev/null; \
-            rm -rf /tmp/amplihack-install && \
+            mkdir -p ~/.cargo/bin && cp amplihack amplihack-hooks ~/.cargo/bin/ && \
+            chmod +x ~/.cargo/bin/amplihack ~/.cargo/bin/amplihack-hooks && \
+            cd ~ && rm -rf /tmp/amplihack-install && \
             ~/.cargo/bin/amplihack install' || echo 'WARNING: amplihack-rs installation failed'", u = username),
-        // azlin CLI (pre-built binary from latest GitHub release)
+        // azlin CLI (pre-built binary from latest GitHub release).
+        // Release archives ship platform-suffixed members (azlin-linux-x86_64,
+        // azdoit-linux-x86_64, ay-linux-x86_64), so each is renamed on copy.
         format!("su - {u} -c 'ARCH=$(uname -m | sed s/aarch64/aarch64/ | sed s/x86_64/x86_64/) && \
             URL=$(curl -fsSL https://api.github.com/repos/rysweet/azlin/releases/latest | grep browser_download_url | grep linux-$ARCH.tar.gz\\\" | head -1 | cut -d\\\"  -f4) && \
             mkdir -p /tmp/azlin-install && cd /tmp/azlin-install && \
             curl -fsSL $URL -o azlin.tar.gz && tar xzf azlin.tar.gz && \
-            mkdir -p ~/.cargo/bin && cp azlin ~/.cargo/bin/ 2>/dev/null; \
-            chmod +x ~/.cargo/bin/azlin 2>/dev/null; \
-            rm -rf /tmp/azlin-install' || echo 'WARNING: azlin installation failed'", u = username),
+            mkdir -p ~/.cargo/bin && \
+            cp azlin-linux-$ARCH ~/.cargo/bin/azlin && \
+            cp azdoit-linux-$ARCH ~/.cargo/bin/azdoit && \
+            cp ay-linux-$ARCH ~/.cargo/bin/ay && \
+            chmod +x ~/.cargo/bin/azlin ~/.cargo/bin/azdoit ~/.cargo/bin/ay && \
+            cd ~ && rm -rf /tmp/azlin-install' || echo 'WARNING: azlin binary installation failed (azlin/azdoit/ay)'", u = username),
         // Go
         "wget -q https://go.dev/dl/go1.26.4.linux-amd64.tar.gz -O /tmp/go.tar.gz && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz".to_string(),
         // .NET 10 SDK
@@ -354,8 +359,15 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         format!("loginctl enable-linger {u}", u = username),
         // bashrc additions (npm path, go path, cargo env, azlin alias)
         format!("cat >> /home/{u}/.bashrc << 'BASHEOF'\n\n# npm user-local configuration\nNPM_PACKAGES=\"${{HOME}}/.npm-packages\"\nPATH=\"$NPM_PACKAGES/bin:$PATH\"\nMANPATH=\"$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)\"\n\n# Go\nexport PATH=$PATH:/usr/local/go/bin\n\n# Cargo\nsource $HOME/.cargo/env 2>/dev/null\nBASHEOF", u = username),
-        // Version verification (rustc is in user homedir, must check as user)
-        format!("echo '[AZLIN] Provisioning complete' && which gh && gh --version && which az && az --version | head -2 && which node && node --version && su - {u} -c 'which rustc && rustc --version && which amplihack && amplihack --version && which azlin && azlin --version' && which dotnet && dotnet --version || true", u = username),
+        // Version verification (rustc is in user homedir, must check as user).
+        // All three azlin archive members are checked: the install chain is a
+        // single `&&` sequence, so a member missing from a future tarball aborts
+        // it *after* earlier binaries already landed. Checking only `azlin` would
+        // let that pass silently. Note `ay` is a renamed copy of the `azlin`
+        // binary (see .github/workflows/rust-release.yml), so `ay --version`
+        // prints `azlin <version>`; this check proves `ay` is present and
+        // executable, not that it is a distinct program.
+        format!("echo '[AZLIN] Provisioning complete' && which gh && gh --version && which az && az --version | head -2 && which node && node --version && su - {u} -c 'which rustc && rustc --version && which amplihack && amplihack --version && which azlin && azlin --version && which azdoit && azdoit --version && which ay && ay --version' && which dotnet && dotnet --version || true", u = username),
         // Explicit provisioning sentinel for azlin's post-create readiness checks.
         "mkdir -p /var/lib/azlin && touch /var/lib/azlin/provisioning-complete && echo 'cloud-init provisioning complete'".to_string(),
     ]
@@ -563,6 +575,233 @@ mod tests {
             cmds.iter()
                 .any(|c| c.contains("cloud-init provisioning complete")),
             "default_dev_setup_commands must emit the final provisioning marker"
+        );
+    }
+
+    #[test]
+    fn test_default_dev_setup_commands_install_azlin_binaries_by_archive_member_name() {
+        let cmds = default_dev_setup_commands("azureuser");
+        let azlin_cmd = cmds
+            .iter()
+            .find(|c| c.contains("/tmp/azlin-install"))
+            .expect("default_dev_setup_commands must install the azlin CLI");
+
+        // Release archives contain platform-suffixed members, not bare `azlin`.
+        for (member, dest) in [
+            ("azlin-linux-$ARCH", "azlin"),
+            ("azdoit-linux-$ARCH", "azdoit"),
+            ("ay-linux-$ARCH", "ay"),
+        ] {
+            assert!(
+                azlin_cmd.contains(&format!("cp {member} ~/.cargo/bin/{dest}")),
+                "azlin install must copy archive member {member} to ~/.cargo/bin/{dest}, got: {azlin_cmd}"
+            );
+        }
+        assert!(
+            !azlin_cmd.contains("cp azlin ~/.cargo/bin/"),
+            "azlin install must not reference a bare `azlin` member that the archive does not contain"
+        );
+    }
+
+    #[test]
+    fn test_default_dev_setup_commands_install_failures_are_not_swallowed() {
+        let cmds = default_dev_setup_commands("azureuser");
+        for marker in ["/tmp/azlin-install", "/tmp/amplihack-install"] {
+            let cmd = cmds
+                .iter()
+                .find(|c| c.contains(marker))
+                .unwrap_or_else(|| panic!("missing install command for {marker}"));
+            assert!(
+                !cmd.contains("2>/dev/null"),
+                "{marker} install must not discard errors and continue past them: {cmd}"
+            );
+            assert!(
+                !cmd.contains(';'),
+                "{marker} install must chain with && so a failed step reaches the WARNING branch: {cmd}"
+            );
+            assert!(
+                cmd.contains("|| echo 'WARNING:"),
+                "{marker} install must report failure: {cmd}"
+            );
+        }
+    }
+
+    /// Rewrites the generated azlin install command into a hermetic, offline
+    /// equivalent so a real shell can execute it.
+    ///
+    /// The download half (`URL=$(curl ...)`, `curl -o azlin.tar.gz`, `tar xzf`)
+    /// is dropped and replaced by locally created stand-ins for the archive
+    /// members, so the test never touches the network. Everything from
+    /// `mkdir -p ~/.cargo/bin` onwards -- the `cp`/`chmod`/`cd`/`rm` tail where
+    /// the bugs this PR fixes actually live -- is executed verbatim, including
+    /// the `&&` chaining and the `|| echo 'WARNING: ...'` branch.
+    #[cfg(unix)]
+    fn offline_azlin_install_script(staging: &str, present_members: &[&str]) -> String {
+        const ARCH: &str = "x86_64";
+
+        let cmds = default_dev_setup_commands("azureuser");
+        let cmd = cmds
+            .iter()
+            .find(|c| c.contains("/tmp/azlin-install"))
+            .expect("default_dev_setup_commands must install the azlin CLI")
+            .clone();
+
+        // Unwrap `su - <user> -c '<script>' || echo 'WARNING: ...'`, keeping the
+        // trailing `|| echo` branch so the failure reporting is exercised too.
+        let body_start = cmd.find('\'').expect("install command must be quoted") + 1;
+        let body_end = body_start
+            + cmd[body_start..]
+                .find("' || echo")
+                .expect("install command must have a WARNING fallback");
+        let script_body = &cmd[body_start..body_end];
+        let warning_branch = &cmd[body_end + 1..];
+
+        let mut steps: Vec<String> = Vec::new();
+        for step in script_body.split(" && ") {
+            if step.starts_with("URL=") || step.starts_with("curl ") || step.starts_with("tar ") {
+                continue; // network / archive extraction: stubbed out below
+            }
+            let step = if step.starts_with("ARCH=") {
+                format!("ARCH={ARCH}")
+            } else {
+                step.replace("/tmp/azlin-install", staging)
+            };
+            let is_cd_staging = step == format!("cd {staging}");
+            steps.push(step);
+            if is_cd_staging {
+                // Stand in for `tar xzf`: materialise the archive members.
+                for member in present_members {
+                    steps.push(format!("printf '#!/bin/sh\\n' > {member}-linux-{ARCH}"));
+                }
+            }
+        }
+
+        format!("{} {}", steps.join(" && "), warning_branch)
+    }
+
+    /// Executes the generated install tail in a real shell.
+    ///
+    /// The string-matching tests above are pattern-specific: they blacklist the
+    /// exact spellings (`;`, `2>/dev/null`) that were wrong before this fix. This
+    /// one is semantic -- it checks the actual exit status and output, so it also
+    /// catches failure-swallowing spellings nobody thought to blacklist.
+    #[cfg(unix)]
+    #[test]
+    fn test_default_dev_setup_commands_azlin_install_tail_behaves_under_a_real_shell() {
+        use std::process::Command;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let unique = format!(
+            "azlin-cloud-init-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock before unix epoch")
+                .as_nanos()
+        );
+        let root = std::env::temp_dir().join(unique);
+        let home = root.join("home");
+        let staging = root.join("staging");
+        std::fs::create_dir_all(&home).expect("create scratch home");
+
+        let run = |present_members: &[&str], suffix: &str| -> (bool, String) {
+            let script = offline_azlin_install_script(
+                staging.to_str().expect("staging path must be utf-8"),
+                present_members,
+            );
+            let out = Command::new("sh")
+                .arg("-c")
+                .arg(format!("{script}{suffix}"))
+                .env("HOME", &home)
+                .current_dir(&root)
+                .output()
+                .expect("failed to run sh");
+            (
+                out.status.success(),
+                String::from_utf8_lossy(&out.stdout).to_string()
+                    + &String::from_utf8_lossy(&out.stderr),
+            )
+        };
+
+        // Happy path: every archive member present. `&& pwd` proves the shell is
+        // still in a live directory afterwards, i.e. the script left the staging
+        // dir before deleting it.
+        let (ok_status, ok_output) = run(&["azlin", "azdoit", "ay"], " && pwd");
+        let installed: Vec<bool> = ["azlin", "azdoit", "ay"]
+            .iter()
+            .map(|b| home.join(".cargo/bin").join(b).exists())
+            .collect();
+        let staging_removed = !staging.exists();
+
+        // Failure path: a future tarball drops `ay-linux-<arch>`. The chain must
+        // abort and reach the WARNING branch instead of reporting success.
+        let (missing_status, missing_output) = run(&["azlin", "azdoit"], "");
+
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert!(
+            ok_status,
+            "install tail must succeed when all archive members exist: {ok_output}"
+        );
+        assert!(
+            !ok_output.contains("WARNING:"),
+            "successful install must not emit a WARNING: {ok_output}"
+        );
+        assert!(
+            ok_output.contains(home.to_str().expect("home path must be utf-8")),
+            "install must cd home before deleting its staging dir, so later steps have a live cwd: {ok_output}"
+        );
+        assert!(
+            installed.iter().all(|installed| *installed),
+            "install must place azlin, azdoit and ay in ~/.cargo/bin: {installed:?}"
+        );
+        assert!(
+            staging_removed,
+            "install must clean up its staging directory"
+        );
+
+        assert!(
+            missing_status,
+            "the WARNING branch must keep provisioning alive: {missing_output}"
+        );
+        assert!(
+            missing_output.contains("WARNING:"),
+            "a missing archive member must surface a WARNING rather than passing silently: {missing_output}"
+        );
+    }
+
+    #[test]
+    fn test_default_dev_setup_commands_leave_working_directory_before_cleanup() {
+        let cmds = default_dev_setup_commands("azureuser");
+        for dir in ["/tmp/azlin-install", "/tmp/amplihack-install"] {
+            let cmd = cmds
+                .iter()
+                .find(|c| c.contains(dir))
+                .unwrap_or_else(|| panic!("missing install command for {dir}"));
+            assert!(
+                cmd.contains(&format!("cd ~ && rm -rf {dir}")),
+                "install must leave {dir} before deleting it, otherwise later steps run from a deleted CWD: {cmd}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_default_dev_setup_commands_amplihack_setup_runs_from_valid_cwd() {
+        let cmds = default_dev_setup_commands("azureuser");
+        let cmd = cmds
+            .iter()
+            .find(|c| c.contains("/tmp/amplihack-install"))
+            .expect("missing amplihack install command");
+        let cleanup = cmd
+            .find("rm -rf /tmp/amplihack-install")
+            .expect("amplihack install must clean up its staging directory");
+        let cd_home = cmd.find("cd ~ &&").expect("amplihack install must cd home");
+        let framework_setup = cmd
+            .find("~/.cargo/bin/amplihack install")
+            .expect("amplihack install must run framework setup");
+        assert!(
+            cd_home < cleanup && cleanup < framework_setup,
+            "`amplihack install` must run after cd-ing out of the deleted staging dir: {cmd}"
         );
     }
 

@@ -745,7 +745,7 @@ pub fn build_install_script(plan: &GuiInstallPlan) -> String {
          PULLED_DIGEST=${{PULLED_DIGEST#*@}}; \
          if [ -n \"$PULLED_DIGEST\" ] && [ \"$PULLED_DIGEST\" != {expected_digest} ] && [ \"$PULLED_DIGEST\" != {expected_platform_digest} ]; then \
            docker rmi {image} >/dev/null 2>&1 || true; \
-           echo \"azlin-error: pulled image digest $PULLED_DIGEST for {image} does not match the digest azlin pinned ({expected_digest}); the tag may have moved on the registry, refusing to run an unverified image\" >&2; exit 10; fi; \
+           echo \"azlin-error: pulled image digest $PULLED_DIGEST for {image} does not match the digest azlin pinned ({expected_digest}, or the linux/amd64 manifest {expected_platform_digest}); the tag may have moved on the registry, refusing to run an unverified image\" >&2; exit 10; fi; \
          if command -v openssl >/dev/null 2>&1; then AZLIN_GUI_PW=$(openssl rand -hex 16); \
          else AZLIN_GUI_PW=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \\n'); fi; \
          if [ -z \"$AZLIN_GUI_PW\" ]; then \
@@ -842,7 +842,7 @@ pub fn describe_install_failure(exit_code: i32, stderr: &str) -> String {
         7 => "Free disk space on the VM (the desktop image needs roughly 2-4 GiB) and re-run.",
         8 => "Another process is already listening on that loopback port. Stop it, or remove the stale container with 'docker rm -f azlin-gui'.",
         9 => "Inspect the container logs on the VM:\n  docker logs azlin-gui",
-        10 => "The image azlin pulled does not match the digest it has pinned for this tag. This can mean the upstream tag moved (a legitimate new release, or a registry compromise) or that the VM is not linux/amd64. Do not retry blindly: compare the reported digest against the registry yourself before deciding whether to update azlin's pinned digest.",
+        10 => "The image azlin pulled does not match the digest it has pinned for this tag — neither the multi-arch index digest that `docker pull` normally records, nor the linux/amd64 child manifest digest. This usually means the upstream tag moved: a legitimate new release, or a registry compromise. Do not retry blindly: compare the reported digest against the registry yourself before deciding whether to update azlin's pinned digests.",
         _ => "Re-run with --verbose for the full remote output.",
     };
 

@@ -833,7 +833,7 @@ pub enum Commands {
         delete_rg: bool,
     },
 
-    /// Delete all VMs in resource group
+    /// Delete all VMs whose name starts with --prefix (default: "azlin")
     Killall {
         /// Resource group
         #[arg(long, alias = "rg")]
@@ -847,7 +847,9 @@ pub enum Commands {
         #[arg(long)]
         force: bool,
 
-        /// Only delete VMs with this prefix
+        /// Only delete VMs whose name starts with this prefix. VMs created
+        /// with an explicit --name that does not start with the prefix are
+        /// NOT deleted. Use --prefix '' to match every VM in the group.
         #[arg(long, default_value = "azlin")]
         prefix: String,
     },

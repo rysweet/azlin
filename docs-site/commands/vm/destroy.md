@@ -220,7 +220,7 @@ azlin destroy my-vm --force
 ## Related Commands
 
 - [`azlin kill`](kill.md) - Simple VM deletion
-- [`azlin killall`](killall.md) - Delete all VMs in resource group
+- [`azlin killall`](killall.md) - Delete VMs matching a name prefix
 - [`azlin prune`](../util/prune.md) - Delete inactive VMs
 - [`azlin snapshot create`](../snapshot/create.md) - Create snapshot before destroying
 

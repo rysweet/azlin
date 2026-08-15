@@ -96,7 +96,7 @@ tests/
 - `azlin stop` - Stop running VM
 - `azlin kill` - Delete single VM
 - `azlin destroy` - Delete single VM (alias)
-- `azlin killall` - Delete all VMs in resource group
+- `azlin killall` - Delete VMs matching a name prefix
 - `azlin prune` - Clean up unused resources
 
 **Information/Status (5)**:

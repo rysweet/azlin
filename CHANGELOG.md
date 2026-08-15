@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **`azlin gui install` no longer fails closed on every legitimate pull** —
+  the post-pull digest check added alongside the container-based GUI installer
+  compared the pulled image's `RepoDigests` entry against the pinned
+  `linux/amd64` child-manifest digest, but `docker pull <tag>` on a multi-arch
+  repository records the manifest-list/OCI-index digest instead. The two
+  differ by construction, so the check rejected every install with exit 10.
+  `GuiImage` now pins both the index digest (the value a normal tag pull
+  records) and the amd64 child digest (accepted as an alternative for an
+  explicit single-platform pull); anything else still fails closed
 - **`destroy` no longer leaks the session Public IP and NSG** — `az vm delete`
   removes only the VM; the disk and NIC disappear via ARM's implicit
   `deleteOption: Delete`, but Azure has no equivalent for the Public IP or the

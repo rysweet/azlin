@@ -405,24 +405,89 @@ fn check_local_deps() -> Result<()> {
         // Not fatal — vncviewer may still work if DISPLAY gets set before launch
     }
 
-    // Check for vncviewer
-    let has_vncviewer = std::process::Command::new("which")
+    // Check for vncviewer (PATH first, then macOS app bundles)
+    if find_vncviewer().is_none() {
+        anyhow::bail!("{}", vncviewer_missing_message());
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// vncviewer discovery
+// ---------------------------------------------------------------------------
+
+/// Relative paths (inside an applications directory) of known macOS VNC viewer
+/// app bundles. `brew install --cask tigervnc` installs an app bundle and does
+/// not put `vncviewer` on PATH, so a PATH-only probe misses it.
+#[cfg(target_os = "macos")]
+const MACOS_VIEWER_BUNDLE_PATHS: &[&str] = &["TigerVNC.app/Contents/MacOS/vncviewer"];
+
+/// Absolute macOS app-bundle locations to probe, in priority order.
+#[cfg(target_os = "macos")]
+fn macos_viewer_candidates() -> Vec<std::path::PathBuf> {
+    let mut roots = vec![std::path::PathBuf::from("/Applications")];
+    if let Some(home) = std::env::var_os("HOME") {
+        roots.push(std::path::Path::new(&home).join("Applications"));
+    }
+    roots
+        .iter()
+        .flat_map(|root| MACOS_VIEWER_BUNDLE_PATHS.iter().map(move |p| root.join(p)))
+        .collect()
+}
+
+/// True when `vncviewer` is resolvable on PATH.
+fn vncviewer_on_path() -> bool {
+    std::process::Command::new("which")
         .arg("vncviewer")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
         .map(|s| s.success())
-        .unwrap_or(false);
+        .unwrap_or(false)
+}
 
-    if !has_vncviewer {
-        anyhow::bail!(
-            "vncviewer not found. Install it with:\n  \
-             sudo apt-get install -y tigervnc-viewer tigervnc-common\n  \
-             Or on macOS: brew install --cask tigervnc-viewer"
-        );
+/// Resolve the vncviewer command, given whether it is already on PATH.
+///
+/// PATH always wins (unchanged behaviour on every platform). Only when PATH
+/// lookup fails does macOS fall back to well-known app-bundle locations.
+fn find_vncviewer_with(on_path: bool) -> Option<std::path::PathBuf> {
+    if on_path {
+        return Some(std::path::PathBuf::from("vncviewer"));
     }
+    #[cfg(target_os = "macos")]
+    {
+        macos_viewer_candidates()
+            .into_iter()
+            .find(|candidate| candidate.is_file())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
 
-    Ok(())
+/// Locate the vncviewer binary to launch, or `None` if it is not installed.
+fn find_vncviewer() -> Option<std::path::PathBuf> {
+    find_vncviewer_with(vncviewer_on_path())
+}
+
+/// Error text for a genuinely missing viewer, naming every location probed.
+fn vncviewer_missing_message() -> String {
+    let mut msg = String::from("vncviewer not found on PATH");
+    #[cfg(target_os = "macos")]
+    {
+        msg.push_str(" or in any known app bundle:");
+        for candidate in macos_viewer_candidates() {
+            msg.push_str(&format!("\n  {}", candidate.display()));
+        }
+    }
+    msg.push_str(
+        "\nInstall it with:\n  \
+         macOS:         brew install --cask tigervnc\n  \
+         Debian/Ubuntu: sudo apt-get install -y tigervnc-viewer tigervnc-common",
+    );
+    msg
 }
 
 // ---------------------------------------------------------------------------
@@ -785,7 +850,14 @@ fn launch_viewer(
         display
     };
 
-    let mut cmd = std::process::Command::new("vncviewer");
+    let viewer = match find_vncviewer() {
+        Some(v) => v,
+        None => {
+            let _ = std::fs::remove_file(&passwd_file);
+            anyhow::bail!("{}", vncviewer_missing_message());
+        }
+    };
+    let mut cmd = std::process::Command::new(&viewer);
     cmd.args(build_vnc_viewer_args(&passwd_file, local_port));
 
     if !effective_display.is_empty() {
@@ -1381,5 +1453,59 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("dependency/setup phase"));
         assert!(msg.contains("apt failed"));
+    }
+
+    // ── vncviewer discovery ────────────────────────────────────────────
+
+    #[test]
+    fn test_find_vncviewer_prefers_path() {
+        assert_eq!(
+            find_vncviewer_with(true),
+            Some(std::path::PathBuf::from("vncviewer"))
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_macos_viewer_candidates_include_system_and_user_bundles() {
+        let candidates = macos_viewer_candidates();
+        assert!(candidates.contains(&std::path::PathBuf::from(
+            "/Applications/TigerVNC.app/Contents/MacOS/vncviewer"
+        )));
+        if let Some(home) = std::env::var_os("HOME") {
+            let user_bundle = std::path::Path::new(&home)
+                .join("Applications/TigerVNC.app/Contents/MacOS/vncviewer");
+            assert!(candidates.contains(&user_bundle));
+        }
+        // /Applications is probed before ~/Applications.
+        assert!(candidates[0].starts_with("/Applications"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_find_vncviewer_falls_back_to_app_bundle_when_present() {
+        // When TigerVNC.app is installed, a PATH miss must still resolve to
+        // the bundle binary rather than reporting "not found".
+        let installed = macos_viewer_candidates().into_iter().find(|c| c.is_file());
+        match installed {
+            Some(expected) => assert_eq!(find_vncviewer_with(false), Some(expected)),
+            None => assert_eq!(find_vncviewer_with(false), None),
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn test_find_vncviewer_no_fallback_off_macos() {
+        assert_eq!(find_vncviewer_with(false), None);
+    }
+
+    #[test]
+    fn test_vncviewer_missing_message_mentions_install_commands() {
+        let msg = vncviewer_missing_message();
+        assert!(msg.contains("vncviewer not found on PATH"));
+        assert!(msg.contains("brew install --cask tigervnc"));
+        assert!(msg.contains("tigervnc-viewer"));
+        #[cfg(target_os = "macos")]
+        assert!(msg.contains("/Applications/TigerVNC.app/Contents/MacOS/vncviewer"));
     }
 }
