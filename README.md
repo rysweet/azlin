@@ -724,23 +724,30 @@ azlin destroy my-vm --delete-rg --force
 - `destroy` - Advanced with dry-run and RG deletion
 - `killall` - Bulk cleanup of multiple VMs
 
-#### `azlin killall` - Delete all VMs in resource group
+#### `azlin killall` - Delete prefix-matched VMs in resource group
 
 ```bash
-# Delete all VMs (with confirmation)
+# Delete VMs matching the default "azlin" prefix (with confirmation)
 azlin killall
 
-# Delete all in specific resource group
+# Same, in a specific resource group
 azlin killall --resource-group my-rg
 
-# Force delete all
+# Skip the confirmation prompt
 azlin killall --force
+
+# Target VMs created with an explicit --name
+azlin killall --prefix smoke-test
+
+# Delete every VM in the resource group
+azlin killall --prefix ''
 ```
 
-**Warning**: This deletes ALL VMs in the resource group!
+**Warning**: This deletes every VM matching `--prefix` and cannot be undone.
 
 **Defaults:**
-- `--prefix`: "azlin" (only deletes azlin-created VMs)
+- `--prefix`: "azlin" (VMs whose name does not start with the prefix — e.g. one
+  created with `azlin new --name smoke-test` — are NOT deleted)
 
 ### `azlin prune` - Automated VM cleanup
 

@@ -183,5 +183,5 @@ azlin tag vm-prod-1 --add critical=true
 
 - [azlin autopilot](../autopilot/index.md) - Automated optimization
 - [azlin kill](../vm/kill.md) - Delete specific VM
-- [azlin killall](../vm/killall.md) - Delete all VMs
+- [azlin killall](../vm/killall.md) - Delete VMs matching a name prefix
 - [azlin status](../vm/status.md) - View VM activity

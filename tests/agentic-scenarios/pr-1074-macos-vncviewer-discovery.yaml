@@ -1,0 +1,87 @@
+name: "PR 1074 macOS vncviewer app-bundle discovery"
+description: |
+  Verifies that `azlin gui`'s vncviewer discovery is no longer PATH-only.
+  On macOS, `brew install --cask tigervnc` installs an app bundle with no
+  PATH symlink; a PATH-only `which vncviewer` probe reports the viewer as
+  missing even when it is correctly installed. This PR adds a macOS
+  app-bundle fallback (`find_vncviewer_with`) that both the pre-flight
+  check and the actual launch site now share, and rewrites the "not found"
+  message to list every location actually probed.
+
+  Live end-to-end coverage of the macOS-only fallback path is not possible
+  in this sandbox: it requires real macOS hardware with TigerVNC.app
+  installed via the cask, and this repo's CI matrix is Linux-only (the
+  `#[cfg(target_os = "macos")]` branch is never compiled, let alone run,
+  on Linux). The author validated the macOS-specific behavior by hand on
+  real hardware (see the PR body). This scenario instead asserts the
+  cross-platform contract that IS exercisable here: PATH still wins when a
+  PATH binary exists, the source correctly separates the macOS-only
+  fallback behind a cfg gate, and the "not found" message documents both
+  the macOS cask and the Debian/Ubuntu apt install path.
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 60000
+
+steps:
+  - name: "vncviewer discovery helpers exist and PATH still wins"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        set -euo pipefail
+        FILE=rust/crates/azlin/src/cmd_gui.rs
+
+        grep -q "fn find_vncviewer_with(on_path: bool)" "$FILE"
+        grep -q "fn vncviewer_on_path()" "$FILE"
+        grep -q 'cfg(target_os = "macos")' "$FILE"
+        grep -q "fn vncviewer_missing_message()" "$FILE"
+
+        # launch_viewer must resolve through find_vncviewer(), not a bare
+        # "vncviewer" Command::new — otherwise discovery and launch could
+        # disagree about what "found" means.
+        grep -q 'let viewer = match find_vncviewer()' "$FILE"
+
+        # the "not found" message must name both real install paths so the
+        # self-defeating "install what you already installed" bug this PR
+        # fixes cannot recur.
+        grep -q "brew install --cask tigervnc" "$FILE"
+        grep -q "apt-get install -y tigervnc-viewer" "$FILE"
+
+        echo PR1074_SOURCE_CONTRACT_OK
+    expect:
+      exit_code: 0
+      stdout_contains: "PR1074_SOURCE_CONTRACT_OK"
+    timeout: 5000
+
+  - name: "cmd_gui unit tests pass (PATH-priority + non-macOS contract; macOS-only branch is author-verified on real hardware, not runnable here)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo test --release -p azlin cmd_gui:: -- --test-threads=1
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok"
+    timeout: 55000
+
+metadata:
+  tags:
+    - "gui"
+    - "vnc"
+    - "macos"
+    - "discovery"
+    - "regression"
+  priority: "medium"
+  notes: >-
+    Cross-platform contract only. The macOS app-bundle fallback itself
+    requires real macOS hardware with TigerVNC.app installed; not runnable
+    in this sandbox or in this repo's Linux-only CI.

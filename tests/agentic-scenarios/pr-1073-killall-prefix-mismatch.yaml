@@ -1,0 +1,122 @@
+name: "azlin killall reports prefix mismatch instead of silently deleting nothing"
+description: |
+  Verifies PR #1073: `killall` no longer confirms a destructive "delete ALL"
+  action and then silently no-ops when no VM matches --prefix. The help text
+  must describe the prefix filter accurately, and the source must implement
+  the enumerate-then-partition-then-narrow safety logic (report unmatched
+  VMs, name the VMs actually about to be deleted, and never widen the delete
+  set past what was confirmed). This does not exercise a live Azure call
+  (no credentials in this environment); it checks the CLI surface and the
+  presence of the safety-critical functions in source.
+
+version: "1.0.0"
+
+config:
+  timeout: 30000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 10000
+
+steps:
+  - name: "Verify killall --help documents prefix filtering, not 'delete all'"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        HELP=$(rust/target/debug/azlin killall --help)
+        echo "$HELP" | grep -q -- "--prefix" || { echo "FAIL: --prefix not documented"; exit 1; }
+        echo "$HELP" | grep -qi "starts with this prefix" || { echo "FAIL: prefix semantics not documented"; exit 1; }
+        echo "$HELP" | grep -qi "Delete all VMs in resource group" && { echo "FAIL: stale 'delete all' wording still present"; exit 1; }
+        echo "PASS: killall --help documents prefix filtering"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 5000
+
+  - name: "Verify killall command help summary reflects prefix scoping"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        rust/target/debug/azlin --help | grep -i killall | grep -qi "prefix" \
+          && echo "PASS: top-level help mentions prefix scoping" \
+          || { echo "FAIL: top-level killall summary does not mention prefix"; exit 1; }
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 5000
+
+  - name: "Verify no-match reporting distinguishes prefix-mismatch from empty resource group"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        grep -q "fn killall_no_match_message" rust/crates/azlin/src/lifecycle_helpers.rs \
+          && grep -q "No VMs matched prefix" rust/crates/azlin/src/lifecycle_helpers.rs \
+          && grep -q "No VMs found in resource group" rust/crates/azlin/src/lifecycle_helpers.rs \
+          && echo "PASS: distinct empty-RG vs prefix-mismatch messages present" \
+          || { echo "FAIL: killall_no_match_message missing or does not distinguish cases"; exit 1; }
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 5000
+
+  - name: "Verify confirmation prompt names the VMs actually targeted"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        grep -q "fn killall_confirm_prompt" rust/crates/azlin/src/lifecycle_helpers.rs \
+          && grep -q "names: &\[String\]" rust/crates/azlin/src/lifecycle_helpers.rs \
+          && echo "PASS: confirm prompt takes the concrete VM name list" \
+          || { echo "FAIL: confirm prompt no longer names specific VMs"; exit 1; }
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 5000
+
+  - name: "Verify the delete set can only shrink after confirmation, never grow"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        grep -q "fn narrow_to_confirmed" rust/crates/azlin/src/lifecycle_helpers.rs \
+          && grep -q "narrow_to_confirmed(&listed, &matching)" rust/crates/azlin/src/cmd_lifecycle.rs \
+          && echo "PASS: post-confirmation query is narrowed to the confirmed set" \
+          || { echo "FAIL: narrow_to_confirmed not wired into the killall dispatch path"; exit 1; }
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 5000
+
+  - name: "Run lifecycle_helpers unit tests covering the killall safety logic"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo test --locked -p azlin --lib lifecycle_helpers::tests 2>&1 | tail -20
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok"
+    timeout: 25000
+
+assertions:
+  - name: "killall prefix-mismatch safety logic is present and passing"
+    type: "command_success"
+    agent: "cli-agent"
+    params:
+      step: "Run lifecycle_helpers unit tests covering the killall safety logic"
+
+metadata:
+  tags:
+    - "killall"
+    - "safety"
+    - "cli"
+    - "regression"
+  priority: "high"
+  pr: 1073
