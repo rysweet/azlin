@@ -8,7 +8,7 @@ azlin provides multiple commands for VM deletion with different safety levels an
 
 - **`azlin kill`** - Delete single VM and resources
 - **`azlin destroy`** - Delete VM with dry-run and RG deletion options
-- **`azlin killall`** - Delete all VMs in resource group
+- **`azlin killall`** - Delete VMs matching a name prefix (default: `azlin`)
 - **`azlin prune`** - Intelligently delete inactive/idle VMs
 
 All commands clean up associated resources (NICs, disks, public IPs) to avoid orphaned resources and unnecessary costs.
@@ -64,24 +64,29 @@ azlin destroy my-vm --force
 
 ### azlin killall
 
-Delete all VMs in a resource group, optionally filtered by prefix.
+Delete the VMs in a resource group whose names start with `--prefix`
+(default: `azlin`).
 
 ```bash
-# Delete all VMs (with confirmation)
+# Delete VMs matching the default "azlin" prefix (with confirmation)
 azlin killall
 
-# Delete all VMs without confirmation
+# Same, without confirmation
 azlin killall --force
 
-# Delete only VMs with specific prefix
+# Target VMs created with an explicit --name
 azlin killall --prefix test-vm
+
+# Delete every VM in the resource group
+azlin killall --prefix ''
 
 # Delete in specific resource group
 azlin killall --rg dev-team --force
 ```
 
 **Options:**
-- `--prefix` - Only delete VMs starting with this prefix
+- `--prefix` - Only delete VMs starting with this prefix (default: `azlin`).
+  VMs named outside the prefix are skipped; use `''` to match every VM
 - `--force` - Skip confirmation
 - `--resource-group`, `--rg` - Specify resource group
 

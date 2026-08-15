@@ -223,7 +223,7 @@ azlin kill my-vm --force
 |---------|---------|---------|
 | `azlin kill` | Quick VM deletion | Basic, fast |
 | `azlin destroy` | VM deletion with options | Dry-run, delete-rg |
-| `azlin killall` | Delete all VMs in RG | Mass deletion |
+| `azlin killall` | Delete prefix-matched VMs in RG | Mass deletion |
 | `azlin prune` | Delete inactive VMs | Age/idle filters |
 
 ## Common Workflows
@@ -288,7 +288,7 @@ done
 ## Related Commands
 
 - [`azlin destroy`](destroy.md) - Delete with dry-run and RG options
-- [`azlin killall`](killall.md) - Delete all VMs in resource group
+- [`azlin killall`](killall.md) - Delete VMs matching a name prefix
 - [`azlin prune`](../util/prune.md) - Delete inactive VMs automatically
 - [`azlin snapshot create`](../snapshot/create.md) - Backup before deletion
 
