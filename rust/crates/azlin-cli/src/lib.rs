@@ -90,6 +90,26 @@ pub enum VmFamily {
     E,
 }
 
+/// Remote-desktop wire protocol for the containerised desktop.
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GuiProtocolArg {
+    /// TigerVNC RFB on 5901, usable from any standard VNC viewer (default)
+    #[default]
+    Vnc,
+    /// xrdp on 3389, usable from any standard RDP client
+    Rdp,
+}
+
+impl GuiProtocolArg {
+    /// Convert to the planner's protocol type.
+    pub fn to_core(self) -> azlin_core::gui_container::GuiProtocol {
+        match self {
+            Self::Vnc => azlin_core::gui_container::GuiProtocol::Vnc,
+            Self::Rdp => azlin_core::gui_container::GuiProtocol::Rdp,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Top-level commands
 // ---------------------------------------------------------------------------
@@ -509,8 +529,14 @@ pub enum Commands {
         remote_command: Vec<String>,
     },
 
-    /// Open a remote GUI desktop session via VNC
+    /// Open a remote GUI desktop session via VNC or RDP
     Gui {
+        /// Install or remove the containerised desktop (see `azlin gui install --help`).
+        ///
+        /// Use `azlin gui -- install` to reach a VM literally named "install".
+        #[command(subcommand)]
+        action: Option<GuiAction>,
+
         /// VM name or identifier
         vm_identifier: Option<String>,
 
@@ -795,7 +821,7 @@ pub enum Commands {
         delete_rg: bool,
     },
 
-    /// Delete all VMs in resource group
+    /// Delete all VMs whose name starts with --prefix (default: "azlin")
     Killall {
         /// Resource group
         #[arg(long, alias = "rg")]
@@ -809,7 +835,9 @@ pub enum Commands {
         #[arg(long)]
         force: bool,
 
-        /// Only delete VMs with this prefix
+        /// Only delete VMs whose name starts with this prefix. VMs created
+        /// with an explicit --name that does not start with the prefix are
+        /// NOT deleted. Use --prefix '' to match every VM in the group.
         #[arg(long, default_value = "azlin")]
         prefix: String,
     },
@@ -1199,6 +1227,55 @@ pub enum Commands {
 // ---------------------------------------------------------------------------
 
 // ── VM subcommands ────────────────────────────────────────────────────────
+
+/// `azlin gui` subcommands.
+#[derive(Subcommand, Debug)]
+pub enum GuiAction {
+    /// Install a containerised remote desktop (VNC or RDP) on a VM
+    ///
+    /// The desktop, window manager and VNC/RDP server all come from a pinned
+    /// container image running on the VM's Docker, so this works on
+    /// distributions whose package repositories carry no desktop stack. The
+    /// desktop port is published on the VM's loopback interface only and is
+    /// reached through azlin's existing SSH/bastion tunnel; no network security
+    /// group rule is created or modified.
+    Install {
+        /// VM name or identifier
+        vm_identifier: Option<String>,
+
+        /// Remote-desktop protocol to install
+        #[arg(long, value_enum, default_value_t = GuiProtocolArg::Vnc)]
+        protocol: GuiProtocolArg,
+
+        /// Remove the containerised desktop instead of installing it
+        #[arg(long)]
+        uninstall: bool,
+
+        /// Resource group
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+
+        /// SSH username
+        #[arg(long, default_value = "azureuser")]
+        user: String,
+
+        /// SSH private key path
+        #[arg(long)]
+        key: Option<PathBuf>,
+
+        /// Desktop resolution
+        #[arg(long, default_value = "1920x1080")]
+        resolution: String,
+
+        /// Desktop colour depth
+        #[arg(long, default_value = "24")]
+        depth: u8,
+
+        /// Compatibility flag; the install is already non-interactive
+        #[arg(short, long)]
+        yes: bool,
+    },
+}
 
 #[derive(Subcommand, Debug)]
 pub enum VmAction {
@@ -5117,5 +5194,99 @@ mod tests {
             !help.contains("__tunnel-host"),
             "__tunnel-host must be hidden from top-level help output"
         );
+    }
+
+    // ── gui install subcommand ────────────────────────────────────────────
+
+    #[test]
+    fn test_gui_without_action_is_connect() {
+        let cli = Cli::parse_from(["azlin", "gui", "my-vm"]);
+        match cli.command {
+            Commands::Gui {
+                action,
+                vm_identifier,
+                ..
+            } => {
+                assert!(action.is_none(), "bare `gui <vm>` must not select a subcommand");
+                assert_eq!(vm_identifier.as_deref(), Some("my-vm"));
+            }
+            _ => panic!("Expected Gui command"),
+        }
+    }
+
+    #[test]
+    fn test_gui_install_defaults_to_vnc() {
+        let cli = Cli::parse_from(["azlin", "gui", "install", "my-vm"]);
+        match cli.command {
+            Commands::Gui { action, .. } => match action {
+                Some(GuiAction::Install {
+                    vm_identifier,
+                    protocol,
+                    uninstall,
+                    user,
+                    resolution,
+                    ..
+                }) => {
+                    assert_eq!(vm_identifier.as_deref(), Some("my-vm"));
+                    assert_eq!(protocol, GuiProtocolArg::Vnc, "VNC must remain the default");
+                    assert!(!uninstall);
+                    assert_eq!(user, "azureuser");
+                    assert_eq!(resolution, "1920x1080");
+                }
+                other => panic!("Expected Install action, got {other:?}"),
+            },
+            _ => panic!("Expected Gui command"),
+        }
+    }
+
+    #[test]
+    fn test_gui_install_accepts_rdp_protocol() {
+        let cli = Cli::parse_from(["azlin", "gui", "install", "my-vm", "--protocol", "rdp"]);
+        match cli.command {
+            Commands::Gui { action, .. } => match action {
+                Some(GuiAction::Install { protocol, .. }) => {
+                    assert_eq!(protocol, GuiProtocolArg::Rdp);
+                }
+                other => panic!("Expected Install action, got {other:?}"),
+            },
+            _ => panic!("Expected Gui command"),
+        }
+    }
+
+    #[test]
+    fn test_gui_install_uninstall_flag() {
+        let cli = Cli::parse_from(["azlin", "gui", "install", "my-vm", "--uninstall"]);
+        match cli.command {
+            Commands::Gui { action, .. } => match action {
+                Some(GuiAction::Install { uninstall, .. }) => assert!(uninstall),
+                other => panic!("Expected Install action, got {other:?}"),
+            },
+            _ => panic!("Expected Gui command"),
+        }
+    }
+
+    #[test]
+    fn test_gui_rejects_unknown_protocol() {
+        let err = Cli::try_parse_from(["azlin", "gui", "install", "my-vm", "--protocol", "kasm"])
+            .unwrap_err();
+        assert!(err.to_string().contains("kasm"));
+    }
+
+    /// A VM literally named "install" is reachable via `--`. Documented because
+    /// the subcommand shadows the positional.
+    #[test]
+    fn test_gui_vm_named_install_reachable_via_double_dash() {
+        let cli = Cli::parse_from(["azlin", "gui", "--", "install"]);
+        match cli.command {
+            Commands::Gui {
+                action,
+                vm_identifier,
+                ..
+            } => {
+                assert!(action.is_none());
+                assert_eq!(vm_identifier.as_deref(), Some("install"));
+            }
+            _ => panic!("Expected Gui command"),
+        }
     }
 }

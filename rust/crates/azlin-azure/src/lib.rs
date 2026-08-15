@@ -13,6 +13,7 @@ pub mod rate_limiter;
 pub mod region_fit;
 pub mod retry;
 pub mod subprocess;
+pub mod teardown;
 pub mod vm;
 
 pub use auth::AzureAuth;
@@ -20,4 +21,5 @@ pub use costs::get_cost_summary;
 pub use ops::AzureOps;
 pub use subprocess::run_with_timeout;
 pub use vm::az_cli_with_timeout;
+pub use vm::is_resource_not_found;
 pub use vm::VmManager;

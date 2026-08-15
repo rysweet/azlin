@@ -724,23 +724,30 @@ azlin destroy my-vm --delete-rg --force
 - `destroy` - Advanced with dry-run and RG deletion
 - `killall` - Bulk cleanup of multiple VMs
 
-#### `azlin killall` - Delete all VMs in resource group
+#### `azlin killall` - Delete prefix-matched VMs in resource group
 
 ```bash
-# Delete all VMs (with confirmation)
+# Delete VMs matching the default "azlin" prefix (with confirmation)
 azlin killall
 
-# Delete all in specific resource group
+# Same, in a specific resource group
 azlin killall --resource-group my-rg
 
-# Force delete all
+# Skip the confirmation prompt
 azlin killall --force
+
+# Target VMs created with an explicit --name
+azlin killall --prefix smoke-test
+
+# Delete every VM in the resource group
+azlin killall --prefix ''
 ```
 
-**Warning**: This deletes ALL VMs in the resource group!
+**Warning**: This deletes every VM matching `--prefix` and cannot be undone.
 
 **Defaults:**
-- `--prefix`: "azlin" (only deletes azlin-created VMs)
+- `--prefix`: "azlin" (VMs whose name does not start with the prefix — e.g. one
+  created with `azlin new --name smoke-test` — are NOT deleted)
 
 ### `azlin prune` - Automated VM cleanup
 
@@ -1083,13 +1090,18 @@ azlin connect --x11 my-vm
 # VNC desktop: full remote desktop session
 azlin gui my-vm
 azlin gui my-vm --resolution 2560x1440
+
+# Containerised desktop: for VMs whose repos lack a desktop stack, or for RDP
+azlin gui install my-vm
+azlin gui install my-vm --protocol rdp
 ```
 
 - **X11 forwarding** (`--x11`) tunnels individual app windows over SSH. Best for lightweight tools like gitk, meld, and xeyes.
 - **VNC desktop** (`azlin gui`) launches a full XFCE desktop, auto-installs dependencies, and opens your local VNC viewer. VNC runs on localhost only with random per-session passwords -- all traffic is encrypted through the SSH or bastion tunnel.
+- **Containerised desktop** (`azlin gui install`) takes the whole desktop stack -- X server, window manager and the VNC or RDP server -- from a pinned container image on the VM's Docker. Use it when the VM's package repositories carry no desktop stack, or when you want RDP. The port is published on the VM's loopback interface only; no NSG rule is ever created.
 - **First-run GUI setup** uses the same `--user` and `--key` values as the tunnel, runs non-interactively, and exits with the setup error if dependency installation cannot finish.
 
-Both approaches work transparently through Azure Bastion.
+All approaches work transparently through Azure Bastion.
 
 See [GUI Forwarding Guide](docs/GUI_FORWARDING.md) for prerequisites, options, and troubleshooting.
 

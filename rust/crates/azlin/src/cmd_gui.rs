@@ -1,18 +1,36 @@
-//! `azlin gui` — Open a remote GUI desktop via VNC over SSH tunnel.
+//! `azlin gui` — Open a remote GUI desktop over an SSH tunnel.
+//!
+//! Two desktop backends are supported:
+//!
+//! * **Native** (default, unchanged): the VNC server and desktop are installed
+//!   on the VM with its package manager. Works wherever the VM's repositories
+//!   carry `tigervnc`/`xfce4`.
+//! * **Containerised**: the whole stack runs as a pinned container on the VM's
+//!   Docker, put there by `azlin gui install` (see [`crate::cmd_gui_install`]).
+//!   This is the only option on distributions whose repositories have no desktop
+//!   stack, and it additionally supports RDP.
+//!
+//! `azlin gui` probes for a containerised desktop first and uses it when one is
+//! installed; otherwise it takes the native path exactly as before. It never
+//! installs a container implicitly — if the native path cannot provide a
+//! desktop, it prints the exact `azlin gui install` command to run.
 //!
 //! Workflow:
-//! 1. Check local prerequisites (X server, vncviewer)
-//! 2. Resolve VM and detect bastion route
-//! 3. Open bastion tunnel to VM:22
-//! 4. Check/install remote deps (tigervnc, xfce4)
-//! 5. Generate random VNC password and start VNC server on localhost
-//! 6. SSH port-forward VNC port (5901) through tunnel
-//! 7. Launch local vncviewer
-//! 8. Wait for viewer exit, then clean shutdown
+//! 1. Resolve VM and detect bastion route
+//! 2. Probe the VM for a containerised desktop
+//! 3. Container found: start it if stopped, tunnel to its loopback port, launch
+//!    the local VNC viewer or RDP client
+//! 4. No container: check/install native deps, start the VNC server, tunnel,
+//!    launch the local viewer
+//! 5. Wait for the client to exit, then clean shutdown
 
 #[allow(unused_imports)]
 use super::*;
 use anyhow::{Context, Result};
+use azlin_core::gui_container::{
+    build_detect_script, build_start_script, no_desktop_remedy, parse_detect_output, ContainerState,
+    GuiProtocol, GuiStatus, HOST_RDP_PASSWD_PATH, HOST_VNC_PASSWD_PATH, RDP_USERNAME,
+};
 
 /// VNC session mode.
 enum VncMode {
@@ -33,7 +51,10 @@ const VNC_PORT: u16 = 5900 + VNC_DISPLAY;
 /// Hard timeout for the remote GUI dependency/setup phase.
 const GUI_SETUP_TIMEOUT_SECS: u64 = 600;
 
-fn resolve_gui_target_user(requested_user: &str, detected_user: &str) -> String {
+/// Hard timeout for the containerised-desktop detection probe.
+const GUI_DETECT_TIMEOUT_SECS: u64 = 60;
+
+pub(crate) fn resolve_gui_target_user(requested_user: &str, detected_user: &str) -> String {
     if requested_user != DEFAULT_ADMIN_USERNAME {
         requested_user.to_string()
     } else {
@@ -72,10 +93,11 @@ fn build_vnc_xstartup_body(mode: &VncMode) -> String {
 
 pub(crate) async fn dispatch(
     command: azlin_cli::Commands,
-    _verbose: bool,
-    _output: &azlin_cli::OutputFormat,
+    verbose: bool,
+    output: &azlin_cli::OutputFormat,
 ) -> Result<()> {
     let azlin_cli::Commands::Gui {
+        action,
         vm_identifier,
         resource_group,
         user,
@@ -90,6 +112,10 @@ pub(crate) async fn dispatch(
         unreachable!()
     };
 
+    if let Some(action) = action {
+        return crate::cmd_gui_install::dispatch(action, verbose, output).await;
+    }
+
     // Validate resolution format
     if !is_valid_resolution(&resolution) {
         anyhow::bail!(
@@ -98,10 +124,7 @@ pub(crate) async fn dispatch(
         );
     }
 
-    // Step 1: Check local prerequisites
-    check_local_deps()?;
-
-    // Step 2: Resolve VM
+    // Step 1: Resolve VM
     let rg = resolve_resource_group(resource_group)?;
 
     let name = if let Some(n) = vm_identifier {
@@ -123,6 +146,35 @@ pub(crate) async fn dispatch(
     )
     .await?;
 
+    // Step 2: Prefer a containerised desktop if `azlin gui install` put one
+    // there. A probe failure is not fatal: the native path below reports
+    // transport problems with a better message.
+    let pb = penguin_spinner("Checking for a remote desktop...");
+    let status = detect_desktop(&target, effective_key.as_deref()).await;
+    pb.finish_and_clear();
+    let status = match status {
+        Ok(status) => status,
+        Err(err) => {
+            if verbose {
+                eprintln!("note: could not probe for a containerised desktop: {err}");
+            }
+            GuiStatus {
+                docker_present: false,
+                docker_usable: false,
+                container_state: ContainerState::Missing,
+                protocol: None,
+                host_port: None,
+            }
+        }
+    };
+
+    if status.is_installed() {
+        return connect_containerised(&ssh_cmd_prefix, &status, minimal, app.is_some()).await;
+    }
+
+    // Step 3: No container — take the native package-based path unchanged.
+    check_local_deps()?;
+
     // Determine VNC mode
     let vnc_mode = if let Some(cmd) = app {
         VncMode::App(cmd)
@@ -132,34 +184,146 @@ pub(crate) async fn dispatch(
         VncMode::Desktop
     };
 
-    // Step 3: Check/install remote dependencies
+    // Step 4: Check/install remote dependencies
     let pb = penguin_spinner("Checking remote dependencies...");
-    check_remote_deps(&target, effective_key.as_deref(), &vnc_mode).await?;
+    let deps = check_remote_deps(&target, effective_key.as_deref(), &vnc_mode).await;
     pb.finish_and_clear();
+    // A distribution whose repositories carry no desktop stack fails here and
+    // can never succeed on the native path, so name the containerised
+    // alternative explicitly rather than leaving the user stuck.
+    deps.with_context(|| no_desktop_remedy(&name, &status))?;
 
-    // Step 4: Start VNC server on the remote VM
+    // Step 5: Start VNC server on the remote VM
     let pb = penguin_spinner("Starting VNC server...");
-    let vnc_password = start_vnc_server(&ssh_cmd_prefix, &resolution, depth, &vnc_mode)?;
+    let _vnc_password = start_vnc_server(&ssh_cmd_prefix, &resolution, depth, &vnc_mode)?;
     pb.finish_and_clear();
 
-    // Step 5: Open SSH port-forward for VNC
+    // Step 6: Open SSH port-forward for VNC
     let pb = penguin_spinner("Opening VNC tunnel...");
-    let (local_vnc_port, tunnel_pids) = open_vnc_tunnel(&ssh_cmd_prefix)?;
+    let (local_vnc_port, tunnel_pids) = open_desktop_tunnel(&ssh_cmd_prefix, VNC_PORT, "VNC")?;
     pb.finish_and_clear();
 
     let all_pids: Vec<u32> = tunnel_pids.to_vec();
 
-    // Step 6: Launch local VNC viewer
+    // Step 7: Launch local VNC viewer
     println!("Launching VNC viewer (127.0.0.1:{})...", local_vnc_port);
     eprintln!("(VNC password set on remote — not displayed for security)");
     println!("Press Ctrl+C to stop the GUI session.\n");
 
-    let viewer_result = launch_viewer(&ssh_cmd_prefix, &vnc_password, local_vnc_port);
+    let viewer_result = launch_viewer(&ssh_cmd_prefix, "~/.vnc/passwd", local_vnc_port);
 
-    // Step 7: Cleanup on exit
+    // Step 8: Cleanup on exit
     cleanup(&all_pids, &ssh_cmd_prefix);
 
     viewer_result
+}
+
+// ---------------------------------------------------------------------------
+// Containerised desktop
+// ---------------------------------------------------------------------------
+
+/// Connect to a containerised desktop that the probe already found.
+async fn connect_containerised(
+    ssh_cmd_prefix: &[String],
+    status: &GuiStatus,
+    minimal: bool,
+    app: bool,
+) -> Result<()> {
+    // Session-shape flags only ever applied to a VNC server installed directly
+    // on the host. The containerised desktop owns its own session, so honouring
+    // them is impossible; say so rather than silently ignoring them.
+    if minimal || app {
+        eprintln!(
+            "warning: --minimal and --app do not apply to the containerised desktop and are ignored."
+        );
+        eprintln!("         Run the application from inside the desktop session instead.");
+    }
+
+    if status.container_state == ContainerState::Stopped {
+        let pb = penguin_spinner("Starting the remote desktop container...");
+        let started = start_desktop(ssh_cmd_prefix);
+        pb.finish_and_clear();
+        started?;
+    }
+
+    let protocol = status.protocol.unwrap_or(GuiProtocol::Vnc);
+    let remote_port = status.effective_port();
+
+    // Local client prerequisites are checked only once we know which protocol
+    // the desktop speaks: demanding a VNC viewer for an RDP desktop would be
+    // wrong.
+    if protocol == GuiProtocol::Vnc {
+        check_local_deps()?;
+    }
+
+    let pb = penguin_spinner("Opening the desktop tunnel...");
+    let opened = open_desktop_tunnel(ssh_cmd_prefix, remote_port, "desktop");
+    pb.finish_and_clear();
+    let (local_port, tunnel_pids) = opened?;
+
+    let result = match protocol {
+        GuiProtocol::Vnc => {
+            println!("Launching VNC viewer (127.0.0.1:{})...", local_port);
+            eprintln!("(desktop password set on the VM — not displayed for security)");
+            println!("Press Ctrl+C to stop the GUI session.\n");
+            launch_viewer(ssh_cmd_prefix, HOST_VNC_PASSWD_PATH, local_port)
+        }
+        GuiProtocol::Rdp => launch_rdp_client(ssh_cmd_prefix, local_port),
+    };
+
+    // The container is left running so reconnecting is fast; remove it with
+    // `azlin gui install <vm> --uninstall`.
+    kill_tunnels(&tunnel_pids);
+
+    result
+}
+
+/// Probe the VM for a containerised desktop.
+async fn detect_desktop(
+    target: &VmSshTarget,
+    key_override: Option<&std::path::Path>,
+) -> Result<GuiStatus> {
+    let script = crate::cmd_gui_install::wrap_for_shell(&build_detect_script());
+    let result = crate::dispatch_helpers::run_target_command_with_timeout(
+        target,
+        &script,
+        GUI_DETECT_TIMEOUT_SECS,
+        key_override,
+    )
+    .await;
+    classify_detect_result(result)
+}
+
+/// Interpret the detection probe's result.
+///
+/// The probe always exits zero, so a non-zero exit means the SSH transport
+/// failed and must be reported as such rather than as "not installed".
+fn classify_detect_result(result: Result<(i32, String, String)>) -> Result<GuiStatus> {
+    match result {
+        Ok((0, stdout, _)) => Ok(parse_detect_output(&stdout)),
+        Ok((code, _, stderr)) => anyhow::bail!(
+            "Could not check the VM for a remote desktop (exit {}): {}",
+            code,
+            azlin_core::sanitizer::sanitize(stderr.trim())
+        ),
+        Err(err) => anyhow::bail!(
+            "Could not check the VM for a remote desktop: {}",
+            azlin_core::sanitizer::sanitize(&err.to_string())
+        ),
+    }
+}
+
+fn start_desktop(ssh_cmd_prefix: &[String]) -> Result<()> {
+    let script = crate::cmd_gui_install::wrap_for_shell(&build_start_script());
+    let (code, _, stderr) = run_ssh_command_full(ssh_cmd_prefix, &script)?;
+    if code != 0 {
+        anyhow::bail!(
+            "The remote desktop container exists but could not be started: {}\n\
+             Inspect it on the VM with: docker logs azlin-gui",
+            azlin_core::sanitizer::sanitize(stderr.trim())
+        );
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -494,15 +658,21 @@ fn start_vnc_server(
 }
 
 // ---------------------------------------------------------------------------
-// VNC tunnel (SSH -L port forwarding)
+// Desktop tunnel (SSH -L port forwarding)
 // ---------------------------------------------------------------------------
 
-fn build_vnc_tunnel_args(ssh_cmd_prefix: &[String], local_port: u16) -> Result<Vec<String>> {
-    // Build ssh -N -L 5901:localhost:5901 using the same SSH prefix
-    // (which already includes -p <port> for bastion, or user@ip for direct)
+/// Build `ssh -N -L <local>:localhost:<remote>` from an existing SSH prefix.
+///
+/// `remote_port` is the loopback port the desktop listens on inside the VM, so
+/// the same code path serves the native VNC server (5901) and a containerised
+/// VNC (5901) or RDP (3389) desktop.
+fn build_desktop_tunnel_args(
+    ssh_cmd_prefix: &[String],
+    local_port: u16,
+    remote_port: u16,
+) -> Result<Vec<String>> {
     let mut args: Vec<String> = Vec::new();
 
-    // Extract the ssh binary and connection args from prefix
     // prefix[0] = "ssh", prefix[1..] = options + user@host
     if ssh_cmd_prefix.len() < 2 {
         anyhow::bail!("SSH command prefix must include a destination");
@@ -514,35 +684,39 @@ fn build_vnc_tunnel_args(ssh_cmd_prefix: &[String], local_port: u16) -> Result<V
     }
     args.push("-N".to_string());
     args.push("-L".to_string());
-    args.push(format!("{}:localhost:{}", local_port, VNC_PORT));
+    args.push(format!("{}:localhost:{}", local_port, remote_port));
     // user@host is the last element
     args.push(ssh_cmd_prefix.last().unwrap().clone());
 
     Ok(args)
 }
 
-fn open_vnc_tunnel(ssh_cmd_prefix: &[String]) -> Result<(u16, Vec<u32>)> {
+fn open_desktop_tunnel(
+    ssh_cmd_prefix: &[String],
+    remote_port: u16,
+    label: &str,
+) -> Result<(u16, Vec<u32>)> {
     let local_port = crate::pick_unused_local_port()?;
-    let args = build_vnc_tunnel_args(ssh_cmd_prefix, local_port)?;
+    let args = build_desktop_tunnel_args(ssh_cmd_prefix, local_port, remote_port)?;
 
     let mut child = std::process::Command::new("ssh")
         .args(&args)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .context("Failed to spawn SSH port-forward for VNC")?;
+        .with_context(|| format!("Failed to spawn SSH port-forward for the {label}"))?;
 
     let pid = child.id();
     if let Err(error) = crate::bastion_tunnel::wait_for_process_tree_listener(
         local_port,
         pid,
         std::time::Duration::from_secs(10),
-        "VNC tunnel",
+        &format!("{label} tunnel"),
     ) {
         let _ = child.kill();
         let _ = child.wait();
         return Err(error).context(format!(
-            "VNC tunnel failed to listen on 127.0.0.1:{}",
+            "{label} tunnel failed to listen on 127.0.0.1:{}",
             local_port
         ));
     }
@@ -565,9 +739,17 @@ fn build_vnc_viewer_args(passwd_file: &std::path::Path, local_port: u16) -> Vec<
     ]
 }
 
-fn launch_viewer(ssh_cmd_prefix: &[String], password: &str, local_port: u16) -> Result<()> {
-    // Retrieve the VNC passwd file from the remote VM
-    let passwd_b64 = run_ssh_command(ssh_cmd_prefix, "base64 < ~/.vnc/passwd")?;
+fn launch_viewer(
+    ssh_cmd_prefix: &[String],
+    remote_passwd_path: &str,
+    local_port: u16,
+) -> Result<()> {
+    // Retrieve the VNC passwd file from the remote VM. The native path writes it
+    // with `vncpasswd`; the containerised path exports the container's own blob.
+    let passwd_b64 = run_ssh_command(ssh_cmd_prefix, &format!("base64 < {}", remote_passwd_path))
+        .with_context(|| {
+            format!("Could not read the VNC password file {remote_passwd_path} from the VM")
+        })?;
     let passwd_bytes = base64_decode(passwd_b64.trim())?;
 
     // Write to a temp file with restricted permissions from creation (no TOCTOU window)
@@ -636,7 +818,6 @@ fn launch_viewer(ssh_cmd_prefix: &[String], password: &str, local_port: u16) -> 
     let status = launch_result?;
 
     if !status.success() {
-        let _ = password; // suppress unused warning
         anyhow::bail!(
             "vncviewer exited with status {}",
             status.code().unwrap_or(-1)
@@ -647,17 +828,110 @@ fn launch_viewer(ssh_cmd_prefix: &[String], password: &str, local_port: u16) -> 
 }
 
 // ---------------------------------------------------------------------------
+// RDP client launch (containerised desktop only)
+// ---------------------------------------------------------------------------
+
+/// Local RDP clients azlin knows how to drive, in preference order.
+const RDP_CLIENTS: &[&str] = &["xfreerdp3", "xfreerdp", "mstsc.exe", "mstsc"];
+
+/// Find the first available local RDP client.
+fn find_rdp_client(is_available: impl Fn(&str) -> bool) -> Option<&'static str> {
+    RDP_CLIENTS.iter().copied().find(|c| is_available(c))
+}
+
+/// Build the argument list for a given RDP client binary.
+fn build_rdp_client_args(client: &str, local_port: u16, username: &str) -> Vec<String> {
+    if client.starts_with("mstsc") {
+        // mstsc takes only the endpoint; it prompts for credentials.
+        vec![format!("/v:127.0.0.1:{}", local_port)]
+    } else {
+        vec![
+            format!("/v:127.0.0.1:{}", local_port),
+            format!("/u:{}", username),
+            "/cert:ignore".to_string(),
+            "/dynamic-resolution".to_string(),
+        ]
+    }
+}
+
+/// Instructions printed when no local RDP client is available.
+fn rdp_manual_instructions(local_port: u16, username: &str) -> String {
+    format!(
+        "The RDP tunnel is open on 127.0.0.1:{local_port}.\n\
+         Connect with any RDP client using:\n  \
+           host:     127.0.0.1:{local_port}\n  \
+           username: {username}\n  \
+           password: read ~/.azlin/gui/rdppasswd on the VM\n\n\
+         Examples:\n  \
+           xfreerdp /v:127.0.0.1:{local_port} /u:{username} /cert:ignore\n  \
+           mstsc /v:127.0.0.1:{local_port}\n  \
+           macOS: open Microsoft Remote Desktop and add PC 127.0.0.1:{local_port}\n\n\
+         Press Ctrl+C to close the tunnel."
+    )
+}
+
+fn launch_rdp_client(ssh_cmd_prefix: &[String], local_port: u16) -> Result<()> {
+    let username = RDP_USERNAME;
+
+    let Some(client) = find_rdp_client(|c| {
+        std::process::Command::new("which")
+            .arg(c)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }) else {
+        println!("{}", rdp_manual_instructions(local_port, username));
+        // Hold the tunnel open until interrupted so the printed endpoint is usable.
+        wait_for_interrupt();
+        return Ok(());
+    };
+
+    // Surface the password so the user can paste it into the client prompt. It
+    // never leaves the SSH channel and is not written to disk locally.
+    match run_ssh_command(ssh_cmd_prefix, &format!("cat {}", HOST_RDP_PASSWD_PATH)) {
+        Ok(password) if !password.trim().is_empty() => {
+            println!("RDP login: {} / {}", username, password.trim());
+        }
+        _ => {
+            eprintln!("warning: could not read the RDP password from the VM ({HOST_RDP_PASSWD_PATH}).");
+            eprintln!("         Re-run `azlin gui install <vm> --protocol rdp` to regenerate it.");
+        }
+    }
+
+    println!("Launching {} (127.0.0.1:{})...", client, local_port);
+    println!("Press Ctrl+C to stop the GUI session.\n");
+
+    let status = std::process::Command::new(client)
+        .args(build_rdp_client_args(client, local_port, username))
+        .status()
+        .with_context(|| format!("Failed to launch {}", client))?;
+
+    if !status.success() {
+        anyhow::bail!(
+            "{} exited with status {}",
+            client,
+            status.code().unwrap_or(-1)
+        );
+    }
+
+    Ok(())
+}
+
+/// Block until the user interrupts, keeping a tunnel usable meanwhile.
+fn wait_for_interrupt() {
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(3600));
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Cleanup
 // ---------------------------------------------------------------------------
 
-fn cleanup(pids: &[u32], ssh_cmd_prefix: &[String]) {
-    // Kill remote VNC server
-    let _ = run_ssh_command(
-        ssh_cmd_prefix,
-        &format!("vncserver -kill :{} 2>/dev/null || true", VNC_DISPLAY),
-    );
-
-    // Kill local tunnel processes
+/// Tear down local tunnel processes.
+fn kill_tunnels(pids: &[u32]) {
     for pid in pids {
         let _ = std::process::Command::new("kill")
             .arg(pid.to_string())
@@ -665,6 +939,17 @@ fn cleanup(pids: &[u32], ssh_cmd_prefix: &[String]) {
             .stderr(std::process::Stdio::null())
             .status();
     }
+}
+
+fn cleanup(pids: &[u32], ssh_cmd_prefix: &[String]) {
+    // Kill remote VNC server (native path only; the container is left running so
+    // reconnecting is fast, and is removed by `azlin gui install --uninstall`).
+    let _ = run_ssh_command(
+        ssh_cmd_prefix,
+        &format!("vncserver -kill :{} 2>/dev/null || true", VNC_DISPLAY),
+    );
+
+    kill_tunnels(pids);
 }
 
 // ---------------------------------------------------------------------------
@@ -707,7 +992,7 @@ fn run_ssh_command_full(
 // ---------------------------------------------------------------------------
 
 /// Validate resolution string format (WIDTHxHEIGHT).
-fn is_valid_resolution(res: &str) -> bool {
+pub(crate) fn is_valid_resolution(res: &str) -> bool {
     let parts: Vec<&str> = res.split('x').collect();
     if parts.len() != 2 {
         return false;
@@ -899,7 +1184,7 @@ mod tests {
 
     #[test]
     fn test_build_vnc_tunnel_args_use_requested_local_port() {
-        let args = build_vnc_tunnel_args(
+        let args = build_desktop_tunnel_args(
             &[
                 "ssh".to_string(),
                 "-i".to_string(),
@@ -907,6 +1192,7 @@ mod tests {
                 "azureuser@10.0.0.5".to_string(),
             ],
             41234,
+            VNC_PORT,
         )
         .unwrap();
 
@@ -918,8 +1204,69 @@ mod tests {
 
     #[test]
     fn test_build_vnc_tunnel_args_require_destination() {
-        let err = build_vnc_tunnel_args(&["ssh".to_string()], 41234).unwrap_err();
+        let err = build_desktop_tunnel_args(&["ssh".to_string()], 41234, VNC_PORT).unwrap_err();
         assert!(err.to_string().contains("must include a destination"));
+    }
+
+    #[test]
+    fn test_build_desktop_tunnel_args_support_rdp_remote_port() {
+        let args = build_desktop_tunnel_args(
+            &[
+                "ssh".to_string(),
+                "-p".to_string(),
+                "2222".to_string(),
+                "azureuser@127.0.0.1".to_string(),
+            ],
+            41235,
+            3389,
+        )
+        .unwrap();
+
+        assert!(args.contains(&"41235:localhost:3389".to_string()));
+        assert!(args.contains(&"-p".to_string()));
+        assert!(args.contains(&"2222".to_string()));
+    }
+
+    #[test]
+    fn test_find_rdp_client_prefers_xfreerdp3() {
+        let found = find_rdp_client(|c| c == "xfreerdp3" || c == "mstsc");
+        assert_eq!(found, Some("xfreerdp3"));
+
+        let found = find_rdp_client(|c| c == "mstsc");
+        assert_eq!(found, Some("mstsc"));
+
+        assert_eq!(find_rdp_client(|_| false), None);
+    }
+
+    #[test]
+    fn test_build_rdp_client_args_shapes() {
+        let free = build_rdp_client_args("xfreerdp3", 41235, "abc");
+        assert!(free.contains(&"/v:127.0.0.1:41235".to_string()));
+        assert!(free.contains(&"/u:abc".to_string()));
+        assert!(free.contains(&"/cert:ignore".to_string()));
+
+        // mstsc has no /u: flag - it prompts instead.
+        let ms = build_rdp_client_args("mstsc.exe", 41235, "abc");
+        assert_eq!(ms, vec!["/v:127.0.0.1:41235".to_string()]);
+    }
+
+    #[test]
+    fn test_rdp_manual_instructions_are_actionable() {
+        let text = rdp_manual_instructions(41235, "abc");
+        assert!(text.contains("127.0.0.1:41235"));
+        assert!(text.contains("abc"));
+        assert!(text.contains("xfreerdp"));
+        // Must never suggest exposing the port publicly.
+        assert!(!text.contains("0.0.0.0"));
+    }
+
+    #[test]
+    fn test_classify_detect_result_maps_states() {
+        let ok = classify_detect_result(Ok((0, "docker=yes\ncontainer=running\n".into(), String::new())));
+        assert!(ok.is_ok());
+
+        let failed = classify_detect_result(Err(anyhow::anyhow!("ssh blew up")));
+        assert!(failed.is_err());
     }
 
     #[test]

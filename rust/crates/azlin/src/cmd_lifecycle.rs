@@ -106,12 +106,31 @@ pub(crate) async fn dispatch(
             resource_group,
             force,
             dry_run,
+            delete_rg,
             ..
         } => {
             let rg = resolve_resource_group(resource_group)?;
 
+            // `--delete-rg` was previously accepted and silently ignored.
+            // Honouring it is genuinely dangerous: resource groups routinely
+            // hold hand-made VMs, VNets and IPs alongside azlin sessions, so
+            // deleting the group would destroy unrelated user data. Reject it
+            // explicitly and point at the targeted alternative.
+            if delete_rg {
+                anyhow::bail!(
+                    "{}",
+                    crate::lifecycle_helpers::delete_rg_rejected_message(&rg)
+                );
+            }
+
+            let auth = create_auth()?;
+            let vm_manager = azlin_azure::VmManager::new(&auth);
+
             if dry_run {
-                println!("{}", crate::handlers::format_destroy_dry_run(&vm_name, &rg));
+                print!(
+                    "{}",
+                    crate::handlers::format_destroy_dry_run_live(&vm_manager, &rg, &vm_name)?
+                );
                 return Ok(());
             }
 
@@ -123,9 +142,6 @@ pub(crate) async fn dispatch(
                 return Ok(());
             }
 
-            let auth = create_auth()?;
-            let vm_manager = azlin_azure::VmManager::new(&auth);
-
             let pb = ProgressBar::new_spinner();
             pb.set_style(fleet_spinner_style());
             pb.set_prefix(format!("{:>20}", vm_name));
@@ -134,8 +150,9 @@ pub(crate) async fn dispatch(
                 &vm_name,
             ));
             pb.enable_steady_tick(std::time::Duration::from_millis(120));
-            crate::handlers::handle_delete(&vm_manager, &rg, &vm_name)?;
+            let msg = crate::handlers::handle_delete(&vm_manager, &rg, &vm_name)?;
             pb.finish_with_message(crate::lifecycle_helpers::destroyed_message(&vm_name));
+            println!("{msg}");
         }
         azlin_cli::Commands::Killall {
             resource_group,
@@ -144,8 +161,37 @@ pub(crate) async fn dispatch(
             ..
         } => {
             let rg = resolve_resource_group(resource_group)?;
+
+            // List every VM in the resource group first (read-only) so we can
+            // tell "resource group is empty" apart from "prefix matched
+            // nothing", and so the confirmation names the actual VMs.
+            let all_query = crate::lifecycle_helpers::killall_all_names_query();
+            let list_pb = penguin_spinner("Listing VMs...");
+            let list_out = std::process::Command::new("az")
+                .args(crate::lifecycle_helpers::killall_list_args(&rg, all_query))
+                .output()?;
+            list_pb.finish_and_clear();
+            if !list_out.status.success() {
+                anyhow::bail!("Failed to list VMs.");
+            }
+            let names_raw = String::from_utf8_lossy(&list_out.stdout);
+            let all_names: Vec<String> = crate::lifecycle_helpers::parse_vm_ids(&names_raw)
+                .into_iter()
+                .map(str::to_string)
+                .collect();
+            let (matching, unmatched) =
+                crate::lifecycle_helpers::partition_by_prefix(&all_names, &prefix);
+
+            if matching.is_empty() {
+                println!(
+                    "{}",
+                    crate::lifecycle_helpers::killall_no_match_message(&prefix, &rg, &unmatched)
+                );
+                return Ok(());
+            }
+
             if !safe_confirm(
-                &crate::lifecycle_helpers::killall_confirm_prompt(&prefix, &rg),
+                &crate::lifecycle_helpers::killall_confirm_prompt(&prefix, &rg, &matching),
                 force,
             )? {
                 println!("Cancelled.");
@@ -161,41 +207,51 @@ pub(crate) async fn dispatch(
             let args = crate::lifecycle_helpers::killall_list_args(&rg, &query);
             let output = std::process::Command::new("az").args(&args).output()?;
 
-            if output.status.success() {
-                let ids_raw = String::from_utf8_lossy(&output.stdout);
-                let id_list = crate::lifecycle_helpers::parse_vm_ids(&ids_raw);
-                if id_list.is_empty() {
-                    pb.finish_and_clear();
-                    println!(
-                        "{}",
-                        crate::lifecycle_helpers::killall_empty_message(&prefix)
-                    );
-                } else {
-                    let del = std::process::Command::new("az")
-                        .args(["vm", "delete", "--ids"])
-                        .args(&id_list)
-                        .args(["--yes"])
-                        .output()?;
-                    pb.finish_and_clear();
-                    if del.status.success() {
-                        println!(
-                            "{}",
-                            crate::lifecycle_helpers::killall_success_message(
-                                id_list.len(),
-                                &prefix
-                            )
-                        );
-                    } else {
-                        let stderr = String::from_utf8_lossy(&del.stderr);
-                        anyhow::bail!(
-                            "Failed to delete VMs: {}",
-                            azlin_core::sanitizer::sanitize(stderr.trim())
-                        );
-                    }
-                }
-            } else {
+            if !output.status.success() {
                 pb.finish_and_clear();
                 anyhow::bail!("Failed to list VMs.");
+            }
+
+            let names_raw = String::from_utf8_lossy(&output.stdout);
+            // Re-listing picks up VMs deleted elsewhere since the enumeration,
+            // but must never widen the set: the confirmation named specific
+            // VMs, so anything not in that list is not ours to delete.
+            let listed = crate::lifecycle_helpers::parse_vm_ids(&names_raw);
+            let names = crate::lifecycle_helpers::narrow_to_confirmed(&listed, &matching);
+            if names.is_empty() {
+                // Only reachable if the matched VMs disappeared between the
+                // enumeration above and this query; report it the same way.
+                pb.finish_and_clear();
+                println!(
+                    "{}",
+                    crate::lifecycle_helpers::killall_no_match_message(&prefix, &rg, &unmatched)
+                );
+            } else {
+                // Tear each VM down individually rather than batching
+                // `az vm delete --ids`. The batch form deletes only the VMs
+                // and leaves every public IP and NSG behind — the same leak
+                // this command previously shared with destroy/delete/kill.
+                let auth = create_auth()?;
+                let vm_manager = azlin_azure::VmManager::new(&auth);
+                let mut messages = Vec::new();
+                let mut failures = Vec::new();
+                for name in &names {
+                    match crate::handlers::handle_delete(&vm_manager, &rg, name) {
+                        Ok(msg) => messages.push(msg),
+                        Err(e) => failures.push(format!("{name}: {e}")),
+                    }
+                }
+                pb.finish_and_clear();
+                for msg in &messages {
+                    println!("{msg}");
+                }
+                if !failures.is_empty() {
+                    anyhow::bail!("Failed to delete VMs:\n  {}", failures.join("\n  "));
+                }
+                println!(
+                    "{}",
+                    crate::lifecycle_helpers::killall_success_message(messages.len(), &prefix)
+                );
             }
         }
 

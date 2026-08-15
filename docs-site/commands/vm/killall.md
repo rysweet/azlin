@@ -1,6 +1,6 @@
 # azlin killall
 
-Delete all VMs in resource group.
+Delete every VM in a resource group whose name starts with `--prefix`.
 
 ## Synopsis
 
@@ -10,21 +10,39 @@ azlin killall [OPTIONS]
 
 ## Description
 
-Deletes ALL VMs in the resource group and their associated resources. Use with caution!
+Deletes the VMs in the resource group whose names start with `--prefix`
+(default: `azlin`) along with their associated resources. Use with caution!
+
+VMs created with an explicit `--name` that does not start with the prefix are
+**not** deleted. For example `azlin new --name smoke-test` creates a VM that
+`azlin killall` skips by default; delete it with
+`azlin killall --prefix smoke-test`, or pass `--prefix ''` to match every VM in
+the resource group.
 
 ## Options
 
 | Option | Description |
 |--------|-------------|
 | `--force` | Skip confirmation |
+| `--prefix TEXT` | Only delete VMs whose name starts with this prefix (default: `azlin`). Use `''` to match every VM |
 | `--rg TEXT` | Resource group |
 | `-h, --help` | Show help |
 
 ## Examples
 
-### Delete all VMs (with confirmation)
+### Delete the default `azlin`-prefixed VMs (with confirmation)
 ```bash
 azlin killall
+```
+
+### Delete VMs with a custom name prefix
+```bash
+azlin killall --prefix smoke-test
+```
+
+### Delete every VM in the resource group
+```bash
+azlin killall --prefix ''
 ```
 
 ### Force delete without confirmation
@@ -40,34 +58,39 @@ azlin killall --rg test-rg --force
 ## Output Example
 
 ```
-Delete ALL VMs in resource group: my-rg
+Delete these 2 VM(s) with prefix 'azlin' in 'my-rg'? This cannot be undone.
+  azlin-vm-1760000000
+  azlin-vm-1760000001
+ [y/N]: y
 
-VMs to delete:
-  - vm-test-1
-  - vm-test-2
-  - vm-prod-1
-  - vm-staging
+Deleted azlin-vm-1760000000 and 4 associated resource(s)
+Deleted azlin-vm-1760000001 and 4 associated resource(s)
+Deleted 2 VMs with prefix 'azlin'
+```
 
-Total: 4 VMs
+Each VM is torn down individually, so its disks, NIC, Public IP and NSG go
+with it rather than being orphaned.
 
-THIS WILL DELETE ALL VMs AND CANNOT BE UNDONE!
+When nothing matches the prefix but the resource group is not empty, `killall`
+says so instead of silently doing nothing:
 
-Type 'yes' to confirm: yes
-
-Deleting VMs...
-✓ Deleted vm-test-1
-✓ Deleted vm-test-2
-✓ Deleted vm-prod-1
-✓ Deleted vm-staging
-
-All VMs deleted successfully.
+```
+No VMs matched prefix 'azlin' in 'my-rg'. Nothing was deleted.
+2 VM(s) exist in this resource group but do not start with 'azlin':
+  smoke-test
+  other-vm
+Target them with --prefix, for example:
+  azlin killall --prefix 'smoke-test'
+  azlin killall --prefix ''   # every VM in the resource group
 ```
 
 ## Safety Features
 
 - Requires explicit confirmation
-- Lists all VMs before deletion
-- Shows resource count
+- Names the exact VMs that will be deleted before confirming
+- Only deletes VMs matching `--prefix` (default `azlin`)
+- Reports non-matching VMs instead of silently deleting nothing
+- Deletes only the VMs it named, even if a new one appears while you decide
 - Warns about irreversibility
 
 ## Use Cases
