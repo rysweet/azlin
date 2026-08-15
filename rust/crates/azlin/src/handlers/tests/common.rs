@@ -10,6 +10,21 @@ pub(super) struct MockAzureOps {
     pub(super) vms: Vec<VmInfo>,
     /// Track calls for verification.
     calls: Mutex<Vec<String>>,
+    /// Raw `az ... list` JSON returned by the network/disk list methods.
+    pub(super) disk_json: String,
+    pub(super) nic_json: String,
+    pub(super) pip_json: String,
+    pub(super) nsg_json: String,
+    /// Public IP / NSG JSON served *after* a NIC has been deleted. Real Azure
+    /// drops the association at that point, which is exactly what the teardown
+    /// re-check pass depends on; a static mock cannot express it.
+    pub(super) pip_json_after_nic_delete: Option<String>,
+    pub(super) nsg_json_after_nic_delete: Option<String>,
+    /// Resource names whose deletion should fail with a "not found" error,
+    /// simulating a resource Azure already removed.
+    pub(super) missing_on_delete: Vec<String>,
+    /// Resource names whose deletion should fail with a genuine error.
+    pub(super) failing_on_delete: Vec<String>,
 }
 
 impl MockAzureOps {
@@ -18,6 +33,14 @@ impl MockAzureOps {
             subscription_id: "test-sub-12345".to_string(),
             vms,
             calls: Mutex::new(Vec::new()),
+            disk_json: "[]".to_string(),
+            nic_json: "[]".to_string(),
+            pip_json: "[]".to_string(),
+            nsg_json: "[]".to_string(),
+            pip_json_after_nic_delete: None,
+            nsg_json_after_nic_delete: None,
+            missing_on_delete: Vec::new(),
+            failing_on_delete: Vec::new(),
         }
     }
 
@@ -27,6 +50,38 @@ impl MockAzureOps {
 
     pub(super) fn call_log(&self) -> Vec<String> {
         self.calls.lock().unwrap().clone()
+    }
+
+    /// Simulate deleting `name`, honouring the missing/failing overrides.
+    fn simulate_delete(&self, kind: &str, name: &str) -> Result<()> {
+        self.record(&format!("delete_{}:{}", kind, name));
+        if self.failing_on_delete.iter().any(|n| n == name) {
+            return Err(anyhow::anyhow!("az CLI failed: OperationNotAllowed"));
+        }
+        if self.missing_on_delete.iter().any(|n| n == name) {
+            // Mirror VmManager: a 404 means someone already deleted it, which
+            // is the desired end state, so teardown continues.
+            let err = anyhow::anyhow!(
+                "ERROR: (ResourceNotFound) The Resource '{name}' was not found."
+            );
+            assert!(
+                azlin_azure::is_resource_not_found(&err.to_string()),
+                "mock 404 must be recognised as tolerable"
+            );
+            return Ok(());
+        }
+        Ok(())
+    }
+
+    /// Whether any NIC has been deleted yet, used to decide which snapshot of
+    /// the network state to serve.
+    fn any_nic_deleted(&self) -> bool {
+        self.call_log().iter().any(|c| c.starts_with("delete_nic:"))
+    }
+
+    /// Index of a recorded call, for ordering assertions.
+    pub(super) fn call_index(&self, needle: &str) -> Option<usize> {
+        self.call_log().iter().position(|c| c == needle)
     }
 }
 
@@ -101,6 +156,48 @@ impl AzureOps for MockAzureOps {
     fn create_vm(&self, params: &azlin_core::models::CreateVmParams) -> Result<VmInfo> {
         self.record(&format!("create_vm:{}", params.name));
         Ok(make_test_vm(&params.name, PowerState::Running))
+    }
+
+    fn list_disks_json(&self, _resource_group: &str) -> Result<String> {
+        self.record("list_disks_json");
+        Ok(self.disk_json.clone())
+    }
+
+    fn list_nics_json(&self, _resource_group: &str) -> Result<String> {
+        self.record("list_nics_json");
+        Ok(self.nic_json.clone())
+    }
+
+    fn list_public_ips_json(&self, _resource_group: &str) -> Result<String> {
+        self.record("list_public_ips_json");
+        match self.pip_json_after_nic_delete {
+            Some(ref after) if self.any_nic_deleted() => Ok(after.clone()),
+            _ => Ok(self.pip_json.clone()),
+        }
+    }
+
+    fn list_nsgs_json(&self, _resource_group: &str) -> Result<String> {
+        self.record("list_nsgs_json");
+        match self.nsg_json_after_nic_delete {
+            Some(ref after) if self.any_nic_deleted() => Ok(after.clone()),
+            _ => Ok(self.nsg_json.clone()),
+        }
+    }
+
+    fn delete_disk(&self, _resource_group: &str, name: &str) -> Result<()> {
+        self.simulate_delete("disk", name)
+    }
+
+    fn delete_nic(&self, _resource_group: &str, name: &str) -> Result<()> {
+        self.simulate_delete("nic", name)
+    }
+
+    fn delete_public_ip(&self, _resource_group: &str, name: &str) -> Result<()> {
+        self.simulate_delete("public_ip", name)
+    }
+
+    fn delete_nsg(&self, _resource_group: &str, name: &str) -> Result<()> {
+        self.simulate_delete("nsg", name)
     }
 }
 

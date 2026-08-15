@@ -374,6 +374,123 @@ impl VmManager {
         Ok(vm.tags)
     }
 
+    // ── Network teardown operations ────────────────────────────────────
+    //
+    // `az vm delete` removes only the VM; disks and the NIC follow because
+    // `az vm create` sets their `deleteOption` to `Delete`. Public IPs and
+    // NSGs have no such implicit delete, so they must be enumerated and
+    // removed explicitly or they leak and keep billing.
+
+    /// List all managed disks in a resource group (raw JSON).
+    pub fn list_disks_json(&self, resource_group: &str) -> Result<String> {
+        az_cli_with_timeout(
+            &["disk", "list", "--resource-group", resource_group],
+            self.az_cli_timeout,
+        )
+    }
+
+    /// List all NICs in a resource group (raw JSON).
+    pub fn list_nics_json(&self, resource_group: &str) -> Result<String> {
+        az_cli_with_timeout(
+            &["network", "nic", "list", "--resource-group", resource_group],
+            self.az_cli_timeout,
+        )
+    }
+
+    /// List all public IPs in a resource group (raw JSON).
+    pub fn list_public_ips_json(&self, resource_group: &str) -> Result<String> {
+        az_cli_with_timeout(
+            &[
+                "network",
+                "public-ip",
+                "list",
+                "--resource-group",
+                resource_group,
+            ],
+            self.az_cli_timeout,
+        )
+    }
+
+    /// List all network security groups in a resource group (raw JSON).
+    pub fn list_nsgs_json(&self, resource_group: &str) -> Result<String> {
+        az_cli_with_timeout(
+            &["network", "nsg", "list", "--resource-group", resource_group],
+            self.az_cli_timeout,
+        )
+    }
+
+    /// Delete a managed disk. Succeeds if the disk is already gone.
+    pub fn delete_disk(&self, resource_group: &str, name: &str) -> Result<()> {
+        debug!(resource_group, name, "Deleting disk");
+        tolerate_missing(az_cli_with_timeout(
+            &[
+                "disk",
+                "delete",
+                "--resource-group",
+                resource_group,
+                "--name",
+                name,
+                "--yes",
+            ],
+            self.az_cli_timeout,
+        ))
+    }
+
+    /// Delete a NIC, waiting for completion. Succeeds if already gone.
+    ///
+    /// This deliberately does **not** use `--no-wait`: the NIC must be fully
+    /// released before its Public IP and NSG can be deleted, or Azure rejects
+    /// those deletes as in-use.
+    pub fn delete_nic(&self, resource_group: &str, name: &str) -> Result<()> {
+        debug!(resource_group, name, "Deleting NIC");
+        tolerate_missing(az_cli_with_timeout(
+            &[
+                "network",
+                "nic",
+                "delete",
+                "--resource-group",
+                resource_group,
+                "--name",
+                name,
+            ],
+            self.az_cli_timeout,
+        ))
+    }
+
+    /// Delete a public IP address. Succeeds if already gone.
+    pub fn delete_public_ip(&self, resource_group: &str, name: &str) -> Result<()> {
+        debug!(resource_group, name, "Deleting public IP");
+        tolerate_missing(az_cli_with_timeout(
+            &[
+                "network",
+                "public-ip",
+                "delete",
+                "--resource-group",
+                resource_group,
+                "--name",
+                name,
+            ],
+            self.az_cli_timeout,
+        ))
+    }
+
+    /// Delete a network security group. Succeeds if already gone.
+    pub fn delete_nsg(&self, resource_group: &str, name: &str) -> Result<()> {
+        debug!(resource_group, name, "Deleting NSG");
+        tolerate_missing(az_cli_with_timeout(
+            &[
+                "network",
+                "nsg",
+                "delete",
+                "--resource-group",
+                resource_group,
+                "--name",
+                name,
+            ],
+            self.az_cli_timeout,
+        ))
+    }
+
     // ── Provisioning ───────────────────────────────────────────────────
 
     /// Provision a new VM, letting `az vm create` handle networking automatically.
@@ -615,6 +732,35 @@ fn az_cli(args: &[&str]) -> Result<String> {
     az_cli_with_timeout(args, AZ_CLI_DEFAULT_TIMEOUT_SECS)
 }
 
+/// Whether an `az` CLI error means "the resource does not exist".
+///
+/// Teardown must be idempotent: re-running it after a partial failure, or
+/// deleting a resource Azure already removed implicitly, must not abort the
+/// rest of the sequence.
+pub fn is_resource_not_found(message: &str) -> bool {
+    let m = message.to_ascii_lowercase();
+    m.contains("resourcenotfound")
+        || m.contains("notfound")
+        || m.contains("not found")
+        || m.contains("could not be found")
+        || m.contains("does not exist")
+        || m.contains("was not found")
+        || m.contains("(404)")
+        || m.contains("status code: 404")
+}
+
+/// Swallow "already deleted" failures so teardown stays idempotent.
+fn tolerate_missing(result: Result<String>) -> Result<()> {
+    match result {
+        Ok(_) => Ok(()),
+        Err(e) if is_resource_not_found(&e.to_string()) => {
+            debug!(error = %e, "Resource already absent — treating delete as success");
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// Run an `az` CLI command with an explicit timeout in seconds.
 pub fn az_cli_with_timeout(args: &[&str], timeout_secs: u64) -> Result<String> {
     debug!(args = ?args, "Running az CLI command");
@@ -741,6 +887,51 @@ fn parse_created_time(time_str: Option<&str>) -> Option<chrono::DateTime<chrono:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Resource-not-found detection ────────────────────────────────
+    //
+    // Teardown must be idempotent: deleting a resource Azure has already
+    // removed must not abort the rest of the sequence and re-leak the
+    // resources that come after it.
+
+    #[test]
+    fn test_is_resource_not_found_matches_azure_phrasings() {
+        for msg in [
+            "ERROR: (ResourceNotFound) The Resource 'Microsoft.Network/publicIPAddresses/vm1PublicIP' was not found.",
+            "az CLI failed: ResourceNotFound",
+            "Operation returned an invalid status code: 404",
+            "The Resource could not be found.",
+            "does not exist",
+            "(404) Not Found",
+        ] {
+            assert!(is_resource_not_found(msg), "should tolerate: {msg}");
+        }
+    }
+
+    #[test]
+    fn test_is_resource_not_found_ignores_real_failures() {
+        for msg in [
+            "az CLI failed: AuthorizationFailed",
+            "OperationNotAllowed: quota exceeded",
+            "(Conflict) resource is in use by another resource",
+            "NetworkError: connection timed out",
+        ] {
+            assert!(!is_resource_not_found(msg), "should not swallow: {msg}");
+        }
+    }
+
+    #[test]
+    fn test_tolerate_missing_swallows_404_but_not_other_errors() {
+        assert!(tolerate_missing(Ok(String::new())).is_ok());
+        assert!(tolerate_missing(Err(anyhow::anyhow!(
+            "ERROR: (ResourceNotFound) was not found"
+        )))
+        .is_ok());
+        assert!(tolerate_missing(Err(anyhow::anyhow!(
+            "ERROR: (AuthorizationFailed) forbidden"
+        )))
+        .is_err());
+    }
 
     // ── parse_az_power_state tests ──────────────────────────────────
 

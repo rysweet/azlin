@@ -25,8 +25,12 @@ pub fn progress_message(action: &str, vm_name: &str) -> String {
 }
 
 /// Build the JMESPath query to filter VMs by name prefix.
+///
+/// Returns names rather than resource IDs: `killall` tears each VM down
+/// individually via the shared teardown path, which needs a VM name to look up
+/// the session's public IP and NSG.
 pub fn killall_jmespath_query(prefix: &str) -> String {
-    format!("[?starts_with(name, '{}')].id", prefix)
+    format!("[?starts_with(name, '{}')].name", prefix)
 }
 
 /// Build the az CLI args for listing VMs filtered by prefix in a resource group.
@@ -43,9 +47,28 @@ pub fn killall_list_args<'a>(resource_group: &'a str, query: &'a str) -> Vec<&'a
     ]
 }
 
-/// Parse the TSV output from `az vm list` into a list of non-empty VM IDs.
+/// Parse the TSV output from `az vm list` into a list of non-empty VM names.
 pub fn parse_vm_ids(tsv_output: &str) -> Vec<&str> {
     tsv_output.lines().filter(|l| !l.is_empty()).collect()
+}
+
+/// Explain why `--delete-rg` is refused.
+///
+/// The flag was previously declared but never read, so it silently did
+/// nothing. Actually implementing it would be worse than useless: resource
+/// groups routinely contain hand-made VMs, VNets and public IPs alongside
+/// azlin sessions, and deleting the group would destroy that unrelated data
+/// irrecoverably. Refusing loudly is the safe behaviour.
+pub fn delete_rg_rejected_message(resource_group: &str) -> String {
+    format!(
+        "--delete-rg is not supported: deleting resource group '{resource_group}' would \
+         destroy every resource in it, including any VMs, VNets or IPs not managed by \
+         azlin.\n\
+         Destroy removes the VM and its own disks, NIC, public IP and NSG. To reclaim \
+         other leftovers, run 'azlin cleanup --resource-group {resource_group}'.\n\
+         If you really intend to delete the whole group, run \
+         'az group delete --name {resource_group}' explicitly."
+    )
 }
 
 /// Format the success message after batch-deleting VMs.
@@ -139,9 +162,11 @@ mod tests {
 
     #[test]
     fn test_killall_jmespath_query() {
+        // Names, not IDs: teardown looks up a session's disks/NIC/IP/NSG by VM
+        // name, so batching on `--ids` would re-leak the IP and NSG.
         assert_eq!(
             killall_jmespath_query("dev-"),
-            "[?starts_with(name, 'dev-')].id"
+            "[?starts_with(name, 'dev-')].name"
         );
     }
 

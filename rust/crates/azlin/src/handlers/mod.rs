@@ -28,9 +28,13 @@ mod show;
 mod snapshot;
 mod storage;
 mod tags;
+mod teardown;
 
 pub use autopilot::*;
 pub use cleanup::*;
+// Consumed by the handler tests via the module glob; the binary reaches
+// connect's helpers through `create_helpers` instead.
+#[allow(unused_imports)]
 pub use connect::*;
 pub use context::*;
 pub use costs::*;
@@ -40,6 +44,7 @@ pub use show::*;
 pub use snapshot::*;
 pub use storage::*;
 pub use tags::*;
+pub use teardown::*;
 
 // Re-exported for test modules only (handler functions used in test assertions)
 #[allow(unused_imports)]

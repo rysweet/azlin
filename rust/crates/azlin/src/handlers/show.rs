@@ -120,7 +120,10 @@ pub fn handle_stop(
 // ── Delete handler ──────────────────────────────────────────────────────
 
 /// Execute the delete command (after confirmation has been obtained).
+///
+/// Deletes the VM **and** every resource that belongs to its session,
+/// including the Public IP and NSG that `az vm delete` leaves behind. See
+/// [`crate::handlers::teardown`] for the selection and ordering rules.
 pub fn handle_delete(ops: &dyn AzureOps, resource_group: &str, vm_name: &str) -> Result<String> {
-    ops.delete_vm(resource_group, vm_name)?;
-    Ok(format!("Deleted {}", vm_name))
+    crate::handlers::execute_teardown(ops, resource_group, vm_name)
 }

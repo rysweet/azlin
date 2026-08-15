@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`destroy` no longer leaks the session Public IP and NSG** — `az vm delete`
+  removes only the VM; the disk and NIC disappear via ARM's implicit
+  `deleteOption: Delete`, but Azure has no equivalent for the Public IP or the
+  NSG, so both were left behind on every create/destroy cycle. The leaked
+  Standard static Public IP bills ~$3.65/month indefinitely, and the leftover
+  `<vm>NSG` blocks reusing the VM name. This regressed the NSG behavior fixed by
+  #517 (issue #516) and the Public IP behavior that the removed Python
+  `vm_lifecycle.py` also implemented; neither was reimplemented during the Rust
+  rewrite (#516, #517)
+  - New teardown planner discovers the VM's disks, NIC, Public IP and NSG,
+    scoped by the `azlin-session` tag so sibling sessions are never touched
+  - Deletes in dependency order (VM → disks → NIC → Public IP → NSG), since
+    Azure refuses to delete a Public IP or NSG while a NIC still references it
+  - A second `plan_recheck` pass re-evaluates resources skipped as in-use after
+    the NIC delete settles, covering Azure's eventual consistency on NIC/NSG
+    association
+  - `destroy --dry-run` now queries Azure and reports the actual resources and
+    the estimated monthly saving, instead of printing a static string
+  - `killall` now matches session VMs by exact name rather than a JMESPath name
+    prefix, so destroying `foo` can no longer match `foobar`
+  - Pooled sessions (`azlin new --name X --pool N`) tag every member's Public
+    IP/NSG with the pool's base name, not that member's own VM name. Recovering
+    a member's orphaned Public IP/NSG after its VM is already gone now falls
+    back to Azure's default per-VM resource naming (`also_match_by_name`) when
+    the guessed session tag cannot match, so a pool member's leak is no longer
+    silently unrecoverable
+
 ### Security
 - **Bastion WSS URL redaction** — the `wss://` tunnel URL embeds the short-lived
   `websocketToken` bearer secret as a path segment. On a failed WSS connect the

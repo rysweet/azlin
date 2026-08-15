@@ -106,10 +106,20 @@ fn test_handle_stop_deallocate() {
 
 #[test]
 fn test_handle_delete() {
+    let mock = MockAzureOps::new(vec![make_test_vm("doomed-vm", PowerState::Running)]);
+    let msg = handle_delete(&mock, "test-rg", "doomed-vm").unwrap();
+    assert!(msg.contains("doomed-vm"), "message should name the VM: {msg}");
+    assert!(mock.call_log().contains(&"delete_vm:doomed-vm".to_string()));
+}
+
+/// Deleting a VM that Azure no longer has must report the absence rather than
+/// claiming a deletion that never happened.
+#[test]
+fn test_handle_delete_absent_vm_reports_not_found() {
     let mock = MockAzureOps::new(vec![]);
     let msg = handle_delete(&mock, "test-rg", "doomed-vm").unwrap();
-    assert_eq!(msg, "Deleted doomed-vm");
-    assert!(mock.call_log().contains(&"delete_vm:doomed-vm".to_string()));
+    assert!(msg.contains("not found"), "should report absence: {msg}");
+    assert!(!mock.call_log().contains(&"delete_vm:doomed-vm".to_string()));
 }
 
 // ── Tag tests ───────────────────────────────────────────────────────
