@@ -10,6 +10,7 @@ Run graphical applications on your Azure VMs and display them locally. azlin sup
 | VNC Minimal | Window manager only, no desktop overhead | Medium | Auto-managed |
 | VNC Single App | One app in VNC (e.g. browser), exits when app closes | Medium | Auto-managed |
 | X11 Forwarding | Individual GUI apps (gitk, meld, xeyes) | Low (per-window) | Minimal |
+| Containerised Desktop | VMs whose repos lack a desktop stack; RDP clients | Higher (full desktop) | `azlin gui install` |
 
 Both approaches work transparently through Azure Bastion tunnels when your VM has no public IP.
 
@@ -37,7 +38,10 @@ Both approaches work transparently through Azure Bastion tunnels when your VM ha
 ### Remote VM
 
 `azlin gui` automatically installs any missing VNC/desktop packages on first
-use. `azlin connect --x11` does **not** install remote GUI applications or X11
+use. If the VM's package repositories do not carry a desktop stack, or you want
+an RDP desktop instead, use [`azlin gui install`](#containerised-desktop-azlin-gui-install),
+which takes the whole desktop from a container image and only requires Docker on
+the VM. `azlin connect --x11` does **not** install remote GUI applications or X11
 packages for you; it only enables X11 forwarding on the SSH connection.
 
 ## VNC Desktop
@@ -184,6 +188,154 @@ sudo apt-get install -y autocutsel
 autocutsel -fork
 ```
 
+## Containerised Desktop (`azlin gui install`)
+
+`azlin gui` installs a desktop with the VM's package manager. That works whenever
+the VM's repositories carry a VNC server, an RDP server and a window manager, and
+cannot work when they do not. `azlin gui install` is the alternative: the entire
+desktop stack — X server, window manager and the VNC or RDP server — comes from a
+pinned container image running on the VM's Docker.
+
+Because the desktop lives in the container, this path does not depend on what the
+VM's repositories contain, and it is the only way to get an **RDP** desktop.
+
+### Usage
+
+```bash
+# Install a containerised VNC desktop (default protocol)
+azlin gui install my-vm
+
+# Install a containerised RDP desktop instead
+azlin gui install my-vm --protocol rdp
+
+# Custom geometry
+azlin gui install my-vm --resolution 2560x1440 --depth 24
+
+# Remove the container and its state
+azlin gui install my-vm --uninstall
+```
+
+Once installed, connect with the ordinary command — there is no separate connect
+verb:
+
+```bash
+azlin gui my-vm
+```
+
+`azlin gui` probes the VM first. If a containerised desktop is present it tunnels
+to the container and launches your local viewer (a VNC viewer, or an RDP client
+for an RDP desktop). If no container is present it takes the normal package-based
+path described above, unchanged.
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--protocol` | `vnc` | Remote-desktop protocol: `vnc` or `rdp` |
+| `--uninstall` | false | Remove the container and its state directory |
+| `--resolution` | `1920x1080` | Desktop resolution (WIDTHxHEIGHT) |
+| `--depth` | `24` | Colour depth (8, 16, or 24) |
+| `--user` | `azureuser` | SSH username on the VM |
+| `--key` | `~/.ssh/azlin_key` | Path to SSH private key |
+| `--resource-group` | from config | Resource group containing the VM |
+| `-y, --yes` | false | Compatibility flag; the install is already non-interactive |
+
+### Images
+
+| Protocol | Image | Port | Notes |
+|----------|-------|------|-------|
+| `vnc` | `consol/debian-xfce-vnc:v2.0.4` | 5901 | TigerVNC, real RFB — works with any standard VNC viewer |
+| `rdp` | `lscr.io/linuxserver/rdesktop:ubuntu-xfce` | 3389 | xrdp, works with `xfreerdp`, `mstsc`, Microsoft Remote Desktop |
+
+Both images are pinned by tag and carry XFCE. The install script also verifies
+the digest of the image it actually pulls against a digest recorded at pinning
+time, and refuses to run the container if they don't match -- a tag is a
+mutable pointer, so this catches a tag that has moved on the registry rather
+than trusting it. `linuxserver/webtop` is deliberately **not** used: it serves
+KasmVNC over WebSockets rather than RFB, so a standard VNC client cannot
+connect to it.
+
+### Requirements
+
+Docker must already be installed and running on the VM, and the SSH user must be
+able to reach the Docker daemon. `azlin gui install` does not install Docker; if
+it is missing, the command reports how to install it and stops. The install also
+refuses to run when the Docker data root has less than 4 GiB free, since the
+desktop images are large relative to a small OS disk.
+
+### How It Works
+
+1. **Preflight**: checks that Docker is present, that the daemon is reachable as
+   the SSH user, and that there is enough free space on the Docker data root.
+2. **Pull**: pulls the pinned image for the requested protocol.
+3. **Password**: generates a random password *on the VM* and writes it to a `0600`
+   env-file under `~/.azlin/gui/`. The password is passed to `docker run` via
+   `--env-file`, never on the command line, so it does not appear in `ps` output
+   or in `docker inspect`.
+4. **Run**: starts the container named `azlin-gui`, publishing the desktop port on
+   `127.0.0.1` only.
+5. **Connect**: `azlin gui my-vm` opens an SSH (or bastion) tunnel to that
+   loopback port and launches your local viewer.
+
+Re-running `azlin gui install` with the same protocol is idempotent: it restarts
+the existing container rather than pulling again.
+
+### Security
+
+- **Loopback-only publishing**: the desktop port is published as
+  `127.0.0.1:<port>` on the VM. It is not reachable from the network.
+- **No NSG changes**: this feature creates, modifies and references **no** network
+  security group rules. Access is exclusively through azlin's existing SSH or
+  bastion tunnel. A unit test asserts that the generated scripts contain no `az`
+  command of any kind.
+- **No web port**: the VNC image's noVNC web port (6901) is deliberately not
+  published.
+- **Password handling**: the password is generated on the VM and passed through a
+  `0600` env-file, never as a command-line argument.
+
+**VNC password strength, stated honestly.** The generated password is 32 hex
+characters, and the RDP desktop uses all of it. The RFB protocol used by VNC,
+however, truncates passwords to **8 bytes** (RFC 6143 §7.2.2) — everything past
+the eighth character is discarded, which is why a VNC `passwd` file is always
+exactly 8 bytes long. Only the first 8 hex characters survive, giving `8 * 4 = 32`
+bits of effective entropy. This is **not** 128-bit security, and it should not be
+described as such. It is acceptable here only because port 5901 is bound to
+`127.0.0.1` and reachable solely through the SSH tunnel, so there is no
+network-facing brute-force surface.
+
+### Containerised Desktop Troubleshooting
+
+**`docker is not installed on this VM`**
+
+Install Docker on the VM and make sure the SSH user can use it:
+
+```bash
+# See https://docs.docker.com/engine/install/ for your distribution
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER   # then reconnect for the group to take effect
+```
+
+**`the docker daemon is not reachable as this user`**
+
+The daemon is not running, or the SSH user is not in the `docker` group. Start it
+with `sudo systemctl enable --now docker` and add the user to the `docker` group.
+
+**`less than 4 GiB free ... on the docker data root`**
+
+The desktop images need several GiB. Free space on the VM, or attach and use a
+larger disk for Docker's data root.
+
+**`127.0.0.1:<port> is already in use on the VM`**
+
+Another process already holds the desktop port. Stop it, or remove a stale
+container with `azlin gui install my-vm --uninstall` and install again.
+
+**RDP: no local client found**
+
+azlin looks for `xfreerdp3`, `xfreerdp`, then `mstsc`. If none is present it keeps
+the tunnel open and prints the endpoint, username and password so you can connect
+with any RDP client, including Microsoft Remote Desktop on macOS.
+
 ## X11 Forwarding
 
 Forward individual GUI windows from the VM to your local display. Best for lightweight apps where you don't need a full desktop.
@@ -298,7 +450,11 @@ azlin connect --x11 my-vm
 
 ### Firewall / NSG Rules
 
-No additional firewall or NSG rules are needed. Both X11 and VNC traffic travels inside the SSH tunnel, which uses only port 22 (or the bastion tunnel).
+No additional firewall or NSG rules are needed. X11, VNC and RDP traffic all
+travel inside the SSH tunnel, which uses only port 22 (or the bastion tunnel).
+This includes the containerised desktop, whose port is published on the VM's
+loopback interface only. azlin never creates or modifies an NSG rule for GUI
+access.
 
 ### Performance Tips
 
