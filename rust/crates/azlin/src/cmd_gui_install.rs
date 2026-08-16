@@ -118,7 +118,8 @@ pub(crate) async fn dispatch(
     .await;
     pb.finish_and_clear();
 
-    match classify_install_result(result, GUI_INSTALL_TIMEOUT_SECS)? {
+    let outcome = classify_install_result(result, GUI_INSTALL_TIMEOUT_SECS)?;
+    match outcome {
         InstallOutcome::AlreadyInstalled => {
             println!("Remote desktop already installed ({}).", plan.image.reference)
         }
@@ -135,9 +136,19 @@ pub(crate) async fn dispatch(
             );
         }
     }
-    println!("  clients: {}", plan.image.client_support);
+    // Only advertise the protocols that actually work. When the bridge failed,
+    // printing the RDP connect line tells the user on stdout that a protocol is
+    // available immediately after warning on stderr that it is not.
+    let rdp_available = outcome != InstallOutcome::InstalledVncOnly;
+    if rdp_available {
+        println!("  clients: {}", plan.image.client_support);
+    } else {
+        println!("  clients: any standard VNC viewer");
+    }
     println!("  connect: azlin gui {}            (VNC, the default)", name);
-    println!("  connect: azlin gui {} --protocol rdp", name);
+    if rdp_available {
+        println!("  connect: azlin gui {} --protocol rdp", name);
+    }
 
     Ok(())
 }

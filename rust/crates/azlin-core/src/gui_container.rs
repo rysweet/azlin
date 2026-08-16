@@ -360,6 +360,34 @@ impl GuiInstallPlan {
     /// The session section uses `password=ask`, so the desktop password is
     /// never baked into an image layer; the RDP client supplies it per
     /// connection.
+    ///
+    /// # Known provenance gap
+    ///
+    /// The desktop image is digest-pinned and verified after pull. The `xrdp`
+    /// package installed here is **not**: `apt-get` resolves whatever version
+    /// the mirror serves at install time, so the provenance guarantee that
+    /// [`GuiImage::index_digest`] provides for the desktop does not extend to
+    /// the bridge. Two VMs installed weeks apart can therefore carry different
+    /// bridge images.
+    ///
+    /// A strict `xrdp=<version>` pin was considered and deliberately not taken:
+    /// Debian mirrors carry only the current binary version of a package per
+    /// suite, so an exact pin starts failing as soon as the next point release
+    /// supersedes it — and because a failed bridge build degrades to
+    /// `installed-vnc-only` rather than erroring, that failure would be quiet.
+    /// Trading an unpinned-but-working build for a pinned-but-eventually-silently-
+    /// broken one is not an improvement.
+    ///
+    /// What is done instead: the installed version is recorded to
+    /// `$STATE_DIR/bridge-xrdp-version` after a successful build, so a deployed
+    /// bridge is identifiable after the fact. Closing the gap properly means
+    /// publishing a prebuilt bridge image and digest-pinning it the same way the
+    /// desktop is — an architectural change, not a patch.
+    ///
+    /// Related: this `apt-get update` runs against the suite the pinned base tag
+    /// shipped with. When Debian eventually moves that suite to
+    /// `archive.debian.org`, the update fails, and new installs silently lose
+    /// RDP while existing VMs (whose bridge image is already built) keep working.
     pub fn bridge_dockerfile(&self) -> String {
         format!(
             "FROM {image}\nUSER 0\nRUN apt-get update && apt-get install -y --no-install-recommends xrdp && rm -rf /var/lib/apt/lists/*\nRUN sed -i 's|^#*autorun=.*|autorun={session}|' /etc/xrdp/xrdp.ini\nRUN printf '\\n[{session}]\\nname=azlin-desktop\\nlib=libvnc.so\\nip={addr}\\nport={rfb}\\nusername={user}\\npassword=ask\\n' >> /etc/xrdp/xrdp.ini\n",
@@ -773,6 +801,9 @@ pub fn build_install_script(plan: &GuiInstallPlan) -> String {
          if ! BRIDGE_OUT=$(docker run {bridge_run_args} 2>&1); then \
            echo \"azlin-warning: the desktop is installed but the RDP bridge could not be started: $BRIDGE_OUT\" >&2; \
            echo 'azlin-result: installed-vnc-only'; exit 0; fi; \
+         docker exec {bridge} dpkg-query -W -f='${{Version}}' xrdp 2>/dev/null \
+           > \"$STATE_DIR/bridge-xrdp-version\" || true; \
+         chmod 600 \"$STATE_DIR/bridge-xrdp-version\" 2>/dev/null || true; \
          echo 'azlin-result: installed'",
         name = name,
         image = image,
@@ -797,12 +828,24 @@ pub fn build_install_script(plan: &GuiInstallPlan) -> String {
 /// builds one and never creates a container. It starts the bridge too, but
 /// tolerates its absence — a desktop installed by an older azlin has no bridge,
 /// and VNC must keep working there.
+///
+/// A *missing* bridge and a *broken* bridge are not the same thing, so they are
+/// not reported the same way. The bridge shares the desktop's network namespace
+/// (`--network container:<desktop>`); if the desktop container is removed and
+/// recreated rather than stopped, that namespace target no longer exists and the
+/// bridge can never start again. Swallowing that with `|| true` leaves RDP
+/// permanently broken with nothing on screen to say so, so an existing-but-
+/// unstartable bridge emits a warning naming the repair.
 pub fn build_start_script() -> String {
     format!(
         "set -u; \
          if ! docker start {name} >/dev/null 2>&1; then \
            echo 'azlin-error: the desktop container exists but could not be started' >&2; exit 1; fi; \
-         docker start {bridge} >/dev/null 2>&1 || true",
+         if docker inspect {bridge} >/dev/null 2>&1; then \
+           if ! docker start {bridge} >/dev/null 2>&1; then \
+             echo 'azlin-warning: the RDP bridge exists but could not be started, so only VNC will work. Re-run `azlin gui install` on this VM to rebuild it.' >&2; \
+           fi; \
+         fi",
         name = sq(CONTAINER_NAME),
         bridge = sq(BRIDGE_CONTAINER_NAME),
     )
@@ -950,6 +993,59 @@ mod tests {
         );
     }
 
+    /// A bridge that exists but will not start is a different situation from a
+    /// bridge that was never installed, and must not be silently swallowed:
+    /// `--network container:<desktop>` means a recreated desktop leaves the
+    /// bridge permanently unstartable, with RDP broken and nothing on screen.
+    #[test]
+    fn start_distinguishes_a_broken_bridge_from_an_absent_one() {
+        let script = build_start_script();
+        // Absent bridge: the inspect guard means no warning and no failure.
+        assert!(
+            script.contains(&format!("docker inspect {}", sq(BRIDGE_CONTAINER_NAME))),
+            "start must check whether a bridge exists before judging it broken: {script}"
+        );
+        // Present-but-unstartable: warn and name the repair.
+        assert!(
+            script.contains("azlin-warning: the RDP bridge exists but could not be started"),
+            "an existing bridge that fails to start must say so: {script}"
+        );
+        assert!(
+            script.contains("azlin gui install"),
+            "the warning must name the repair command: {script}"
+        );
+        // The desktop itself must still be the only hard failure.
+        assert!(
+            script.contains("azlin-error: the desktop container exists but could not be started"),
+            "a dead desktop remains a hard error: {script}"
+        );
+    }
+
+    /// The install records which xrdp actually went into the bridge. The package
+    /// is not version-pinned (see `bridge_dockerfile` docs), so without this the
+    /// deployed bridge is unidentifiable after the fact.
+    #[test]
+    fn install_records_the_bridge_xrdp_version() {
+        let script = build_install_script(&plan());
+        assert!(
+            script.contains("bridge-xrdp-version"),
+            "install must record the xrdp version it installed: {script}"
+        );
+        assert!(
+            script.contains("dpkg-query"),
+            "the recorded version must come from the package database: {script}"
+        );
+        // Recording must never turn a working install into a failed one.
+        let tail = script
+            .rsplit("bridge-xrdp-version")
+            .next()
+            .expect("rsplit always yields a tail");
+        assert!(
+            tail.contains("|| true"),
+            "recording the version must not be able to fail the install: {script}"
+        );
+    }
+
     /// A bridge failure must not cost the user their desktop.
     #[test]
     fn a_failed_bridge_still_leaves_a_working_vnc_desktop() {
@@ -978,6 +1074,100 @@ mod tests {
         assert!(dockerfile.contains("password=ask"));
         assert!(!dockerfile.contains("VNC_PW"));
         assert!(!dockerfile.contains("$AZLIN_GUI_PW"));
+    }
+
+    /// The string assertions above inspect the *Dockerfile*. They cannot see
+    /// what ends up in the built image, which is the property that actually
+    /// matters: the VM's image store is unencrypted and survives container
+    /// removal, so a password baked into any layer is a durable leak.
+    ///
+    /// This test builds the real bridge image and greps every layer. It is
+    /// `#[ignore]`d because it needs a working Docker daemon and pulls a ~2 GiB
+    /// base image, neither of which this repo's Linux CI provides. Run it
+    /// deliberately after touching `bridge_dockerfile`:
+    ///
+    /// ```text
+    /// cargo test -p azlin-core bridge_image_layers -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore = "requires a Docker daemon and pulls a ~2 GiB base image"]
+    fn bridge_image_layers_contain_no_password_when_actually_built() {
+        use std::process::{Command, Stdio};
+
+        let plan = plan();
+        let dockerfile = plan.bridge_dockerfile();
+        let tag = "azlin-gui-rdp:layer-audit-test";
+
+        let build_ctx = std::env::temp_dir().join("azlin-bridge-layer-audit");
+        let _ = std::fs::remove_dir_all(&build_ctx);
+        std::fs::create_dir_all(&build_ctx).expect("create empty build context");
+
+        let mut child = Command::new("docker")
+            .args(["build", "-t", tag, "-f", "-"])
+            .arg(&build_ctx)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("docker build must be spawnable; is the daemon running?");
+        {
+            use std::io::Write;
+            child
+                .stdin
+                .as_mut()
+                .expect("stdin piped")
+                .write_all(dockerfile.as_bytes())
+                .expect("write Dockerfile to docker build stdin");
+        }
+        let build = child.wait_with_output().expect("docker build must complete");
+        assert!(
+            build.status.success(),
+            "docker build failed: {}",
+            String::from_utf8_lossy(&build.stderr)
+        );
+
+        // `docker history` exposes the command that created every layer; the
+        // xrdp config is written by those commands, so a password interpolated
+        // into the Dockerfile would surface here.
+        let history = Command::new("docker")
+            .args(["history", "--no-trunc", "--format", "{{.CreatedBy}}", tag])
+            .output()
+            .expect("docker history must run");
+        let history = String::from_utf8_lossy(&history.stdout);
+
+        // The rendered xrdp.ini inside the image is the file that would hold a
+        // baked-in credential.
+        let ini = Command::new("docker")
+            .args([
+                "run",
+                "--rm",
+                "--entrypoint",
+                "/bin/sh",
+                tag,
+                "-c",
+                "cat /etc/xrdp/xrdp.ini",
+            ])
+            .output()
+            .expect("docker run must read back xrdp.ini");
+        let ini = String::from_utf8_lossy(&ini.stdout);
+
+        assert!(
+            ini.contains("password=ask"),
+            "the built image must ask the client for the password: {ini}"
+        );
+        for forbidden in ["VNC_PW", "AZLIN_GUI_PW", "desktoppw", "vncpasswd"] {
+            assert!(
+                !history.contains(forbidden),
+                "layer history must not reference {forbidden}: {history}"
+            );
+            assert!(
+                !ini.contains(forbidden),
+                "built xrdp.ini must not reference {forbidden}: {ini}"
+            );
+        }
+
+        let _ = Command::new("docker").args(["rmi", "-f", tag]).output();
+        let _ = std::fs::remove_dir_all(&build_ctx);
     }
 
     #[test]
