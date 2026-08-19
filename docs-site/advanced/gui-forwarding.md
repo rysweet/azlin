@@ -133,8 +133,8 @@ VNC security is handled through multiple layers:
 `azlin gui` installs a desktop with the VM's package manager. That works whenever
 the VM's repositories carry a VNC server, an RDP server and a window manager, and
 cannot work when they do not. `azlin gui install` is the alternative: the entire
-desktop stack -- X server, window manager and the VNC or RDP server -- comes from a
-pinned container image running on the VM's Docker.
+desktop stack -- X server, window manager and both the VNC and the RDP server --
+comes from pinned container images running on the VM's Docker.
 
 Because the desktop lives in the container, this path does not depend on what the
 VM's repositories contain, and it is the only way to get an **RDP** desktop.
@@ -142,37 +142,47 @@ VM's repositories contain, and it is the only way to get an **RDP** desktop.
 ### Usage
 
 ```bash
-# Install a containerised VNC desktop (default protocol)
+# Install the desktop. One install serves both VNC and RDP.
 azlin gui install my-vm
-
-# Install a containerised RDP desktop instead
-azlin gui install my-vm --protocol rdp
 
 # Custom geometry
 azlin gui install my-vm --resolution 2560x1440 --depth 24
 
-# Remove the container and its state
+# Remove the containers and their state
 azlin gui install my-vm --uninstall
 ```
+
+The install takes no `--protocol`: it provisions a desktop that can serve
+either. `--protocol` is accepted for compatibility with the earlier release, but
+it is ignored and warns.
 
 Once installed, connect with the ordinary command -- there is no separate connect
 verb:
 
 ```bash
+# Connect over VNC (the default)
 azlin gui my-vm
+
+# Connect to the same desktop over RDP
+azlin gui my-vm --protocol rdp
 ```
 
+The protocol is chosen **here**, at connect time, not at install time. Both
+protocols reach the **same live session**: switching from VNC to RDP shows you
+the windows you left open, because the RDP bridge is itself a VNC client of the
+one desktop (see [Architecture](#architecture-one-desktop-two-front-doors)).
+
 `azlin gui` probes the VM first. If a containerised desktop is present it tunnels
-to the container and launches your local viewer (a VNC viewer, or an RDP client
-for an RDP desktop). If no container is present it takes the normal package-based
-path described above, unchanged.
+to the container and launches your local viewer. If no container is present it
+takes the normal package-based path described above, unchanged -- that path is
+VNC-only, and `--protocol rdp` on a VM with no containerised desktop fails with
+an explanation rather than opening a tunnel to nothing.
 
 ### Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--protocol` | `vnc` | Remote-desktop protocol: `vnc` or `rdp` |
-| `--uninstall` | false | Remove the container and its state directory |
+| `--uninstall` | false | Remove the containers and the state directory |
 | `--resolution` | `1920x1080` | Desktop resolution (WIDTHxHEIGHT) |
 | `--depth` | `24` | Colour depth (8, 16, or 24) |
 | `--user` | `azureuser` | SSH username on the VM |
@@ -180,20 +190,47 @@ path described above, unchanged.
 | `--resource-group` | from config | Resource group containing the VM |
 | `-y, --yes` | false | Compatibility flag; the install is already non-interactive |
 
-### Images
+### Architecture: one desktop, two front doors
 
-| Protocol | Image | Port | Notes |
-|----------|-------|------|-------|
-| `vnc` | `consol/debian-xfce-vnc:v2.0.4` | 5901 | TigerVNC, real RFB -- works with any standard VNC viewer |
-| `rdp` | `lscr.io/linuxserver/rdesktop:ubuntu-xfce` | 3389 | xrdp, works with `xfreerdp`, `mstsc`, Microsoft Remote Desktop |
+Because the protocol is not known until you connect, the install must provide
+both. It does that with two containers that share one network namespace:
 
-Both images are pinned by tag and carry XFCE. The install script also verifies
+| Container | Image | Role | Published |
+|-----------|-------|------|-----------|
+| `azlin-gui` | `consol/debian-xfce-vnc:v2.0.4` | XFCE desktop + TigerVNC (RFB) | `127.0.0.1:5901`, `127.0.0.1:3389` |
+| `azlin-gui-rdp` | `azlin-gui-rdp:1`, built on the VM `FROM` the image above | xrdp, configured as a VNC *client* of `127.0.0.1:5901` | nothing (shares the namespace) |
+
+The bridge runs with `--network container:azlin-gui`, so `127.0.0.1:5901` inside
+it *is* the desktop's RFB port. Three consequences:
+
+* **Both protocols show the same session.** xrdp's `libvnc.so` module connects
+  to the running desktop as an ordinary VNC client rather than starting a second
+  one, so an RDP user and a VNC user drive the same X session.
+* **All publishing stays on one container**, so the loopback-only rule is
+  enforced in exactly one place. A namespace-sharing container cannot publish
+  ports at all.
+* **No second base image is downloaded.** The bridge is an `xrdp` layer on the
+  image already pulled -- roughly 30 MiB and about a minute of `docker build` on
+  top of the ~2 GiB desktop image.
+
+That cost is paid per GUI VM, at install time. A VM that never runs `azlin gui
+install` pays nothing.
+
+If the bridge cannot be built or started, the install **does not fail**: it
+reports `installed-vnc-only`, warns, and leaves you a working VNC desktop.
+
+`linuxserver/rdesktop` is no longer used. It was a second, entirely separate
+desktop; with it, connecting over the other protocol gave you a different
+session and silently orphaned your work.
+
+The desktop image is pinned by tag and carries XFCE. The install script also verifies
 the digest of the image it actually pulls against a digest recorded at pinning
 time, and refuses to run the container if they don't match -- a tag is a
 mutable pointer, so this catches a tag that has moved on the registry rather
-than trusting it. `linuxserver/webtop` is deliberately **not** used: it serves
-KasmVNC over WebSockets rather than RFB, so a standard VNC client cannot
-connect to it.
+than trusting it. The bridge image is built locally from that verified image, so
+it inherits the same provenance. `linuxserver/webtop` is deliberately **not**
+used: it serves KasmVNC over WebSockets rather than RFB, so a standard VNC
+client cannot connect to it.
 
 ### Requirements
 

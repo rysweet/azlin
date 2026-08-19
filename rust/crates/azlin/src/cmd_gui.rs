@@ -5,10 +5,23 @@
 //! * **Native** (default, unchanged): the VNC server and desktop are installed
 //!   on the VM with its package manager. Works wherever the VM's repositories
 //!   carry `tigervnc`/`xfce4`.
-//! * **Containerised**: the whole stack runs as a pinned container on the VM's
+//! * **Containerised**: the whole desktop runs as a pinned container on the VM's
 //!   Docker, put there by `azlin gui install` (see [`crate::cmd_gui_install`]).
 //!   This is the only option on distributions whose repositories have no desktop
-//!   stack, and it additionally supports RDP.
+//!   stack.
+//!
+//! Both backends converge on the same seam: an RFB endpoint on the VM's
+//! `127.0.0.1:5901`. That is what makes `--protocol` a *connect-time* choice
+//! rather than a property of the installed desktop:
+//!
+//! * `--protocol vnc` (the default) tunnels straight to that endpoint;
+//! * `--protocol rdp` tunnels to `127.0.0.1:3389`, where the xrdp bridge
+//!   sidecar container installed by `azlin gui install` proxies RDP into the
+//!   very same endpoint.
+//!
+//! Nothing about installing a desktop depends on the protocol, and switching
+//! protocols does not require reinstalling anything — both reach the same live
+//! session.
 //!
 //! `azlin gui` probes for a containerised desktop first and uses it when one is
 //! installed; otherwise it takes the native path exactly as before. It never
@@ -17,19 +30,22 @@
 //!
 //! Workflow:
 //! 1. Resolve VM and detect bastion route
-//! 2. Probe the VM for a containerised desktop
-//! 3. Container found: start it if stopped, tunnel to its loopback port, launch
-//!    the local VNC viewer or RDP client
-//! 4. No container: check/install native deps, start the VNC server, tunnel,
-//!    launch the local viewer
-//! 5. Wait for the client to exit, then clean shutdown
+//! 2. Probe the VM for a containerised desktop and for the RDP bridge
+//! 3. For `--protocol rdp`, fail early and actionably if the bridge is absent
+//!    (the native package-based desktop has no bridge, so RDP requires
+//!    `azlin gui install`)
+//! 4. Container found: start it if stopped; otherwise check/install native deps
+//!    and start the VNC server
+//! 5. Tunnel to the RFB port (VNC) or the bridge port (RDP), launch the client
+//! 6. Wait for the client to exit, then clean shutdown
 
 #[allow(unused_imports)]
 use super::*;
 use anyhow::{Context, Result};
 use azlin_core::gui_container::{
-    build_detect_script, build_start_script, no_desktop_remedy, parse_detect_output, ContainerState,
-    GuiProtocol, GuiStatus, HOST_RDP_PASSWD_PATH, HOST_VNC_PASSWD_PATH, RDP_USERNAME,
+    build_detect_script, build_start_script, no_desktop_remedy, parse_detect_output,
+    rdp_bridge_remedy, ContainerState, GuiProtocol, GuiStatus, RdpBridgeState,
+    HOST_DESKTOP_PASSWD_PATH, HOST_VNC_PASSWD_PATH, RDP_BRIDGE_PORT, RDP_BRIDGE_USERNAME,
 };
 
 /// VNC session mode.
@@ -99,6 +115,7 @@ pub(crate) async fn dispatch(
     let azlin_cli::Commands::Gui {
         action,
         vm_identifier,
+        protocol,
         resource_group,
         user,
         key,
@@ -115,6 +132,8 @@ pub(crate) async fn dispatch(
     if let Some(action) = action {
         return crate::cmd_gui_install::dispatch(action, verbose, output).await;
     }
+
+    let protocol = protocol.to_core();
 
     // Validate resolution format
     if !is_valid_resolution(&resolution) {
@@ -158,22 +177,24 @@ pub(crate) async fn dispatch(
             if verbose {
                 eprintln!("note: could not probe for a containerised desktop: {err}");
             }
-            GuiStatus {
-                docker_present: false,
-                docker_usable: false,
-                container_state: ContainerState::Missing,
-                protocol: None,
-                host_port: None,
-            }
+            GuiStatus::unknown()
         }
     };
 
+    // Step 3: For RDP, the bridge is installed alongside the desktop. Check it
+    // before doing any expensive setup so the failure is immediate and
+    // actionable.
+    require_rdp_bridge(protocol, &status)?;
+
     if status.is_installed() {
-        return connect_containerised(&ssh_cmd_prefix, &status, minimal, app.is_some()).await;
+        return connect_containerised(&ssh_cmd_prefix, &status, protocol, minimal, app.is_some())
+            .await;
     }
 
-    // Step 3: No container — take the native package-based path unchanged.
-    check_local_deps()?;
+    // Step 4: No container — take the native package-based path unchanged.
+    if protocol == GuiProtocol::Vnc {
+        check_local_deps()?;
+    }
 
     // Determine VNC mode
     let vnc_mode = if let Some(cmd) = app {
@@ -184,7 +205,7 @@ pub(crate) async fn dispatch(
         VncMode::Desktop
     };
 
-    // Step 4: Check/install remote dependencies
+    // Step 5: Check/install remote dependencies
     let pb = penguin_spinner("Checking remote dependencies...");
     let deps = check_remote_deps(&target, effective_key.as_deref(), &vnc_mode).await;
     pb.finish_and_clear();
@@ -193,29 +214,57 @@ pub(crate) async fn dispatch(
     // alternative explicitly rather than leaving the user stuck.
     deps.with_context(|| no_desktop_remedy(&name, &status))?;
 
-    // Step 5: Start VNC server on the remote VM
+    // Step 6: Start VNC server on the remote VM.
+    //
+    // This path is VNC-only by construction. The RDP bridge is a sidecar of the
+    // containerised desktop, so a natively-installed desktop has none, and
+    // `require_rdp_bridge` above has already redirected the user. Upstream's
+    // behaviour here is unchanged.
     let pb = penguin_spinner("Starting VNC server...");
     let _vnc_password = start_vnc_server(&ssh_cmd_prefix, &resolution, depth, &vnc_mode)?;
     pb.finish_and_clear();
 
-    // Step 6: Open SSH port-forward for VNC
+    // Step 7: Open SSH port-forward for VNC
     let pb = penguin_spinner("Opening VNC tunnel...");
     let (local_vnc_port, tunnel_pids) = open_desktop_tunnel(&ssh_cmd_prefix, VNC_PORT, "VNC")?;
     pb.finish_and_clear();
 
     let all_pids: Vec<u32> = tunnel_pids.to_vec();
 
-    // Step 7: Launch local VNC viewer
+    // Step 8: Launch local VNC viewer
     println!("Launching VNC viewer (127.0.0.1:{})...", local_vnc_port);
     eprintln!("(VNC password set on remote — not displayed for security)");
     println!("Press Ctrl+C to stop the GUI session.\n");
 
     let viewer_result = launch_viewer(&ssh_cmd_prefix, "~/.vnc/passwd", local_vnc_port);
 
-    // Step 8: Cleanup on exit
+    // Step 9: Cleanup on exit
     cleanup(&all_pids, &ssh_cmd_prefix);
 
     viewer_result
+}
+
+/// Refuse `--protocol rdp` up front when the VM's RDP bridge cannot serve it.
+///
+/// The bridge ships with the containerised desktop, so its absence means either
+/// no desktop is installed or an older azlin installed one. Failing here —
+/// before dependency installation, image pulls or session startup — keeps the
+/// diagnosis honest and cheap, and always names `--protocol vnc` as the way
+/// forward.
+fn require_rdp_bridge(protocol: GuiProtocol, status: &GuiStatus) -> Result<()> {
+    if protocol != GuiProtocol::Rdp || status.rdp_bridge == RdpBridgeState::Listening {
+        return Ok(());
+    }
+    anyhow::bail!("{}", rdp_bridge_remedy(status.rdp_bridge))
+}
+
+/// Whether the native (package-based) desktop path can serve `protocol`.
+///
+/// Only VNC. Kept as a named predicate so the reason is documented in one place
+/// rather than implied by control flow.
+#[cfg(test)]
+fn native_path_supports(protocol: GuiProtocol) -> bool {
+    protocol == GuiProtocol::Vnc
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +275,7 @@ pub(crate) async fn dispatch(
 async fn connect_containerised(
     ssh_cmd_prefix: &[String],
     status: &GuiStatus,
+    protocol: GuiProtocol,
     minimal: bool,
     app: bool,
 ) -> Result<()> {
@@ -246,15 +296,19 @@ async fn connect_containerised(
         started?;
     }
 
-    let protocol = status.protocol.unwrap_or(GuiProtocol::Vnc);
-    let remote_port = status.effective_port();
-
-    // Local client prerequisites are checked only once we know which protocol
-    // the desktop speaks: demanding a VNC viewer for an RDP desktop would be
+    // Local client prerequisites depend on the protocol the user asked for, not
+    // on the desktop: demanding a VNC viewer for an RDP connection would be
     // wrong.
     if protocol == GuiProtocol::Vnc {
         check_local_deps()?;
     }
+
+    // VNC reaches the container's published RFB port directly. RDP reaches the
+    // host bridge, which dials that same RFB port from inside the VM.
+    let remote_port = match protocol {
+        GuiProtocol::Vnc => status.effective_port(),
+        GuiProtocol::Rdp => RDP_BRIDGE_PORT,
+    };
 
     let pb = penguin_spinner("Opening the desktop tunnel...");
     let opened = open_desktop_tunnel(ssh_cmd_prefix, remote_port, "desktop");
@@ -268,7 +322,12 @@ async fn connect_containerised(
             println!("Press Ctrl+C to stop the GUI session.\n");
             launch_viewer(ssh_cmd_prefix, HOST_VNC_PASSWD_PATH, local_port)
         }
-        GuiProtocol::Rdp => launch_rdp_client(ssh_cmd_prefix, local_port),
+        GuiProtocol::Rdp => {
+            // The bridge answers with an ordinary password prompt, so it needs
+            // the plaintext the install wrote alongside the RFB blob.
+            let password = read_remote_desktop_password(ssh_cmd_prefix);
+            launch_rdp_client(local_port, password.as_deref())
+        }
     };
 
     // The container is left running so reconnecting is fast; remove it with
@@ -828,7 +887,7 @@ fn launch_viewer(
 }
 
 // ---------------------------------------------------------------------------
-// RDP client launch (containerised desktop only)
+// RDP client launch (via the host's xrdp bridge)
 // ---------------------------------------------------------------------------
 
 /// Local RDP clients azlin knows how to drive, in preference order.
@@ -855,13 +914,17 @@ fn build_rdp_client_args(client: &str, local_port: u16, username: &str) -> Vec<S
 }
 
 /// Instructions printed when no local RDP client is available.
-fn rdp_manual_instructions(local_port: u16, username: &str) -> String {
+fn rdp_manual_instructions(local_port: u16, username: &str, password: Option<&str>) -> String {
+    let password_line = match password {
+        Some(p) => format!("password: {p}"),
+        None => format!("password: read {HOST_DESKTOP_PASSWD_PATH} on the VM"),
+    };
     format!(
         "The RDP tunnel is open on 127.0.0.1:{local_port}.\n\
          Connect with any RDP client using:\n  \
            host:     127.0.0.1:{local_port}\n  \
            username: {username}\n  \
-           password: read ~/.azlin/gui/rdppasswd on the VM\n\n\
+           {password_line}\n\n\
          Examples:\n  \
            xfreerdp /v:127.0.0.1:{local_port} /u:{username} /cert:ignore\n  \
            mstsc /v:127.0.0.1:{local_port}\n  \
@@ -870,8 +933,23 @@ fn rdp_manual_instructions(local_port: u16, username: &str) -> String {
     )
 }
 
-fn launch_rdp_client(ssh_cmd_prefix: &[String], local_port: u16) -> Result<()> {
-    let username = RDP_USERNAME;
+/// Read the plaintext desktop password the containerised install left on the VM.
+fn read_remote_desktop_password(ssh_cmd_prefix: &[String]) -> Option<String> {
+    match run_ssh_command(ssh_cmd_prefix, &format!("cat {HOST_DESKTOP_PASSWD_PATH}")) {
+        Ok(password) if !password.trim().is_empty() => Some(password.trim().to_string()),
+        _ => {
+            eprintln!(
+                "warning: could not read the desktop password from the VM \
+                 ({HOST_DESKTOP_PASSWD_PATH})."
+            );
+            eprintln!("         Re-run `azlin gui install <vm>` to regenerate it.");
+            None
+        }
+    }
+}
+
+fn launch_rdp_client(local_port: u16, password: Option<&str>) -> Result<()> {
+    let username = RDP_BRIDGE_USERNAME;
 
     let Some(client) = find_rdp_client(|c| {
         std::process::Command::new("which")
@@ -882,22 +960,16 @@ fn launch_rdp_client(ssh_cmd_prefix: &[String], local_port: u16) -> Result<()> {
             .map(|s| s.success())
             .unwrap_or(false)
     }) else {
-        println!("{}", rdp_manual_instructions(local_port, username));
+        println!("{}", rdp_manual_instructions(local_port, username, password));
         // Hold the tunnel open until interrupted so the printed endpoint is usable.
         wait_for_interrupt();
         return Ok(());
     };
 
-    // Surface the password so the user can paste it into the client prompt. It
-    // never leaves the SSH channel and is not written to disk locally.
-    match run_ssh_command(ssh_cmd_prefix, &format!("cat {}", HOST_RDP_PASSWD_PATH)) {
-        Ok(password) if !password.trim().is_empty() => {
-            println!("RDP login: {} / {}", username, password.trim());
-        }
-        _ => {
-            eprintln!("warning: could not read the RDP password from the VM ({HOST_RDP_PASSWD_PATH}).");
-            eprintln!("         Re-run `azlin gui install <vm> --protocol rdp` to regenerate it.");
-        }
+    // Surface the password so the user can answer the bridge's prompt. It is
+    // never written to disk locally and never appears on the client's argv.
+    if let Some(password) = password {
+        println!("RDP login: {username} / {password}");
     }
 
     println!("Launching {} (127.0.0.1:{})...", client, local_port);
@@ -1252,12 +1324,58 @@ mod tests {
 
     #[test]
     fn test_rdp_manual_instructions_are_actionable() {
-        let text = rdp_manual_instructions(41235, "abc");
+        let text = rdp_manual_instructions(41235, "abc", None);
         assert!(text.contains("127.0.0.1:41235"));
         assert!(text.contains("abc"));
         assert!(text.contains("xfreerdp"));
+        // With no password to hand, point at the file on the VM.
+        assert!(text.contains(".azlin/gui/desktoppw"));
         // Must never suggest exposing the port publicly.
         assert!(!text.contains("0.0.0.0"));
+
+        // With a password in hand, print it rather than a treasure map.
+        // Placeholder value, deliberately not secret-shaped: a high-entropy
+        // literal here trips secret scanners on every push.
+        let text = rdp_manual_instructions(41235, "abc", Some("not-a-real-password"));
+        assert!(text.contains("password: not-a-real-password"));
+    }
+
+    /// `--protocol rdp` must fail up front on a VM whose bridge cannot serve
+    /// it, and must never fail for VNC.
+    #[test]
+    fn test_rdp_requires_the_host_bridge_but_vnc_never_does() {
+        let mut status = GuiStatus::unknown();
+
+        for state in [RdpBridgeState::Absent, RdpBridgeState::NotRunning] {
+            status.rdp_bridge = state;
+            assert!(
+                require_rdp_bridge(GuiProtocol::Vnc, &status).is_ok(),
+                "VNC never depends on the RDP bridge"
+            );
+            let err = require_rdp_bridge(GuiProtocol::Rdp, &status)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains("--protocol vnc"),
+                "the remedy must offer the no-bridge fallback: {err}"
+            );
+        }
+
+        status.rdp_bridge = RdpBridgeState::Listening;
+        assert!(require_rdp_bridge(GuiProtocol::Rdp, &status).is_ok());
+    }
+
+    /// The native desktop has no bridge sidecar, so RDP must be refused there
+    /// rather than silently opening a tunnel to a port nothing serves.
+    #[test]
+    fn test_native_path_is_vnc_only() {
+        assert!(native_path_supports(GuiProtocol::Vnc));
+        assert!(!native_path_supports(GuiProtocol::Rdp));
+
+        // And the guard that enforces it fires for a VM with no container.
+        let status = GuiStatus::unknown();
+        assert!(!status.is_installed());
+        assert!(require_rdp_bridge(GuiProtocol::Rdp, &status).is_err());
     }
 
     #[test]

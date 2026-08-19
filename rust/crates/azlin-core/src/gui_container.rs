@@ -1,11 +1,75 @@
 //! Containerised remote-desktop planner for `azlin gui install`.
 //!
-//! `azlin gui` installs a desktop stack with the VM's package manager. That works
-//! on distributions whose repositories carry a VNC server, an RDP server and a
-//! window manager, and cannot work on those that do not. This module provides the
-//! alternative: the whole desktop stack — X server, window manager and the VNC or
-//! RDP server — comes from a prebuilt container image running on the VM's Docker,
-//! so it is independent of what the VM's repositories happen to contain.
+//! # Architecture
+//!
+//! `azlin gui install` provisions a remote desktop that can serve **either**
+//! protocol, because which one will be used is not known until the user
+//! connects. It installs three things onto the VM's Docker, and nothing onto
+//! the VM itself:
+//!
+//! * **The desktop** — an X server, a window manager, an XFCE session and a
+//!   genuine TigerVNC RFB server, from one pinned image ([`DESKTOP_IMAGE`]).
+//!   This container publishes *both* loopback ports.
+//! * **The VNC server** — already part of that image; it is what listens on
+//!   [`RFB_PORT`].
+//! * **The RDP server** — a second, small container ([`BRIDGE_CONTAINER_NAME`])
+//!   running `xrdp`, built on the VM as a thin layer *on top of the desktop
+//!   image that was just pulled*, so no second base image is ever downloaded.
+//!
+//! The seam between them is a single **RFB endpoint on the VM's loopback
+//! interface**, port [`RFB_PORT`]. Everything converges on it:
+//!
+//! ```text
+//!   vncviewer  ──ssh tunnel──▶ 127.0.0.1:5901 ─┐
+//!                                              ├─▶ the one desktop session
+//!   RDP client ──ssh tunnel──▶ 127.0.0.1:3389 ─┘
+//!                          (azlin-gui-rdp: xrdp bridging RDP → RFB)
+//! ```
+//!
+//! ## Why a second container rather than a second image
+//!
+//! The bridge container joins the desktop container's *network namespace*
+//! (`--network container:azlin-gui`). Three consequences follow, and they are
+//! the whole reason for this shape:
+//!
+//! 1. `127.0.0.1:5901` inside the bridge **is** the desktop's RFB port, so the
+//!    bridge needs no inter-container networking, no Docker network, and no
+//!    address to discover.
+//! 2. A namespace-sharing container cannot publish ports of its own, so *all*
+//!    publishing stays on the desktop container, where the loopback-only
+//!    invariant is already enforced in one place.
+//! 3. Because xrdp's `libvnc.so` module connects to that endpoint as an ordinary
+//!    VNC *client*, an RDP user and a VNC user see the **same live session** —
+//!    the same windows, the same cursor — exactly as two VNC viewers would.
+//!    Switching protocol does not restart, reinstall or replace anything.
+//!
+//! Rejected alternatives, and why:
+//!
+//! * *One protocol per image* (the previous design): makes the protocol an
+//!   install-time property, which is precisely what this redesign removes. It
+//!   also means the two protocols could never share a session.
+//! * *One image running both servers, pulled ready-made*: no maintained,
+//!   digest-pinnable image does this. Publishing our own would add a registry
+//!   and a release process to azlin.
+//! * *Two independent desktop containers, one per protocol*: doubles the
+//!   ~2 GiB footprint and gives two unrelated sessions, so a user who connects
+//!   over RDP after VNC would silently lose their work.
+//! * *Installing xrdp natively on the VM*: reintroduces a package manager, and
+//!   with it distro-specific behaviour, into a path that is deliberately
+//!   distro-neutral — Docker is its only host requirement.
+//!
+//! ## Honest cost
+//!
+//! Both protocol servers are installed per-GUI-VM, at `azlin gui install` time.
+//! The desktop image is ~2 GiB; the bridge adds one `apt-get install xrdp`
+//! layer of roughly 30 MiB and about a minute of build time on top of it. A VM
+//! that never runs `azlin gui install` pays **nothing at all** — no image, no
+//! disk, no boot time. That is the point of installing here rather than at VM
+//! provisioning time.
+//!
+//! Because the RFB endpoint is the only contract, the bridge works identically
+//! against the native `vncserver` that `azlin gui` starts on VMs whose
+//! repositories do carry a desktop stack.
 //!
 //! Every function here is pure: data in, plan or command strings out. It mirrors
 //! the sibling planners in `azlin-azure` so the install, detection and removal
@@ -16,24 +80,17 @@
 //! These are enforced by construction here and asserted by the unit tests:
 //!
 //! * Published ports are **always** bound to `127.0.0.1` on the VM, so the desktop
-//!   is unreachable from the network even if a permissive NSG rule existed.
+//!   is unreachable from the network even if a permissive NSG rule existed. Both
+//!   the RFB port and the RDP port are published by the same container, through
+//!   the same loopback-bound [`PUBLISH_ADDRESS`].
 //! * No network-security-group rule is ever created, modified or referenced. This
 //!   module emits no `az` command of any kind. Access is expected to happen
 //!   exclusively over azlin's existing SSH/bastion tunnel.
-//! * The web (noVNC) port of the VNC image is deliberately **not** published.
-//! * The desktop always has a password. The password is generated on the VM and
-//!   passed to Docker through a `0600` env-file, so it never appears in a process
-//!   listing or in `docker inspect` output.
+//! * The web (noVNC) port of the desktop image is deliberately **not** published.
 //! * Images are pinned by tag **and** verified by digest after every pull: the
 //!   install script compares the `RepoDigests` entry Docker records for the
-//!   pulled image against [`GuiImage::index_digest`] — accepting
-//!   [`GuiImage::amd64_digest`] as an alternative — and refuses to run the
+//!   pulled image against [`GuiImage::index_digest`] and refuses to run the
 //!   container (removing the pulled image and exiting non-zero) on a mismatch.
-//!   `docker pull <tag>` on a multi-arch repository records the digest of the
-//!   *manifest list / OCI index*, not of the platform-specific child manifest,
-//!   so the index digest is the value the check must normally expect; the
-//!   child digest is accepted too because a pull by an explicit
-//!   single-platform reference legitimately records that instead.
 //!   A tag is mutable — a compromised or careless registry can repoint
 //!   `consol/debian-xfce-vnc:v2.0.4` to different bytes without changing the
 //!   string azlin pulls — so the tag alone is not a provenance guarantee. The
@@ -41,35 +98,51 @@
 //!   at all, which happens only for images that were not pulled from a
 //!   registry; every image `azlin gui install` runs is freshly pulled, so this
 //!   is a defensive fallback, not the expected path.
+//! * The desktop always has a password. The password is generated on the VM and
+//!   passed to Docker through a `0600` env-file, so it never appears in a process
+//!   listing or in `docker inspect` output.
+//! * No generated script uses `sudo`, installs a host package, or modifies any
+//!   host configuration. Docker is the only thing touched on the VM.
+//! * The bridge's xrdp is configured with `password=ask`: the desktop password
+//!   is never written into the bridge image, which is stored unencrypted in the
+//!   VM's Docker image store.
 //!
 //! # Password strength, stated honestly
 //!
-//! The generated password is 32 hex characters. The RDP image consumes all of it
-//! (`chpasswd` into a yescrypt hash). The RFB protocol used by VNC, however,
-//! truncates passwords to **8 bytes** (RFC 6143 §7.2.2): everything past the
-//! eighth character is discarded before the DES obfuscation, which is why a VNC
+//! The generated password is 32 hex characters. The RFB protocol truncates
+//! passwords to **8 bytes** (RFC 6143 §7.2.2): everything past the eighth
+//! character is discarded before the DES obfuscation, which is why a VNC
 //! `passwd` file is always exactly 8 bytes long. Only the first 8 hex characters
 //! therefore survive, giving `8 * 4 = 32` bits of effective entropy no matter how
-//! long the generated secret is.
+//! long the generated secret is. The RDP bridge inherits exactly the same
+//! ceiling, because it authenticates against the very same RFB endpoint.
 //!
 //! Do not restate this as "128-bit" security. It is not. 32 bits is acceptable
-//! here *only* because port 5901 is bound to `127.0.0.1` on the VM and is
+//! here *only* because both ports are bound to `127.0.0.1` on the VM and are
 //! reachable solely through the SSH tunnel, so there is no network-facing
 //! brute-force surface. It would not be acceptable for an exposed port.
 
 use serde::{Deserialize, Serialize};
 
-/// Remote-desktop wire protocol to install on the VM.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Remote-desktop wire protocol used to *connect* to an already-installed
+/// desktop.
+///
+/// This is deliberately not an install-time concern: `azlin gui install`
+/// provisions both protocol servers, and both variants reach the same desktop
+/// session over the same [`RFB_PORT`] endpoint — VNC directly, RDP through the
+/// xrdp bridge container.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum GuiProtocol {
-    /// TigerVNC RFB, consumed by a standard VNC viewer.
+    /// RFB, consumed by a standard VNC viewer. The default.
+    #[default]
     Vnc,
-    /// xrdp, consumed by a standard RDP client.
+    /// RDP, consumed by a standard RDP client, bridged to RFB by the xrdp
+    /// sidecar container.
     Rdp,
 }
 
 impl GuiProtocol {
-    /// Lowercase wire name, used in generated scripts and in container labels.
+    /// Lowercase wire name, used in generated scripts and user-facing messages.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Vnc => "vnc",
@@ -77,7 +150,7 @@ impl GuiProtocol {
         }
     }
 
-    /// Parse the wire name emitted by [`build_detect_script`].
+    /// Parse the wire name.
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "vnc" => Some(Self::Vnc),
@@ -97,11 +170,12 @@ impl std::fmt::Display for GuiProtocol {
 /// detection needs no bookkeeping beyond Docker itself.
 pub const CONTAINER_NAME: &str = "azlin-gui";
 
-/// Directory on the VM holding the generated env-file and the exported VNC
-/// password blob. Created `0700`; the files inside are `0600`.
+/// Directory on the VM holding the generated env-file, the exported RFB
+/// password blob and the plaintext desktop password. Created `0700`; the files
+/// inside are `0600`.
 pub const STATE_DIR: &str = "$HOME/.azlin/gui";
 
-/// Path on the VM of the VNC authentication blob exported from the container.
+/// Path on the VM of the RFB authentication blob exported from the container.
 ///
 /// The blob is produced by the container's own `vncpasswd`, then copied out with
 /// `docker cp`. Copying out (rather than bind-mounting over the container's
@@ -109,52 +183,80 @@ pub const STATE_DIR: &str = "$HOME/.azlin/gui";
 /// there, and avoids reimplementing the VNC password format locally.
 pub const HOST_VNC_PASSWD_PATH: &str = "$HOME/.azlin/gui/vncpasswd";
 
-/// Path on the VM of the plaintext RDP password, written `0600`.
-pub const HOST_RDP_PASSWD_PATH: &str = "$HOME/.azlin/gui/rdppasswd";
+/// Path on the VM of the plaintext desktop password, written `0600`.
+///
+/// A VNC viewer authenticates with the binary blob above, but the RDP bridge
+/// presents an ordinary password prompt that must be answered with the
+/// plaintext, so both forms are kept.
+pub const HOST_DESKTOP_PASSWD_PATH: &str = "$HOME/.azlin/gui/desktoppw";
 
-/// Path inside the VNC container of the authentication blob to export.
+/// Path inside the container of the authentication blob to export.
 pub const CONTAINER_VNC_PASSWD_PATH: &str = "/headless/.vnc/passwd";
 
-/// Login name used by the RDP image's desktop session.
-pub const RDP_USERNAME: &str = "abc";
+/// Loopback RFB port. The seam between the desktop and every protocol server:
+/// the container publishes it, the native `vncserver` path listens on it, and
+/// the host's RDP bridge dials it.
+pub const RFB_PORT: u16 = 5901;
+
+/// Loopback port the RDP bridge container listens on.
+pub const RDP_BRIDGE_PORT: u16 = 3389;
+
+/// Username presented to the RDP bridge. The bridge authenticates against the
+/// RFB endpoint, which has no concept of users, so this is a placeholder that
+/// xrdp's `libvnc` module ignores. Only the password is meaningful.
+pub const RDP_BRIDGE_USERNAME: &str = "na";
+
+/// Name of the sidecar container that serves RDP.
+pub const BRIDGE_CONTAINER_NAME: &str = "azlin-gui-rdp";
+
+/// Tag of the bridge image built on the VM.
+///
+/// Versioned so that changing the generated Dockerfile forces a rebuild rather
+/// than silently reusing a stale image.
+pub const BRIDGE_IMAGE_TAG: &str = "azlin-gui-rdp:1";
+
+/// xrdp session-section name the bridge autoruns, skipping the session chooser.
+const BRIDGE_SESSION_NAME: &str = "azlin";
 
 /// Free space the install requires on the Docker data root, in KiB (4 GiB).
 ///
-/// The desktop images are roughly 2 GiB compressed; 4 GiB leaves room to unpack
-/// them without filling the disk.
+/// The desktop image is roughly 2 GiB compressed; 4 GiB leaves room to unpack
+/// it without filling the disk.
 const REQUIRED_FREE_KIB: u64 = 4 * 1024 * 1024;
 
-/// A container image pinned for one protocol.
+/// The pinned desktop container image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GuiImage {
     /// Fully qualified image reference including the pinned tag.
     pub reference: &'static str,
-    /// Digest of the multi-arch manifest list / OCI index at the time of
-    /// pinning. This is the value `docker pull <tag>` records in `RepoDigests`,
-    /// so it is what the install script (see [`build_install_script`]) normally
-    /// compares against; a tag that silently moves on the registry is thereby
-    /// detected and rejected rather than silently trusted.
-    pub index_digest: &'static str,
-    /// Digest of the `linux/amd64` child manifest inside [`Self::index_digest`]
-    /// at the time of pinning.
-    ///
-    /// Recorded so the pinning is unambiguous about which platform image azlin
-    /// expects to run, and accepted by the install script as an alternative to
-    /// the index digest: pulling by an explicit single-platform reference (or a
-    /// future single-arch tag) legitimately records the child digest instead.
-    /// Any other value still fails closed.
+    /// Digest of the `linux/amd64` manifest at the time of pinning. The install
+    /// script (see [`build_install_script`]) checks the digest of the image it
+    /// actually pulled against this value and refuses to run on a mismatch, so
+    /// a tag that silently moves on the registry is detected and rejected
+    /// rather than silently trusted.
     ///
     /// This assumes the VM is `linux/amd64`: azlin currently provisions only
     /// D-series/E-series v5 VMs, which are x86_64. If an ARM VM family is ever
     /// added, this field and the verification must become architecture-aware.
+    ///
+    /// This is *not* the value Docker reports in `RepoDigests` — see
+    /// [`GuiImage::index_digest`], which is what the install script compares.
     pub amd64_digest: &'static str,
-    /// Port the desktop server listens on inside the container.
+    /// Digest of the multi-arch **image index** the tag resolves to.
+    ///
+    /// This is the value the install script compares against, because it is the
+    /// value `docker pull <tag>` records: pulling by tag from a multi-arch
+    /// repository stores the index digest in `RepoDigests`, on every platform,
+    /// including `linux/amd64`. Comparing [`GuiImage::amd64_digest`] instead
+    /// rejects even a perfectly good pull.
+    pub index_digest: &'static str,
+    /// Port the desktop's RFB server listens on inside the container.
     pub container_port: u16,
     /// Human-readable description of which clients can connect.
     pub client_support: &'static str,
 }
 
-/// VNC image: genuine TigerVNC RFB on 5901.
+/// The single desktop image: XFCE on a genuine TigerVNC RFB endpoint.
 ///
 /// Verified against the Docker Hub registry API: the `linux/amd64` manifest
 /// exposes `5901/tcp` and `6901/tcp`, has entrypoint
@@ -162,37 +264,17 @@ pub struct GuiImage {
 /// `VNC_COL_DEPTH` from the environment.
 ///
 /// `linuxserver/webtop` was evaluated and rejected: it serves KasmVNC over
-/// WebSockets, which a standard RFB viewer cannot speak.
-pub const VNC_IMAGE: GuiImage = GuiImage {
+/// WebSockets, which a standard RFB viewer cannot speak — and, because the RDP
+/// bridge also speaks RFB, it could not serve the RDP path either.
+pub const DESKTOP_IMAGE: GuiImage = GuiImage {
     reference: "consol/debian-xfce-vnc:v2.0.4",
-    index_digest: "sha256:72f53a2a809fdfc362f1127c9bad23d18e6e240eec894d405d0823f95ac54f45",
     amd64_digest: "sha256:b6d53e9f797bb4b4e3b7b317ec07e4242f33c7e3061af16d18685f6866295e58",
-    container_port: 5901,
-    client_support: "any standard VNC viewer (TigerVNC RFB)",
+    index_digest: "sha256:72f53a2a809fdfc362f1127c9bad23d18e6e240eec894d405d0823f95ac54f45",
+    container_port: RFB_PORT,
+    client_support: "any standard VNC viewer, or any RDP client via `azlin gui --protocol rdp`",
 };
 
-/// RDP image: xrdp on 3389.
-///
-/// Verified against the GitHub Container Registry API: the `linux/amd64`
-/// manifest exposes `3389/tcp` and has entrypoint `/init`. `linux/arm64` is also
-/// published.
-pub const RDP_IMAGE: GuiImage = GuiImage {
-    reference: "lscr.io/linuxserver/rdesktop:ubuntu-xfce",
-    index_digest: "sha256:cbf4ee807472acdea1c8d8483c7801c2a0e9a6ad155d1c103fa6c39b5768fb7b",
-    amd64_digest: "sha256:85f5e20fbed17a13be2619aafffedd6df2c3c68076693caf951176f133765062",
-    container_port: 3389,
-    client_support: "any standard RDP client (xfreerdp, mstsc, Microsoft Remote Desktop)",
-};
-
-/// Return the pinned image for a protocol.
-pub fn image_for(protocol: GuiProtocol) -> GuiImage {
-    match protocol {
-        GuiProtocol::Vnc => VNC_IMAGE,
-        GuiProtocol::Rdp => RDP_IMAGE,
-    }
-}
-
-/// Loopback address the desktop port is published on.
+/// Loopback address every desktop port is published on.
 ///
 /// Publishing on `127.0.0.1` (rather than Docker's default `0.0.0.0`) is the
 /// single most important security property of this module: it makes the desktop
@@ -215,10 +297,12 @@ impl Default for DesktopGeometry {
     }
 }
 
-/// Everything needed to materialise the container on the VM.
+/// Everything needed to materialise the desktop container on the VM.
+///
+/// There is deliberately no protocol field: the container serves one desktop
+/// and every protocol reaches it through the same RFB endpoint.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GuiInstallPlan {
-    pub protocol: GuiProtocol,
     pub image: GuiImage,
     pub container_name: String,
     /// Port published on the VM's loopback interface.
@@ -226,21 +310,26 @@ pub struct GuiInstallPlan {
     pub geometry: DesktopGeometry,
 }
 
+impl Default for GuiInstallPlan {
+    fn default() -> Self {
+        Self::new(DesktopGeometry::default())
+    }
+}
+
 impl GuiInstallPlan {
-    /// Build the plan for a protocol. The published host port mirrors the
-    /// container port, so the SSH tunnel target is predictable.
-    pub fn new(protocol: GuiProtocol, geometry: DesktopGeometry) -> Self {
-        let image = image_for(protocol);
+    /// Build the plan. The published host port mirrors the container port, so
+    /// the SSH tunnel target is predictable and matches the port the host's RDP
+    /// bridge is configured to dial.
+    pub fn new(geometry: DesktopGeometry) -> Self {
         Self {
-            protocol,
-            image,
+            image: DESKTOP_IMAGE,
             container_name: CONTAINER_NAME.to_string(),
-            host_port: image.container_port,
+            host_port: DESKTOP_IMAGE.container_port,
             geometry,
         }
     }
 
-    /// The `-p` value published to Docker, always loopback-bound.
+    /// The `-p` value publishing the RFB port, always loopback-bound.
     pub fn publish_spec(&self) -> String {
         format!(
             "{}:{}:{}",
@@ -248,10 +337,104 @@ impl GuiInstallPlan {
         )
     }
 
+    /// The `-p` value publishing the RDP port, always loopback-bound.
+    ///
+    /// This is published by the *desktop* container even though the *bridge*
+    /// container serves it: the bridge shares the desktop's network namespace,
+    /// and a namespace-sharing container cannot publish ports of its own. The
+    /// upside is that every published port in this module goes through one
+    /// loopback-bound code path.
+    pub fn rdp_publish_spec(&self) -> String {
+        format!(
+            "{}:{}:{}",
+            PUBLISH_ADDRESS, RDP_BRIDGE_PORT, RDP_BRIDGE_PORT
+        )
+    }
+
+    /// The Dockerfile built on the VM to produce the RDP bridge image.
+    ///
+    /// It is layered on the desktop image that the install has just pulled, so
+    /// the build downloads only the `xrdp` package rather than a second base
+    /// image. The desktop image itself is never modified.
+    ///
+    /// The session section uses `password=ask`, so the desktop password is
+    /// never baked into an image layer; the RDP client supplies it per
+    /// connection.
+    ///
+    /// # Known provenance gap
+    ///
+    /// The desktop image is digest-pinned and verified after pull. The `xrdp`
+    /// package installed here is **not**: `apt-get` resolves whatever version
+    /// the mirror serves at install time, so the provenance guarantee that
+    /// [`GuiImage::index_digest`] provides for the desktop does not extend to
+    /// the bridge. Two VMs installed weeks apart can therefore carry different
+    /// bridge images.
+    ///
+    /// A strict `xrdp=<version>` pin was considered and deliberately not taken:
+    /// Debian mirrors carry only the current binary version of a package per
+    /// suite, so an exact pin starts failing as soon as the next point release
+    /// supersedes it — and because a failed bridge build degrades to
+    /// `installed-vnc-only` rather than erroring, that failure would be quiet.
+    /// Trading an unpinned-but-working build for a pinned-but-eventually-silently-
+    /// broken one is not an improvement.
+    ///
+    /// What is done instead: the installed version is recorded to
+    /// `$STATE_DIR/bridge-xrdp-version` after a successful build, so a deployed
+    /// bridge is identifiable after the fact. Closing the gap properly means
+    /// publishing a prebuilt bridge image and digest-pinning it the same way the
+    /// desktop is — an architectural change, not a patch.
+    ///
+    /// Related: this `apt-get update` runs against the suite the pinned base tag
+    /// shipped with. When Debian eventually moves that suite to
+    /// `archive.debian.org`, the update fails, and new installs silently lose
+    /// RDP while existing VMs (whose bridge image is already built) keep working.
+    pub fn bridge_dockerfile(&self) -> String {
+        format!(
+            "FROM {image}\nUSER 0\nRUN apt-get update && apt-get install -y --no-install-recommends xrdp && rm -rf /var/lib/apt/lists/*\nRUN sed -i 's|^#*autorun=.*|autorun={session}|' /etc/xrdp/xrdp.ini\nRUN printf '\\n[{session}]\\nname=azlin-desktop\\nlib=libvnc.so\\nip={addr}\\nport={rfb}\\nusername={user}\\npassword=ask\\n' >> /etc/xrdp/xrdp.ini\n",
+            image = self.image.reference,
+            session = BRIDGE_SESSION_NAME,
+            addr = PUBLISH_ADDRESS,
+            rfb = self.image.container_port,
+            user = RDP_BRIDGE_USERNAME,
+        )
+    }
+
+    /// Arguments to `docker run` for the RDP bridge sidecar.
+    ///
+    /// `--network container:<desktop>` is what makes `{addr}:{rfb}` inside the
+    /// bridge resolve to the desktop's RFB server. The base image's entrypoint
+    /// starts a whole desktop, so it is replaced outright.
+    pub fn bridge_run_args(&self) -> Vec<String> {
+        vec![
+            "-d".to_string(),
+            "--name".to_string(),
+            BRIDGE_CONTAINER_NAME.to_string(),
+            "--restart".to_string(),
+            "unless-stopped".to_string(),
+            "--network".to_string(),
+            format!("container:{}", self.container_name),
+            "--label".to_string(),
+            format!("azlin.gui.rdp-port={}", RDP_BRIDGE_PORT),
+            "--entrypoint".to_string(),
+            "/bin/sh".to_string(),
+            BRIDGE_IMAGE_TAG.to_string(),
+            "-c".to_string(),
+            "mkdir -p /var/run/xrdp && exec xrdp --nodaemon".to_string(),
+        ]
+    }
+
     /// Arguments to `docker run`, excluding the leading `docker run` itself.
     ///
-    /// The desktop password is *not* present here: it is supplied via
-    /// `--env-file`, so it never reaches a process listing or `docker inspect`.
+    /// The desktop password is *not* present here: it is supplied via a mode
+    /// `0600` `--env-file`, so it never reaches the command line and therefore
+    /// never appears in a process listing, which is world-readable.
+    ///
+    /// It is *not* a secret from `docker inspect`: Docker copies `--env-file`
+    /// entries into `Config.Env`, so anyone who can talk to the daemon can read
+    /// it. That is inherent to an image that takes its password by environment
+    /// and is acceptable here, because daemon access already implies full
+    /// control of the desktop container. The `ps` exposure is the one worth
+    /// closing, and this closes it.
     pub fn docker_run_args(&self, env_file: &str) -> Vec<String> {
         vec![
             "-d".to_string(),
@@ -264,11 +447,15 @@ impl GuiInstallPlan {
             "--env-file".to_string(),
             env_file.to_string(),
             "--label".to_string(),
-            format!("azlin.gui.protocol={}", self.protocol),
-            "--label".to_string(),
             format!("azlin.gui.image={}", self.image.reference),
+            "--label".to_string(),
+            format!("azlin.gui.rfb-port={}", self.host_port),
             "-p".to_string(),
             self.publish_spec(),
+            // Published here, served by the bridge sidecar sharing this
+            // container's network namespace.
+            "-p".to_string(),
+            self.rdp_publish_spec(),
             self.image.reference.to_string(),
         ]
     }
@@ -279,17 +466,11 @@ impl GuiInstallPlan {
     /// generated there and never travels through azlin), so entries may contain
     /// a shell variable reference.
     pub fn env_file_entries(&self, password_expr: &str) -> Vec<String> {
-        match self.protocol {
-            GuiProtocol::Vnc => vec![
-                format!("VNC_PW={}", password_expr),
-                format!("VNC_RESOLUTION={}", self.geometry.resolution),
-                format!("VNC_COL_DEPTH={}", self.geometry.depth),
-            ],
-            // The RDP image takes its credentials from the container user's
-            // password, set with `chpasswd` after start, so only non-secret
-            // sizing hints belong in the env-file.
-            GuiProtocol::Rdp => vec!["PUID=1000".to_string(), "PGID=1000".to_string()],
-        }
+        vec![
+            format!("VNC_PW={}", password_expr),
+            format!("VNC_RESOLUTION={}", self.geometry.resolution),
+            format!("VNC_COL_DEPTH={}", self.geometry.depth),
+        ]
     }
 }
 
@@ -315,6 +496,29 @@ impl ContainerState {
     }
 }
 
+/// State of the host's RDP→RFB bridge, which `azlin gui install` provisions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RdpBridgeState {
+    /// No bridge container exists: this desktop was installed by an older
+    /// azlin, or no desktop is installed at all.
+    Absent,
+    /// The bridge container exists but is not running.
+    NotRunning,
+    /// The bridge container is running and serving `127.0.0.1:3389`.
+    Listening,
+}
+
+impl RdpBridgeState {
+    /// Map the probe's `rdp_bridge=` value onto a state.
+    pub fn parse(value: &str) -> Self {
+        match value.trim() {
+            "listening" => Self::Listening,
+            "installed" => Self::NotRunning,
+            _ => Self::Absent,
+        }
+    }
+}
+
 /// Parsed result of the detection probe run on the VM.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GuiStatus {
@@ -324,24 +528,34 @@ pub struct GuiStatus {
     /// in the `docker` group and the daemon is running).
     pub docker_usable: bool,
     pub container_state: ContainerState,
-    /// Protocol recorded on the container label, when a container exists.
-    pub protocol: Option<GuiProtocol>,
-    /// Loopback port published on the VM, when a container exists.
+    /// Loopback RFB port published on the VM, when a container exists.
     pub host_port: Option<u16>,
+    /// State of the host's RDP bridge, independent of the container.
+    pub rdp_bridge: RdpBridgeState,
 }
 
 impl GuiStatus {
+    /// A status describing a VM with nothing installed, used when the probe
+    /// itself could not be run.
+    pub fn unknown() -> Self {
+        Self {
+            docker_present: false,
+            docker_usable: false,
+            container_state: ContainerState::Missing,
+            host_port: None,
+            rdp_bridge: RdpBridgeState::Absent,
+        }
+    }
+
     /// Whether a containerised desktop is installed at all (running or stopped).
     pub fn is_installed(&self) -> bool {
         self.container_state != ContainerState::Missing
     }
 
-    /// The port to tunnel to, falling back to the image default when Docker did
-    /// not report one.
+    /// The RFB port to tunnel to, falling back to the image default when Docker
+    /// did not report one.
     pub fn effective_port(&self) -> u16 {
-        self.host_port.unwrap_or_else(|| {
-            image_for(self.protocol.unwrap_or(GuiProtocol::Vnc)).container_port
-        })
+        self.host_port.unwrap_or(RFB_PORT)
     }
 }
 
@@ -381,6 +595,31 @@ pub fn no_desktop_remedy(vm_identifier: &str, status: &GuiStatus) -> String {
     )
 }
 
+/// Actionable message for `--protocol rdp` on a VM whose RDP bridge is not
+/// usable.
+///
+/// The bridge is installed alongside the desktop by `azlin gui install`, so
+/// the common cause is a VM with no desktop, or one whose desktop was
+/// installed by an older azlin. Both remedies are spelled out because
+/// reinstalling the desktop is not always acceptable.
+pub fn rdp_bridge_remedy(state: RdpBridgeState) -> String {
+    match state {
+        RdpBridgeState::Listening => String::new(),
+        RdpBridgeState::NotRunning => format!(
+            "The RDP bridge container ({BRIDGE_CONTAINER_NAME}) is installed on this VM but is \
+             not running.\n  Start it on the VM with:\n    docker start \
+             {BRIDGE_CONTAINER_NAME}\n  Or connect over VNC, which does not use the bridge:\n    \
+             azlin gui <vm> --protocol vnc"
+        ),
+        RdpBridgeState::Absent => "This VM has no RDP bridge, so it cannot serve RDP. The \
+             bridge is installed alongside the desktop, so a VM with no desktop — or one \
+             installed by an older azlin — does not have it.\n  Connect over VNC, which does not \
+             use the bridge:\n    azlin gui <vm> --protocol vnc\n  Or (re)install the desktop to \
+             add the bridge:\n    azlin gui install <vm> --uninstall\n    azlin gui install <vm>"
+            .to_string(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Script generation
 // ---------------------------------------------------------------------------
@@ -394,31 +633,39 @@ fn sq(value: &str) -> String {
 ///
 /// Emits `key=value` lines on stdout and always exits `0`, so a non-zero exit
 /// unambiguously means the SSH transport failed rather than "not installed".
+///
+/// The probe reports on both halves of the install: the desktop container and
+/// the RDP bridge sidecar. They are reported separately because a desktop
+/// installed by an older azlin has no bridge, and that must produce a specific
+/// diagnosis rather than a generic failure.
+///
+/// The RFB host port is read from the desktop container's port bindings and is
+/// matched on the *container* port, so an unrelated published port can never be
+/// mistaken for the desktop's.
 pub fn build_detect_script() -> String {
     format!(
         "set -u; \
-         if command -v docker >/dev/null 2>&1; then echo docker_present=true; else echo docker_present=false; echo docker_usable=false; echo container_state=missing; exit 0; fi; \
-         if docker info >/dev/null 2>&1; then echo docker_usable=true; else echo docker_usable=false; echo container_state=missing; exit 0; fi; \
+         if command -v docker >/dev/null 2>&1; then echo docker_present=true; else echo docker_present=false; echo docker_usable=false; echo container_state=missing; echo rdp_bridge=absent; exit 0; fi; \
+         if docker info >/dev/null 2>&1; then echo docker_usable=true; else echo docker_usable=false; echo container_state=missing; echo rdp_bridge=absent; exit 0; fi; \
          state=$(docker inspect -f '{{{{.State.Status}}}}' {name} 2>/dev/null || echo missing); \
          echo \"container_state=$state\"; \
          if [ \"$state\" != missing ]; then \
-           echo \"protocol=$(docker inspect -f '{{{{index .Config.Labels \"azlin.gui.protocol\"}}}}' {name} 2>/dev/null)\"; \
-           echo \"host_port=$(docker inspect -f '{{{{range $p, $c := .NetworkSettings.Ports}}}}{{{{range $c}}}}{{{{.HostPort}}}}{{{{end}}}}{{{{end}}}}' {name} 2>/dev/null)\"; \
+           echo \"host_port=$(docker inspect -f '{{{{with index .NetworkSettings.Ports \"{rfb_port}/tcp\"}}}}{{{{range .}}}}{{{{.HostPort}}}}{{{{end}}}}{{{{end}}}}' {name} 2>/dev/null)\"; \
          fi; \
+         bridge=$(docker inspect -f '{{{{.State.Status}}}}' {bridge} 2>/dev/null || echo missing); \
+         if [ \"$bridge\" = running ]; then echo rdp_bridge=listening; \
+         elif [ \"$bridge\" = missing ]; then echo rdp_bridge=absent; \
+         else echo rdp_bridge=installed; fi; \
          exit 0",
         name = sq(CONTAINER_NAME),
+        bridge = sq(BRIDGE_CONTAINER_NAME),
+        rfb_port = RFB_PORT,
     )
 }
 
 /// Parse the `key=value` output of [`build_detect_script`].
 pub fn parse_detect_output(output: &str) -> GuiStatus {
-    let mut status = GuiStatus {
-        docker_present: false,
-        docker_usable: false,
-        container_state: ContainerState::Missing,
-        protocol: None,
-        host_port: None,
-    };
+    let mut status = GuiStatus::unknown();
 
     for line in output.lines() {
         let Some((key, value)) = line.split_once('=') else {
@@ -429,8 +676,8 @@ pub fn parse_detect_output(output: &str) -> GuiStatus {
             "docker_present" => status.docker_present = value == "true",
             "docker_usable" => status.docker_usable = value == "true",
             "container_state" => status.container_state = ContainerState::parse(value),
-            "protocol" => status.protocol = GuiProtocol::parse(value),
             "host_port" => status.host_port = value.parse().ok(),
+            "rdp_bridge" => status.rdp_bridge = RdpBridgeState::parse(value),
             _ => {}
         }
     }
@@ -440,18 +687,27 @@ pub fn parse_detect_output(output: &str) -> GuiStatus {
 
 /// Build the install script.
 ///
-/// The script is idempotent: an existing container whose image and protocol
-/// already match the plan is left in place (and started if stopped); anything
-/// else is removed and recreated. Every failure mode is reported with a distinct
-/// `azlin-error:` marker and a distinct exit code rather than being swallowed.
+/// The script is idempotent: an existing container whose image already matches
+/// the plan is left in place (and started if stopped); anything else is removed
+/// and recreated. Every failure mode is reported with a distinct `azlin-error:`
+/// marker and a distinct exit code rather than being swallowed.
 ///
-/// The script never uses `sudo` and never modifies host configuration. It reads
-/// free disk space and refuses to proceed if there is too little, rather than
-/// attempting to make room.
+/// It installs both protocol servers, because the protocol is not chosen until
+/// connect time: the desktop image already carries the VNC server, and the
+/// bridge image adds `xrdp`. The bridge is built as a layer on the image the
+/// pull has just fetched, so no second base image is downloaded.
+///
+/// The script never uses `sudo`, never installs a host package and never
+/// modifies host configuration; Docker is the only thing on the VM it touches.
+/// It reads free disk space and refuses to proceed if there is too little,
+/// rather than attempting to make room.
+///
+/// A bridge failure is **not** fatal: a desktop that serves VNC but not RDP is
+/// far more useful than no desktop, so the script reports `installed-vnc-only`
+/// and lets `azlin gui --protocol rdp` produce the specific diagnosis.
 pub fn build_install_script(plan: &GuiInstallPlan) -> String {
     let name = sq(&plan.container_name);
     let image = sq(plan.image.reference);
-    let protocol = plan.protocol.as_str();
     let run_args = plan
         .docker_run_args("\"$ENV_FILE\"")
         .iter()
@@ -473,37 +729,23 @@ pub fn build_install_script(plan: &GuiInstallPlan) -> String {
         .collect::<Vec<_>>()
         .join(" ");
 
-    // RDP authenticates against the container user's own password, so it is set
-    // after the container starts. VNC consumes VNC_PW from the env-file, and its
-    // password blob is copied out for the local viewer.
-    let post_start = match plan.protocol {
-        GuiProtocol::Vnc => format!(
-            "for _ in $(seq 1 30); do \
-               if docker exec {name} test -f {cpath} >/dev/null 2>&1; then break; fi; sleep 2; \
-             done; \
-             if ! docker cp {name}:{cpath} \"$STATE_DIR/vncpasswd\" >/dev/null 2>&1; then \
-               echo 'azlin-error: the VNC container started but never wrote its password file' >&2; exit 6; \
-             fi; \
-             chmod 600 \"$STATE_DIR/vncpasswd\"",
-            name = name,
-            cpath = sq(CONTAINER_VNC_PASSWD_PATH),
-        ),
-        GuiProtocol::Rdp => format!(
-            "for _ in $(seq 1 30); do \
-               if docker exec {name} id {user} >/dev/null 2>&1; then break; fi; sleep 2; \
-             done; \
-             if ! printf '%s:%s' {user} \"$AZLIN_GUI_PW\" | docker exec -i {name} chpasswd >/dev/null 2>&1; then \
-               echo 'azlin-error: could not set the RDP desktop password inside the container' >&2; exit 6; \
-             fi; \
-             printf '%s\\n' \"$AZLIN_GUI_PW\" > \"$STATE_DIR/rdppasswd\"; \
-             chmod 600 \"$STATE_DIR/rdppasswd\"",
-            name = name,
-            user = sq(RDP_USERNAME),
-        ),
-    };
-
     let publish_plain = format!("{}:{}", PUBLISH_ADDRESS, plan.host_port);
     let publish_quoted = sq(&publish_plain);
+
+    // Embedded as a printf '%b' payload so the generated script stays a single
+    // line: real newlines become `\n`, and the Dockerfile's own literal `\n`
+    // sequences are escaped so printf reproduces them verbatim.
+    let dockerfile_literal = sq(&plan
+        .bridge_dockerfile()
+        .replace('\\', "\\\\")
+        .replace('\n', "\\n"));
+
+    let bridge_run_args = plan
+        .bridge_run_args()
+        .iter()
+        .map(|a| sq(a))
+        .collect::<Vec<_>>()
+        .join(" ");
 
     format!(
         "set -u; \
@@ -519,9 +761,9 @@ pub fn build_install_script(plan: &GuiInstallPlan) -> String {
            echo \"azlin-error: less than 4 GiB free for the container image on the docker data root $DROOT (${{AVAIL}} KiB available)\" >&2; exit 7; fi; \
          STATE_DIR=\"$HOME/.azlin/gui\"; mkdir -p \"$STATE_DIR\"; chmod 700 \"$STATE_DIR\"; \
          CUR=$(docker inspect -f '{{{{.Config.Image}}}}' {name} 2>/dev/null || true); \
-         CUR_PROTO=$(docker inspect -f '{{{{index .Config.Labels \"azlin.gui.protocol\"}}}}' {name} 2>/dev/null || true); \
-         if [ \"$CUR\" = {image} ] && [ \"$CUR_PROTO\" = {protocol} ]; then \
+         if [ \"$CUR\" = {image} ]; then \
            docker start {name} >/dev/null 2>&1 || true; \
+           docker start {bridge} >/dev/null 2>&1 || true; \
            echo 'azlin-result: already-installed'; exit 0; \
          fi; \
          if [ -n \"$CUR\" ]; then docker rm -f {name} >/dev/null 2>&1 || true; fi; \
@@ -529,9 +771,9 @@ pub fn build_install_script(plan: &GuiInstallPlan) -> String {
            echo \"azlin-error: failed to pull the desktop container image: $PULL_OUT\" >&2; exit 4; fi; \
          PULLED_DIGEST=$(docker inspect -f '{{{{index .RepoDigests 0}}}}' {image} 2>/dev/null || true); \
          PULLED_DIGEST=${{PULLED_DIGEST#*@}}; \
-         if [ -n \"$PULLED_DIGEST\" ] && [ \"$PULLED_DIGEST\" != {index_digest} ] && [ \"$PULLED_DIGEST\" != {amd64_digest} ]; then \
+         if [ -n \"$PULLED_DIGEST\" ] && [ \"$PULLED_DIGEST\" != {expected_digest} ] && [ \"$PULLED_DIGEST\" != {expected_platform_digest} ]; then \
            docker rmi {image} >/dev/null 2>&1 || true; \
-           echo \"azlin-error: pulled image digest $PULLED_DIGEST for {image} does not match the digest azlin pinned ({index_digest}, or the linux/amd64 manifest {amd64_digest}); the tag may have moved on the registry, refusing to run an unverified image\" >&2; exit 10; fi; \
+           echo \"azlin-error: pulled image digest $PULLED_DIGEST for {image} does not match the digest azlin pinned ({expected_digest}, or the linux/amd64 manifest {expected_platform_digest}); the tag may have moved on the registry, refusing to run an unverified image\" >&2; exit 10; fi; \
          if command -v openssl >/dev/null 2>&1; then AZLIN_GUI_PW=$(openssl rand -hex 16); \
          else AZLIN_GUI_PW=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \\n'); fi; \
          if [ -z \"$AZLIN_GUI_PW\" ]; then \
@@ -543,42 +785,86 @@ pub fn build_install_script(plan: &GuiInstallPlan) -> String {
            if ss -ltn 2>/dev/null | grep -q {publish}; then \
              echo 'azlin-error: {publish_plain} is already in use on the VM' >&2; exit 8; fi; \
            echo \"azlin-error: failed to start the desktop container: $RUN_OUT\" >&2; exit 9; fi; \
-         {post_start}; \
+         for _ in $(seq 1 30); do \
+           if docker exec {name} test -f {cpath} >/dev/null 2>&1; then break; fi; sleep 2; \
+         done; \
+         if ! docker cp {name}:{cpath} \"$STATE_DIR/vncpasswd\" >/dev/null 2>&1; then \
+           echo 'azlin-error: the desktop container started but never wrote its password file' >&2; exit 6; fi; \
+         chmod 600 \"$STATE_DIR/vncpasswd\"; \
+         ( umask 077; printf '%s\\n' \"$AZLIN_GUI_PW\" > \"$STATE_DIR/desktoppw\" ); \
+         chmod 600 \"$STATE_DIR/desktoppw\"; \
+         docker rm -f {bridge} >/dev/null 2>&1 || true; \
+         BUILD_CTX=\"$STATE_DIR/build\"; rm -rf \"$BUILD_CTX\"; mkdir -p \"$BUILD_CTX\"; \
+         if ! BUILD_OUT=$(printf '%b' {dockerfile} | docker build -t {bridge_tag} -f - \"$BUILD_CTX\" 2>&1); then \
+           echo \"azlin-warning: the desktop is installed but the RDP bridge could not be built: $BUILD_OUT\" >&2; \
+           echo 'azlin-result: installed-vnc-only'; exit 0; fi; \
+         if ! BRIDGE_OUT=$(docker run {bridge_run_args} 2>&1); then \
+           echo \"azlin-warning: the desktop is installed but the RDP bridge could not be started: $BRIDGE_OUT\" >&2; \
+           echo 'azlin-result: installed-vnc-only'; exit 0; fi; \
+         docker exec {bridge} dpkg-query -W -f='${{Version}}' xrdp 2>/dev/null \
+           > \"$STATE_DIR/bridge-xrdp-version\" || true; \
+         chmod 600 \"$STATE_DIR/bridge-xrdp-version\" 2>/dev/null || true; \
          echo 'azlin-result: installed'",
         name = name,
         image = image,
-        protocol = sq(protocol),
+        cpath = sq(CONTAINER_VNC_PASSWD_PATH),
         required_kib = REQUIRED_FREE_KIB,
-        index_digest = sq(plan.image.index_digest),
-        amd64_digest = sq(plan.image.amd64_digest),
+        expected_digest = sq(plan.image.index_digest),
+        expected_platform_digest = sq(plan.image.amd64_digest),
         publish = publish_quoted,
         publish_plain = publish_plain,
         env_lines = env_lines,
         run_args = run_args,
-        post_start = post_start,
+        bridge = sq(BRIDGE_CONTAINER_NAME),
+        bridge_tag = sq(BRIDGE_IMAGE_TAG),
+        bridge_run_args = bridge_run_args,
+        dockerfile = dockerfile_literal,
     )
 }
 
 /// Build the script that starts an already-installed but stopped container.
 ///
-/// This is a connect-time repair, not an install: it never pulls an image and
-/// never creates a container.
+/// This is a connect-time repair, not an install: it never pulls an image, never
+/// builds one and never creates a container. It starts the bridge too, but
+/// tolerates its absence — a desktop installed by an older azlin has no bridge,
+/// and VNC must keep working there.
+///
+/// A *missing* bridge and a *broken* bridge are not the same thing, so they are
+/// not reported the same way. The bridge shares the desktop's network namespace
+/// (`--network container:<desktop>`); if the desktop container is removed and
+/// recreated rather than stopped, that namespace target no longer exists and the
+/// bridge can never start again. Swallowing that with `|| true` leaves RDP
+/// permanently broken with nothing on screen to say so, so an existing-but-
+/// unstartable bridge emits a warning naming the repair.
 pub fn build_start_script() -> String {
     format!(
         "set -u; \
          if ! docker start {name} >/dev/null 2>&1; then \
-           echo 'azlin-error: the desktop container exists but could not be started' >&2; exit 1; fi",
+           echo 'azlin-error: the desktop container exists but could not be started' >&2; exit 1; fi; \
+         if docker inspect {bridge} >/dev/null 2>&1; then \
+           if ! docker start {bridge} >/dev/null 2>&1; then \
+             echo 'azlin-warning: the RDP bridge exists but could not be started, so only VNC will work. Re-run `azlin gui install` on this VM to rebuild it.' >&2; \
+           fi; \
+         fi",
         name = sq(CONTAINER_NAME),
+        bridge = sq(BRIDGE_CONTAINER_NAME),
     )
 }
 
 /// Build the script that removes the managed container and its state.
+///
+/// It leaves the host's protocol servers alone: they are base-machine
+/// components that this command did not install and must not remove.
 pub fn build_uninstall_script() -> String {
     format!(
         "set -u; \
+         docker rm -f {bridge} >/dev/null 2>&1 || true; \
+         docker rmi -f {bridge_tag} >/dev/null 2>&1 || true; \
          docker rm -f {name} >/dev/null 2>&1 || true; \
          rm -rf \"$HOME/.azlin/gui\"",
         name = sq(CONTAINER_NAME),
+        bridge = sq(BRIDGE_CONTAINER_NAME),
+        bridge_tag = sq(BRIDGE_IMAGE_TAG),
     )
 }
 
@@ -614,18 +900,13 @@ pub fn describe_install_failure(exit_code: i32, stderr: &str) -> String {
 mod tests {
     use super::*;
 
-    fn vnc_plan() -> GuiInstallPlan {
-        GuiInstallPlan::new(GuiProtocol::Vnc, DesktopGeometry::default())
-    }
-
-    fn rdp_plan() -> GuiInstallPlan {
-        GuiInstallPlan::new(GuiProtocol::Rdp, DesktopGeometry::default())
+    fn plan() -> GuiInstallPlan {
+        GuiInstallPlan::default()
     }
 
     fn all_scripts() -> Vec<String> {
         vec![
-            build_install_script(&vnc_plan()),
-            build_install_script(&rdp_plan()),
+            build_install_script(&plan()),
             build_detect_script(),
             build_start_script(),
             build_uninstall_script(),
@@ -644,122 +925,329 @@ mod tests {
         assert_eq!(GuiProtocol::parse(""), None);
     }
 
+    #[test]
+    fn vnc_is_the_default_protocol() {
+        assert_eq!(GuiProtocol::default(), GuiProtocol::Vnc);
+    }
+
     // -- plan --------------------------------------------------------------
 
+    /// The core of the rework: install is protocol-agnostic. There is exactly
+    /// one desktop image, and the protocol never selects it. If a second
+    /// *desktop* image ever reappears, the connect-time protocol choice has
+    /// silently become an install-time choice again.
     #[test]
-    fn vnc_and_rdp_select_distinct_pinned_images_and_ports() {
-        assert_eq!(vnc_plan().image.reference, "consol/debian-xfce-vnc:v2.0.4");
-        assert_eq!(vnc_plan().host_port, 5901);
+    fn install_pins_exactly_one_protocol_agnostic_desktop_image() {
+        assert_eq!(plan().image.reference, "consol/debian-xfce-vnc:v2.0.4");
+        assert_eq!(plan().host_port, RFB_PORT);
+        assert_eq!(plan().image.container_port, RFB_PORT);
+
+        let script = build_install_script(&plan());
         assert_eq!(
-            rdp_plan().image.reference,
-            "lscr.io/linuxserver/rdesktop:ubuntu-xfce"
+            script.matches("docker pull").count(),
+            1,
+            "install must pull exactly one image"
         );
-        assert_eq!(rdp_plan().host_port, 3389);
+        assert!(
+            !script.contains("rdesktop"),
+            "the protocol-specific RDP desktop image must be gone: {script}"
+        );
+        // The bridge is a layer on the image already pulled, never a second
+        // base image: that is what keeps "both servers" affordable.
+        assert!(
+            plan().bridge_dockerfile().starts_with(&format!("FROM {}\n", DESKTOP_IMAGE.reference)),
+            "the bridge must build on the pulled desktop image"
+        );
     }
 
+    /// One install must serve both protocols, because the choice is not known
+    /// until connect time.
     #[test]
-    fn image_references_are_tag_pinned_not_latest() {
-        for image in [VNC_IMAGE, RDP_IMAGE] {
-            let tag = image
-                .reference
-                .rsplit_once(':')
-                .expect("image reference must carry an explicit tag")
-                .1;
-            assert_ne!(tag, "latest", "{} must not float on :latest", image.reference);
-            for digest in [image.index_digest, image.amd64_digest] {
-                assert!(digest.starts_with("sha256:"));
-                assert_eq!(digest.len(), "sha256:".len() + 64);
-            }
-            assert_ne!(
-                image.index_digest, image.amd64_digest,
-                "{} pins a multi-arch index; its digest differs from the amd64 child",
-                image.reference
+    fn install_provisions_both_protocol_servers() {
+        let script = build_install_script(&plan());
+
+        // VNC: the desktop image's own RFB server, published on loopback.
+        assert!(script.contains("'127.0.0.1:5901:5901'"));
+        // RDP: the bridge image is built and the sidecar started.
+        assert!(script.contains("docker build"));
+        // The build context must be an empty directory we created, never the
+        // SSH login directory — otherwise the whole of $HOME is uploaded to the
+        // daemon on every install.
+        assert!(
+            script.contains("mkdir -p \"$BUILD_CTX\"")
+                && script.contains("docker build -t 'azlin-gui-rdp:1' -f - \"$BUILD_CTX\""),
+            "the bridge build must use an empty context: {script}"
+        );
+        assert!(script.contains("'azlin-gui-rdp'"));
+        assert!(script.contains("'127.0.0.1:3389:3389'"));
+
+        // The bridge must dial the desktop's RFB endpoint, which is what makes
+        // both protocols show the same session.
+        let dockerfile = plan().bridge_dockerfile();
+        assert!(dockerfile.contains("lib=libvnc.so"));
+        assert!(dockerfile.contains("ip=127.0.0.1"));
+        assert!(dockerfile.contains("port=5901"));
+        assert!(
+            plan().bridge_run_args().contains(&"container:azlin-gui".to_string()),
+            "the bridge must share the desktop's network namespace"
+        );
+    }
+
+    /// A bridge that exists but will not start is a different situation from a
+    /// bridge that was never installed, and must not be silently swallowed:
+    /// `--network container:<desktop>` means a recreated desktop leaves the
+    /// bridge permanently unstartable, with RDP broken and nothing on screen.
+    #[test]
+    fn start_distinguishes_a_broken_bridge_from_an_absent_one() {
+        let script = build_start_script();
+        // Absent bridge: the inspect guard means no warning and no failure.
+        assert!(
+            script.contains(&format!("docker inspect {}", sq(BRIDGE_CONTAINER_NAME))),
+            "start must check whether a bridge exists before judging it broken: {script}"
+        );
+        // Present-but-unstartable: warn and name the repair.
+        assert!(
+            script.contains("azlin-warning: the RDP bridge exists but could not be started"),
+            "an existing bridge that fails to start must say so: {script}"
+        );
+        assert!(
+            script.contains("azlin gui install"),
+            "the warning must name the repair command: {script}"
+        );
+        // The desktop itself must still be the only hard failure.
+        assert!(
+            script.contains("azlin-error: the desktop container exists but could not be started"),
+            "a dead desktop remains a hard error: {script}"
+        );
+    }
+
+    /// The install records which xrdp actually went into the bridge. The package
+    /// is not version-pinned (see `bridge_dockerfile` docs), so without this the
+    /// deployed bridge is unidentifiable after the fact.
+    #[test]
+    fn install_records_the_bridge_xrdp_version() {
+        let script = build_install_script(&plan());
+        assert!(
+            script.contains("bridge-xrdp-version"),
+            "install must record the xrdp version it installed: {script}"
+        );
+        assert!(
+            script.contains("dpkg-query"),
+            "the recorded version must come from the package database: {script}"
+        );
+        // Recording must never turn a working install into a failed one.
+        let tail = script
+            .rsplit("bridge-xrdp-version")
+            .next()
+            .expect("rsplit always yields a tail");
+        assert!(
+            tail.contains("|| true"),
+            "recording the version must not be able to fail the install: {script}"
+        );
+    }
+
+    /// A bridge failure must not cost the user their desktop.
+    #[test]
+    fn a_failed_bridge_still_leaves_a_working_vnc_desktop() {
+        let script = build_install_script(&plan());
+        assert_eq!(
+            script.matches("azlin-result: installed-vnc-only").count(),
+            2,
+            "both bridge failure paths must degrade rather than fail"
+        );
+        // The bridge failure paths end in `exit 0`, never in one of the fatal
+        // install exit codes.
+        let bridge_section = script.split("docker rm -f 'azlin-gui-rdp'").nth(1).unwrap();
+        for code in [2, 3, 4, 5, 6, 7, 8, 9, 10] {
+            assert!(
+                !bridge_section.contains(&format!("exit {code}")),
+                "bridge failure must degrade, not fail with exit {code}"
             );
         }
     }
 
+    /// The desktop password must never be baked into an image layer: the VM's
+    /// image store is unencrypted and survives container removal.
+    #[test]
+    fn the_bridge_image_never_contains_the_password() {
+        let dockerfile = plan().bridge_dockerfile();
+        assert!(dockerfile.contains("password=ask"));
+        assert!(!dockerfile.contains("VNC_PW"));
+        assert!(!dockerfile.contains("$AZLIN_GUI_PW"));
+    }
+
+    /// The string assertions above inspect the *Dockerfile*. They cannot see
+    /// what ends up in the built image, which is the property that actually
+    /// matters: the VM's image store is unencrypted and survives container
+    /// removal, so a password baked into any layer is a durable leak.
+    ///
+    /// This test builds the real bridge image and greps every layer. It is
+    /// `#[ignore]`d because it needs a working Docker daemon and pulls a ~2 GiB
+    /// base image, neither of which this repo's Linux CI provides. Run it
+    /// deliberately after touching `bridge_dockerfile`:
+    ///
+    /// ```text
+    /// cargo test -p azlin-core bridge_image_layers -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore = "requires a Docker daemon and pulls a ~2 GiB base image"]
+    fn bridge_image_layers_contain_no_password_when_actually_built() {
+        use std::process::{Command, Stdio};
+
+        let plan = plan();
+        let dockerfile = plan.bridge_dockerfile();
+        let tag = "azlin-gui-rdp:layer-audit-test";
+
+        let build_ctx = std::env::temp_dir().join("azlin-bridge-layer-audit");
+        let _ = std::fs::remove_dir_all(&build_ctx);
+        std::fs::create_dir_all(&build_ctx).expect("create empty build context");
+
+        let mut child = Command::new("docker")
+            .args(["build", "-t", tag, "-f", "-"])
+            .arg(&build_ctx)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("docker build must be spawnable; is the daemon running?");
+        {
+            use std::io::Write;
+            child
+                .stdin
+                .as_mut()
+                .expect("stdin piped")
+                .write_all(dockerfile.as_bytes())
+                .expect("write Dockerfile to docker build stdin");
+        }
+        let build = child.wait_with_output().expect("docker build must complete");
+        assert!(
+            build.status.success(),
+            "docker build failed: {}",
+            String::from_utf8_lossy(&build.stderr)
+        );
+
+        // `docker history` exposes the command that created every layer; the
+        // xrdp config is written by those commands, so a password interpolated
+        // into the Dockerfile would surface here.
+        let history = Command::new("docker")
+            .args(["history", "--no-trunc", "--format", "{{.CreatedBy}}", tag])
+            .output()
+            .expect("docker history must run");
+        let history = String::from_utf8_lossy(&history.stdout);
+
+        // The rendered xrdp.ini inside the image is the file that would hold a
+        // baked-in credential.
+        let ini = Command::new("docker")
+            .args([
+                "run",
+                "--rm",
+                "--entrypoint",
+                "/bin/sh",
+                tag,
+                "-c",
+                "cat /etc/xrdp/xrdp.ini",
+            ])
+            .output()
+            .expect("docker run must read back xrdp.ini");
+        let ini = String::from_utf8_lossy(&ini.stdout);
+
+        assert!(
+            ini.contains("password=ask"),
+            "the built image must ask the client for the password: {ini}"
+        );
+        for forbidden in ["VNC_PW", "AZLIN_GUI_PW", "desktoppw", "vncpasswd"] {
+            assert!(
+                !history.contains(forbidden),
+                "layer history must not reference {forbidden}: {history}"
+            );
+            assert!(
+                !ini.contains(forbidden),
+                "built xrdp.ini must not reference {forbidden}: {ini}"
+            );
+        }
+
+        let _ = Command::new("docker").args(["rmi", "-f", tag]).output();
+        let _ = std::fs::remove_dir_all(&build_ctx);
+    }
+
+    #[test]
+    fn image_reference_is_tag_pinned_not_latest() {
+        let tag = DESKTOP_IMAGE
+            .reference
+            .rsplit_once(':')
+            .expect("image reference must carry an explicit tag")
+            .1;
+        assert_ne!(tag, "latest");
+        assert!(DESKTOP_IMAGE.amd64_digest.starts_with("sha256:"));
+        assert!(DESKTOP_IMAGE.index_digest.starts_with("sha256:"));
+    }
+
+    /// Preserved from the merged implementation: a moved tag must fail closed.
     #[test]
     fn install_verifies_the_pulled_digest_against_the_pinned_digest_and_fails_closed() {
-        for plan in [vnc_plan(), rdp_plan()] {
-            let script = build_install_script(&plan);
-            assert!(
-                script.contains(&sq(plan.image.index_digest)),
-                "install script must compare against the pinned index digest, which is what \
-                 `docker pull <tag>` records in RepoDigests: {script}"
-            );
-            assert!(
-                script.contains(&sq(plan.image.amd64_digest)),
-                "install script must also accept the pinned linux/amd64 child digest: {script}"
-            );
-            assert!(
-                script.contains("RepoDigests"),
-                "install script must inspect the pulled image's RepoDigests: {script}"
-            );
-            assert!(
-                script.contains("exit 10"),
-                "a digest mismatch must be a distinct, fail-closed exit code: {script}"
-            );
-            // On mismatch the unverified image must not be left around to run later.
-            assert!(script.contains(&format!("docker rmi {}", sq(plan.image.reference))));
-        }
+        let plan = plan();
+        let script = build_install_script(&plan);
+        // The compared value must be the digest Docker actually records for a
+        // pull-by-tag, which is the *index* digest. Comparing the amd64
+        // manifest digest alone rejects every legitimate pull.
+        assert!(
+            script.contains(&sq(plan.image.index_digest)),
+            "install script must compare against the pinned index digest: {script}"
+        );
+        assert_ne!(
+            DESKTOP_IMAGE.index_digest, DESKTOP_IMAGE.amd64_digest,
+            "these are different digests; conflating them is the bug this guards"
+        );
+        assert!(script.contains("RepoDigests"));
+        assert!(script.contains("exit 10"));
+        // On mismatch the unverified image must not be left around to run later.
+        assert!(script.contains(&format!("docker rmi {}", sq(plan.image.reference))));
+        // And the bridge must never be built on an unverified base.
+        assert!(
+            script.find("exit 10").unwrap() < script.find("docker build").unwrap(),
+            "the digest check must precede the bridge build"
+        );
     }
 
     #[test]
     fn published_port_is_always_loopback_bound() {
-        for plan in [vnc_plan(), rdp_plan()] {
-            assert!(
-                plan.publish_spec().starts_with("127.0.0.1:"),
-                "publish spec must be loopback bound, got {}",
-                plan.publish_spec()
-            );
-        }
+        assert!(
+            plan().publish_spec().starts_with("127.0.0.1:"),
+            "publish spec must be loopback bound, got {}",
+            plan().publish_spec()
+        );
     }
 
     #[test]
     fn the_novnc_web_port_is_never_published() {
-        let script = build_install_script(&vnc_plan());
         assert!(
-            !script.contains("6901"),
+            !build_install_script(&plan()).contains("6901"),
             "the noVNC web port must not be published"
         );
     }
 
     #[test]
     fn the_password_is_never_passed_on_the_docker_command_line() {
-        for plan in [vnc_plan(), rdp_plan()] {
-            let args = plan.docker_run_args("\"$ENV_FILE\"");
-            assert!(args.contains(&"--env-file".to_string()));
-            assert!(
-                !args
-                    .iter()
-                    .any(|a| a.contains("VNC_PW") || a == "-e" || a == "--env"),
-                "secrets must not appear in argv: {args:?}"
-            );
-        }
+        let args = plan().docker_run_args("\"$ENV_FILE\"");
+        assert!(args.contains(&"--env-file".to_string()));
+        assert!(
+            !args
+                .iter()
+                .any(|a| a.contains("VNC_PW") || a == "-e" || a == "--env"),
+            "secrets must not appear in argv: {args:?}"
+        );
     }
 
     #[test]
-    fn vnc_env_file_carries_geometry_and_password_reference() {
-        let plan = GuiInstallPlan::new(
-            GuiProtocol::Vnc,
-            DesktopGeometry {
-                resolution: "1280x800".to_string(),
-                depth: 16,
-            },
-        );
+    fn env_file_carries_geometry_and_password_reference() {
+        let plan = GuiInstallPlan::new(DesktopGeometry {
+            resolution: "1280x800".to_string(),
+            depth: 16,
+        });
         let entries = plan.env_file_entries("$PW");
         assert!(entries.contains(&"VNC_PW=$PW".to_string()));
         assert!(entries.contains(&"VNC_RESOLUTION=1280x800".to_string()));
         assert!(entries.contains(&"VNC_COL_DEPTH=16".to_string()));
-    }
-
-    #[test]
-    fn rdp_env_file_carries_no_secret() {
-        let entries = rdp_plan().env_file_entries("$PW");
-        assert!(
-            entries.iter().all(|e| !e.contains("$PW")),
-            "the RDP password is set with chpasswd, not through the env-file"
-        );
     }
 
     // -- security invariants ----------------------------------------------
@@ -801,77 +1289,103 @@ mod tests {
         }
     }
 
+    /// Everything is installed into Docker. The VM's own packages, services and
+    /// configuration are never touched — that is what keeps this path
+    /// distro-neutral and what makes it safe on a machine azlin does not own.
     #[test]
-    fn install_creates_its_state_directory_and_env_file_with_tight_modes() {
-        let script = build_install_script(&vnc_plan());
-        assert!(script.contains("chmod 700 \"$STATE_DIR\""));
-        assert!(script.contains("chmod 600 \"$ENV_FILE\""));
-        assert!(script.contains("chmod 600 \"$STATE_DIR/vncpasswd\""));
+    fn no_generated_script_modifies_the_host_itself() {
+        for script in all_scripts() {
+            for forbidden in ["systemctl", "sudo ", "/etc/systemd"] {
+                assert!(
+                    !script.contains(forbidden),
+                    "generated scripts must not manage host components ({forbidden}): {script}"
+                );
+            }
+            // A package manager may appear only inside the Dockerfile handed to
+            // `docker build`, never as a host command.
+            for (idx, _) in script.match_indices("apt-get") {
+                let before = &script[..idx];
+                assert!(
+                    before.contains("docker build") || before.contains("printf '%b'"),
+                    "apt-get may only run inside the container build: {script}"
+                );
+            }
+            // Likewise the xrdp config path: inside the image, never on the host.
+            for (idx, _) in script.match_indices("/etc/xrdp") {
+                assert!(
+                    script[..idx].contains("printf '%b'"),
+                    "xrdp configuration must happen inside the image: {script}"
+                );
+            }
+        }
     }
 
     #[test]
-    fn rdp_install_stores_its_password_with_a_tight_mode() {
-        let script = build_install_script(&rdp_plan());
-        assert!(script.contains("chmod 600 \"$STATE_DIR/rdppasswd\""));
+    fn install_creates_its_state_directory_and_secrets_with_tight_modes() {
+        let script = build_install_script(&plan());
+        assert!(script.contains("chmod 700 \"$STATE_DIR\""));
+        assert!(script.contains("chmod 600 \"$ENV_FILE\""));
+        assert!(script.contains("chmod 600 \"$STATE_DIR/vncpasswd\""));
+        assert!(script.contains("chmod 600 \"$STATE_DIR/desktoppw\""));
+        assert!(
+            script.contains("umask 077"),
+            "the plaintext password must never exist world-readable, even briefly"
+        );
     }
 
     // -- install script behaviour -----------------------------------------
 
     #[test]
     fn install_checks_docker_before_anything_else() {
-        let script = build_install_script(&vnc_plan());
-        let docker_check = script.find("command -v docker").unwrap();
-        let pull = script.find("docker pull").unwrap();
-        assert!(docker_check < pull);
+        let script = build_install_script(&plan());
+        assert!(script.find("command -v docker").unwrap() < script.find("docker pull").unwrap());
     }
 
     #[test]
     fn install_refuses_to_start_without_enough_free_space() {
-        let script = build_install_script(&vnc_plan());
+        let script = build_install_script(&plan());
         assert!(script.contains(&REQUIRED_FREE_KIB.to_string()));
         assert!(script.contains("exit 7"));
     }
 
     #[test]
     fn install_is_idempotent_for_a_matching_container() {
-        let script = build_install_script(&vnc_plan());
+        let script = build_install_script(&plan());
         assert!(script.contains("azlin-result: already-installed"));
         assert!(script.contains("docker start 'azlin-gui'"));
     }
 
     #[test]
     fn install_recreates_a_container_built_from_a_different_image() {
-        let script = build_install_script(&vnc_plan());
-        assert!(script.contains("docker rm -f 'azlin-gui'"));
+        assert!(build_install_script(&plan()).contains("docker rm -f 'azlin-gui'"));
     }
 
     #[test]
     fn install_survives_reboot_via_a_restart_policy() {
-        assert!(build_install_script(&vnc_plan()).contains("'--restart' 'unless-stopped'"));
+        assert!(build_install_script(&plan()).contains("'--restart' 'unless-stopped'"));
     }
 
     #[test]
     fn install_emits_a_completion_marker() {
-        assert!(build_install_script(&vnc_plan()).contains("azlin-result: installed"));
+        assert!(build_install_script(&plan()).contains("azlin-result: installed"));
     }
 
     #[test]
     fn every_install_failure_mode_has_a_distinct_exit_code() {
-        let script = build_install_script(&vnc_plan());
-        for code in [2, 3, 4, 5, 7, 8, 9, 10] {
+        let script = build_install_script(&plan());
+        for code in [2, 3, 4, 5, 6, 7, 8, 9, 10] {
             assert!(
                 script.contains(&format!("exit {code}")),
                 "install script is missing exit {code}"
             );
         }
-        assert!(build_install_script(&vnc_plan()).contains("exit 6"));
     }
 
     #[test]
     fn install_labels_the_container_so_detection_needs_no_local_state() {
-        let script = build_install_script(&rdp_plan());
-        assert!(script.contains("'azlin.gui.protocol=rdp'"));
-        assert!(script.contains("'azlin.gui.image=lscr.io/linuxserver/rdesktop:ubuntu-xfce'"));
+        let script = build_install_script(&plan());
+        assert!(script.contains("'azlin.gui.image=consol/debian-xfce-vnc:v2.0.4'"));
+        assert!(script.contains("'azlin.gui.rfb-port=5901'"));
     }
 
     // -- detection ---------------------------------------------------------
@@ -881,54 +1395,75 @@ mod tests {
         assert!(build_detect_script().trim_end().ends_with("exit 0"));
     }
 
+    /// Every exit path of the probe must report the bridge, so `--protocol rdp`
+    /// can always explain itself instead of falling through to a generic error.
     #[test]
-    fn parse_detect_output_reads_a_running_vnc_container() {
+    fn detect_reports_the_rdp_bridge_on_every_exit_path() {
+        let script = build_detect_script();
+        assert_eq!(
+            script.matches("exit 0").count(),
+            3,
+            "the probe has three exits: no docker, unusable docker, and success"
+        );
+        assert_eq!(
+            script.matches("rdp_bridge=").count(),
+            5,
+            "two early bail-outs plus the three-way container check"
+        );
+        // The RFB host port must be read from the desktop's 5901 binding
+        // specifically, so an unrelated published port cannot be mistaken for it.
+        assert!(script.contains("5901/tcp"));
+    }
+
+    #[test]
+    fn parse_detect_output_reads_a_running_desktop_with_a_live_bridge() {
         let status = parse_detect_output(
-            "docker_present=true\ndocker_usable=true\ncontainer_state=running\nprotocol=vnc\nhost_port=5901\n",
+            "rdp_bridge=listening\ndocker_present=true\ndocker_usable=true\ncontainer_state=running\nhost_port=5901\n",
         );
         assert!(status.docker_present && status.docker_usable);
         assert_eq!(status.container_state, ContainerState::Running);
-        assert_eq!(status.protocol, Some(GuiProtocol::Vnc));
         assert_eq!(status.host_port, Some(5901));
+        assert_eq!(status.rdp_bridge, RdpBridgeState::Listening);
         assert!(status.is_installed());
         assert_eq!(status.effective_port(), 5901);
     }
 
     #[test]
-    fn parse_detect_output_reads_a_stopped_rdp_container() {
+    fn parse_detect_output_reads_a_stopped_desktop() {
         let status = parse_detect_output(
-            "docker_present=true\ndocker_usable=true\ncontainer_state=exited\nprotocol=rdp\nhost_port=3389\n",
+            "rdp_bridge=installed\ndocker_present=true\ndocker_usable=true\ncontainer_state=exited\nhost_port=5901\n",
         );
         assert_eq!(status.container_state, ContainerState::Stopped);
-        assert_eq!(status.protocol, Some(GuiProtocol::Rdp));
+        assert_eq!(status.rdp_bridge, RdpBridgeState::NotRunning);
         assert!(status.is_installed());
     }
 
     #[test]
-    fn parse_detect_output_handles_a_vm_without_docker() {
+    fn parse_detect_output_handles_a_vm_without_docker_but_with_a_bridge() {
         let status = parse_detect_output(
-            "docker_present=false\ndocker_usable=false\ncontainer_state=missing\n",
+            "rdp_bridge=listening\ndocker_present=false\ndocker_usable=false\ncontainer_state=missing\n",
         );
         assert!(!status.docker_present);
         assert!(!status.is_installed());
+        assert_eq!(status.rdp_bridge, RdpBridgeState::Listening);
     }
 
     #[test]
     fn parse_detect_output_ignores_unrelated_login_shell_noise() {
         let status = parse_detect_output(
-            "Welcome to Ubuntu\nsome banner line\ndocker_present=true\ndocker_usable=true\ncontainer_state=running\nprotocol=vnc\nhost_port=5901\n",
+            "Welcome to Ubuntu\nsome banner line\nrdp_bridge=absent\ndocker_present=true\ndocker_usable=true\ncontainer_state=running\nhost_port=5901\n",
         );
         assert_eq!(status.container_state, ContainerState::Running);
         assert_eq!(status.host_port, Some(5901));
+        assert_eq!(status.rdp_bridge, RdpBridgeState::Absent);
     }
 
     #[test]
-    fn effective_port_falls_back_to_the_image_default() {
-        let status = parse_detect_output(
-            "docker_present=true\ndocker_usable=true\ncontainer_state=running\nprotocol=rdp\n",
-        );
+    fn effective_port_falls_back_to_the_rfb_default() {
+        let status =
+            parse_detect_output("docker_present=true\ndocker_usable=true\ncontainer_state=running\n");
         assert_eq!(status.host_port, None);
-        assert_eq!(status.effective_port(), 3389);
+        assert_eq!(status.effective_port(), RFB_PORT);
     }
 
     #[test]
@@ -938,6 +1473,13 @@ mod tests {
         assert_eq!(ContainerState::parse("created"), ContainerState::Stopped);
         assert_eq!(ContainerState::parse("missing"), ContainerState::Missing);
         assert_eq!(ContainerState::parse(""), ContainerState::Missing);
+    }
+
+    #[test]
+    fn an_unknown_status_claims_nothing_is_installed() {
+        let status = GuiStatus::unknown();
+        assert!(!status.is_installed());
+        assert_eq!(status.rdp_bridge, RdpBridgeState::Absent);
     }
 
     // -- remedies ----------------------------------------------------------
@@ -967,6 +1509,28 @@ mod tests {
             parse_detect_output("docker_present=true\ndocker_usable=true\ncontainer_state=missing");
         assert!(no_desktop_remedy("simard", &status).contains("azlin gui install simard"));
         assert_eq!(suggested_install_command(""), "azlin gui install");
+    }
+
+    /// A missing bridge must never be a dead end: VNC always works without one.
+    #[test]
+    fn an_absent_rdp_bridge_offers_both_vnc_and_a_repair() {
+        let msg = rdp_bridge_remedy(RdpBridgeState::Absent);
+        assert!(msg.contains("--protocol vnc"));
+        assert!(msg.contains("azlin gui install"));
+        // The repair is a reinstall of the desktop, never a host package.
+        assert!(!msg.contains("apt-get"));
+    }
+
+    #[test]
+    fn a_stopped_rdp_bridge_says_how_to_start_it() {
+        let msg = rdp_bridge_remedy(RdpBridgeState::NotRunning);
+        assert!(msg.contains("docker start azlin-gui-rdp"));
+        assert!(msg.contains("--protocol vnc"));
+    }
+
+    #[test]
+    fn a_live_rdp_bridge_has_no_remedy() {
+        assert!(rdp_bridge_remedy(RdpBridgeState::Listening).is_empty());
     }
 
     #[test]
