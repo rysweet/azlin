@@ -11,7 +11,7 @@ A context is a named file recording defaults for a set of Azure work:
 | `subscription_id` | yes              | Every command runs against this subscription                             |
 | `resource_group`  | yes              | Default resource group when `--resource-group` is not passed             |
 | `tenant_id`       | yes (checked)    | Commands refuse to run if the Azure CLI is signed in to a different one  |
-| `region`          | no (recorded)    | Recorded for reference; commands still use `config default_region`       |
+| `region`          | yes              | Default region for `azlin new` and the `list --quota` read                |
 | `key_vault_name`  | no (recorded)    | Recorded for reference; no command reads it yet                          |
 
 Fields marked "no" are stored and shown, but do not change command behaviour.
@@ -87,7 +87,7 @@ azlin will switch the CLI to zzzzzzzz-… before running any Azure command, and
 will refuse to run if the switch does not take effect.
 ```
 
-## Resource-Group Precedence
+## Resource-Group and Region Precedence
 
 For any command, the resource group is resolved in this order — the first that
 applies wins:
@@ -95,6 +95,12 @@ applies wins:
 1. `--resource-group <rg>` passed to the command
 2. `resource_group` in the active context
 3. `default_resource_group` from `azlin config`
+
+Region follows the same shape:
+
+1. `--region <name>` passed to the command
+2. `region` in the active context
+3. `default_region` from `azlin config`
 
 ## All Commands
 
@@ -123,7 +129,7 @@ Create a context.
 - `--subscription-id <uuid>` — Azure subscription ID
 - `--tenant-id <uuid>` — Azure tenant ID
 - `--resource-group <name>` — default resource group for this context
-- `--region <name>` — recorded for reference
+- `--region <name>` — default region for VM creation in this context
 - `--key-vault-name <name>` — recorded for reference
 
 ### `azlin context delete <name>`

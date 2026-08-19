@@ -149,8 +149,8 @@ pub fn resolve_rg(
         .or(config_default)
 }
 
-/// Region precedence, mirroring [`resolve_rg`].
-#[allow(dead_code)]
+/// Region precedence, mirroring [`resolve_rg`]. Applied to VM creation and
+/// the per-region quota read.
 pub fn resolve_region(
     explicit: Option<String>,
     active: Option<&ActiveContext>,

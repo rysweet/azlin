@@ -329,7 +329,13 @@ pub(crate) async fn dispatch(
             if quota {
                 let _rg = resolve_rg()?;
                 println!("\nvCPU Quota:");
-                let quota_location = &config.default_region;
+                // Quota is per-region, so it must be read for the region the
+                // active context selects — not the global config default.
+                let quota_location = &crate::active_context::resolve_region(
+                    None,
+                    crate::active_context::load_active()?.as_ref(),
+                    config.default_region.clone(),
+                );
                 let output = std::process::Command::new("az")
                     .args([
                         "vm",
