@@ -883,6 +883,10 @@ mod sessions;
 /// Context TOML helpers for reading, writing, and listing contexts.
 mod contexts;
 
+/// Read side of `azlin context use` — resolves the selected context and the
+/// subscription / resource group every command must run against.
+mod active_context;
+
 /// Helpers for `azlin env` subcommands — pure functions that build SSH commands
 /// and parse environment variable output. No network I/O.
 #[allow(dead_code)]

@@ -20,7 +20,7 @@ fn test_context_build_toml_no_optional_fields() {
     assert!(tbl.get("key_vault_name").is_none());
 }
 
-// ── contexts::read_context_resource_group — name from filestem ───────
+// ── active_context::parse_context — name from filestem ───────
 
 #[test]
 fn test_context_read_resource_group_name_from_filestem() {
@@ -29,9 +29,10 @@ fn test_context_read_resource_group_name_from_filestem() {
     let path = tmp.path().join("my-ctx.toml");
     fs::write(&path, "resource_group = \"my-rg\"\n").unwrap();
 
-    let (name, rg) = crate::contexts::read_context_resource_group(&path).unwrap();
-    assert_eq!(name, "my-ctx");
-    assert_eq!(rg, Some("my-rg".to_string()));
+    let ctx = crate::active_context::parse_context("my-ctx", &fs::read_to_string(&path).unwrap())
+        .unwrap();
+    assert_eq!(ctx.name, "my-ctx");
+    assert_eq!(ctx.resource_group.as_deref(), Some("my-rg"));
 }
 
 // ── create_helpers::build_clone_cmd — SSH URL ──────────────────

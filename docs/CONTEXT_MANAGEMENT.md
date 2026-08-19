@@ -1,174 +1,227 @@
 # Multi-Tenant Context Management
 
-azlin supports kubectl-style context management for seamless switching between multiple Azure tenants and subscriptions.
+azlin supports kubectl-style context management for switching between multiple Azure subscriptions, tenants and resource groups.
 
-## What are Contexts?
+## What a Context Is
 
-A context bundles together:
-- Azure tenant ID
-- Azure subscription ID
-- Optional authentication profile
-- Resource group and region defaults
+A context is a named file recording defaults for a set of Azure work:
 
-This allows you to manage VMs across multiple Azure environments (dev, staging, production) or multiple customer tenants without changing environment variables or running `az account set`.
+| Field             | Applied by azlin | Effect                                                                   |
+| ----------------- | ---------------- | ------------------------------------------------------------------------ |
+| `subscription_id` | yes              | Every command runs against this subscription                             |
+| `resource_group`  | yes              | Default resource group when `--resource-group` is not passed             |
+| `tenant_id`       | yes (checked)    | Commands refuse to run if the Azure CLI is signed in to a different one  |
+| `region`          | no (recorded)    | Recorded for reference; commands still use `config default_region`       |
+| `key_vault_name`  | no (recorded)    | Recorded for reference; no command reads it yet                          |
+
+Fields marked "no" are stored and shown, but do not change command behaviour.
 
 ## Quick Start
 
 ```bash
 # Create contexts for different environments
 azlin context create dev \
-  --subscription xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \
-  --tenant yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
+  --subscription-id xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \
+  --tenant-id yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy \
+  --resource-group dev-rg
 
 azlin context create prod \
-  --subscription zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz \
-  --tenant wwwwwwww-wwww-wwww-wwww-wwwwwwwwwwww \
-  --auth-profile prod-sp
+  --subscription-id zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz \
+  --tenant-id yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy \
+  --resource-group prod-rg
 
-# List all contexts
+# List all contexts (the active one is marked with *)
 azlin context list
 
 # Switch between contexts
 azlin context use dev
-azlin list  # Shows VMs in dev subscription
+azlin list          # VMs in the dev subscription's dev-rg
 
 azlin context use prod
-azlin list  # Shows VMs in prod subscription
+azlin list          # VMs in the prod subscription's prod-rg
 
-# Check current context
-azlin context current
+# Check the current context and the subscription actually in force
+azlin context show
 ```
+
+## How Switching Works
+
+`azlin context use <name>` runs `az account set --subscription <id>`, then re-reads
+`az account show` to confirm the switch took effect:
+
+```
+$ azlin context use prod
+Switched to context 'prod' (Azure CLI subscription: zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz)
+Note: this sets the Azure CLI's default subscription, which also affects plain 'az' commands.
+```
+
+Two consequences worth knowing:
+
+- **The switch is global to the Azure CLI.** azlin invokes `az` for every Azure
+  operation, so moving the CLI's active subscription is what makes the context
+  apply. Plain `az` commands in your shell follow it too.
+- **A switch that cannot be performed is not recorded.** If `az account set`
+  fails — not logged in, no access to that subscription, `az` not installed —
+  the command exits non-zero and the active context is left unchanged. azlin
+  never reports a switch it did not make.
+
+Every command re-applies the active context before talking to Azure, so if
+something else repoints the CLI in the meantime, azlin moves it back (and
+refuses to run if it cannot).
+
+## Checking What Is Actually in Force
+
+`azlin context show` prints the context file *and* the subscription the Azure CLI
+reports right now, so a mismatch is visible rather than assumed:
+
+```
+$ azlin context show
+Current context: prod
+name = "prod"
+resource_group = "prod-rg"
+subscription_id = "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz"
+
+Effective subscription (az account show): xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+MISMATCH: this context pins zzzzzzzz-…, but the Azure CLI is on xxxxxxxx-….
+azlin will switch the CLI to zzzzzzzz-… before running any Azure command, and
+will refuse to run if the switch does not take effect.
+```
+
+## Resource-Group Precedence
+
+For any command, the resource group is resolved in this order — the first that
+applies wins:
+
+1. `--resource-group <rg>` passed to the command
+2. `resource_group` in the active context
+3. `default_resource_group` from `azlin config`
 
 ## All Commands
 
-### azlin context list
-List all contexts with rich table formatting showing subscription, tenant, and auth profile.
+### `azlin context list`
 
-### azlin context current
-Show details of the currently active context.
+List all contexts. The active one is marked with `*`.
 
-### azlin context use <name>
-Switch to a different context. This updates both azlin's config and Azure CLI's active subscription.
+### `azlin context show` (alias: `current`)
 
-### azlin context create <name>
-Create a new context with the specified subscription and tenant.
+Show the active context, its file contents, and the effective Azure CLI subscription.
+
+### `azlin context use <name>` (alias: `switch`)
+
+Switch to a context. Sets the Azure CLI's active subscription and verifies it.
+Fails without recording anything if the switch cannot be performed.
+
+A context with no `subscription_id` is selected without an Azure call, and says
+so — selecting it cannot change which subscription commands run against.
+
+### `azlin context create <name>`
+
+Create a context.
 
 **Options:**
-- `--subscription <uuid>` (required) - Azure subscription ID
-- `--tenant <uuid>` (required) - Azure tenant ID
-- `--auth-profile <name>` (optional) - Service principal profile to use
-- `--description <text>` (optional) - Human-readable description
-- `--set-current` (optional) - Set as active context immediately
 
-### azlin context delete <name>
-Delete a context. Cannot delete the currently active context.
+- `--subscription-id <uuid>` — Azure subscription ID
+- `--tenant-id <uuid>` — Azure tenant ID
+- `--resource-group <name>` — default resource group for this context
+- `--region <name>` — recorded for reference
+- `--key-vault-name <name>` — recorded for reference
 
-### azlin context rename <old-name> <new-name>
-Rename a context while preserving all configuration.
+### `azlin context delete <name>`
 
-### azlin context migrate
-Auto-migrate from legacy config format (with `default_subscription_id`) to new context format.
+Delete a context. If it was active, the active-context marker is cleared.
 
-## Use Cases
+### `azlin context rename <old-name> <new-name>`
 
-### Multi-Environment Teams
+Rename a context, preserving its contents and its active status.
 
-Manage separate dev, staging, and production environments:
+### `azlin context migrate`
 
-```bash
-# Setup once
-azlin context create dev --subscription <dev-sub> --tenant <tenant>
-azlin context create staging --subscription <staging-sub> --tenant <tenant>
-azlin context create prod --subscription <prod-sub> --tenant <tenant>
+Create a `default` context from the current `az account show` output plus your
+existing `default_resource_group` / `default_region` config.
 
-# Daily work: switch as needed
-azlin context use dev && azlin new feature-vm
-azlin context use staging && azlin sync feature-vm
-azlin context use prod && azlin list
+## Listing Across Contexts
+
+`azlin list --all-contexts` queries each context's own subscription explicitly
+(`az vm list --subscription <id>`), without changing the CLI's active
+subscription. Each block header names the subscription and resource group the
+rows below came from:
+
+```
+── context: dev (subscription: xxxxxxxx-…, rg: dev-rg) — 4 VMs ──
+── context: prod (subscription: zzzzzzzz-…, rg: prod-rg) — 6 VMs ──
 ```
 
-### Multi-Customer Consultants
+A context with no `subscription_id` is listed from whichever subscription the
+CLI is on, and its header says so with `[inherited — context pins none]`.
 
-Work with different Azure tenants per customer:
+When the listing spans more than one subscription, the bastion, tmux and health
+columns are omitted: those lookups are scoped to a single subscription and
+cannot be attributed correctly across several.
 
-```bash
-# Different tenants per customer
-azlin context create client-a --subscription <a-sub> --tenant <a-tenant>
-azlin context create client-b --subscription <b-sub> --tenant <b-tenant> --auth-profile client-b-sp
+`--contexts <pattern>` filters which contexts are included (`*` acts as a
+substring wildcard).
 
-# Switch between customers
-azlin context use client-a
-azlin new test-vm  # Creates in client-a's subscription
+## Storage
 
-azlin context use client-b
-azlin connect prod-vm  # Connects to VM in client-b's subscription
+Contexts live under azlin's state directory — `$AZLIN_CONFIG_DIR` if set,
+otherwise `~/.azlin`:
+
+```
+~/.azlin/
+├── active-context          # a single line: the selected context's name
+└── contexts/
+    ├── dev.toml
+    └── prod.toml
 ```
 
-### Cross-Tenant Operations
-
-Search and manage VMs across multiple tenants:
-
-```bash
-# Create contexts for each tenant
-azlin context create tenant1 --subscription <uuid1> --tenant <tenant1>
-azlin context create tenant2 --subscription <uuid2> --tenant <tenant2>
-
-# Switch between them
-azlin context use tenant1 && azlin list
-azlin context use tenant2 && azlin list
-```
-
-## Configuration
-
-Contexts are stored in `~/.azlin/config.toml`:
+Each context file is plain TOML:
 
 ```toml
-# Current active context
-[contexts]
-current = "production"
-
-# Context definitions
-[contexts.definitions.production]
-subscription_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-tenant_id = "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
-auth_profile = "prod-sp"  # Optional - links to service principal
-
-[contexts.definitions.development]
+name = "prod"
 subscription_id = "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz"
-tenant_id = "wwwwwwww-wwww-wwww-wwww-wwwwwwwwwwww"
-# No auth_profile = uses Azure CLI authentication
+tenant_id = "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
+resource_group = "prod-rg"
+region = "westus2"
 ```
 
 ## Security
 
-- **No secrets stored**: Only references to auth profiles
-- **UUID validation**: All subscription/tenant IDs validated
-- **Name sanitization**: Context names restricted to alphanumeric + hyphen/underscore
-- **Secure permissions**: Config files enforced to 0600 (owner read/write only)
-
-## Backward Compatibility
-
-Existing configs work without modification. If you have old-style config with `default_subscription_id`, you can optionally run `azlin context migrate` to convert to the new format.
-
-The migration creates a "default" context from your legacy settings and is completely optional.
+- **No secrets stored** — contexts hold subscription/tenant IDs and names only.
+- **Name sanitization** — context names are restricted to alphanumeric plus
+  hyphen/underscore, and path traversal is rejected.
+- **Tenant check** — if a context pins `tenant_id` and the Azure CLI is signed
+  in to a different tenant, commands refuse to run rather than acting on a
+  subscription reached through unexpected credentials.
 
 ## Troubleshooting
 
-### Context switching doesn't change subscription
+### `context use` fails with "Did not switch to context …"
 
-If `azlin context use <name>` doesn't switch the Azure CLI subscription, manually run:
+The Azure CLI could not be moved onto that context's subscription. The active
+context is unchanged — nothing was switched, and no command will act as if it
+had been. Check:
+
 ```bash
-az account set --subscription <subscription-id>
+az account list --output table   # do you have access to that subscription?
+az login                          # or log in to the right tenant
 ```
 
-### Context not found error
+### A command refuses to run, reporting a subscription mismatch
 
-List available contexts:
-```bash
-azlin context list
-```
+`az account set` reported success but `az account show` still shows a different
+subscription. This usually means the subscription ID in the context does not
+exist in the cloud/tenant you are signed in to. Verify with
+`az account list --output table`.
 
-Create a new context if needed:
-```bash
-azlin context create <name> --subscription <uuid> --tenant <uuid>
-```
+### "Active context '<name>' is selected but its file cannot be read"
+
+The `active-context` marker names a context whose file is missing or malformed.
+Run `azlin context list` to see what exists and `azlin context use <name>` to
+select one of them.
+
+### A resource group error mentions the active context
+
+The active context does not set a `resource_group`. Either pass
+`--resource-group <rg>`, recreate the context with
+`azlin context create <name> --resource-group <rg>`, or set the global default
+with `azlin config set default_resource_group <rg>`.
