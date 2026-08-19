@@ -1,10 +1,12 @@
 name: "PR 1072 containerised GUI install/connect/uninstall"
 description: |
   Exercises `azlin gui install` end to end against a real VM: installs a
-  containerised VNC desktop, verifies `azlin gui <vm>` auto-detects the
-  container and tunnels to it instead of the native VNC path, then removes
-  it with `azlin gui install <vm> --uninstall` and confirms the VM is left
-  clean (no `azlin-gui` container, no `~/.azlin/gui` state directory).
+  containerised desktop that serves both VNC and RDP, verifies `azlin gui
+  <vm>` auto-detects the container and tunnels to it instead of the native
+  VNC path, checks that `--protocol rdp` reaches the bridge on the same
+  install, then removes it with `azlin gui install <vm> --uninstall` and
+  confirms the VM is left clean (no `azlin-gui` or `azlin-gui-rdp`
+  container, no `~/.azlin/gui` state directory).
 
   Requires a live Azure VM with Docker installed and reachable over SSH or
   Bastion (same "real-vm" precondition as pr-945-gui-setup-regression.yaml
@@ -52,7 +54,7 @@ steps:
           timeout 600 "$AZLIN_BIN" gui install "$VM" >"$LOG" 2>&1
         cat "$LOG"
 
-        grep -q "port 5901 is published on the VM's loopback interface only" "$LOG"
+        grep -q "ports 5901 (VNC) and 3389 (RDP) are published on the VM's loopback interface only" "$LOG"
         grep -Eq "Remote desktop (installed|already installed)" "$LOG"
         echo "PR1072_GUI_INSTALL_OK"
     expect:
@@ -111,6 +113,58 @@ steps:
       stdout_contains: "PR1072_GUI_CONTAINER_DETECTED_OK"
     timeout: 90000
 
+  - name: "the same install also serves RDP at connect time"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        set -euo pipefail
+        AZLIN_BIN=${AZLIN_BIN:-rust/target/debug/azlin}
+        AZURE_CONFIG_DIR=${AZURE_CONFIG_DIR:-$HOME/azure-atevet17}
+        VM=${AZLIN_GUI_INSTALL_TEST_VM:-devy}
+        LOG=$(mktemp)
+        GUI_PID=""
+
+        cleanup() {
+          status=$?
+          trap - EXIT
+          set +e
+          if [ -n "$GUI_PID" ]; then
+            CHILD_PIDS=$(ps -eo pid=,ppid= | awk -v target="$GUI_PID" '$2 == target {print $1}')
+            kill "$GUI_PID" 2>/dev/null || true
+            if [ -n "${CHILD_PIDS:-}" ]; then
+              kill $CHILD_PIDS 2>/dev/null || true
+            fi
+            wait "$GUI_PID" 2>/dev/null || true
+          fi
+          rm -f "$LOG"
+          exit "$status"
+        }
+        trap cleanup EXIT
+
+        # No second install: the protocol is a connect-time choice.
+        AZURE_CONFIG_DIR="$AZURE_CONFIG_DIR" AZLIN_NO_UPDATE_CHECK=1 \
+          "$AZLIN_BIN" gui "$VM" --protocol rdp >"$LOG" 2>&1 &
+        GUI_PID=$!
+
+        for attempt in $(seq 1 60); do
+          if grep -q "RDP" "$LOG"; then
+            break
+          fi
+          sleep 1
+        done
+        cat "$LOG"
+
+        # The RDP bridge must have been detected; a missing bridge produces the
+        # explicit remedy text instead.
+        ! grep -q "has no RDP bridge" "$LOG"
+        ! grep -q "Checking remote dependencies" "$LOG"
+        echo "PR1072_GUI_RDP_SAME_INSTALL_OK"
+    expect:
+      exit_code: 0
+      stdout_contains: "PR1072_GUI_RDP_SAME_INSTALL_OK"
+    timeout: 90000
+
   - name: "azlin gui install --uninstall removes the container and its state"
     agent: "cli-agent"
     action: "execute_command"
@@ -137,6 +191,7 @@ metadata:
     - "gui"
     - "docker"
     - "vnc"
+    - "rdp"
     - "container"
     - "real-vm"
   priority: "high"
