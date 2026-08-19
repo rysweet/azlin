@@ -158,7 +158,7 @@ pub(crate) async fn dispatch(
                         "'{}' is not a known VM; searching tmux sessions...",
                         name
                     ));
-                    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+                    let config = crate::dispatch_helpers::load_user_config();
                     // If listing VMs fails here (e.g. a transient Azure API
                     // error), don't silently treat that the same as "checked
                     // and found no matching session" — report the original

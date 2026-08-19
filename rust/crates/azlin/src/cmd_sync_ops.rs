@@ -159,7 +159,7 @@ pub(crate) async fn handle_cp(
             direction, source, dest, rg
         );
     } else {
-        let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+        let config = crate::dispatch_helpers::load_user_config();
         println!("Copying ({}) {} -> {}...", direction, source, dest);
         if crate::cp_helpers::is_remote_path(source) || crate::cp_helpers::is_remote_path(dest) {
             let (vm_part, _path_part) = if crate::cp_helpers::is_remote_path(source) {
@@ -275,7 +275,7 @@ pub(crate) async fn handle_logs(
         ],
     };
 
-    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+    let config = crate::dispatch_helpers::load_user_config();
     let target = resolve_vm_ssh_target(vm_identifier, None, resource_group).await?;
 
     // tail -f natively supports multiple files; join paths with spaces

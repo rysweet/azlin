@@ -210,9 +210,12 @@ async fn test_dispatch_completions_elvish() {
 
 #[tokio::test]
 async fn test_dispatch_config_get_default_region_exists() {
-    // Verify default_region is a valid config key
-    let r = run_dispatch(&["config", "get", "default_region"]).await;
-    assert!(r.is_ok(), "config get default_region failed: {:?}", r.err());
+    // Isolated: `config get` reads the real ~/.azlin/config.toml in-process,
+    // which couples this test to developer state and to any test writing it
+    // concurrently (issue #1079).
+    let dir = tempfile::TempDir::new().unwrap();
+    let out = run_isolated(&dir, &["config", "get", "default_region"]);
+    assert_isolated_ok(&out, "config get default_region");
 }
 
 #[tokio::test]

@@ -33,7 +33,7 @@ pub(crate) async fn dispatch(
         } => {
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
-            let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+            let config = crate::dispatch_helpers::load_user_config();
             let include_all = all || include_stopped;
 
             // Select cached or uncached list methods based on --no-cache flag
