@@ -665,6 +665,12 @@ template.yaml
 .claude/runtime/
 .claude/worktrees/
 
+# Same, but for stray .claude/ dirs created outside the repo root (hooks write
+# metrics relative to cwd). The patterns above contain a mid-pattern '/' and so
+# are anchored to the repo root, which let rust/.claude/runtime/ be committed.
+**/.claude/runtime/
+**/.claude/logs/
+
 # Code intelligence indexes (Sourcegraph SCIP format)
 *.scip
 index.scip

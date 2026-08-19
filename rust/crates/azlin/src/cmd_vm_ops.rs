@@ -1609,16 +1609,4 @@ mod tests {
         assert!(msg.contains("azlin-natgw-centralus"));
         assert!(!msg.contains("azlin-natgw-CentralUS"));
     }
-
-    #[test]
-    fn test_nat_missing_action_switch_to_public_ip_is_a_real_escape_hatch() {
-        // A public-IP VM has egress via its own instance IP, so option 2 is
-        // legitimate. It mutates `want_public_ip`, which is why the NAT block
-        // must re-test that flag rather than nest inside the bastion block.
-        assert_ne!(
-            NatMissingAction::SwitchToPublicIp,
-            NatMissingAction::CreateNatGateway
-        );
-        assert_ne!(NatMissingAction::SwitchToPublicIp, NatMissingAction::Abort);
-    }
 }

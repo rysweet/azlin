@@ -365,19 +365,30 @@ pub fn ensure_nat_gateway(resource_group: &str, region: &str, ip_tags: &str) -> 
         return Ok(());
     }
 
+    // Drive the same plan the tests assert against, rather than re-listing the
+    // three commands here: a second hand-written sequence could drift from the
+    // planner, and every drift creates a billable resource with the wrong shape.
+    let plan = plan_nat_provisioning(&status, resource_group, region, ip_tags);
+    let [create_pip, create_natgw, attach] = plan.as_slice() else {
+        anyhow::bail!(
+            "internal error: NAT provisioning plan had {} steps, expected 3",
+            plan.len()
+        );
+    };
+
     let natgw = natgw_name_for_region(region);
     let pip = natgw_pip_name(region);
 
     eprintln!("Creating NAT gateway public IP '{pip}' (Standard, zones 1 2 3)...");
     run_nat_step(
-        &build_create_natgw_pip_args(resource_group, region, ip_tags),
+        create_pip,
         &format!("Failed to create NAT gateway public IP '{pip}' in {region}"),
     )?;
     eprintln!("  ✓ Public IP '{pip}' ready");
 
     eprintln!("Creating NAT gateway '{natgw}' (Standard SKU, 10 min idle timeout)...");
     run_nat_step(
-        &build_create_natgw_args(resource_group, region),
+        create_natgw,
         &format!("Failed to create NAT gateway '{natgw}' in {region}"),
     )?;
     eprintln!("  ✓ NAT gateway '{natgw}' created");
@@ -385,7 +396,7 @@ pub fn ensure_nat_gateway(resource_group: &str, region: &str, ip_tags: &str) -> 
     let vnet = crate::bastion_helpers::bastion_vnet_name(region);
     eprintln!("Attaching '{natgw}' to subnet '{VM_SUBNET}' of '{vnet}'...");
     if let Err(e) = run_nat_step(
-        &build_attach_natgw_args(resource_group, region),
+        attach,
         &format!("Failed to attach NAT gateway '{natgw}' to subnet '{VM_SUBNET}' in {region}"),
     ) {
         // A concurrent `azlin new` in the same region writes the same subnet.
