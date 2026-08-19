@@ -1195,10 +1195,7 @@ mod tests {
             script.contains("apt update && apt install -y gh"),
             "Missing GitHub CLI install"
         );
-        assert!(
-            script.contains("InstallAzureCLIDeb"),
-            "Missing Azure CLI install"
-        );
+        assert!(script.contains("azure-cli"), "Missing Azure CLI install");
     }
 
     #[test]
