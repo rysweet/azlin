@@ -282,17 +282,31 @@ pub(crate) fn handle_cleanup(
 /// Only called when at least one NIC was deleted, since that is the only
 /// deletion here that can free another resource.
 fn recheck_freed_resources(rg: &str) -> Result<Vec<OrphanedResource>> {
+    // Check the exit status. Returning stdout unconditionally means an `az`
+    // failure (expired login, throttling, RBAC) yields an empty string, which
+    // then fails to parse, which the `if let Ok(..)` below would discard —
+    // three layers of silence ending in "Cleanup complete" while the resource
+    // this pass exists to collect is still there.
     let az_list = |args: &[&str]| -> Result<String> {
         let out = std::process::Command::new("az")
             .args(args)
             .args(["-g", rg, "-o", "json"])
             .output()?;
+        if !out.status.success() {
+            anyhow::bail!(
+                "az {} failed: {}",
+                args.join(" "),
+                String::from_utf8_lossy(&out.stderr).trim()
+            );
+        }
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
     };
     let mut freed = Vec::new();
 
     let nsg_json = az_list(&["network", "nsg", "list"])?;
-    if let Ok(nsgs) = serde_json::from_str::<Vec<serde_json::Value>>(&nsg_json) {
+    {
+        let nsgs: Vec<serde_json::Value> = serde_json::from_str(&nsg_json)
+            .context("Failed to parse NSG list during cleanup recheck")?;
         for nsg in &nsgs {
             if azlin_azure::teardown::nsg_is_unassociated(nsg) {
                 if let Some(name) = nsg.get("name").and_then(|n| n.as_str()) {
@@ -312,7 +326,9 @@ fn recheck_freed_resources(rg: &str) -> Result<Vec<OrphanedResource>> {
     }
 
     let pip_json = az_list(&["network", "public-ip", "list"])?;
-    if let Ok(ips) = serde_json::from_str::<Vec<serde_json::Value>>(&pip_json) {
+    {
+        let ips: Vec<serde_json::Value> = serde_json::from_str(&pip_json)
+            .context("Failed to parse public IP list during cleanup recheck")?;
         for ip in &ips {
             if azlin_azure::teardown::public_ip_is_unassociated(ip) {
                 if let Some(name) = ip.get("name").and_then(|n| n.as_str()) {
