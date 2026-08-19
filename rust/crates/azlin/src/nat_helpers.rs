@@ -280,6 +280,13 @@ const AUTHZ_MARKERS: [&str; 2] = ["AuthorizationFailed", "does not have authoriz
 /// flight" — a lost race, not a real failure.
 const CONFLICT_MARKERS: [&str; 2] = ["AnotherOperationInProgress", "Conflict"];
 
+/// Pause before re-reading the subnet. The failures this retry exists for —
+/// ARM throttling (429) and transient 5xx — are time-based: an immediate
+/// second call lands inside the same throttle window and fails identically.
+/// Two seconds is long enough to clear a typical ARM retry-after and short
+/// enough to be invisible next to `az vm create`.
+const READ_RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// Append the missing-role hint when an `az` failure was an authorization
 /// denial. Provisioning egress needs write access to the VNet and to public
 /// IPs; without naming the role the user cannot act on the error.
@@ -316,13 +323,14 @@ fn try_detect_nat_status(resource_group: &str, region: &str) -> Result<NatStatus
 /// so proceeding blind could repoint someone else's gateway.
 ///
 /// Because that makes a read failure fatal to `azlin new`, the read is retried
-/// once. ARM throttling and transient 5xx are common enough that a single blip
-/// should not block VM creation.
+/// once after [`READ_RETRY_BACKOFF`]. ARM throttling and transient 5xx are
+/// common enough that a single blip should not block VM creation.
 pub fn detect_nat_status(resource_group: &str, region: &str) -> Result<NatStatus> {
     let first = match try_detect_nat_status(resource_group, region) {
         Ok(status) => return Ok(status),
         Err(e) => e,
     };
+    std::thread::sleep(READ_RETRY_BACKOFF);
     let second = match try_detect_nat_status(resource_group, region) {
         Ok(status) => return Ok(status),
         Err(e) => e,
@@ -907,6 +915,20 @@ mod tests {
                 "must be treated as a lost race, not a failure: {e}"
             );
         }
+    }
+
+    #[test]
+    fn test_read_retry_backoff_is_nonzero_and_bounded() {
+        // Zero would make the retry useless against ARM throttling; anything
+        // long enough to notice would stall `azlin new` on every blip.
+        assert!(
+            !READ_RETRY_BACKOFF.is_zero(),
+            "an immediate retry lands in the same throttle window"
+        );
+        assert!(
+            READ_RETRY_BACKOFF <= std::time::Duration::from_secs(5),
+            "backoff must stay invisible next to `az vm create`"
+        );
     }
 
     #[test]
