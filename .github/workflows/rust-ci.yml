@@ -1,10 +1,13 @@
 name: Rust CI
 
 on:
+  # The workflow file itself is included so that a change to Rust CI is
+  # exercised by Rust CI. Without it, editing this file skips every job here
+  # and a broken or weakened gate lands with a fully green PR.
   push:
-    paths: ['rust/**']
+    paths: ['rust/**', '.github/workflows/rust-ci.yml']
   pull_request:
-    paths: ['rust/**']
+    paths: ['rust/**', '.github/workflows/rust-ci.yml']
 
 permissions: {}
 
