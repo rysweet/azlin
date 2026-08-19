@@ -192,10 +192,15 @@ default outbound access, so an empty gateway query there really does mean no
 egress:
 
 ```bash
-az network vnet show \
-  --resource-group $RG --name azlin-bastion-${REGION}-vnet \
+az network vnet subnet show \
+  --resource-group $RG --vnet-name azlin-bastion-${REGION}-vnet --name default \
   --query "{name:name, defaultOutbound:defaultOutboundAccess}" -o json
 ```
+
+`defaultOutboundAccess` is a property of the **subnet**, not of the VNet, so
+query the subnet as above. A `null` result means the property was never set
+explicitly, which is the default-on behaviour for a VNet created before the
+retirement date.
 
 ### Provisioning Fails with `AuthorizationFailed`
 

@@ -418,8 +418,11 @@ pub(crate) fn parse_egress_probe(output: &str) -> EgressStatus;
 /// The stderr banner printed for a degraded VM.
 pub(crate) fn egress_failure_message(vm_name: &str, region: &str) -> String;
 
-/// Total — never returns `Err`. SSH transport failure maps to `Unknown`.
-pub(crate) fn verify_egress(/* ssh target */) -> EgressStatus;
+/// Runs the probe over the SSH path already established for post-create work,
+/// taking the same target parameters as the other `auth_forward` helpers
+/// (address, user, optional bastion port, optional key override, interactive
+/// flag). Total — never returns `Err`; SSH transport failure maps to `Unknown`.
+pub(crate) fn verify_egress(/* … */) -> EgressStatus;
 ```
 
 | Remote output | `EgressStatus` | VM reported as |
@@ -475,14 +478,10 @@ A NAT gateway's public IP reports `ipConfiguration: null` — that field only ev
 holds NIC and Bastion IP configurations. The orphan predicate therefore requires
 both fields to be absent before an address is considered unassociated:
 
-```rust
-pub fn public_ip_is_unassociated(ip: &serde_json::Value) -> bool {
-    // A NAT gateway's SNAT address has no ipConfiguration but is very much in
-    // use — deleting it strips egress from every private VM in the region.
-    let is_free = |key: &str| ip.get(key).map(|v| v.is_null()).unwrap_or(true);
-    is_free("ipConfiguration") && is_free("natGateway")
-}
-```
+`public_ip_is_unassociated` in `azlin-azure/src/teardown.rs` treats an address
+as orphaned only when **both** `ipConfiguration` and `natGateway` are null or
+absent. A missing field counts as free, so the predicate stays correct against
+an `az` response that omits either key.
 
 `azlin cleanup` (via `cmd_cleanup_ops.rs`) and the teardown planner used by
 `azlin kill` / `azlin destroy` / `azlin delete` share this one predicate, so

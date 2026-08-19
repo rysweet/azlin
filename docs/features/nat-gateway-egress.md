@@ -272,12 +272,18 @@ treated as reachable without an SSH round-trip.
 |--------------|----------------|-----------|
 | Reachable | Complete | 0 |
 | Explicitly unreachable | **Degraded** | non-zero |
-| Indeterminate (SSH transport failure, `curl` missing) | Complete, with a warning | 0 |
+| Indeterminate (SSH transport failure) | Complete, with a warning | 0 |
 
 Only a definite failure marks a VM degraded. An SSH hiccup during the probe is
 not evidence that egress is absent, and treating it as such would manufacture
 exactly the kind of misleading status this feature was built to remove. If both
 verdict lines somehow appear in one output, the failure verdict wins.
+
+Note that a VM missing `curl` reports **degraded**, not indeterminate: the probe
+is a single `if`, so an absent binary takes the `else` branch and emits the same
+`fail` verdict a blocked request does. That is the intended reading — on an
+image whose toolchain is installed by cloud-init over the network, a missing
+`curl` is itself evidence that egress was unavailable.
 
 A degraded VM is announced on stdout, after a stderr banner naming the VNet and
 the query that shows what is attached:

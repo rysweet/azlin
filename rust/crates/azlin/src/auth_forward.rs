@@ -1573,8 +1573,12 @@ mod tests {
         // Unknown means "we could not observe egress", which warns only.
         // Only an explicit `fail` sentinel marks a VM degraded — treating SSH
         // noise as failure is the mirror-image of the bug in #1092.
+        // A missing `curl` is deliberately NOT used as the example here: the
+        // probe redirects stderr, so an absent binary takes the `else` branch
+        // and emits a real `fail` verdict rather than this text. The garbage
+        // this arm actually guards against is SSH-layer chatter.
         assert_eq!(
-            parse_egress_probe("bash: curl: command not found\n"),
+            parse_egress_probe("Connection to 10.0.0.4 closed.\n"),
             EgressStatus::Unknown
         );
         assert_eq!(parse_egress_probe("azlin-egress:"), EgressStatus::Unknown);
