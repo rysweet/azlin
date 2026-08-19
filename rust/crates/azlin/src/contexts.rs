@@ -81,30 +81,6 @@ pub fn rename_context_file(
     Ok(())
 }
 
-/// Read a context TOML file and return (name, resource_group).
-/// Returns `None` for resource_group when the field is absent.
-pub fn read_context_resource_group(
-    ctx_path: &Path,
-) -> Result<(String, Option<String>), anyhow::Error> {
-    let content = std::fs::read_to_string(ctx_path)?;
-    let table: toml::Value = toml::from_str(&content)?;
-    let name = table
-        .get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or_else(|| {
-            ctx_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-        })
-        .to_string();
-    let rg = table
-        .get("resource_group")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    Ok((name, rg))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,25 +158,45 @@ mod tests {
         assert!(err.to_string().contains("not found"));
     }
 
+    /// The file `build_context_toml` writes must round-trip through the
+    /// reader that commands actually use. These were two parsers before
+    /// #1090 — a resource-group-only reader here, and nothing at all for the
+    /// subscription — and only one of them was ever consulted.
     #[test]
-    fn test_read_context_resource_group() {
-        let tmp = TempDir::new().unwrap();
-        let path = tmp.path().join("ctx.toml");
-        std::fs::write(&path, "name = \"my-ctx\"\nresource_group = \"my-rg\"\n").unwrap();
+    fn built_context_round_trips_through_the_reader() {
+        let toml_str = build_context_toml(
+            "prod",
+            Some("sub-prod"),
+            Some("tenant-1"),
+            Some("prod-rg"),
+            Some("westus2"),
+            None,
+        )
+        .unwrap();
 
-        let (name, rg) = read_context_resource_group(&path).unwrap();
-        assert_eq!(name, "my-ctx");
-        assert_eq!(rg, Some("my-rg".to_string()));
+        let ctx = crate::active_context::parse_context("prod", &toml_str).unwrap();
+        assert_eq!(ctx.name, "prod");
+        assert_eq!(ctx.subscription_id.as_deref(), Some("sub-prod"));
+        assert_eq!(ctx.tenant_id.as_deref(), Some("tenant-1"));
+        assert_eq!(ctx.resource_group.as_deref(), Some("prod-rg"));
+        assert_eq!(ctx.region.as_deref(), Some("westus2"));
     }
 
     #[test]
-    fn test_read_context_resource_group_no_rg() {
+    fn renamed_context_round_trips_through_the_reader() {
         let tmp = TempDir::new().unwrap();
-        let path = tmp.path().join("ctx.toml");
-        std::fs::write(&path, "name = \"my-ctx\"\n").unwrap();
+        std::fs::write(
+            tmp.path().join("old.toml"),
+            "name = \"old\"\nsubscription_id = \"sub-1\"\nresource_group = \"rg-1\"\n",
+        )
+        .unwrap();
 
-        let (name, rg) = read_context_resource_group(&path).unwrap();
-        assert_eq!(name, "my-ctx");
-        assert_eq!(rg, None);
+        rename_context_file(tmp.path(), "old", "new").unwrap();
+
+        let content = std::fs::read_to_string(tmp.path().join("new.toml")).unwrap();
+        let ctx = crate::active_context::parse_context("new", &content).unwrap();
+        assert_eq!(ctx.name, "new");
+        assert_eq!(ctx.subscription_id.as_deref(), Some("sub-1"));
+        assert_eq!(ctx.resource_group.as_deref(), Some("rg-1"));
     }
 }

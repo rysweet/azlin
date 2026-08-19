@@ -469,7 +469,15 @@ pub(crate) async fn handle_vm_new(
     } else {
         config_defaults.default_vm_size.clone()
     };
-    let loc = region.unwrap_or_else(|| config_defaults.default_region.clone());
+    // Region precedence matches the resource group's: --region, then the
+    // active context, then the config default. Reading the config default
+    // directly here meant a context's `region` was recorded and ignored
+    // (#1090).
+    let loc = crate::active_context::resolve_region(
+        region,
+        crate::active_context::load_active()?.as_ref(),
+        config_defaults.default_region.clone(),
+    );
 
     // ── Region-fit: auto-find a region with available quota + SKU ──────
     let loc = if region_fit {

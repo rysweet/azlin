@@ -26,31 +26,106 @@ pub(crate) fn safe_confirm(prompt: &str, force: bool) -> Result<bool> {
         .interact()?)
 }
 
+/// Build the Azure auth every command runs under, honouring the active context.
+///
+/// This is the single chokepoint (29 call sites) where an azlin context becomes
+/// real. When a context is selected and pins a `subscription_id`, the Azure CLI
+/// is switched to it and the switch is *verified* before anything else runs; see
+/// [`azlin_azure::AzureAuth::for_subscription`]. Without this, `azlin context use
+/// prod` was a no-op and `azlin destroy webdb --force` deleted `webdb` in the dev
+/// subscription (#1090).
 pub(crate) fn create_auth() -> Result<azlin_azure::AzureAuth> {
-    azlin_azure::AzureAuth::new().map_err(|e| {
-        anyhow::anyhow!(
-            "Azure authentication failed: {e}\n\
-             Run 'az login' to authenticate with Azure CLI."
-        )
-    })
+    let active = crate::active_context::load_active()?;
+    match crate::active_context::target_subscription(active.as_ref()) {
+        Some(subscription_id) => {
+            let name = active.as_ref().map(|c| c.name.as_str()).unwrap_or("?");
+            let auth = azlin_azure::AzureAuth::for_subscription(subscription_id).map_err(|e| {
+                anyhow::anyhow!(
+                    "Cannot run against the active context '{name}' \
+                     (subscription {subscription_id}): {e}\n\
+                     Run 'az login' to authenticate, 'azlin context show' to inspect the \
+                     context, or 'azlin context use <other>' to select another."
+                )
+            })?;
+            verify_tenant(&auth, active.as_ref())?;
+            Ok(auth)
+        }
+        None => azlin_azure::AzureAuth::new().map_err(|e| {
+            anyhow::anyhow!(
+                "Azure authentication failed: {e}\n\
+                 Run 'az login' to authenticate with Azure CLI."
+            )
+        }),
+    }
 }
 
+/// Fail when the context pins a tenant the CLI is not signed in to.
+///
+/// A matching subscription id in a different tenant should be impossible, but
+/// checking is one comparison and the failure mode it guards is destructive.
+fn verify_tenant(
+    auth: &azlin_azure::AzureAuth,
+    active: Option<&crate::active_context::ActiveContext>,
+) -> Result<()> {
+    let (Some(want), Some(have)) = (
+        active.and_then(|c| c.tenant_id.as_deref()),
+        auth.tenant_id(),
+    ) else {
+        return Ok(());
+    };
+    if want != have {
+        anyhow::bail!(
+            "Active context pins tenant {want} but the Azure CLI is signed in to {have}.\n\
+             Run 'az login --tenant {want}' before using this context."
+        );
+    }
+    Ok(())
+}
+
+/// Resolve the resource group a command acts on.
+///
+/// Precedence is explicit flag > active context > global config default. The
+/// active context sits above the config default so that `azlin context use prod`
+/// actually moves commands into prod's resource group; before #1090 the context
+/// value was written to disk and never read.
 pub(crate) fn resolve_resource_group(explicit: Option<String>) -> Result<String> {
     if let Some(rg) = explicit {
         return Ok(rg);
     }
+    let active = crate::active_context::load_active()?;
     let config = azlin_core::AzlinConfig::load().context("Failed to load azlin config")?;
-    config.default_resource_group.ok_or_else(|| {
-        anyhow::anyhow!(
-            "No resource group configured.\n\n\
-             Quick setup:\n\
-             1. azlin context create <name> --subscription-id <sub> --tenant-id <tenant>\n\
-             2. azlin context use <name>\n\
-             3. azlin config set default_resource_group <rg-name>\n\n\
-             Or pass --resource-group <name> to any command.\n\
-             Run 'az account show' to find your subscription and tenant IDs."
-        )
-    })
+    crate::active_context::resolve_rg(None, active.as_ref(), config.default_resource_group)
+        .ok_or_else(|| anyhow::anyhow!("{}", no_resource_group_help(active.as_ref())))
+}
+
+/// The message shown when no resource group can be resolved.
+///
+/// The old text opened with "azlin context create / azlin context use", neither
+/// of which sets a resource group — only its step 3 did anything, so following
+/// the instructions in order left the error in place. Each line here now names a
+/// step that changes the outcome, ordered by the precedence actually applied.
+pub(crate) fn no_resource_group_help(
+    active: Option<&crate::active_context::ActiveContext>,
+) -> String {
+    let mut out = String::from("No resource group configured.\n\n");
+    match active {
+        Some(ctx) => out.push_str(&format!(
+            "The active context '{}' does not set one.\n\n",
+            ctx.name
+        )),
+        None => out.push_str("No context is selected.\n\n"),
+    }
+    out.push_str(
+        "Set one of these — the first that applies wins:\n\
+         \x20 1. pass --resource-group <rg> to this command\n\
+         \x20 2. put it in a context and select that context:\n\
+         \x20      azlin context create <name> --resource-group <rg> [--subscription-id <sub>]\n\
+         \x20      azlin context use <name>\n\
+         \x20 3. set the global default:\n\
+         \x20      azlin config set default_resource_group <rg>\n\n\
+         Run 'az group list --output table' to see the resource groups you have.",
+    );
+    out
 }
 
 /// Get the user's home directory, returning a clear error on failure.

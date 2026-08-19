@@ -246,9 +246,15 @@ fn test_live_context_lifecycle() {
     ]);
     assert_eq!(code, 0, "context create should succeed");
 
-    // Use it
+    // Use it. The context pins subscription 00000000-…-000000000000, which does
+    // not exist, so the switch must be refused rather than reported as done
+    // (#1090): a "Switched to context" that did not switch is how destructive
+    // commands end up in the wrong subscription.
     let (_, _, code) = run_azlin(&["context", "use", "test-live-ctx"]);
-    assert_eq!(code, 0, "context use should succeed");
+    assert_ne!(
+        code, 0,
+        "context use must fail when the pinned subscription does not exist"
+    );
 
     // List (should include the new context)
     let (stdout, _, code) = run_azlin(&["context", "list"]);

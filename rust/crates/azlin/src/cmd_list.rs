@@ -54,6 +54,31 @@ pub(crate) async fn dispatch(
                         mgr.list_all_vms()
                     }
                 };
+            // Explicitly subscription-scoped variant, used by --all-contexts so
+            // each context's VMs come from that context's subscription instead
+            // of from whichever one the CLI happens to be on (#1090).
+            let list_vms_in = |mgr: &azlin_azure::VmManager,
+                               sub: &str,
+                               rg: &str|
+             -> Result<Vec<azlin_core::models::VmInfo>> {
+                if no_cache {
+                    mgr.list_vms_in_no_cache(sub, rg)
+                } else {
+                    mgr.list_vms_in(sub, rg)
+                }
+            };
+            // Subscriptions actually queried, so the subscription-scoped
+            // enrichment below can be skipped when the listing spans more than
+            // one rather than silently attributing everything to the first.
+            let mut queried_subscriptions: std::collections::BTreeSet<String> =
+                std::collections::BTreeSet::new();
+            // `list` resolved the resource group itself against
+            // `config.default_resource_group`, so it never saw the active
+            // context and `azlin context use prod` left it listing dev's group
+            // (#1090). Route it through the one helper that applies the full
+            // precedence: --resource-group, then the context, then the config.
+            let resolve_rg =
+                || crate::dispatch_helpers::resolve_resource_group(resource_group.clone());
 
             let effective_verbose = verbose || list_verbose;
             if effective_verbose {
@@ -64,8 +89,10 @@ pub(crate) async fn dispatch(
             }
             let pb = penguin_spinner("Fetching VMs...");
             let mut all_vms = if all_contexts {
-                // Read all context files from ~/.azlin/contexts/ and aggregate VMs
-                let ctx_dir = home_dir()?.join(".azlin").join("contexts");
+                // Read all context files and aggregate VMs, querying each
+                // context's own subscription.
+                let ctx_dir =
+                    crate::active_context::contexts_dir_in(&crate::active_context::state_dir()?);
                 if ctx_dir.is_dir() {
                     let mut aggregated = Vec::new();
                     let mut entries: Vec<_> = std::fs::read_dir(&ctx_dir)?
@@ -74,43 +101,70 @@ pub(crate) async fn dispatch(
                         .collect();
                     entries.sort_by_key(|e| e.file_name());
                     for entry in entries {
-                        match crate::contexts::read_context_resource_group(&entry.path()) {
-                            Ok((ctx_name, Some(rg))) => {
-                                // If --contexts pattern provided, filter context names
-                                if let Some(ref pattern) = contexts {
-                                    let pat = pattern.replace('*', "");
-                                    // Simple glob: if pattern contains *, do substring match
-                                    // Otherwise exact match
-                                    if pattern.contains('*') {
-                                        if !ctx_name.contains(&pat) {
-                                            continue;
-                                        }
-                                    } else if ctx_name != *pattern {
-                                        continue;
-                                    }
-                                }
-                                match list_vms(&vm_manager, &rg) {
-                                    Ok(vms) => {
-                                        println!("── context: {} (rg: {}) ──", ctx_name, rg);
-                                        aggregated.extend(vms);
-                                    }
-                                    Err(e) => {
-                                        eprintln!("Warning: failed to list VMs for context '{}' (rg: {}): {}", ctx_name, rg, e);
-                                    }
-                                }
+                        let path = entry.path();
+                        let stem = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        let parsed = std::fs::read_to_string(&path)
+                            .map_err(anyhow::Error::from)
+                            .and_then(|c| crate::active_context::parse_context(&stem, &c));
+                        let ctx = match parsed {
+                            Ok(ctx) => ctx,
+                            Err(e) => {
+                                eprintln!("Warning: failed to read context file {:?}: {}", path, e);
+                                continue;
                             }
-                            Ok((ctx_name, None)) => {
-                                eprintln!(
-                                    "Warning: context '{}' has no resource_group, skipping.",
-                                    ctx_name
+                        };
+                        // If --contexts pattern provided, filter context names
+                        if let Some(ref pattern) = contexts {
+                            let pat = pattern.replace('*', "");
+                            // Simple glob: if pattern contains *, do substring match
+                            // Otherwise exact match
+                            if pattern.contains('*') {
+                                if !ctx.name.contains(&pat) {
+                                    continue;
+                                }
+                            } else if ctx.name != *pattern {
+                                continue;
+                            }
+                        }
+                        let Some(rg) = ctx.resource_group.clone() else {
+                            eprintln!(
+                                "Warning: context '{}' has no resource_group, skipping.",
+                                ctx.name
+                            );
+                            continue;
+                        };
+                        // A context that pins no subscription cannot be
+                        // attributed to one; say so in the header rather than
+                        // printing the context name over rows read from
+                        // whatever subscription the CLI is on.
+                        let inherited = ctx.pins_no_subscription();
+                        let sub = ctx
+                            .subscription_id
+                            .clone()
+                            .unwrap_or_else(|| vm_manager.subscription_id().to_string());
+                        match list_vms_in(&vm_manager, &sub, &rg) {
+                            Ok(vms) => {
+                                queried_subscriptions.insert(sub.clone());
+                                let origin = if inherited {
+                                    format!("subscription: {sub} [inherited — context pins none]")
+                                } else {
+                                    format!("subscription: {sub}")
+                                };
+                                println!(
+                                    "── context: {} ({}, rg: {}) — {} VMs ──",
+                                    ctx.name,
+                                    origin,
+                                    rg,
+                                    vms.len()
                                 );
+                                aggregated.extend(vms);
                             }
                             Err(e) => {
-                                eprintln!(
-                                    "Warning: failed to read context file {:?}: {}",
-                                    entry.path(),
-                                    e
-                                );
+                                eprintln!("Warning: failed to list VMs for context '{}' (subscription: {}, rg: {}): {}", ctx.name, sub, rg, e);
                             }
                         }
                     }
@@ -120,28 +174,12 @@ pub(crate) async fn dispatch(
                         "Warning: no contexts directory found at {:?}. Using default VM list.",
                         ctx_dir
                     );
-                    match &resource_group {
-                        Some(rg) => list_vms(&vm_manager, rg)?,
-                        None => match &config.default_resource_group {
-                            Some(rg) => list_vms(&vm_manager, rg)?,
-                            None => {
-                                anyhow::bail!("No resource group specified. Use --resource-group or set in config.");
-                            }
-                        },
-                    }
+                    list_vms(&vm_manager, &resolve_rg()?)?
                 }
             } else if show_all_vms {
                 list_all(&vm_manager)?
             } else {
-                match &resource_group {
-                    Some(rg) => list_vms(&vm_manager, rg)?,
-                    None => match &config.default_resource_group {
-                        Some(rg) => list_vms(&vm_manager, rg)?,
-                        None => {
-                            anyhow::bail!("No resource group specified. Use --resource-group or set in config.");
-                        }
-                    },
-                }
+                list_vms(&vm_manager, &resolve_rg()?)?
             };
 
             pb.finish_and_clear();
@@ -160,6 +198,21 @@ pub(crate) async fn dispatch(
 
             // Preserve Azure's natural ordering (matches Python behavior)
 
+            // Bastion, tmux and health enrichment are all scoped to one
+            // subscription and one resource group — they use the first VM's
+            // resource group and `vm_manager.subscription_id()`. When
+            // --all-contexts spanned several subscriptions those lookups were
+            // silently attributed to the wrong one, so they are skipped rather
+            // than reported wrongly (#1090).
+            let cross_subscription = queried_subscriptions.len() > 1;
+            if cross_subscription {
+                eprintln!(
+                    "Note: this listing spans {} subscriptions; bastion, tmux and health \
+                     details are subscription-scoped and have been omitted.",
+                    queried_subscriptions.len()
+                );
+            }
+
             if effective_verbose {
                 eprintln!("[VERBOSE] Detecting bastion hosts...");
             }
@@ -169,7 +222,10 @@ pub(crate) async fn dispatch(
                 .first()
                 .map(|v| v.resource_group.as_str())
                 .unwrap_or("");
-            if matches!(output, azlin_cli::OutputFormat::Table) && !effective_rg.is_empty() {
+            if !cross_subscription
+                && matches!(output, azlin_cli::OutputFormat::Table)
+                && !effective_rg.is_empty()
+            {
                 let pb = penguin_spinner("Detecting bastion hosts...");
                 let bastion_result = crate::list_helpers::detect_bastion_hosts(effective_rg);
                 pb.finish_and_clear();
@@ -197,7 +253,7 @@ pub(crate) async fn dispatch(
                 eprintln!("[VERBOSE] Collecting tmux sessions via bastion SSH...");
             }
             let ssh_timeout = config.ssh_connect_timeout;
-            let tmux_sessions = if !no_tmux {
+            let tmux_sessions = if !no_tmux && !cross_subscription {
                 let pb = penguin_spinner("Collecting tmux sessions...");
                 let sessions = crate::cmd_list_data::collect_tmux_sessions(
                     &all_vms,
@@ -222,7 +278,7 @@ pub(crate) async fn dispatch(
                 std::collections::HashMap::new()
             };
 
-            let health_data = if with_health {
+            let health_data = if with_health && !cross_subscription {
                 let pb = penguin_spinner("Checking VM health...");
                 let result = crate::cmd_list_data::collect_health_data(
                     &all_vms,
@@ -271,16 +327,15 @@ pub(crate) async fn dispatch(
 
             // Show quota summary if requested
             if quota {
-                let _rg = match resource_group {
-                    Some(rg) => rg,
-                    None => config.default_resource_group.clone().ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "No resource group specified. Use --resource-group or set in config."
-                        )
-                    })?,
-                };
+                let _rg = resolve_rg()?;
                 println!("\nvCPU Quota:");
-                let quota_location = &config.default_region;
+                // Quota is per-region, so it must be read for the region the
+                // active context selects — not the global config default.
+                let quota_location = &crate::active_context::resolve_region(
+                    None,
+                    crate::active_context::load_active()?.as_ref(),
+                    config.default_region.clone(),
+                );
                 let output = std::process::Command::new("az")
                     .args([
                         "vm",
