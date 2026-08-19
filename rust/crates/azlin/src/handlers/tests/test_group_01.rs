@@ -252,4 +252,3 @@ fn test_resolve_os_update_target_no_ip() {
     let err = resolve_os_update_target(&mock, "test-rg", "no-ip").unwrap_err();
     assert!(err.to_string().contains("No IP found"));
 }
-

@@ -109,9 +109,19 @@ mod tests {
     fn skips_prerelease_even_if_newest_and_has_assets() {
         // A prerelease with a higher patch must NOT be chosen over a stable one.
         let releases = vec![
-            rel("v2.6.84-rust.aaa", true, false, &["azlin-linux-aarch64.tar.gz"]),
+            rel(
+                "v2.6.84-rust.aaa",
+                true,
+                false,
+                &["azlin-linux-aarch64.tar.gz"],
+            ),
             rel("v2.6.83-rust.bbb", true, false, &[]),
-            rel("v2.6.82-rust.ccc", false, false, &["azlin-linux-aarch64.tar.gz"]),
+            rel(
+                "v2.6.82-rust.ccc",
+                false,
+                false,
+                &["azlin-linux-aarch64.tar.gz"],
+            ),
         ];
         let best = best_stable_release(&releases, None).unwrap();
         assert_eq!(best["tag_name"], "v2.6.82-rust.ccc");
@@ -121,9 +131,24 @@ mod tests {
     fn picks_highest_semver_regardless_of_list_order() {
         // Out-of-order list; must still pick 2.6.86, not the first element.
         let releases = vec![
-            rel("v2.6.80-rust.a", false, false, &["azlin-linux-aarch64.tar.gz"]),
-            rel("v2.6.86-rust.b", false, false, &["azlin-linux-aarch64.tar.gz"]),
-            rel("v2.6.85-rust.c", false, false, &["azlin-linux-aarch64.tar.gz"]),
+            rel(
+                "v2.6.80-rust.a",
+                false,
+                false,
+                &["azlin-linux-aarch64.tar.gz"],
+            ),
+            rel(
+                "v2.6.86-rust.b",
+                false,
+                false,
+                &["azlin-linux-aarch64.tar.gz"],
+            ),
+            rel(
+                "v2.6.85-rust.c",
+                false,
+                false,
+                &["azlin-linux-aarch64.tar.gz"],
+            ),
         ];
         let best = best_stable_release(&releases, None).unwrap();
         assert_eq!(best["tag_name"], "v2.6.86-rust.b");
@@ -133,8 +158,18 @@ mod tests {
     fn require_asset_skips_assetless_and_wrong_platform() {
         let releases = vec![
             rel("v2.6.86-rust.a", false, false, &[]), // assetless (yanked-style)
-            rel("v2.6.85-rust.b", false, false, &["azlin-macos-x86_64.tar.gz"]),
-            rel("v2.6.84-rust.c", false, false, &["azlin-linux-aarch64.tar.gz"]),
+            rel(
+                "v2.6.85-rust.b",
+                false,
+                false,
+                &["azlin-macos-x86_64.tar.gz"],
+            ),
+            rel(
+                "v2.6.84-rust.c",
+                false,
+                false,
+                &["azlin-linux-aarch64.tar.gz"],
+            ),
         ];
         let best = best_stable_release(&releases, Some("linux-aarch64")).unwrap();
         assert_eq!(best["tag_name"], "v2.6.84-rust.c");
@@ -144,8 +179,18 @@ mod tests {
     fn ignores_non_rust_and_drafts() {
         let releases = vec![
             rel("v9.9.9", false, false, &["azlin-linux-aarch64.tar.gz"]), // no -rust
-            rel("v2.6.90-rust.d", false, true, &["azlin-linux-aarch64.tar.gz"]), // draft
-            rel("v2.6.86-rust.e", false, false, &["azlin-linux-aarch64.tar.gz"]),
+            rel(
+                "v2.6.90-rust.d",
+                false,
+                true,
+                &["azlin-linux-aarch64.tar.gz"],
+            ), // draft
+            rel(
+                "v2.6.86-rust.e",
+                false,
+                false,
+                &["azlin-linux-aarch64.tar.gz"],
+            ),
         ];
         let best = best_stable_release(&releases, None).unwrap();
         assert_eq!(best["tag_name"], "v2.6.86-rust.e");
@@ -154,7 +199,12 @@ mod tests {
     #[test]
     fn returns_none_when_nothing_qualifies() {
         let releases = vec![
-            rel("v2.6.84-rust.a", true, false, &["azlin-linux-aarch64.tar.gz"]),
+            rel(
+                "v2.6.84-rust.a",
+                true,
+                false,
+                &["azlin-linux-aarch64.tar.gz"],
+            ),
             rel("v9.9.9", false, false, &["azlin-linux-aarch64.tar.gz"]),
         ];
         assert!(best_stable_release(&releases, None).is_none());

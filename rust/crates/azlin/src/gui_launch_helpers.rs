@@ -23,8 +23,7 @@ fn is_env_assignment(word: &str) -> bool {
 fn is_env_flag(word: &str) -> bool {
     matches!(
         word,
-        "-"
-            | "-i"
+        "-" | "-i"
             | "--ignore-environment"
             | "-0"
             | "--null"
@@ -34,8 +33,7 @@ fn is_env_flag(word: &str) -> bool {
             | "--default-signal"
             | "--ignore-signal"
             | "--list-signal-handling"
-    )
-        || word.starts_with("--unset=")
+    ) || word.starts_with("--unset=")
         || word.starts_with("--chdir=")
 }
 

@@ -955,7 +955,9 @@ mod tests {
         // The bridge is a layer on the image already pulled, never a second
         // base image: that is what keeps "both servers" affordable.
         assert!(
-            plan().bridge_dockerfile().starts_with(&format!("FROM {}\n", DESKTOP_IMAGE.reference)),
+            plan()
+                .bridge_dockerfile()
+                .starts_with(&format!("FROM {}\n", DESKTOP_IMAGE.reference)),
             "the bridge must build on the pulled desktop image"
         );
     }
@@ -988,7 +990,9 @@ mod tests {
         assert!(dockerfile.contains("ip=127.0.0.1"));
         assert!(dockerfile.contains("port=5901"));
         assert!(
-            plan().bridge_run_args().contains(&"container:azlin-gui".to_string()),
+            plan()
+                .bridge_run_args()
+                .contains(&"container:azlin-gui".to_string()),
             "the bridge must share the desktop's network namespace"
         );
     }
@@ -1119,7 +1123,9 @@ mod tests {
                 .write_all(dockerfile.as_bytes())
                 .expect("write Dockerfile to docker build stdin");
         }
-        let build = child.wait_with_output().expect("docker build must complete");
+        let build = child
+            .wait_with_output()
+            .expect("docker build must complete");
         assert!(
             build.status.success(),
             "docker build failed: {}",
@@ -1460,8 +1466,9 @@ mod tests {
 
     #[test]
     fn effective_port_falls_back_to_the_rfb_default() {
-        let status =
-            parse_detect_output("docker_present=true\ndocker_usable=true\ncontainer_state=running\n");
+        let status = parse_detect_output(
+            "docker_present=true\ndocker_usable=true\ncontainer_state=running\n",
+        );
         assert_eq!(status.host_port, None);
         assert_eq!(status.effective_port(), RFB_PORT);
     }

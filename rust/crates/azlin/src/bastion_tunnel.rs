@@ -1021,7 +1021,9 @@ pub fn spawn_detached_tunnel_host(
         cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
     }
 
-    let child = cmd.spawn().context("spawning detached azlin __tunnel-host")?;
+    let child = cmd
+        .spawn()
+        .context("spawning detached azlin __tunnel-host")?;
     Ok(child.id())
 }
 
@@ -1709,10 +1711,7 @@ mod tests {
                 break;
             }
         }
-        assert!(
-            detected_dead,
-            "released port must report not listening"
-        );
+        assert!(detected_dead, "released port must report not listening");
     }
 
     #[test]

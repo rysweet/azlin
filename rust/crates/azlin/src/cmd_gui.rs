@@ -519,7 +519,8 @@ async fn build_gui_ssh_command_prefix(
     Option<crate::bastion_tunnel::ScopedBastionTunnel>,
 )> {
     let (routed_prefix, tunnel) =
-        crate::dispatch_helpers::build_routed_ssh_prefix(target, connect_timeout, key_override).await?;
+        crate::dispatch_helpers::build_routed_ssh_prefix(target, connect_timeout, key_override)
+            .await?;
     let mut ssh_cmd_prefix = Vec::with_capacity(routed_prefix.len() + 1);
     ssh_cmd_prefix.push("ssh".to_string());
     ssh_cmd_prefix.extend(routed_prefix);
@@ -807,8 +808,8 @@ fn launch_viewer(
     // with `vncpasswd`; the containerised path exports the container's own blob.
     let passwd_b64 = run_ssh_command(ssh_cmd_prefix, &format!("base64 < {}", remote_passwd_path))
         .with_context(|| {
-            format!("Could not read the VNC password file {remote_passwd_path} from the VM")
-        })?;
+        format!("Could not read the VNC password file {remote_passwd_path} from the VM")
+    })?;
     let passwd_bytes = base64_decode(passwd_b64.trim())?;
 
     // Write to a temp file with restricted permissions from creation (no TOCTOU window)
@@ -960,7 +961,10 @@ fn launch_rdp_client(local_port: u16, password: Option<&str>) -> Result<()> {
             .map(|s| s.success())
             .unwrap_or(false)
     }) else {
-        println!("{}", rdp_manual_instructions(local_port, username, password));
+        println!(
+            "{}",
+            rdp_manual_instructions(local_port, username, password)
+        );
         // Hold the tunnel open until interrupted so the printed endpoint is usable.
         wait_for_interrupt();
         return Ok(());
@@ -1159,7 +1163,9 @@ mod tests {
             bastion: None,
         };
 
-        let (prefix, tunnel) = build_gui_ssh_command_prefix(&target, 30, None).await.unwrap();
+        let (prefix, tunnel) = build_gui_ssh_command_prefix(&target, 30, None)
+            .await
+            .unwrap();
         assert!(tunnel.is_none());
         assert_eq!(prefix.first().map(String::as_str), Some("ssh"));
         assert!(prefix.contains(&"BatchMode=yes".to_string()));
@@ -1380,7 +1386,11 @@ mod tests {
 
     #[test]
     fn test_classify_detect_result_maps_states() {
-        let ok = classify_detect_result(Ok((0, "docker=yes\ncontainer=running\n".into(), String::new())));
+        let ok = classify_detect_result(Ok((
+            0,
+            "docker=yes\ncontainer=running\n".into(),
+            String::new(),
+        )));
         assert!(ok.is_ok());
 
         let failed = classify_detect_result(Err(anyhow::anyhow!("ssh blew up")));

@@ -167,7 +167,11 @@ pub fn execute_teardown(ops: &dyn AzureOps, resource_group: &str, vm_name: &str)
     // at all. Subtracting 1 unconditionally would then undercount every
     // associated resource actually deleted.
     let had_vm = plan.resources.iter().any(|r| r.kind == TeardownKind::Vm);
-    let associated = if had_vm { deleted.saturating_sub(1) } else { deleted };
+    let associated = if had_vm {
+        deleted.saturating_sub(1)
+    } else {
+        deleted
+    };
     let savings = plan.estimated_monthly_savings();
     let mut msg = if had_vm {
         format!("Deleted {vm_name} and {associated} associated resource(s)")
@@ -209,10 +213,7 @@ fn recheck_freed_resources(
     resource_group: &str,
     plan: &TeardownPlan,
 ) -> Vec<TeardownResource> {
-    let needs_recheck = plan
-        .skipped
-        .iter()
-        .any(|s| s.reason == SkipReason::InUse);
+    let needs_recheck = plan.skipped.iter().any(|s| s.reason == SkipReason::InUse);
     if !needs_recheck {
         return Vec::new();
     }

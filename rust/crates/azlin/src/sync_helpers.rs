@@ -59,8 +59,6 @@ pub fn build_tail_command(lines: u32, log_path: &str) -> String {
     format!("sudo tail -n {} {}", lines, log_path)
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,6 +157,4 @@ mod tests {
         assert!(cmd.contains("500"));
         assert!(cmd.contains("/var/log/auth.log"));
     }
-
-
 }

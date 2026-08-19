@@ -61,9 +61,8 @@ impl MockAzureOps {
         if self.missing_on_delete.iter().any(|n| n == name) {
             // Mirror VmManager: a 404 means someone already deleted it, which
             // is the desired end state, so teardown continues.
-            let err = anyhow::anyhow!(
-                "ERROR: (ResourceNotFound) The Resource '{name}' was not found."
-            );
+            let err =
+                anyhow::anyhow!("ERROR: (ResourceNotFound) The Resource '{name}' was not found.");
             assert!(
                 azlin_azure::is_resource_not_found(&err.to_string()),
                 "mock 404 must be recognised as tolerable"

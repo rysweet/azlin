@@ -33,8 +33,8 @@ use azlin_azure::teardown::ORPHANED_PUBLIC_IP_MONTHLY_COST;
 mod auth_forward;
 mod dispatch;
 mod dispatch_helpers;
-mod update_check;
 mod release_select;
+mod update_check;
 
 /// Default admin username for Azure VMs.
 const DEFAULT_ADMIN_USERNAME: &str = "azureuser";
@@ -61,9 +61,7 @@ fn ssh_exec(
 ) -> Result<(i32, String, String)> {
     let config = crate::dispatch_helpers::load_user_config();
     let mut args = ssh_arg_helpers::build_ssh_args(ip, user, cmd, config.ssh_connect_timeout);
-    if let Some(k) =
-        resolve_target_ssh_key_path(key_override, None, allow_preferred_key_fallback)
-    {
+    if let Some(k) = resolve_target_ssh_key_path(key_override, None, allow_preferred_key_fallback) {
         ssh_arg_helpers::inject_identity_key(&mut args, &k);
     }
     let output = std::process::Command::new("ssh").args(&args).output()?;

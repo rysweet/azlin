@@ -103,12 +103,11 @@ pub(crate) async fn dispatch(
     println!(
         "  ports {} (VNC) and {} (RDP) are published on the VM's loopback interface only; \
          connect with `azlin gui {}`",
-        plan.host_port,
-        RDP_BRIDGE_PORT,
-        name
+        plan.host_port, RDP_BRIDGE_PORT, name
     );
 
-    let pb = penguin_spinner("Installing remote desktop container (this can take a few minutes)...");
+    let pb =
+        penguin_spinner("Installing remote desktop container (this can take a few minutes)...");
     let result = crate::dispatch_helpers::run_target_command_with_timeout(
         &target,
         &wrap_for_shell(&build_install_script(&plan)),
@@ -121,7 +120,10 @@ pub(crate) async fn dispatch(
     let outcome = classify_install_result(result, GUI_INSTALL_TIMEOUT_SECS)?;
     match outcome {
         InstallOutcome::AlreadyInstalled => {
-            println!("Remote desktop already installed ({}).", plan.image.reference)
+            println!(
+                "Remote desktop already installed ({}).",
+                plan.image.reference
+            )
         }
         InstallOutcome::Installed => {
             println!("Remote desktop installed ({}).", plan.image.reference)
@@ -145,7 +147,10 @@ pub(crate) async fn dispatch(
     } else {
         println!("  clients: any standard VNC viewer");
     }
-    println!("  connect: azlin gui {}            (VNC, the default)", name);
+    println!(
+        "  connect: azlin gui {}            (VNC, the default)",
+        name
+    );
     if rdp_available {
         println!("  connect: azlin gui {} --protocol rdp", name);
     }
@@ -204,9 +209,7 @@ pub(crate) fn parse_install_success(stdout: &str) -> Result<InstallOutcome> {
         match line.trim() {
             "azlin-result: already-installed" => return Ok(InstallOutcome::AlreadyInstalled),
             "azlin-result: installed" => return Ok(InstallOutcome::Installed),
-            "azlin-result: installed-vnc-only" => {
-                return Ok(InstallOutcome::InstalledVncOnly)
-            }
+            "azlin-result: installed-vnc-only" => return Ok(InstallOutcome::InstalledVncOnly),
             _ => {}
         }
     }
@@ -281,7 +284,8 @@ mod tests {
     /// A bridge failure must degrade, not fail: the user still has a desktop.
     #[test]
     fn a_failed_bridge_reports_a_vnc_only_install_rather_than_an_error() {
-        let outcome = classify_install_result(ok("azlin-result: installed-vnc-only\n"), 60).unwrap();
+        let outcome =
+            classify_install_result(ok("azlin-result: installed-vnc-only\n"), 60).unwrap();
         assert_eq!(outcome, InstallOutcome::InstalledVncOnly);
     }
 

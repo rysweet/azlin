@@ -13,9 +13,9 @@ use tracing::debug;
 
 use azlin_core::models::{CreateVmParams, OsType, PowerState, VmInfo};
 
-use crate::AzureAuth;
 #[cfg(test)]
 use crate::cloud_init::render_dev_cloud_init_script;
+use crate::AzureAuth;
 
 // ── VM list cache ─────────────────────────────────────────────────────
 
@@ -539,8 +539,7 @@ impl VmManager {
             home_disk: params.has_home_disk,
             tmp_disk: params.has_tmp_disk,
         };
-        let cloud_init_file =
-            create_cloud_init_file(&params.admin_username, &disk_config)?;
+        let cloud_init_file = create_cloud_init_file(&params.admin_username, &disk_config)?;
         let cloud_init_path = cloud_init_file.path().to_string_lossy().to_string();
         let mut az_args: Vec<String> = vec![
             "vm".into(),
@@ -781,8 +780,7 @@ pub fn az_cli_with_timeout(args: &[&str], timeout_secs: u64) -> Result<String> {
         // The az CLI sometimes crashes while formatting errors (e.g.,
         // QuotaExceeded triggers an internal AttributeError), so we
         // extract the real error from the traceback.
-        if let Some(parsed) =
-            crate::error_handler::parse_azure_error_from_stderr(&sanitized_stderr)
+        if let Some(parsed) = crate::error_handler::parse_azure_error_from_stderr(&sanitized_stderr)
         {
             let friendly = crate::error_handler::format_user_friendly_error(&parsed);
             Err(anyhow::anyhow!("{}", friendly.trim()))
@@ -1260,7 +1258,8 @@ mod tests {
 
     #[test]
     fn test_create_cloud_init_file_creates_file() {
-        let file = create_cloud_init_file("testuser", &crate::cloud_init::DiskConfig::default()).unwrap();
+        let file =
+            create_cloud_init_file("testuser", &crate::cloud_init::DiskConfig::default()).unwrap();
         assert!(file.path().exists());
         let contents = std::fs::read_to_string(file.path()).unwrap();
         assert!(contents.contains("#!/bin/bash"));
@@ -1268,7 +1267,8 @@ mod tests {
 
     #[test]
     fn test_create_cloud_init_file_path_is_in_temp() {
-        let file = create_cloud_init_file("testuser", &crate::cloud_init::DiskConfig::default()).unwrap();
+        let file =
+            create_cloud_init_file("testuser", &crate::cloud_init::DiskConfig::default()).unwrap();
         let path = file.path().to_string_lossy();
         assert!(
             path.contains("azlin-cloud-init-"),
