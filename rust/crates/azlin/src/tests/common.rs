@@ -17,6 +17,63 @@ pub(super) async fn run_dispatch(args: &[&str]) -> Result<()> {
     crate::dispatch::dispatch_command(cli).await
 }
 
+/// Run azlin as a subprocess with its config state isolated to `dir`.
+///
+/// Config-mutating commands (`config set`, `session <vm> <name>`) persist to
+/// the directory named by `AZLIN_CONFIG_DIR`, defaulting to `~/.azlin`. Driving
+/// them through [`run_dispatch`] runs them *in-process*, so they read and write
+/// the developer's real `~/.azlin/config.toml`. That is destructive on its own —
+/// the save/restore dance those tests perform is best-effort and leaves the file
+/// modified if an assertion fails in between — and under `cargo test`'s default
+/// thread parallelism two such tests interleave their read-modify-write cycles
+/// and can corrupt the file outright (issue #1079: a duplicate `[vm_storage]`
+/// table appended at EOF, plus `Failed to rename config` from the racing side).
+///
+/// A subprocess gets its own copy of the environment, so pointing it at a temp
+/// dir needs no process-global mutation and therefore cannot race with tests
+/// running concurrently in other threads. This mirrors the isolation already
+/// used by `tests/config_integration.rs`.
+pub(super) fn run_isolated(dir: &TempDir, args: &[&str]) -> std::process::Output {
+    assert_cmd::Command::cargo_bin("azlin")
+        .unwrap()
+        .args(args)
+        .env("AZLIN_CONFIG_DIR", dir.path())
+        .timeout(std::time::Duration::from_secs(30))
+        .output()
+        .unwrap()
+}
+
+/// Assert an isolated azlin invocation succeeded, showing output when it did not.
+pub(super) fn assert_isolated_ok(out: &std::process::Output, what: &str) {
+    assert!(
+        out.status.success(),
+        "{what} failed (exit {:?})\nstdout: {}\nstderr: {}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+}
+
+/// Run azlin as a subprocess with `$HOME` redirected to `dir`.
+///
+/// Some state does not honour `AZLIN_CONFIG_DIR` and resolves straight from
+/// `dirs::home_dir()` — `autopilot.toml` is the current example. Those tests
+/// need the home directory itself isolated, or they read, delete and rewrite
+/// the developer's real `~/.azlin/autopilot.toml` (issue #1079).
+///
+/// That `autopilot` ignores `AZLIN_CONFIG_DIR` while `config` honours it is an
+/// inconsistency in the production code, not something this helper fixes; it is
+/// worked around here so the tests stop being destructive.
+pub(super) fn run_isolated_home(dir: &TempDir, args: &[&str]) -> std::process::Output {
+    assert_cmd::Command::cargo_bin("azlin")
+        .unwrap()
+        .args(args)
+        .env("HOME", dir.path())
+        .timeout(std::time::Duration::from_secs(30))
+        .output()
+        .unwrap()
+}
+
 /// Helper: run azlin with no Azure config and verify graceful failure.
 pub(super) fn assert_graceful_auth_error(args: &[&str]) {
     let dir = TempDir::new().unwrap();

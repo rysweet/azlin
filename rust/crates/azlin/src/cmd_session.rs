@@ -314,7 +314,7 @@ pub(crate) async fn dispatch(
                     // Wait until the detached host has the loopback listener up.
                     // Bounded by config (setup + connect timeouts) — never an
                     // arbitrary constant — so slow ARM/WSS setups are tolerated.
-                    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+                    let config = crate::dispatch_helpers::load_user_config();
                     let wait_timeout = std::time::Duration::from_secs(
                         config.bastion_tunnel_timeout + config.bastion_connect_timeout,
                     );

@@ -156,7 +156,7 @@ pub(crate) async fn dispatch(
     let mut target = resolve_vm_ssh_target(&name, None, Some(rg.clone())).await?;
     target.user = resolve_gui_target_user(&user, &target.user);
     pb.finish_and_clear();
-    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+    let config = crate::dispatch_helpers::load_user_config();
     let effective_key = key.or_else(resolve_ssh_key);
     let (ssh_cmd_prefix, _route_tunnel) = build_gui_ssh_command_prefix(
         &target,
@@ -497,7 +497,7 @@ fn vncviewer_missing_message() -> String {
 /// Build an SSH command prefix for direct connection to a public-IP VM.
 #[cfg(test)]
 fn build_direct_ssh_prefix(ip: &str, user: &str, key: Option<&std::path::Path>) -> Vec<String> {
-    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+    let config = crate::dispatch_helpers::load_user_config();
     let mut prefix = vec!["ssh".to_string()];
     prefix.extend(crate::ssh_arg_helpers::build_ssh_prefix(
         ip,

@@ -245,8 +245,11 @@ impl AzlinConfig {
                 e
             ))
         })?;
-        toml::from_str(&contents)
-            .map_err(|e| crate::AzlinError::Config(format!("Failed to parse config: {e}")))
+        toml::from_str(&contents).map_err(|e| {
+            // Name the file. A bare parser message ("duplicate key `x` in
+            // document root") gives the user no way to find what to edit.
+            crate::AzlinError::Config(format!("Failed to parse config at {}: {e}", path.display()))
+        })
     }
 
     /// Save config to disk, creating the directory if needed.
@@ -1384,5 +1387,51 @@ mod tests {
         let toml_str = "default_region = \"westus2\"\ndefault_vm_size = \"Standard_E16as_v5\"\n";
         let config: AzlinConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.bastion_pip_ip_tags, DEFAULT_BASTION_PIP_IP_TAGS);
+    }
+    /// #1080: a *missing* config is a legitimate first-run state and must yield
+    /// defaults, but a *malformed* one must surface an error rather than being
+    /// silently replaced by defaults.
+    #[test]
+    fn missing_config_yields_defaults_but_malformed_config_errors() {
+        let dir = tempfile::TempDir::new().unwrap();
+
+        // Missing file -> defaults, no error.
+        let missing = dir.path().join("config.toml");
+        let loaded = AzlinConfig::load_from(&missing).expect("missing config must yield defaults");
+        assert_eq!(loaded.default_resource_group, None);
+        assert!(!loaded.default_region.is_empty());
+
+        // Malformed file -> error, never defaults.
+        let bad = dir.path().join("bad.toml");
+        std::fs::write(
+            &bad,
+            "default_resource_group = \"rg\"\n\n[vm_storage]\neva = \"deva\"\n\n[vm_storage]\n",
+        )
+        .unwrap();
+        let err = AzlinConfig::load_from(&bad)
+            .expect_err("a duplicate table must not be silently accepted");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("Failed to parse config at"),
+            "error must say parsing failed: {msg}"
+        );
+        assert!(
+            msg.contains("bad.toml"),
+            "error must name the offending file so the user can find it: {msg}"
+        );
+    }
+
+    /// The exact corruption observed in #1079 must be reported, not swallowed.
+    #[test]
+    fn duplicate_table_is_reported_with_location() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "[vm_storage]\neva = \"deva\"\n\n[vm_storage]\n").unwrap();
+
+        let msg = AzlinConfig::load_from(&path).unwrap_err().to_string();
+        assert!(
+            msg.contains("vm_storage"),
+            "error should identify the duplicated key: {msg}"
+        );
     }
 }

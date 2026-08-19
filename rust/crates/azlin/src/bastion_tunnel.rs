@@ -792,7 +792,7 @@ pub async fn get_or_create_tunnel(
         std::sync::Arc::new(|| Box::pin(fetch_arm_token_with_expiry()));
 
     // Load config for timeout
-    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+    let config = crate::dispatch_helpers::load_user_config();
     let timeout = std::time::Duration::from_secs(config.bastion_tunnel_timeout);
     let connect_timeout = std::time::Duration::from_secs(config.bastion_connect_timeout);
 
@@ -1077,7 +1077,7 @@ pub async fn run_tunnel_host(
 
     // Confirm the listener bound by this process is actually accepting before we
     // consider ourselves ready. Bounded by the configured setup timeout.
-    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+    let config = crate::dispatch_helpers::load_user_config();
     let ready_timeout = std::time::Duration::from_secs(config.bastion_tunnel_timeout);
     wait_for_local_port_listener(port, std::process::id(), ready_timeout)
         .context("tunnel-host bound port never became ready")?;

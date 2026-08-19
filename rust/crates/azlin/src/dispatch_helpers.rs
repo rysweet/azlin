@@ -54,6 +54,41 @@ pub(crate) fn resolve_resource_group(explicit: Option<String>) -> Result<String>
 }
 
 /// Get the user's home directory, returning a clear error on failure.
+/// Load the user's config, treating a malformed file as fatal.
+///
+/// `AzlinConfig::load()` already distinguishes the two cases correctly: a
+/// *missing* file yields defaults (the legitimate first-run state), and only a
+/// genuine read or parse failure returns `Err`. Call sites used to discard that
+/// with `.unwrap_or_default()`, which collapses "you have no config" and "your
+/// config is corrupt" into the same silent outcome.
+///
+/// That is not a neutral degradation. Falling back to defaults silently swaps
+/// the user's region, VM size, image, timeouts, resource group and storage
+/// mappings for built-in ones, so a command can run to completion against a
+/// subscription or region the user never chose. It also produces misleading
+/// diagnostics: a duplicate table on line 32 surfaced as "No resource group
+/// specified. Use --resource-group or set in config." while the resource group
+/// sat correctly in the file, making the advice impossible to act on (#1080).
+///
+/// So: defaults when there is no file, and a loud, actionable error naming the
+/// file and the parser's line/column when there is one that cannot be read.
+pub(crate) fn load_user_config() -> azlin_core::AzlinConfig {
+    match azlin_core::AzlinConfig::load() {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("azlin-error: {err}");
+            eprintln!();
+            eprintln!(
+                "azlin will not fall back to default settings for a config file it cannot read: \n\
+                 doing so would silently run against a different region, resource group or VM \n\
+                 size than the one you configured. Fix the file, or move it aside to start from \n\
+                 defaults."
+            );
+            std::process::exit(2);
+        }
+    }
+}
+
 pub(crate) fn home_dir() -> Result<std::path::PathBuf> {
     dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))
 }
@@ -372,7 +407,7 @@ pub(crate) async fn run_target_command_with_timeout(
     timeout_secs: u64,
     key_override: Option<&std::path::Path>,
 ) -> Result<(i32, String, String)> {
-    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+    let config = load_user_config();
     let (mut prefix, _tunnel) =
         build_routed_ssh_prefix(target, config.ssh_connect_timeout, key_override).await?;
     prefix.push(remote_cmd.to_string());

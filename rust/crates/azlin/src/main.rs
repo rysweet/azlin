@@ -59,7 +59,7 @@ fn ssh_exec(
     key_override: Option<&std::path::Path>,
     allow_preferred_key_fallback: bool,
 ) -> Result<(i32, String, String)> {
-    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+    let config = crate::dispatch_helpers::load_user_config();
     let mut args = ssh_arg_helpers::build_ssh_args(ip, user, cmd, config.ssh_connect_timeout);
     if let Some(k) =
         resolve_target_ssh_key_path(key_override, None, allow_preferred_key_fallback)

@@ -457,7 +457,7 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
     let detected_wt = std::env::var("WT_SESSION").is_ok();
 
     // Load config for restore_mode preference.
-    let config = azlin_core::AzlinConfig::load().unwrap_or_default();
+    let config = crate::dispatch_helpers::load_user_config();
     let restore_mode = &config.restore_mode;
 
     // If restore_mode is explicitly set to tab or window, force wt.exe usage

@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **`cargo test` no longer mutates or corrupts the real `~/.azlin/config.toml`**
+  — several dispatch tests drove `config set`, `session <vm> <name>` and the
+  autopilot lifecycle in-process, so they read and wrote the developer's actual
+  config and `autopilot.toml`. Their save/restore was best-effort and left the
+  file modified whenever an assertion failed in between, and under `cargo test`'s
+  thread parallelism two of them interleaved read-modify-write cycles and could
+  corrupt the file outright (an appended duplicate `[vm_storage]` table, plus
+  `Failed to rename config` from the racing side). They now run as subprocesses
+  against an isolated `AZLIN_CONFIG_DIR` (or `HOME` for autopilot, which does not
+  honour `AZLIN_CONFIG_DIR`), with a regression test asserting writes cannot
+  escape the isolated directory (#1079)
+- **A malformed config is now reported instead of silently replaced by defaults**
+  — `AzlinConfig::load()` already returned an error for a file that exists but
+  cannot be parsed, but ~12 call sites discarded it with `.unwrap_or_default()`.
+  A syntax error therefore surfaced as an unrelated downstream message: a
+  duplicate table on line 32 produced "No resource group specified. Use
+  --resource-group or set in config." while `default_resource_group` sat correct
+  in the file, so following the advice could never fix it. Parse failures now
+  abort with the file path and the parser's line/column; a *missing* config still
+  yields defaults as before (#1080)
 - **`azlin gui install` no longer fails closed on every legitimate pull** —
   the post-pull digest check added alongside the container-based GUI installer
   compared the pulled image's `RepoDigests` entry against the pinned
