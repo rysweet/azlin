@@ -935,6 +935,11 @@ mod cp_helpers;
 #[allow(dead_code)]
 mod bastion_helpers;
 
+/// NAT gateway provisioning for private VMs (outbound internet) — issue #1092.
+/// Azure Bastion is inbound-only and provides no egress.
+#[allow(dead_code)]
+mod nat_helpers;
+
 /// Scoped bastion tunnel for SSH/SCP through Azure Bastion.
 #[allow(dead_code)]
 mod bastion_tunnel;
