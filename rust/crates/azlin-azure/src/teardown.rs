@@ -212,10 +212,32 @@ fn name_and_group<'a>(
 /// Whether a Public IP is free of any association.
 ///
 /// Shared with orphan detection in `cleanup` so the two paths cannot drift.
+///
+/// `ipConfiguration` alone is not sufficient. Azure records a Public IP's
+/// attachment differently depending on what it is attached to, and only a
+/// NIC-style attachment populates `ipConfiguration`. A Public IP fronting a
+/// NAT gateway or a load balancer reports `ipConfiguration: null` while being
+/// very much in use, so checking that field by itself reports it as orphaned.
+///
+/// The consequence is not merely cosmetic: `cleanup` quotes the reclaimable
+/// cost of every "orphan" it finds, so a NAT gateway's IP inflated the
+/// reported monthly saving by $3.65 apiece and then failed to delete with
+/// `PublicIPAddressCannotBeDeleted` on every run, forever.
 pub fn public_ip_is_unassociated(ip: &serde_json::Value) -> bool {
-    ip.get("ipConfiguration")
-        .map(|v| v.is_null())
-        .unwrap_or(true)
+    let unset = |key: &str| ip.get(key).map(|v| v.is_null()).unwrap_or(true);
+    unset("ipConfiguration") && unset("natGateway") && unset("loadBalancerFrontendIpConfiguration")
+}
+
+/// Whether a NIC is free of any association.
+///
+/// `virtualMachine` alone is not sufficient, for the same reason as
+/// [`public_ip_is_unassociated`]: a NIC backing a private endpoint reports
+/// `virtualMachine: null` while being in use, and Azure refuses to delete it
+/// with `NicInUseWithPrivateEndpoint`. Treating it as an orphan produces a
+/// deletion that fails on every run.
+pub fn nic_is_unassociated(nic: &serde_json::Value) -> bool {
+    let unset = |key: &str| nic.get(key).map(|v| v.is_null()).unwrap_or(true);
+    unset("virtualMachine") && unset("privateEndpoint") && unset("privateLinkService")
 }
 
 /// Whether an NSG is free of any association.
@@ -1382,5 +1404,107 @@ mod tests {
         let freed = plan_recheck(&skipped, Some(POOL_VM), RG, "[]", &nsgs, &hints).unwrap();
         assert_eq!(freed.len(), 1);
         assert_eq!(freed[0].name, format!("{POOL_VM}NSG"));
+    }
+    /// A Public IP fronting a NAT gateway reports `ipConfiguration: null` but
+    /// is very much in use. Checking that field alone reported three live NAT
+    /// gateway IPs as orphaned, quoted $3.65/mo of fictional savings apiece,
+    /// and failed to delete with `PublicIPAddressCannotBeDeleted` on every run.
+    #[test]
+    fn nat_gateway_public_ip_is_not_unassociated() {
+        // Shape taken from a real `az network public-ip show`.
+        let ip: serde_json::Value = serde_json::from_str(
+            r#"{
+                "name": "azlin-natgw-westus2-ip-tagged",
+                "ipConfiguration": null,
+                "natGateway": {"id": "/subscriptions/x/.../natGateways/azlin-natgw-westus2"}
+            }"#,
+        )
+        .unwrap();
+        assert!(
+            !public_ip_is_unassociated(&ip),
+            "a NAT gateway's public IP must never be treated as orphaned"
+        );
+    }
+
+    #[test]
+    fn load_balancer_public_ip_is_not_unassociated() {
+        let ip: serde_json::Value = serde_json::from_str(
+            r#"{
+                "name": "lb-ip",
+                "ipConfiguration": null,
+                "loadBalancerFrontendIpConfiguration": {"id": "/subscriptions/x/.../frontendIPConfigurations/f"}
+            }"#,
+        )
+        .unwrap();
+        assert!(!public_ip_is_unassociated(&ip));
+    }
+
+    #[test]
+    fn genuinely_free_public_ip_is_still_unassociated() {
+        let ip: serde_json::Value = serde_json::from_str(
+            r#"{"name": "free-ip", "ipConfiguration": null, "natGateway": null}"#,
+        )
+        .unwrap();
+        assert!(
+            public_ip_is_unassociated(&ip),
+            "the fix must not stop real orphans being collected"
+        );
+        // Absent keys must behave the same as explicit nulls.
+        let bare: serde_json::Value = serde_json::from_str(r#"{"name": "bare-ip"}"#).unwrap();
+        assert!(public_ip_is_unassociated(&bare));
+    }
+
+    /// A NIC backing a private endpoint reports `virtualMachine: null` while
+    /// Azure refuses to delete it with `NicInUseWithPrivateEndpoint`.
+    #[test]
+    fn private_endpoint_nic_is_not_unassociated() {
+        let nic: serde_json::Value = serde_json::from_str(
+            r#"{
+                "name": "homedir-pe.nic.63efb457",
+                "virtualMachine": null,
+                "privateEndpoint": {"id": "/subscriptions/x/.../privateEndpoints/homedir-pe"}
+            }"#,
+        )
+        .unwrap();
+        assert!(
+            !nic_is_unassociated(&nic),
+            "a private endpoint's NIC must never be treated as orphaned"
+        );
+    }
+
+    #[test]
+    fn genuinely_free_nic_is_still_unassociated() {
+        let nic: serde_json::Value =
+            serde_json::from_str(r#"{"name": "devVMNic", "virtualMachine": null}"#).unwrap();
+        assert!(nic_is_unassociated(&nic));
+
+        let attached: serde_json::Value = serde_json::from_str(
+            r#"{"name": "liveVMNic", "virtualMachine": {"id": "/subscriptions/x/.../vm"}}"#,
+        )
+        .unwrap();
+        assert!(!nic_is_unassociated(&attached));
+    }
+
+    /// The NIC -> NSG ordering that motivates the cleanup recheck pass: while
+    /// the NIC still exists the NSG is correctly "in use", and only once the
+    /// NIC is gone does it become collectable.
+    #[test]
+    fn nsg_becomes_unassociated_only_after_its_nic_is_removed() {
+        let attached: serde_json::Value = serde_json::from_str(
+            r#"{"name": "devNSG", "networkInterfaces": [{"id": "/subscriptions/x/.../DEVVMNIC"}], "subnets": null}"#,
+        )
+        .unwrap();
+        assert!(
+            !nsg_is_unassociated(&attached),
+            "an NSG referenced by a NIC is in use, even when that NIC is itself orphaned"
+        );
+
+        let freed: serde_json::Value =
+            serde_json::from_str(r#"{"name": "devNSG", "networkInterfaces": [], "subnets": []}"#)
+                .unwrap();
+        assert!(
+            nsg_is_unassociated(&freed),
+            "once the NIC is deleted the NSG must be collectable — this is what the recheck pass exists to catch"
+        );
     }
 }
