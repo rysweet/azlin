@@ -136,7 +136,11 @@ pub fn killall_success_message(count: usize, prefix: &str) -> String {
 /// `unmatched` are the VMs that exist in the resource group but do not start
 /// with `prefix`. Reporting them prevents the silent no-op that makes an empty
 /// resource group indistinguishable from a prefix mismatch.
-pub fn killall_no_match_message(prefix: &str, resource_group: &str, unmatched: &[String]) -> String {
+pub fn killall_no_match_message(
+    prefix: &str,
+    resource_group: &str,
+    unmatched: &[String],
+) -> String {
     if unmatched.is_empty() {
         return format!(
             "No VMs found in resource group '{}'. Nothing was deleted.",

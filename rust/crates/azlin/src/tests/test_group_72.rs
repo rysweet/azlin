@@ -175,7 +175,11 @@ fn test_bastion_action_sweep_variant_exists() {
 fn test_bastion_sweep_cli_parsing() {
     use clap::Parser;
     let cli = azlin_cli::Cli::try_parse_from(["azlin", "bastion", "sweep"]);
-    assert!(cli.is_ok(), "must parse 'azlin bastion sweep': {:?}", cli.err());
+    assert!(
+        cli.is_ok(),
+        "must parse 'azlin bastion sweep': {:?}",
+        cli.err()
+    );
     let cli = cli.unwrap();
     match cli.command {
         azlin_cli::Commands::Bastion { action } => {
@@ -243,8 +247,14 @@ fn test_tunnel_type_serialized_in_json() {
         dns_name: String::new(),
     };
     let json = serde_json::to_string(&entry).unwrap();
-    assert!(json.contains("tunnel_type"), "JSON must contain tunnel_type field");
-    assert!(json.contains("\"native\""), "JSON must contain native value");
+    assert!(
+        json.contains("tunnel_type"),
+        "JSON must contain tunnel_type field"
+    );
+    assert!(
+        json.contains("\"native\""),
+        "JSON must contain native value"
+    );
 }
 
 /// Zero timeout should still be accepted (but will likely fail immediately).

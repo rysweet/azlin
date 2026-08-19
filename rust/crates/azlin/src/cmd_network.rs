@@ -112,7 +112,11 @@ fn handle_bastion_sweep() -> Result<()> {
         if !line.contains("az network bastion tunnel") {
             continue;
         }
-        println!("Killing orphaned az bastion tunnel (PID {}): {}", pid, line.trim());
+        println!(
+            "Killing orphaned az bastion tunnel (PID {}): {}",
+            pid,
+            line.trim()
+        );
         let _ = std::process::Command::new("kill")
             .arg(pid.to_string())
             .status();

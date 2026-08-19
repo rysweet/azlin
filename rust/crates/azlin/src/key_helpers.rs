@@ -168,10 +168,7 @@ pub fn ensure_ssh_keypair_in(ssh_dir: &Path) -> Result<SshKeypair, String> {
         ));
     }
 
-    eprintln!(
-        "No SSH key found. Generating {}...",
-        key_path.display()
-    );
+    eprintln!("No SSH key found. Generating {}...", key_path.display());
 
     let key_path_str = key_path.to_string_lossy().to_string();
     let keygen_args = build_keygen_args(&key_path_str);
@@ -558,7 +555,10 @@ mod tests {
 
         // Second call should regenerate .pub without generating=true
         let kp2 = ensure_ssh_keypair_in(&ssh_dir).unwrap();
-        assert!(!kp2.generated, "should regenerate .pub, not generate new key");
+        assert!(
+            !kp2.generated,
+            "should regenerate .pub, not generate new key"
+        );
         assert!(pub_path.exists(), ".pub should be regenerated");
     }
 
@@ -655,7 +655,10 @@ mod tests {
         let kp = ensure_ssh_keypair_in(temp.path()).unwrap();
         // The code finds id_ed25519 first (higher priority), fails regen,
         // then generates a brand new id_ed25519_azlin instead of using id_rsa.
-        assert!(kp.generated, "should generate new key, not fall back to id_rsa");
+        assert!(
+            kp.generated,
+            "should generate new key, not fall back to id_rsa"
+        );
         assert!(
             kp.private_key.ends_with("id_ed25519_azlin"),
             "should generate azlin key, got: {:?}",

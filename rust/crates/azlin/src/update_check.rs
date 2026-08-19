@@ -107,8 +107,7 @@ fn fetch_latest_version() -> Option<String> {
                 .filter(|o| o.status.success())
         })?;
 
-    let releases: Vec<serde_json::Value> =
-        serde_json::from_slice(&output.stdout).ok()?;
+    let releases: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).ok()?;
     let best = crate::release_select::best_stable_release(&releases, None)?;
     let tag = best["tag_name"].as_str()?;
     Some(tag.strip_prefix('v').unwrap_or(tag).to_string())

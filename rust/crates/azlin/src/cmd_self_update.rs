@@ -82,7 +82,11 @@ fn find_latest_release() -> Result<(String, String)> {
             return Ok((dl_url.to_string(), version));
         }
     }
-    anyhow::bail!("No matching asset for platform '{}' in release '{}'", suffix, tag)
+    anyhow::bail!(
+        "No matching asset for platform '{}' in release '{}'",
+        suffix,
+        tag
+    )
 }
 
 /// Download and extract the binary, replacing the current executable.
@@ -268,7 +272,10 @@ mod tests {
         ensure_ay_alias(&azlin_path);
 
         let ay_path = tmp.join("ay");
-        assert!(ay_path.symlink_metadata().is_ok(), "ay alias was not created");
+        assert!(
+            ay_path.symlink_metadata().is_ok(),
+            "ay alias was not created"
+        );
         #[cfg(unix)]
         {
             let target = fs::read_link(&ay_path).unwrap();

@@ -13,11 +13,15 @@ const SIBLING: &str = "copilot-test-1783435804";
 const RG: &str = "test-rg";
 
 fn vm_id(name: &str) -> String {
-    format!("/subscriptions/s/resourceGroups/{RG}/providers/Microsoft.Compute/virtualMachines/{name}")
+    format!(
+        "/subscriptions/s/resourceGroups/{RG}/providers/Microsoft.Compute/virtualMachines/{name}"
+    )
 }
 
 fn nic_id(name: &str) -> String {
-    format!("/subscriptions/s/resourceGroups/{RG}/providers/Microsoft.Network/networkInterfaces/{name}")
+    format!(
+        "/subscriptions/s/resourceGroups/{RG}/providers/Microsoft.Network/networkInterfaces/{name}"
+    )
 }
 
 /// A mock populated to mirror the real leaked session: a tagged VM with an OS
@@ -25,8 +29,7 @@ fn nic_id(name: &str) -> String {
 /// sibling session's IP and NSG that must never be touched.
 fn mock_with_full_session() -> MockAzureOps {
     let mut vm = make_test_vm(VM, PowerState::Running);
-    vm.tags
-        .insert("azlin-session".to_string(), VM.to_string());
+    vm.tags.insert("azlin-session".to_string(), VM.to_string());
     let mut mock = MockAzureOps::new(vec![vm]);
 
     mock.disk_json = format!(
@@ -97,10 +100,7 @@ fn test_teardown_reports_reclaimed_cost() {
     let mock = mock_with_full_session();
     let msg = handle_delete(&mock, RG, VM).unwrap();
     assert!(msg.contains(VM));
-    assert!(
-        msg.contains("month"),
-        "user should see the saving: {msg}"
-    );
+    assert!(msg.contains("month"), "user should see the saving: {msg}");
 }
 
 // ── Ordering: NIC before IP and NSG ─────────────────────────────────
@@ -161,9 +161,8 @@ fn test_sibling_session_resources_are_never_deleted() {
 fn test_untagged_public_ip_is_not_deleted_but_is_reported() {
     let mut mock = mock_with_full_session();
     // A hand-made, unassociated IP sharing the resource group.
-    mock.pip_json = format!(
-        r#"[{{"name":"myvm-ip","resourceGroup":"{RG}","ipConfiguration":null}}]"#
-    );
+    mock.pip_json =
+        format!(r#"[{{"name":"myvm-ip","resourceGroup":"{RG}","ipConfiguration":null}}]"#);
     mock.nsg_json = "[]".to_string();
     let msg = handle_delete(&mock, RG, VM).unwrap();
     let log = mock.call_log();
@@ -243,7 +242,10 @@ fn test_dry_run_enumerates_every_resource() {
         &format!("{VM}PublicIP"),
         &format!("{VM}NSG"),
     ] {
-        assert!(out.contains(expected), "dry-run must list {expected}: {out}");
+        assert!(
+            out.contains(expected),
+            "dry-run must list {expected}: {out}"
+        );
     }
 }
 
@@ -496,7 +498,10 @@ fn test_pool_member_orphan_is_recovered_after_vm_already_deleted() {
         log.contains(&format!("delete_nsg:{POOL_VM}NSG")),
         "a pool member's own leaked NSG must be reclaimed the same way: {log:?}"
     );
-    assert!(msg.contains("month"), "the reclaimed saving should be reported: {msg}");
+    assert!(
+        msg.contains("month"),
+        "the reclaimed saving should be reported: {msg}"
+    );
 }
 
 /// When the VM never existed in the plan, there is no `Vm` entry to

@@ -72,10 +72,7 @@ pub fn format_user_friendly_error(error: &AzureError) -> String {
             msg.push_str("❌ Azure deployment validation failed.\n");
             if !error.details.is_empty() {
                 for detail in &error.details {
-                    msg.push_str(&format!(
-                        "\n{}",
-                        format_user_friendly_error(detail)
-                    ));
+                    msg.push_str(&format!("\n{}", format_user_friendly_error(detail)));
                 }
             } else {
                 msg.push_str(&format!("   {}\n", error.message));
@@ -139,7 +136,9 @@ pub fn format_user_friendly_error(error: &AzureError) -> String {
             msg.push_str(&format!("⏱️ {}\n", error.message));
             msg.push_str("💡 Suggestions:\n");
             msg.push_str("   • Check your internet connection\n");
-            msg.push_str("   • Azure services may be experiencing issues — check https://status.azure.com\n");
+            msg.push_str(
+                "   • Azure services may be experiencing issues — check https://status.azure.com\n",
+            );
             msg.push_str("   • Try again in a few moments\n");
         }
         "AuthTokenError" => {
@@ -212,9 +211,7 @@ fn format_quota_error_from_message(message: &str) -> String {
     msg.push_str("   • Try a different region (--region eastus2)\n");
     msg.push_str("   • Use --region-fit to auto-find a region with enough quota\n");
     msg.push_str("   • Delete unused VMs to free cores (azlin list, azlin delete <name>)\n");
-    msg.push_str(
-        "   • Request a quota increase: https://aka.ms/ProdportalCRP\n",
-    );
+    msg.push_str("   • Request a quota increase: https://aka.ms/ProdportalCRP\n");
 
     msg
 }
@@ -225,9 +222,7 @@ fn extract_field(message: &str, prefix: &str) -> Option<String> {
     let start = idx + prefix.len();
     let rest = &message[start..];
     // Value ends at comma, period, or end of string
-    let end = rest
-        .find([',', '.', '\n'])
-        .unwrap_or(rest.len());
+    let end = rest.find([',', '.', '\n']).unwrap_or(rest.len());
     let value = rest[..end].trim();
     if value.is_empty() {
         None
@@ -370,11 +365,11 @@ const TIMEOUT_PATTERNS: &[&str] = &[
 ];
 
 const AUTH_TOKEN_PATTERNS: &[&str] = &[
-    "aadsts700082",  // token expired
-    "aadsts50076",   // MFA required
-    "aadsts65001",   // consent required
-    "aadsts50078",   // MFA enrollment required
-    "aadsts700024",  // refresh token expired
+    "aadsts700082", // token expired
+    "aadsts50076",  // MFA required
+    "aadsts65001",  // consent required
+    "aadsts50078",  // MFA enrollment required
+    "aadsts700024", // refresh token expired
     "invalid_grant",
 ];
 
@@ -1194,7 +1189,8 @@ During handling of the above exception, another exception occurred:
 
     #[test]
     fn test_parse_network_remote_disconnected() {
-        let stderr = "http.client.RemoteDisconnected: Remote end closed connection without response";
+        let stderr =
+            "http.client.RemoteDisconnected: Remote end closed connection without response";
         let err = parse_network_error_from_stderr(stderr).unwrap();
         assert_eq!(err.code, "NetworkConnectionError");
     }

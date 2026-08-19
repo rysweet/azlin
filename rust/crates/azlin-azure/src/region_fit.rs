@@ -58,7 +58,8 @@ pub struct RegionQuota {
 impl RegionQuota {
     /// Available cores (limit - used), floored at 0.
     pub fn available_cores(&self) -> u32 {
-        self.total_regional_limit.saturating_sub(self.total_regional_used)
+        self.total_regional_limit
+            .saturating_sub(self.total_regional_used)
     }
 
     /// Whether the region has capacity for `required_cores`.
@@ -120,10 +121,7 @@ pub fn parse_quota_json(json: &str) -> Result<RegionQuota> {
             .get("currentValue")
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as u32;
-        let limit = entry
-            .get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
+        let limit = entry.get("limit").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
 
         if name_value == "cores" {
             total_used = current;

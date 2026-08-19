@@ -108,7 +108,10 @@ fn test_handle_stop_deallocate() {
 fn test_handle_delete() {
     let mock = MockAzureOps::new(vec![make_test_vm("doomed-vm", PowerState::Running)]);
     let msg = handle_delete(&mock, "test-rg", "doomed-vm").unwrap();
-    assert!(msg.contains("doomed-vm"), "message should name the VM: {msg}");
+    assert!(
+        msg.contains("doomed-vm"),
+        "message should name the VM: {msg}"
+    );
     assert!(mock.call_log().contains(&"delete_vm:doomed-vm".to_string()));
 }
 

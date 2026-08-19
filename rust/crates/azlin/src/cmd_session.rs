@@ -300,36 +300,35 @@ pub(crate) async fn dispatch(
                     vm_manager.subscription_id(), rg, name
                 );
 
-                let local_port = if let Some(port) =
-                    crate::bastion_tunnel::existing_live_tunnel_port(&vm_rid)
-                {
-                    port
-                } else {
-                    let pb = penguin_spinner("Starting persistent bastion tunnel...");
-                    let child_pid = crate::bastion_tunnel::spawn_detached_tunnel_host(
-                        bastion_name,
-                        &rg,
-                        &vm_rid,
-                    )?;
-                    // Wait until the detached host has the loopback listener up.
-                    // Bounded by config (setup + connect timeouts) — never an
-                    // arbitrary constant — so slow ARM/WSS setups are tolerated.
-                    let config = crate::dispatch_helpers::load_user_config();
-                    let wait_timeout = std::time::Duration::from_secs(
-                        config.bastion_tunnel_timeout + config.bastion_connect_timeout,
-                    );
-                    let result = crate::bastion_tunnel::wait_for_host_tunnel(
-                        &vm_rid, child_pid, wait_timeout,
-                    );
-                    pb.finish_and_clear();
-                    result?
-                };
+                let local_port =
+                    if let Some(port) = crate::bastion_tunnel::existing_live_tunnel_port(&vm_rid) {
+                        port
+                    } else {
+                        let pb = penguin_spinner("Starting persistent bastion tunnel...");
+                        let child_pid = crate::bastion_tunnel::spawn_detached_tunnel_host(
+                            bastion_name,
+                            &rg,
+                            &vm_rid,
+                        )?;
+                        // Wait until the detached host has the loopback listener up.
+                        // Bounded by config (setup + connect timeouts) — never an
+                        // arbitrary constant — so slow ARM/WSS setups are tolerated.
+                        let config = crate::dispatch_helpers::load_user_config();
+                        let wait_timeout = std::time::Duration::from_secs(
+                            config.bastion_tunnel_timeout + config.bastion_connect_timeout,
+                        );
+                        let result = crate::bastion_tunnel::wait_for_host_tunnel(
+                            &vm_rid,
+                            child_pid,
+                            wait_timeout,
+                        );
+                        pb.finish_and_clear();
+                        result?
+                    };
 
                 // Write SSH config entries so VS Code Remote-SSH can connect
                 let ssh_key = key.or_else(resolve_ssh_key);
-                write_ssh_config_entry(
-                    &name, &user, local_port, ssh_key.as_deref(),
-                )?;
+                write_ssh_config_entry(&name, &user, local_port, ssh_key.as_deref())?;
 
                 let host_alias = format!("azlin-{}", name);
                 println!(

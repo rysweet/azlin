@@ -82,8 +82,13 @@ fn test_tunnel_host_requires_arguments() {
         "`azlin __tunnel-host` with no arguments must exit non-zero"
     );
 
-    let (stdout, stderr, code) =
-        run_azlin(&["__tunnel-host", "--bastion-name", "b", "--resource-group", "rg"]);
+    let (stdout, stderr, code) = run_azlin(&[
+        "__tunnel-host",
+        "--bastion-name",
+        "b",
+        "--resource-group",
+        "rg",
+    ]);
     let combined = format!("{stdout}{stderr}");
     assert_ne!(code, 0, "missing --vm-resource-id must exit non-zero");
     assert!(

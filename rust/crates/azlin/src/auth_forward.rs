@@ -719,13 +719,22 @@ fn scp_file(
         match child.try_wait()? {
             Some(status) if status.success() => return Ok(()),
             Some(status) => {
-                let stderr = child.stderr.take().map(|mut s| {
-                    let mut buf = String::new();
-                    use std::io::Read;
-                    let _ = s.read_to_string(&mut buf);
-                    buf
-                }).unwrap_or_default();
-                anyhow::bail!("scp failed for {} (exit {}): {}", local.display(), status.code().unwrap_or(-1), stderr.trim());
+                let stderr = child
+                    .stderr
+                    .take()
+                    .map(|mut s| {
+                        let mut buf = String::new();
+                        use std::io::Read;
+                        let _ = s.read_to_string(&mut buf);
+                        buf
+                    })
+                    .unwrap_or_default();
+                anyhow::bail!(
+                    "scp failed for {} (exit {}): {}",
+                    local.display(),
+                    status.code().unwrap_or(-1),
+                    stderr.trim()
+                );
             }
             None if start.elapsed() >= timeout => {
                 let _ = child.kill();
@@ -787,13 +796,22 @@ fn scp_recursive(
         match child.try_wait()? {
             Some(status) if status.success() => return Ok(()),
             Some(status) => {
-                let stderr = child.stderr.take().map(|mut s| {
-                    let mut buf = String::new();
-                    use std::io::Read;
-                    let _ = s.read_to_string(&mut buf);
-                    buf
-                }).unwrap_or_default();
-                anyhow::bail!("scp failed for {} (exit {}): {}", local_dir.display(), status.code().unwrap_or(-1), stderr.trim());
+                let stderr = child
+                    .stderr
+                    .take()
+                    .map(|mut s| {
+                        let mut buf = String::new();
+                        use std::io::Read;
+                        let _ = s.read_to_string(&mut buf);
+                        buf
+                    })
+                    .unwrap_or_default();
+                anyhow::bail!(
+                    "scp failed for {} (exit {}): {}",
+                    local_dir.display(),
+                    status.code().unwrap_or(-1),
+                    stderr.trim()
+                );
             }
             None if start.elapsed() >= timeout => {
                 let _ = child.kill();
@@ -1379,7 +1397,10 @@ mod tests {
     #[test]
     fn test_parse_cloud_init_status_not_installed_is_terminal() {
         let output = "status: not-installed\n";
-        assert_eq!(parse_cloud_init_status(output), CloudInitStatus::NotInstalled);
+        assert_eq!(
+            parse_cloud_init_status(output),
+            CloudInitStatus::NotInstalled
+        );
     }
 
     #[test]

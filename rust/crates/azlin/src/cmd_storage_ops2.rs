@@ -129,9 +129,7 @@ pub(crate) fn handle_storage_mount_file(
     drop(creds_file);
     if creds_path.exists() {
         if let Err(e) = std::fs::remove_file(&creds_path) {
-            eprintln!(
-                "Warning: could not remove temporary credentials file: {e}",
-            );
+            eprintln!("Warning: could not remove temporary credentials file: {e}",);
         }
     }
 

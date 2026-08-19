@@ -16,16 +16,26 @@ fn resolve_key_and_push(
     match crate::key_helpers::ensure_ssh_keypair() {
         Ok(kp) => {
             if kp.generated {
-                let pub_key = std::fs::read_to_string(&kp.public_key)
-                    .map_err(|e| anyhow::anyhow!("Cannot read generated public key {}: {e}", kp.public_key.display()))?;
+                let pub_key = std::fs::read_to_string(&kp.public_key).map_err(|e| {
+                    anyhow::anyhow!(
+                        "Cannot read generated public key {}: {e}",
+                        kp.public_key.display()
+                    )
+                })?;
                 eprintln!("Pushing new SSH key to {}...", vm_name);
                 let push_result = std::process::Command::new("az")
                     .args([
-                        "vm", "user", "update",
-                        "--resource-group", rg,
-                        "--name", vm_name,
-                        "--username", username,
-                        "--ssh-key-value", pub_key.trim(),
+                        "vm",
+                        "user",
+                        "update",
+                        "--resource-group",
+                        rg,
+                        "--name",
+                        vm_name,
+                        "--username",
+                        username,
+                        "--ssh-key-value",
+                        pub_key.trim(),
                     ])
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::inherit())
@@ -296,15 +306,12 @@ pub(crate) async fn dispatch(
                         vm_manager.subscription_id(), rg, name
                     );
                     // Open native bastion tunnel to get a local port
-                    let tunnel = crate::bastion_tunnel::ScopedBastionTunnel::new(
-                        bastion_name, &rg, &vm_rid,
-                    ).await?;
+                    let tunnel =
+                        crate::bastion_tunnel::ScopedBastionTunnel::new(bastion_name, &rg, &vm_rid)
+                            .await?;
                     // Ensure an SSH key exists; auto-generate if missing.
                     let ssh_key = resolve_key_and_push(&key, &rg, &name, &username)?;
-                    let mut args = vec![
-                        "-p".to_string(),
-                        tunnel.local_port.to_string(),
-                    ];
+                    let mut args = vec!["-p".to_string(), tunnel.local_port.to_string()];
                     args.extend(
                         crate::bastion_tunnel::bastion_loopback_ssh_opts()
                             .iter()

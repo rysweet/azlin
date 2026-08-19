@@ -122,7 +122,10 @@ pub struct TeardownPlan {
 impl TeardownPlan {
     /// Total estimated monthly saving from executing this plan, in USD.
     pub fn estimated_monthly_savings(&self) -> f64 {
-        self.resources.iter().map(|r| r.estimated_monthly_cost).sum()
+        self.resources
+            .iter()
+            .map(|r| r.estimated_monthly_cost)
+            .sum()
     }
 
     /// Resources of a given kind, preserving plan order.
@@ -210,7 +213,9 @@ fn name_and_group<'a>(
 ///
 /// Shared with orphan detection in `cleanup` so the two paths cannot drift.
 pub fn public_ip_is_unassociated(ip: &serde_json::Value) -> bool {
-    ip.get("ipConfiguration").map(|v| v.is_null()).unwrap_or(true)
+    ip.get("ipConfiguration")
+        .map(|v| v.is_null())
+        .unwrap_or(true)
 }
 
 /// Whether an NSG is free of any association.
@@ -284,7 +289,10 @@ pub fn plan_teardown(inputs: &TeardownInputs) -> Result<TeardownPlan> {
             continue;
         }
         if let Some((name, disk_rg)) = name_and_group(&disk, rg) {
-            let size_gb = disk.get("diskSizeGb").and_then(|s| s.as_f64()).unwrap_or(0.0);
+            let size_gb = disk
+                .get("diskSizeGb")
+                .and_then(|s| s.as_f64())
+                .unwrap_or(0.0);
             plan.resources.push(TeardownResource {
                 name: name.to_string(),
                 kind: TeardownKind::Disk,
@@ -383,8 +391,8 @@ pub fn plan_teardown(inputs: &TeardownInputs) -> Result<TeardownPlan> {
                     .collect()
             })
             .unwrap_or_default();
-        let free = !subnet_bound
-            && (nsg_is_unassociated(&nsg) || bound_only_to_target_nics(&nic_ids));
+        let free =
+            !subnet_bound && (nsg_is_unassociated(&nsg) || bound_only_to_target_nics(&nic_ids));
         let name_hint = inputs.also_match_by_name.iter().any(|n| n == name);
 
         match classify(session_tag_of(&nsg), inputs.session_tag, free, name_hint) {
@@ -571,7 +579,12 @@ pub fn format_teardown_plan(plan: &TeardownPlan, vm_name: &str, resource_group: 
     if !plan.skipped.is_empty() {
         out.push_str("\n⚠️  Not deleted (may remain and keep billing):\n");
         for s in &plan.skipped {
-            out.push_str(&format!("  {:<10} {} — {}\n", format!("{}:", s.kind), s.name, s.reason));
+            out.push_str(&format!(
+                "  {:<10} {} — {}\n",
+                format!("{}:", s.kind),
+                s.name,
+                s.reason
+            ));
         }
         out.push_str("  Run 'azlin cleanup' to review and reclaim orphaned resources.\n");
     }
@@ -711,7 +724,11 @@ mod tests {
     #[test]
     fn deletion_order_is_strictly_increasing() {
         let plan = default_plan();
-        let orders: Vec<u8> = plan.resources.iter().map(|r| r.kind.deletion_order()).collect();
+        let orders: Vec<u8> = plan
+            .resources
+            .iter()
+            .map(|r| r.kind.deletion_order())
+            .collect();
         let mut sorted = orders.clone();
         sorted.sort_unstable();
         assert_eq!(orders, sorted);
@@ -825,9 +842,8 @@ mod tests {
 
     #[test]
     fn untagged_public_ip_is_skipped_not_deleted() {
-        let pips = format!(
-            r#"[{{"name":"{VM}PublicIP","resourceGroup":"{RG}","ipConfiguration":null}}]"#
-        );
+        let pips =
+            format!(r#"[{{"name":"{VM}PublicIP","resourceGroup":"{RG}","ipConfiguration":null}}]"#);
         let plan = plan_with("[]", "[]", &pips, "[]");
         assert!(
             plan.of_kind(TeardownKind::PublicIp).is_empty(),
@@ -854,7 +870,10 @@ mod tests {
         let pips = r#"[{"name":"myvm-ip","resourceGroup":"myvm_group",
                         "ipConfiguration":{"id":"/subscriptions/s/resourceGroups/myvm_group/providers/Microsoft.Network/networkInterfaces/myvm693_z1/ipConfigurations/ipconfig1"}}]"#;
         let plan = plan_with("[]", "[]", pips, "[]");
-        assert!(plan.resources.iter().all(|r| r.kind != TeardownKind::PublicIp));
+        assert!(plan
+            .resources
+            .iter()
+            .all(|r| r.kind != TeardownKind::PublicIp));
         assert!(plan.skipped.is_empty());
     }
 
@@ -1360,8 +1379,7 @@ mod tests {
                   "networkInterfaces":null,"tags":{{"azlin-session":"{POOL_TAG}"}}}}]"#
         );
         let hints = vec![format!("{POOL_VM}NSG")];
-        let freed =
-            plan_recheck(&skipped, Some(POOL_VM), RG, "[]", &nsgs, &hints).unwrap();
+        let freed = plan_recheck(&skipped, Some(POOL_VM), RG, "[]", &nsgs, &hints).unwrap();
         assert_eq!(freed.len(), 1);
         assert_eq!(freed[0].name, format!("{POOL_VM}NSG"));
     }

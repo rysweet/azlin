@@ -21,7 +21,9 @@ pub fn bastion_pip_name(region: &str) -> String {
 /// `bastions` is the output of `detect_bastion_hosts()`: Vec of (name, location, sku).
 pub fn bastion_exists_in_region(bastions: &[(String, String, String)], region: &str) -> bool {
     let region_lower = region.to_lowercase();
-    bastions.iter().any(|(_, loc, _)| loc.to_lowercase() == region_lower)
+    bastions
+        .iter()
+        .any(|(_, loc, _)| loc.to_lowercase() == region_lower)
 }
 
 // ── Az CLI command builders for bastion infrastructure ────────────────
@@ -30,14 +32,23 @@ pub fn bastion_exists_in_region(bastions: &[(String, String, String)], region: &
 pub fn build_create_vnet_args(resource_group: &str, region: &str) -> Vec<String> {
     let vnet = bastion_vnet_name(region);
     vec![
-        "network".into(), "vnet".into(), "create".into(),
-        "--resource-group".into(), resource_group.into(),
-        "--name".into(), vnet,
-        "--location".into(), region.to_lowercase(),
-        "--address-prefix".into(), "10.0.0.0/16".into(),
-        "--subnet-name".into(), "default".into(),
-        "--subnet-prefix".into(), "10.0.0.0/24".into(),
-        "--output".into(), "none".into(),
+        "network".into(),
+        "vnet".into(),
+        "create".into(),
+        "--resource-group".into(),
+        resource_group.into(),
+        "--name".into(),
+        vnet,
+        "--location".into(),
+        region.to_lowercase(),
+        "--address-prefix".into(),
+        "10.0.0.0/16".into(),
+        "--subnet-name".into(),
+        "default".into(),
+        "--subnet-prefix".into(),
+        "10.0.0.0/24".into(),
+        "--output".into(),
+        "none".into(),
     ]
 }
 
@@ -45,12 +56,20 @@ pub fn build_create_vnet_args(resource_group: &str, region: &str) -> Vec<String>
 pub fn build_create_bastion_subnet_args(resource_group: &str, region: &str) -> Vec<String> {
     let vnet = bastion_vnet_name(region);
     vec![
-        "network".into(), "vnet".into(), "subnet".into(), "create".into(),
-        "--resource-group".into(), resource_group.into(),
-        "--vnet-name".into(), vnet,
-        "--name".into(), "AzureBastionSubnet".into(),
-        "--address-prefix".into(), "10.0.1.0/26".into(),
-        "--output".into(), "none".into(),
+        "network".into(),
+        "vnet".into(),
+        "subnet".into(),
+        "create".into(),
+        "--resource-group".into(),
+        resource_group.into(),
+        "--vnet-name".into(),
+        vnet,
+        "--name".into(),
+        "AzureBastionSubnet".into(),
+        "--address-prefix".into(),
+        "10.0.1.0/26".into(),
+        "--output".into(),
+        "none".into(),
     ]
 }
 
@@ -63,14 +82,23 @@ pub fn build_create_bastion_subnet_args(resource_group: &str, region: &str) -> V
 pub fn build_create_pip_args(resource_group: &str, region: &str, ip_tags: &str) -> Vec<String> {
     let pip = bastion_pip_name(region);
     vec![
-        "network".into(), "public-ip".into(), "create".into(),
-        "--resource-group".into(), resource_group.into(),
-        "--name".into(), pip,
-        "--location".into(), region.to_lowercase(),
-        "--sku".into(), "Standard".into(),
-        "--allocation-method".into(), "Static".into(),
-        "--ip-tags".into(), ip_tags.into(),
-        "--output".into(), "none".into(),
+        "network".into(),
+        "public-ip".into(),
+        "create".into(),
+        "--resource-group".into(),
+        resource_group.into(),
+        "--name".into(),
+        pip,
+        "--location".into(),
+        region.to_lowercase(),
+        "--sku".into(),
+        "Standard".into(),
+        "--allocation-method".into(),
+        "Static".into(),
+        "--ip-tags".into(),
+        ip_tags.into(),
+        "--output".into(),
+        "none".into(),
     ]
 }
 
@@ -80,15 +108,25 @@ pub fn build_create_bastion_args(resource_group: &str, region: &str) -> Vec<Stri
     let vnet = bastion_vnet_name(region);
     let pip = bastion_pip_name(region);
     vec![
-        "network".into(), "bastion".into(), "create".into(),
-        "--resource-group".into(), resource_group.into(),
-        "--name".into(), bastion,
-        "--location".into(), region.to_lowercase(),
-        "--vnet-name".into(), vnet,
-        "--public-ip-address".into(), pip,
-        "--sku".into(), "Standard".into(),
-        "--enable-tunneling".into(), "true".into(),
-        "--output".into(), "none".into(),
+        "network".into(),
+        "bastion".into(),
+        "create".into(),
+        "--resource-group".into(),
+        resource_group.into(),
+        "--name".into(),
+        bastion,
+        "--location".into(),
+        region.to_lowercase(),
+        "--vnet-name".into(),
+        vnet,
+        "--public-ip-address".into(),
+        pip,
+        "--sku".into(),
+        "Standard".into(),
+        "--enable-tunneling".into(),
+        "true".into(),
+        "--output".into(),
+        "none".into(),
     ]
 }
 
@@ -96,10 +134,15 @@ pub fn build_create_bastion_args(resource_group: &str, region: &str) -> Vec<Stri
 pub fn build_check_vnet_args(resource_group: &str, region: &str) -> Vec<String> {
     let vnet = bastion_vnet_name(region);
     vec![
-        "network".into(), "vnet".into(), "show".into(),
-        "--resource-group".into(), resource_group.into(),
-        "--name".into(), vnet,
-        "--output".into(), "none".into(),
+        "network".into(),
+        "vnet".into(),
+        "show".into(),
+        "--resource-group".into(),
+        resource_group.into(),
+        "--name".into(),
+        vnet,
+        "--output".into(),
+        "none".into(),
     ]
 }
 
@@ -107,11 +150,18 @@ pub fn build_check_vnet_args(resource_group: &str, region: &str) -> Vec<String> 
 pub fn build_check_bastion_subnet_args(resource_group: &str, region: &str) -> Vec<String> {
     let vnet = bastion_vnet_name(region);
     vec![
-        "network".into(), "vnet".into(), "subnet".into(), "show".into(),
-        "--resource-group".into(), resource_group.into(),
-        "--vnet-name".into(), vnet,
-        "--name".into(), "AzureBastionSubnet".into(),
-        "--output".into(), "none".into(),
+        "network".into(),
+        "vnet".into(),
+        "subnet".into(),
+        "show".into(),
+        "--resource-group".into(),
+        resource_group.into(),
+        "--vnet-name".into(),
+        vnet,
+        "--name".into(),
+        "AzureBastionSubnet".into(),
+        "--output".into(),
+        "none".into(),
     ]
 }
 
@@ -163,7 +213,9 @@ pub fn ensure_bastion_infrastructure(
     let bastion = bastion_name_for_region(region);
 
     // 1. Check / create VNet
-    let vnet_exists = run_az(&build_check_vnet_args(resource_group, region))?.status.success();
+    let vnet_exists = run_az(&build_check_vnet_args(resource_group, region))?
+        .status
+        .success();
     let vnet_created = if !vnet_exists {
         eprintln!("Creating bastion VNet '{vnet}' in {region}...");
         run_az_or_bail(
@@ -183,7 +235,9 @@ pub fn ensure_bastion_infrastructure(
     let subnet_exists = if vnet_created {
         false
     } else {
-        run_az(&build_check_bastion_subnet_args(resource_group, region))?.status.success()
+        run_az(&build_check_bastion_subnet_args(resource_group, region))?
+            .status
+            .success()
     };
     if !subnet_exists {
         eprintln!("Creating AzureBastionSubnet...");
@@ -289,25 +343,37 @@ mod tests {
     #[test]
     fn test_bastion_exists_in_region_found() {
         let bastions = vec![
-            ("azlin-bastion-eastus2".into(), "eastus2".into(), "Standard".into()),
-            ("azlin-bastion-westus".into(), "westus".into(), "Standard".into()),
+            (
+                "azlin-bastion-eastus2".into(),
+                "eastus2".into(),
+                "Standard".into(),
+            ),
+            (
+                "azlin-bastion-westus".into(),
+                "westus".into(),
+                "Standard".into(),
+            ),
         ];
         assert!(bastion_exists_in_region(&bastions, "eastus2"));
     }
 
     #[test]
     fn test_bastion_exists_in_region_not_found() {
-        let bastions = vec![
-            ("azlin-bastion-eastus2".into(), "eastus2".into(), "Standard".into()),
-        ];
+        let bastions = vec![(
+            "azlin-bastion-eastus2".into(),
+            "eastus2".into(),
+            "Standard".into(),
+        )];
         assert!(!bastion_exists_in_region(&bastions, "westus"));
     }
 
     #[test]
     fn test_bastion_exists_in_region_case_insensitive() {
-        let bastions = vec![
-            ("azlin-bastion-eastus2".into(), "EastUS2".into(), "Standard".into()),
-        ];
+        let bastions = vec![(
+            "azlin-bastion-eastus2".into(),
+            "EastUS2".into(),
+            "Standard".into(),
+        )];
         assert!(bastion_exists_in_region(&bastions, "eastus2"));
         assert!(bastion_exists_in_region(&bastions, "EASTUS2"));
     }

@@ -5233,7 +5233,10 @@ mod tests {
                 protocol,
                 ..
             } => {
-                assert!(action.is_none(), "bare `gui <vm>` must not select a subcommand");
+                assert!(
+                    action.is_none(),
+                    "bare `gui <vm>` must not select a subcommand"
+                );
                 assert_eq!(vm_identifier.as_deref(), Some("my-vm"));
                 assert_eq!(protocol, GuiProtocolArg::Vnc, "VNC must remain the default");
             }
@@ -5304,8 +5307,7 @@ mod tests {
 
     #[test]
     fn test_gui_rejects_unknown_protocol() {
-        let err =
-            Cli::try_parse_from(["azlin", "gui", "my-vm", "--protocol", "kasm"]).unwrap_err();
+        let err = Cli::try_parse_from(["azlin", "gui", "my-vm", "--protocol", "kasm"]).unwrap_err();
         assert!(err.to_string().contains("kasm"));
     }
 

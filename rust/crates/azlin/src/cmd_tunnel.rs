@@ -297,13 +297,12 @@ async fn open_bastion_tunnels(
         };
 
         // Open native bastion tunnel to get a local SSH port
-        let bastion_local_port = crate::bastion_tunnel::get_or_create_tunnel(
-            bastion_name,
-            rg,
-            &vm_rid,
-        )
-        .await
-        .with_context(|| format!("Failed to open bastion tunnel for port {}", remote_port))?;
+        let bastion_local_port =
+            crate::bastion_tunnel::get_or_create_tunnel(bastion_name, rg, &vm_rid)
+                .await
+                .with_context(|| {
+                    format!("Failed to open bastion tunnel for port {}", remote_port)
+                })?;
 
         // Layer ssh -N -L lport:localhost:remote_port -p bastion_local_port user@127.0.0.1
         let ssh_args = build_bastion_ssh_args(lport, remote_port, bastion_local_port, user, key);

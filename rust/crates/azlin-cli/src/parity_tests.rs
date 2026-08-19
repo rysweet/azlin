@@ -71,7 +71,10 @@ mod parity_tests {
     fn test_code_has_no_extensions_flag() {
         let cli = Cli::parse_from(["azlin", "code", "my-vm", "--no-extensions"]);
         if let Commands::Code { no_extensions, .. } = cli.command {
-            assert!(no_extensions, "code --no-extensions should set flag to true");
+            assert!(
+                no_extensions,
+                "code --no-extensions should set flag to true"
+            );
         } else {
             panic!("Expected Code command");
         }
@@ -224,10 +227,7 @@ mod parity_tests {
             action: DiskAction::Add { mount, .. },
         } = cli.command
         {
-            assert_eq!(
-                mount, "/tmp",
-                "disk add --mount should default to '/tmp'"
-            );
+            assert_eq!(mount, "/tmp", "disk add --mount should default to '/tmp'");
         } else {
             panic!("Expected Disk Add command");
         }
@@ -236,7 +236,14 @@ mod parity_tests {
     #[test]
     fn test_disk_add_mount_override() {
         let cli = Cli::parse_from([
-            "azlin", "disk", "add", "my-vm", "--size", "128", "--mount", "/mnt/data",
+            "azlin",
+            "disk",
+            "add",
+            "my-vm",
+            "--size",
+            "128",
+            "--mount",
+            "/mnt/data",
         ]);
         if let Commands::Disk {
             action: DiskAction::Add { mount, .. },
@@ -405,10 +412,7 @@ mod parity_tests {
     fn test_autopilot_enable_cpu_threshold_defaults_20() {
         let cli = Cli::parse_from(["azlin", "autopilot", "enable"]);
         if let Commands::Autopilot {
-            action:
-                AutopilotAction::Enable {
-                    cpu_threshold, ..
-                },
+            action: AutopilotAction::Enable { cpu_threshold, .. },
         } = cli.command
         {
             assert_eq!(
@@ -590,10 +594,7 @@ mod parity_tests {
     fn test_doit_cleanup_still_works() {
         let cli = Cli::parse_from(["azlin", "doit", "cleanup", "--force", "--dry-run"]);
         if let Commands::Doit {
-            action:
-                DoitAction::Cleanup {
-                    force, dry_run, ..
-                },
+            action: DoitAction::Cleanup { force, dry_run, .. },
         } = cli.command
         {
             assert!(force);
@@ -607,10 +608,9 @@ mod parity_tests {
     fn test_doit_deploy_still_works() {
         let cli = Cli::parse_from(["azlin", "doit", "deploy", "create a vm", "--dry-run"]);
         if let Commands::Doit {
-            action:
-                DoitAction::Deploy {
-                    request, dry_run, ..
-                },
+            action: DoitAction::Deploy {
+                request, dry_run, ..
+            },
         } = cli.command
         {
             assert_eq!(request, "create a vm");
@@ -975,7 +975,10 @@ mod parity_tests {
         // Python CLI defaulted --lines to 100; Rust currently defaults to 50
         let cli = Cli::parse_from(["azlin", "logs", "my-vm"]);
         if let Commands::Logs { lines, .. } = cli.command {
-            assert_eq!(lines, 100, "logs --lines should default to 100 (Python parity)");
+            assert_eq!(
+                lines, 100,
+                "logs --lines should default to 100 (Python parity)"
+            );
         } else {
             panic!("Expected Logs command");
         }

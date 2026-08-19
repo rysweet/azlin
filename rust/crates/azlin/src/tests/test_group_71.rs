@@ -61,55 +61,37 @@ fn test_vm_family_e_variant_exists() {
 
 #[test]
 fn test_tier_to_sku_d_xs() {
-    let sku = crate::cmd_vm_ops::tier_to_sku(
-        azlin_cli::VmSizeTier::Xs,
-        azlin_cli::VmFamily::D,
-    );
+    let sku = crate::cmd_vm_ops::tier_to_sku(azlin_cli::VmSizeTier::Xs, azlin_cli::VmFamily::D);
     assert_eq!(sku, "Standard_D2s_v5");
 }
 
 #[test]
 fn test_tier_to_sku_d_s() {
-    let sku = crate::cmd_vm_ops::tier_to_sku(
-        azlin_cli::VmSizeTier::S,
-        azlin_cli::VmFamily::D,
-    );
+    let sku = crate::cmd_vm_ops::tier_to_sku(azlin_cli::VmSizeTier::S, azlin_cli::VmFamily::D);
     assert_eq!(sku, "Standard_D4s_v5");
 }
 
 #[test]
 fn test_tier_to_sku_d_m() {
-    let sku = crate::cmd_vm_ops::tier_to_sku(
-        azlin_cli::VmSizeTier::M,
-        azlin_cli::VmFamily::D,
-    );
+    let sku = crate::cmd_vm_ops::tier_to_sku(azlin_cli::VmSizeTier::M, azlin_cli::VmFamily::D);
     assert_eq!(sku, "Standard_D8s_v5");
 }
 
 #[test]
 fn test_tier_to_sku_d_l() {
-    let sku = crate::cmd_vm_ops::tier_to_sku(
-        azlin_cli::VmSizeTier::L,
-        azlin_cli::VmFamily::D,
-    );
+    let sku = crate::cmd_vm_ops::tier_to_sku(azlin_cli::VmSizeTier::L, azlin_cli::VmFamily::D);
     assert_eq!(sku, "Standard_D16s_v5");
 }
 
 #[test]
 fn test_tier_to_sku_d_xl() {
-    let sku = crate::cmd_vm_ops::tier_to_sku(
-        azlin_cli::VmSizeTier::Xl,
-        azlin_cli::VmFamily::D,
-    );
+    let sku = crate::cmd_vm_ops::tier_to_sku(azlin_cli::VmSizeTier::Xl, azlin_cli::VmFamily::D);
     assert_eq!(sku, "Standard_D32s_v5");
 }
 
 #[test]
 fn test_tier_to_sku_d_xxl() {
-    let sku = crate::cmd_vm_ops::tier_to_sku(
-        azlin_cli::VmSizeTier::Xxl,
-        azlin_cli::VmFamily::D,
-    );
+    let sku = crate::cmd_vm_ops::tier_to_sku(azlin_cli::VmSizeTier::Xxl, azlin_cli::VmFamily::D);
     assert_eq!(sku, "Standard_D64s_v5");
 }
 
@@ -119,55 +101,37 @@ fn test_tier_to_sku_d_xxl() {
 
 #[test]
 fn test_tier_to_sku_e_xs() {
-    let sku = crate::cmd_vm_ops::tier_to_sku(
-        azlin_cli::VmSizeTier::Xs,
-        azlin_cli::VmFamily::E,
-    );
+    let sku = crate::cmd_vm_ops::tier_to_sku(azlin_cli::VmSizeTier::Xs, azlin_cli::VmFamily::E);
     assert_eq!(sku, "Standard_E2as_v5");
 }
 
 #[test]
 fn test_tier_to_sku_e_s() {
-    let sku = crate::cmd_vm_ops::tier_to_sku(
-        azlin_cli::VmSizeTier::S,
-        azlin_cli::VmFamily::E,
-    );
+    let sku = crate::cmd_vm_ops::tier_to_sku(azlin_cli::VmSizeTier::S, azlin_cli::VmFamily::E);
     assert_eq!(sku, "Standard_E4as_v5");
 }
 
 #[test]
 fn test_tier_to_sku_e_m() {
-    let sku = crate::cmd_vm_ops::tier_to_sku(
-        azlin_cli::VmSizeTier::M,
-        azlin_cli::VmFamily::E,
-    );
+    let sku = crate::cmd_vm_ops::tier_to_sku(azlin_cli::VmSizeTier::M, azlin_cli::VmFamily::E);
     assert_eq!(sku, "Standard_E8as_v5");
 }
 
 #[test]
 fn test_tier_to_sku_e_l() {
-    let sku = crate::cmd_vm_ops::tier_to_sku(
-        azlin_cli::VmSizeTier::L,
-        azlin_cli::VmFamily::E,
-    );
+    let sku = crate::cmd_vm_ops::tier_to_sku(azlin_cli::VmSizeTier::L, azlin_cli::VmFamily::E);
     assert_eq!(sku, "Standard_E16as_v5");
 }
 
 #[test]
 fn test_tier_to_sku_e_xl() {
-    let sku = crate::cmd_vm_ops::tier_to_sku(
-        azlin_cli::VmSizeTier::Xl,
-        azlin_cli::VmFamily::E,
-    );
+    let sku = crate::cmd_vm_ops::tier_to_sku(azlin_cli::VmSizeTier::Xl, azlin_cli::VmFamily::E);
     assert_eq!(sku, "Standard_E32as_v5");
 }
 
 #[test]
 fn test_tier_to_sku_e_xxl() {
-    let sku = crate::cmd_vm_ops::tier_to_sku(
-        azlin_cli::VmSizeTier::Xxl,
-        azlin_cli::VmFamily::E,
-    );
+    let sku = crate::cmd_vm_ops::tier_to_sku(azlin_cli::VmSizeTier::Xxl, azlin_cli::VmFamily::E);
     assert_eq!(sku, "Standard_E64as_v5");
 }
 
@@ -299,10 +263,10 @@ fn test_ssh_timeout_for_new_tier_skus_v5() {
 fn test_ssh_timeout_for_e_family_skus() {
     // E-series SKUs should also produce correct timeouts via extract_core_count
     let e_skus = vec![
-        ("Standard_E2as_v5", 300),   // 2 cores
-        ("Standard_E8as_v5", 300),   // 8 cores
-        ("Standard_E32as_v5", 450),  // 32 cores
-        ("Standard_E64as_v5", 600),  // 64 cores
+        ("Standard_E2as_v5", 300),  // 2 cores
+        ("Standard_E8as_v5", 300),  // 8 cores
+        ("Standard_E32as_v5", 450), // 32 cores
+        ("Standard_E64as_v5", 600), // 64 cores
     ];
     for (sku, expected_secs) in e_skus {
         let timeout = crate::cmd_vm_ops::ssh_timeout_for_vm_size(sku);
@@ -392,8 +356,7 @@ fn test_parse_sku_available() {
             "restrictions": []
         }
     ]"#;
-    let available =
-        azlin_azure::region_fit::parse_sku_availability_json(json, "Standard_D8s_v5");
+    let available = azlin_azure::region_fit::parse_sku_availability_json(json, "Standard_D8s_v5");
     assert!(available, "SKU with no restrictions should be available");
 }
 
@@ -410,8 +373,7 @@ fn test_parse_sku_restricted_zone() {
             ]
         }
     ]"#;
-    let available =
-        azlin_azure::region_fit::parse_sku_availability_json(json, "Standard_D8s_v5");
+    let available = azlin_azure::region_fit::parse_sku_availability_json(json, "Standard_D8s_v5");
     assert!(
         !available,
         "SKU with NotAvailableForSubscription restriction should be unavailable"
@@ -426,16 +388,14 @@ fn test_parse_sku_not_in_list() {
             "restrictions": []
         }
     ]"#;
-    let available =
-        azlin_azure::region_fit::parse_sku_availability_json(json, "Standard_D8s_v5");
+    let available = azlin_azure::region_fit::parse_sku_availability_json(json, "Standard_D8s_v5");
     assert!(!available, "SKU not in the list should be unavailable");
 }
 
 #[test]
 fn test_parse_sku_empty_list() {
     let json = "[]";
-    let available =
-        azlin_azure::region_fit::parse_sku_availability_json(json, "Standard_D8s_v5");
+    let available = azlin_azure::region_fit::parse_sku_availability_json(json, "Standard_D8s_v5");
     assert!(!available, "Empty SKU list should mean unavailable");
 }
 
@@ -485,7 +445,10 @@ fn test_region_quota_has_capacity_for() {
 #[test]
 fn test_default_candidate_regions_is_nonempty() {
     let regions = azlin_azure::region_fit::default_candidate_regions();
-    assert!(!regions.is_empty(), "Must have at least one candidate region");
+    assert!(
+        !regions.is_empty(),
+        "Must have at least one candidate region"
+    );
 }
 
 #[test]
@@ -536,7 +499,10 @@ fn test_region_check_result_sku_unavailable() {
         has_capacity: true,
         error: None,
     };
-    assert!(!result.is_usable(), "Should not be usable if SKU is restricted");
+    assert!(
+        !result.is_usable(),
+        "Should not be usable if SKU is restricted"
+    );
 }
 
 #[test]
@@ -671,7 +637,11 @@ fn test_cli_region_fit_flag_in_new_command() {
     use clap::Parser;
     // Parse a minimal `azlin new --region-fit` command
     let args = azlin_cli::Cli::try_parse_from(["azlin", "new", "--region-fit"]);
-    assert!(args.is_ok(), "CLI should accept --region-fit flag: {:?}", args.err());
+    assert!(
+        args.is_ok(),
+        "CLI should accept --region-fit flag: {:?}",
+        args.err()
+    );
     let cli = args.unwrap();
     if let azlin_cli::Commands::New { region_fit, .. } = cli.command {
         assert!(region_fit, "--region-fit should be true when passed");
@@ -701,7 +671,11 @@ fn test_cli_region_fit_default_false() {
 fn test_cli_vm_family_flag_d() {
     use clap::Parser;
     let args = azlin_cli::Cli::try_parse_from(["azlin", "new", "--vm-family", "d"]);
-    assert!(args.is_ok(), "CLI should accept --vm-family d: {:?}", args.err());
+    assert!(
+        args.is_ok(),
+        "CLI should accept --vm-family d: {:?}",
+        args.err()
+    );
     let cli = args.unwrap();
     if let azlin_cli::Commands::New { vm_family, .. } = cli.command {
         assert!(
@@ -717,7 +691,11 @@ fn test_cli_vm_family_flag_d() {
 fn test_cli_vm_family_flag_e() {
     use clap::Parser;
     let args = azlin_cli::Cli::try_parse_from(["azlin", "new", "--vm-family", "e"]);
-    assert!(args.is_ok(), "CLI should accept --vm-family e: {:?}", args.err());
+    assert!(
+        args.is_ok(),
+        "CLI should accept --vm-family e: {:?}",
+        args.err()
+    );
     let cli = args.unwrap();
     if let azlin_cli::Commands::New { vm_family, .. } = cli.command {
         assert!(
@@ -753,7 +731,11 @@ fn test_cli_vm_family_default_none() {
 fn test_cli_size_xs_accepted() {
     use clap::Parser;
     let args = azlin_cli::Cli::try_parse_from(["azlin", "new", "--size", "xs"]);
-    assert!(args.is_ok(), "CLI should accept --size xs: {:?}", args.err());
+    assert!(
+        args.is_ok(),
+        "CLI should accept --size xs: {:?}",
+        args.err()
+    );
     let cli = args.unwrap();
     if let azlin_cli::Commands::New { size, .. } = cli.command {
         assert!(
@@ -769,7 +751,11 @@ fn test_cli_size_xs_accepted() {
 fn test_cli_size_xxl_accepted() {
     use clap::Parser;
     let args = azlin_cli::Cli::try_parse_from(["azlin", "new", "--size", "xxl"]);
-    assert!(args.is_ok(), "CLI should accept --size xxl: {:?}", args.err());
+    assert!(
+        args.is_ok(),
+        "CLI should accept --size xxl: {:?}",
+        args.err()
+    );
     let cli = args.unwrap();
     if let azlin_cli::Commands::New { size, .. } = cli.command {
         assert!(
@@ -812,7 +798,11 @@ fn test_cli_combined_flags() {
         "e",
         "--region-fit",
     ]);
-    assert!(args.is_ok(), "Combined flags should parse: {:?}", args.err());
+    assert!(
+        args.is_ok(),
+        "Combined flags should parse: {:?}",
+        args.err()
+    );
     let cli = args.unwrap();
     if let azlin_cli::Commands::New {
         size,
@@ -904,7 +894,12 @@ fn test_tier_to_sku_exhaustive_no_panic() {
     for tier in &tiers {
         for family in &families {
             let sku = crate::cmd_vm_ops::tier_to_sku(*tier, *family);
-            assert!(!sku.is_empty(), "SKU should not be empty for {:?}/{:?}", tier, family);
+            assert!(
+                !sku.is_empty(),
+                "SKU should not be empty for {:?}/{:?}",
+                tier,
+                family
+            );
             assert!(
                 sku.starts_with("Standard_"),
                 "SKU should start with Standard_ for {:?}/{:?}",
@@ -926,17 +921,20 @@ fn test_extract_core_count_rejects_overflow() {
 
 #[test]
 fn test_extract_core_count_accepts_valid_range() {
-    assert_eq!(crate::cmd_vm_ops::extract_core_count("Standard_D128s_v5"), Some(128));
-    assert_eq!(crate::cmd_vm_ops::extract_core_count("Standard_D2s_v5"), Some(2));
+    assert_eq!(
+        crate::cmd_vm_ops::extract_core_count("Standard_D128s_v5"),
+        Some(128)
+    );
+    assert_eq!(
+        crate::cmd_vm_ops::extract_core_count("Standard_D2s_v5"),
+        Some(2)
+    );
 }
 
 // ── vm_family defaults to tier L when no --size ────────────────────
 
 #[test]
 fn test_vm_family_e_without_size_uses_default_tier_l() {
-    let sku = crate::cmd_vm_ops::tier_to_sku(
-        azlin_cli::VmSizeTier::L,
-        azlin_cli::VmFamily::E,
-    );
+    let sku = crate::cmd_vm_ops::tier_to_sku(azlin_cli::VmSizeTier::L, azlin_cli::VmFamily::E);
     assert_eq!(sku, "Standard_E16as_v5");
 }
