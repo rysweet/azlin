@@ -8,22 +8,32 @@ use super::*;
 ///
 /// - If `force` is true, returns `Ok(true)` immediately (skip prompt).
 /// - If stdin is a TTY, shows a dialoguer confirmation prompt.
-/// - If stdin is NOT a TTY (piped, cron, CI), returns an error advising
-///   the caller to use `--yes` or `--force`.
-pub(crate) fn safe_confirm(prompt: &str, force: bool) -> Result<bool> {
+/// - If stdin is NOT a TTY (piped, cron, CI), returns an error naming the
+///   flag that skips the prompt *for this command*.
+///
+/// `skip_flag` exists because the flag is not the same everywhere: `destroy`
+/// and `cleanup` take `--force`, while `new` and `batch` take `--yes`. The
+/// message used to name both unconditionally, so `azlin destroy dev` in a
+/// non-TTY told the user to "Use --yes or --force" and then rejected `--yes`
+/// as an unknown argument — advice that could not be followed.
+pub(crate) fn safe_confirm_with_flag(prompt: &str, force: bool, skip_flag: &str) -> Result<bool> {
     if force {
         return Ok(true);
     }
     if !std::io::stdin().is_terminal() {
         anyhow::bail!(
-            "Confirmation required but stdin is not a terminal. \
-             Use --yes or --force to skip."
+            "Confirmation required but stdin is not a terminal. Use {skip_flag} to skip."
         );
     }
     Ok(dialoguer::Confirm::new()
         .with_prompt(prompt)
         .default(false)
         .interact()?)
+}
+
+/// [`safe_confirm_with_flag`] for the majority of commands, which use `--force`.
+pub(crate) fn safe_confirm(prompt: &str, force: bool) -> Result<bool> {
+    safe_confirm_with_flag(prompt, force, "--force")
 }
 
 pub(crate) fn create_auth() -> Result<azlin_azure::AzureAuth> {
@@ -448,19 +458,42 @@ mod tests {
     }
 
     #[test]
+    /// The skip flag is per-command: `destroy`/`cleanup` take `--force`,
+    /// `new`/`batch` take `--yes`. A single hardcoded string cannot be right
+    /// for both, which is how `destroy` came to advise a flag it rejects.
+    #[test]
+    fn safe_confirm_names_the_callers_own_skip_flag() {
+        let err = safe_confirm_with_flag("Proceed?", false, "--yes")
+            .unwrap_err()
+            .to_string();
+        if err.contains("not a terminal") {
+            assert!(err.contains("--yes"), "got: {err}");
+            assert!(!err.contains("--force"), "got: {err}");
+        }
+    }
+
+    #[test]
     fn safe_confirm_non_tty_error_suggests_flags() {
         let result = safe_confirm("Proceed?", false);
         let err_msg = result.unwrap_err().to_string();
-        // When is_terminal() returns false we get our custom message with flag hints.
-        // When is_terminal() returns true (pseudo-TTY) dialoguer fails with an IO
-        // error — that's acceptable; the flag hints only appear in our own bail path.
-        assert!(
-            err_msg.contains("--yes")
-                || err_msg.contains("--force")
-                || err_msg.contains("not a terminal"),
-            "Error should suggest --yes/--force or be a terminal error, got: {}",
-            err_msg
-        );
+        // When is_terminal() returns false we get our custom message naming the
+        // caller's skip flag. When is_terminal() returns true (pseudo-TTY)
+        // dialoguer fails with an IO error instead, and no flag is named.
+        //
+        // The previous version of this assertion also accepted any message
+        // containing "not a terminal" — which our own bail path always
+        // contains — so it passed regardless of which flag was named, and
+        // did not notice when `destroy` advised the non-existent `--yes`.
+        if err_msg.contains("not a terminal") {
+            assert!(
+                err_msg.contains("--force"),
+                "the non-TTY message must name this caller's skip flag, got: {err_msg}"
+            );
+            assert!(
+                !err_msg.contains("--yes"),
+                "must not advise --yes for a --force command, got: {err_msg}"
+            );
+        }
     }
 
     #[test]

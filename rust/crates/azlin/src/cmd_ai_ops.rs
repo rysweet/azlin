@@ -61,7 +61,7 @@ pub(crate) async fn handle_do(
         return Ok(());
     }
 
-    if !safe_confirm("Execute these commands?", yes)? {
+    if !safe_confirm_with_flag("Execute these commands?", yes, "--yes")? {
         println!("Cancelled.");
         return Ok(());
     }
@@ -126,7 +126,7 @@ pub(crate) async fn handle_doit_deploy(request: &str, dry_run: bool, yes: bool) 
         return Ok(());
     }
 
-    if !safe_confirm("Execute this plan?", yes)? {
+    if !safe_confirm_with_flag("Execute this plan?", yes, "--yes")? {
         println!("Cancelled.");
         return Ok(());
     }

@@ -830,7 +830,7 @@ Startup time ({:.1}ms) exceeds the <15ms target.",
 // Re-export common utilities from dispatch_helpers for cmd_* modules via `use super::*`.
 pub(crate) use dispatch_helpers::{
     create_auth, home_dir, resolve_resource_group, resolve_vm_ssh_target, resolve_vm_targets,
-    safe_confirm, shell_escape,
+    safe_confirm, safe_confirm_with_flag, shell_escape,
 };
 
 mod handlers;

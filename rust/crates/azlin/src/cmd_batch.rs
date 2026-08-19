@@ -42,7 +42,7 @@ pub(crate) async fn dispatch(
                 let filter_msg = crate::batch_helpers::resolve_filter_display(tag.as_deref());
                 let prompt =
                     crate::batch_helpers::build_confirmation_prompt("Stop", filter_msg, &rg);
-                if !safe_confirm(&prompt, yes)? {
+                if !safe_confirm_with_flag(&prompt, yes, "--yes")? {
                     println!("Cancelled.");
                     return Ok(());
                 }
@@ -69,7 +69,7 @@ pub(crate) async fn dispatch(
                 let filter_msg = crate::batch_helpers::resolve_filter_display(tag.as_deref());
                 let prompt =
                     crate::batch_helpers::build_confirmation_prompt("Start", filter_msg, &rg);
-                if !safe_confirm(&prompt, yes)? {
+                if !safe_confirm_with_flag(&prompt, yes, "--yes")? {
                     println!("Cancelled.");
                     return Ok(());
                 }

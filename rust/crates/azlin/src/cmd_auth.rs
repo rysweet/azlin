@@ -160,7 +160,11 @@ pub(crate) async fn dispatch(
                         anyhow::bail!("Profile '{}' not found.", profile);
                     }
 
-                    if !safe_confirm(&format!("Remove profile '{}'?", profile), yes)? {
+                    if !safe_confirm_with_flag(
+                        &format!("Remove profile '{}'?", profile),
+                        yes,
+                        "--yes",
+                    )? {
                         println!("Cancelled.");
                         return Ok(());
                     }
