@@ -34,6 +34,25 @@ jobs:
       - name: Clippy
         run: cargo clippy --all --locked -- -D warnings
 
+  # Formatting gate. Kept as its own job rather than a step inside
+  # build-and-test so it reports in seconds instead of behind a ~6 minute
+  # build, and so a formatting failure does not hide build or test results.
+  fmt:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+          components: rustfmt
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
   # Supply-chain gate: fail CI on any RustSec advisory not explicitly
   # acknowledged in rust/.cargo/audit.toml. Reads the committed Cargo.lock.
   cargo-audit:

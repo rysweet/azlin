@@ -37,6 +37,19 @@ repos:
           - rich>=13.7.0
           - tomlkit>=0.12.0
 
+  # Rust formatting. Mirrors the `fmt` job in .github/workflows/rust-ci.yml so
+  # drift is caught at commit time rather than as a red CI run. `cargo fmt`
+  # operates on the whole workspace via its own manifest discovery, so this
+  # passes no filenames and simply gates on any staged Rust file.
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt (rust)
+        entry: bash -c 'cd rust && cargo fmt --all -- --check'
+        language: system
+        pass_filenames: false
+        files: ^rust/.*\.rs$
+
   # SSH Key Operations Audit - Ensure append-only behavior (Issue #419)
   - repo: local
     hooks:
