@@ -266,7 +266,7 @@ pub(crate) async fn dispatch(
             )?;
 
             if restore && !tmux_sessions.is_empty() {
-                crate::cmd_list_data::restore_tmux_sessions(&tmux_sessions);
+                crate::cmd_list_data::restore_tmux_sessions(&tmux_sessions, true);
             }
 
             // Show quota summary if requested

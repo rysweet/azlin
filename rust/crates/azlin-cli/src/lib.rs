@@ -1110,7 +1110,7 @@ pub enum Commands {
         #[arg(long)]
         dry_run: bool,
 
-        /// Restore in single tab instead of multiple tabs
+        /// Open each session in its own window instead of tabs in one window
         #[arg(long)]
         no_multi_tab: bool,
 

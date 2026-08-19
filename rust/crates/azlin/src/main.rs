@@ -996,6 +996,9 @@ mod autopilot_helpers;
 /// Pure helpers for VM lifecycle action labelling.
 mod stop_helpers;
 
+/// Pure planning helpers for `azlin restore` (dry-run preview, tab expansion).
+mod restore_helpers;
+
 /// Pure helpers for display-formatting inline values.
 mod display_helpers;
 
