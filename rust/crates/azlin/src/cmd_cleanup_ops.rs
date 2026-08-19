@@ -229,16 +229,43 @@ pub(crate) fn handle_cleanup(
     Ok(())
 }
 
+/// Options for `azlin restore` beyond the resource group.
+///
+/// Grouped into a struct because the handler already took six positional
+/// arguments; `dry_run` and `multi_tab` are the two that were being dropped
+/// entirely (issue #1089).
+pub(crate) struct RestoreOptions {
+    pub verbose: bool,
+    pub skip_health_check: bool,
+    pub force: bool,
+    pub terminal: Option<String>,
+    pub exclude: Option<String>,
+    /// `--dry-run`: list what would be restored and open nothing.
+    pub dry_run: bool,
+    /// Inverse of `--no-multi-tab`: keep sessions as tabs in one window rather
+    /// than opening a window per session.
+    pub multi_tab: bool,
+}
+
 pub(crate) async fn handle_restore(
     resource_group: Option<String>,
-    verbose: bool,
-    skip_health_check: bool,
-    force: bool,
-    terminal: Option<String>,
-    exclude: Option<String>,
+    opts: RestoreOptions,
 ) -> Result<()> {
+    let RestoreOptions {
+        verbose,
+        skip_health_check,
+        force,
+        terminal,
+        exclude,
+        dry_run,
+        multi_tab,
+    } = opts;
     let rg = resolve_resource_group(resource_group)?;
-    println!("Restoring azlin sessions in '{}'...", rg);
+    if dry_run {
+        println!("[dry-run] Inspecting azlin sessions in '{}'...", rg);
+    } else {
+        println!("Restoring azlin sessions in '{}'...", rg);
+    }
     if verbose {
         println!("  skip_health_check: {}", skip_health_check);
         println!("  force: {}", force);
@@ -324,6 +351,18 @@ pub(crate) async fn handle_restore(
         }
     }
 
-    crate::cmd_list_data::restore_tmux_sessions(&tmux_sessions);
+    // --dry-run stops here: everything above is read-only (an Azure VM listing
+    // and `tmux ls` over SSH); restore_tmux_sessions below is the only call
+    // that opens terminals, and a dry run must not reach it.
+    let plan = crate::restore_helpers::plan_restore(&tmux_sessions);
+    if dry_run {
+        for warning in &plan.warnings {
+            eprintln!("  Warning: {}", warning);
+        }
+        println!("{}", crate::restore_helpers::format_dry_run_preview(&plan));
+        return Ok(());
+    }
+
+    crate::cmd_list_data::restore_tmux_sessions(&tmux_sessions, multi_tab);
     Ok(())
 }

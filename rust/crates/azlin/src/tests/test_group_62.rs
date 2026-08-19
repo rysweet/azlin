@@ -249,14 +249,14 @@ fn test_vm_name_exactly_256_chars_valid() {
 fn test_restore_empty_map_no_panic() {
     let sessions: HashMap<String, Vec<String>> = HashMap::new();
     // Should complete without panic
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 }
 
 #[test]
 fn test_restore_empty_session_list_no_panic() {
     let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
     sessions.insert("myvm".to_string(), vec![]);
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 }
 
 #[test]
@@ -264,7 +264,7 @@ fn test_restore_valid_colon_format_no_panic() {
     // Bug 1 regression: "main:1" should be stripped to "main" without panic or warning
     let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
     sessions.insert("myvm".to_string(), vec!["main:1".to_string()]);
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn test_restore_invalid_session_name_skipped_no_panic() {
     // Security: session with injection chars must be skipped, not passed to spawn
     let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
     sessions.insert("myvm".to_string(), vec!["session;evil:0".to_string()]);
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 }
 
 #[test]
@@ -280,7 +280,7 @@ fn test_restore_invalid_vm_name_skipped_no_panic() {
     // Security: VM name with injection chars must be skipped
     let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
     sessions.insert("vm&inject".to_string(), vec!["main:0".to_string()]);
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 }
 
 #[test]
@@ -296,7 +296,7 @@ fn test_restore_multiple_sessions_opens_all_tabs() {
         ],
     );
     // This test runs in test mode, so it will print dry-run output for all sessions
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
     // Note: In test mode, the function prints output but doesn't actually open tabs
     // Verification would require capturing stdout, but the function now processes all sessions
 }
@@ -311,7 +311,7 @@ fn test_restore_respects_max_sessions_limit() {
     }
     sessions.insert("myvm".to_string(), many_sessions);
     // Should process only first 20 sessions, warning about the limit
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 }
 
 #[test]
@@ -319,7 +319,7 @@ fn test_restore_multiple_vms_no_panic() {
     let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
     sessions.insert("vm-alpha".to_string(), vec!["work:1".to_string()]);
     sessions.insert("vm-beta".to_string(), vec!["play:0".to_string()]);
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 }
 
 #[test]
@@ -327,7 +327,7 @@ fn test_restore_empty_vm_name_skipped_no_panic() {
     // Edge case: empty key in map
     let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
     sessions.insert("".to_string(), vec!["main:0".to_string()]);
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 }
 
 #[test]
@@ -336,7 +336,7 @@ fn test_restore_session_name_at_max_length_no_panic() {
     let raw = format!("{}:0", name);
     let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
     sessions.insert("myvm".to_string(), vec![raw]);
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 }
 
 #[test]
@@ -346,7 +346,7 @@ fn test_restore_session_name_over_max_length_skipped_no_panic() {
     let mut sessions: HashMap<String, Vec<String>> = HashMap::new();
     sessions.insert("myvm".to_string(), vec![raw]);
     // Should not panic; name is skipped with a warning
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 }
 
 // ---------------------------------------------------------------------------

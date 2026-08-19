@@ -17,7 +17,7 @@ Options:
       --terminal <TERMINAL>              Use specific terminal
       --exclude <EXCLUDE>                Exclude VMs by name pattern
       --dry-run                          Show what would be restored without actually restoring
-      --no-multi-tab                     Restore in single tab instead of multiple tabs
+      --no-multi-tab                     Open each session in its own window instead of tabs in one window
       --verbose                          Enable verbose output for restore
   -o, --output <OUTPUT>                  Output format [default: table] [possible values: table, json, csv]
       --auth-profile <AUTH_PROFILE>      Service principal authentication profile to use

@@ -3,43 +3,53 @@
 // These cover logic extracted from cmd_batch.rs: confirmation prompts,
 // filter display, workflow step extraction, and message formatting.
 
-// ── resolve_filter_display ────────────────────────────────────────
+// ── describe_selection ────────────────────────────────────────────
+//
+// `resolve_filter_display` used to render an absent filter as the word "all"
+// (issue #1089); it is replaced by `describe_selection`, which spells out that
+// no filter is in effect and includes the name pattern when one is given.
 
 #[test]
-fn test_resolve_filter_display_none_returns_all() {
-    assert_eq!(crate::batch_helpers::resolve_filter_display(None), "all");
+fn test_describe_selection_none_is_explicit_about_every_vm() {
+    let s = crate::batch_helpers::describe_selection(None, None);
+    assert!(s.contains("EVERY VM"), "{s}");
 }
 
 #[test]
-fn test_resolve_filter_display_some_returns_tag() {
+fn test_describe_selection_tag_only() {
     assert_eq!(
-        crate::batch_helpers::resolve_filter_display(Some("env=prod")),
-        "env=prod"
+        crate::batch_helpers::describe_selection(Some("env=prod"), None),
+        "VMs with tag 'env=prod'"
     );
 }
 
 #[test]
-fn test_resolve_filter_display_empty_string() {
-    assert_eq!(crate::batch_helpers::resolve_filter_display(Some("")), "");
+fn test_describe_selection_pattern_only() {
+    assert_eq!(
+        crate::batch_helpers::describe_selection(None, Some("scratch-*")),
+        "VMs with name matching 'scratch-*'"
+    );
 }
 
 // ── build_confirmation_prompt ─────────────────────────────────────
 
 #[test]
 fn test_build_confirmation_prompt_stop() {
-    let prompt = crate::batch_helpers::build_confirmation_prompt("Stop", "all", "my-rg");
-    assert_eq!(prompt, "Stop VMs matching 'all' in my-rg?");
+    let selection = crate::batch_helpers::describe_selection(None, None);
+    let prompt = crate::batch_helpers::build_confirmation_prompt("Stop", &selection, "my-rg");
+    assert_eq!(prompt, "Stop EVERY VM (no filter) in my-rg?");
 }
 
 #[test]
 fn test_build_confirmation_prompt_start_with_tag() {
-    let prompt = crate::batch_helpers::build_confirmation_prompt("Start", "env=dev", "prod-rg");
-    assert_eq!(prompt, "Start VMs matching 'env=dev' in prod-rg?");
+    let selection = crate::batch_helpers::describe_selection(Some("env=dev"), None);
+    let prompt = crate::batch_helpers::build_confirmation_prompt("Start", &selection, "prod-rg");
+    assert_eq!(prompt, "Start VMs with tag 'env=dev' in prod-rg?");
 }
 
 #[test]
 fn test_build_confirmation_prompt_contains_action() {
-    let prompt = crate::batch_helpers::build_confirmation_prompt("Delete", "all", "rg");
+    let prompt = crate::batch_helpers::build_confirmation_prompt("Delete", "EVERY VM", "rg");
     assert!(prompt.starts_with("Delete"));
 }
 

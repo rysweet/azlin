@@ -45,16 +45,118 @@ pub fn summarise_batch(action: &str, rg: &str, success: bool) -> String {
     }
 }
 
-/// Resolve a tag filter to a user-facing display string.
-/// Returns `"all"` when no tag filter is provided.
-pub fn resolve_filter_display(tag: Option<&str>) -> &str {
-    tag.unwrap_or("all")
+/// Match a VM name against a glob pattern supporting `*` (any run of
+/// characters, possibly empty) and `?` (exactly one character).
+///
+/// The match is *anchored*: the whole name must be consumed, so `scratch-*`
+/// matches `scratch-01` but not `prod-scratch-01`. Anchoring is deliberate —
+/// batch operations are destructive, and a pattern that quietly matches more
+/// than the user meant is the failure mode that costs money. Comparison is
+/// case-insensitive, matching `azlin list --vm-pattern`.
+pub fn glob_match(pattern: &str, name: &str) -> bool {
+    let p: Vec<char> = pattern.to_lowercase().chars().collect();
+    let n: Vec<char> = name.to_lowercase().chars().collect();
+    let (mut pi, mut ni) = (0usize, 0usize);
+    let mut star: Option<usize> = None;
+    let mut resume = 0usize;
+    while ni < n.len() {
+        if pi < p.len() && (p[pi] == '?' || p[pi] == n[ni]) {
+            pi += 1;
+            ni += 1;
+        } else if pi < p.len() && p[pi] == '*' {
+            star = Some(pi);
+            resume = ni;
+            pi += 1;
+        } else if let Some(s) = star {
+            resume += 1;
+            ni = resume;
+            pi = s + 1;
+        } else {
+            return false;
+        }
+    }
+    while pi < p.len() && p[pi] == '*' {
+        pi += 1;
+    }
+    pi == p.len()
+}
+
+/// Keep only the VM ids whose name matches `pattern`.
+///
+/// `names` maps resource id to VM name, as returned by the batch VM listing.
+/// An id with no known name is dropped rather than kept: acting on a VM we
+/// cannot even name is exactly what the filter was asked to prevent.
+pub fn filter_ids_by_pattern(
+    ids: &[String],
+    names: &std::collections::HashMap<String, String>,
+    pattern: &str,
+) -> Vec<String> {
+    ids.iter()
+        .filter(|id| names.get(*id).is_some_and(|name| glob_match(pattern, name)))
+        .cloned()
+        .collect()
+}
+
+/// Validate the VM-selection flags of a batch command.
+///
+/// `--all` means "every VM in the resource group", so combining it with a
+/// narrowing filter is ambiguous; rather than silently picking a winner (the
+/// exact shape of issue #1089) it is rejected. An empty `--vm-pattern` is
+/// rejected too — it would select nothing while reading like a real filter.
+pub fn validate_selection(
+    all: bool,
+    tag: Option<&str>,
+    vm_pattern: Option<&str>,
+) -> Result<(), String> {
+    if let Some(p) = vm_pattern {
+        if p.trim().is_empty() {
+            return Err(
+                "--vm-pattern must not be empty. Use --all to select every VM.".to_string(),
+            );
+        }
+    }
+    if all && (tag.is_some() || vm_pattern.is_some()) {
+        return Err(
+            "--all cannot be combined with --tag or --vm-pattern. Drop --all to use the filter."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Describe, for a confirmation prompt, which VMs a batch command will touch.
+///
+/// With no filter at all the description says so in as many words. It must
+/// never render as an innocuous-sounding word: the old wording ("VMs matching
+/// 'all'") read as "all the matching ones" and hid the fact that no filter was
+/// in effect — or, worse, that the user's filter had been discarded.
+pub fn describe_selection(tag: Option<&str>, vm_pattern: Option<&str>) -> String {
+    match (tag, vm_pattern) {
+        (Some(t), Some(p)) => format!("VMs with tag '{}' AND name matching '{}'", t, p),
+        (Some(t), None) => format!("VMs with tag '{}'", t),
+        (None, Some(p)) => format!("VMs with name matching '{}'", p),
+        (None, None) => "EVERY VM (no filter)".to_string(),
+    }
 }
 
 /// Build the confirmation prompt for a batch action.
-/// `action` is the verb shown to the user (e.g. "Stop", "Start").
-pub fn build_confirmation_prompt(action: &str, filter_display: &str, rg: &str) -> String {
-    format!("{} VMs matching '{}' in {}?", action, filter_display, rg)
+/// `action` is the verb shown to the user (e.g. "Stop", "Start");
+/// `selection` comes from [`describe_selection`].
+pub fn build_confirmation_prompt(action: &str, selection: &str, rg: &str) -> String {
+    format!("{} {} in {}?", action, selection, rg)
+}
+
+/// The `az vm` subcommand a batch stop should run.
+///
+/// Mirrors the single-VM path (`azlin stop`): `--no-deallocate` stops the VM
+/// but keeps it allocated, preserving its dynamic public IP and ephemeral disks
+/// (and its bill). Without the flag the VM is deallocated.
+pub fn batch_stop_action(no_deallocate: bool) -> &'static str {
+    if no_deallocate {
+        "stop"
+    } else {
+        "deallocate"
+    }
 }
 
 /// Represents a single step extracted from a workflow YAML file.
@@ -92,9 +194,34 @@ pub fn format_no_vms_message(rg: &str) -> String {
     format!("No VMs found in resource group '{}'", rg)
 }
 
+/// Format the "nothing matched" message, naming the filter that was applied so
+/// an empty result is never mistaken for an empty resource group.
+pub fn format_no_match_message(rg: &str, tag: Option<&str>, vm_pattern: Option<&str>) -> String {
+    if tag.is_none() && vm_pattern.is_none() {
+        return format_no_vms_message(rg);
+    }
+    format!(
+        "No VMs in resource group '{}' matched {}",
+        rg,
+        describe_selection(tag, vm_pattern)
+    )
+}
+
 /// Format the "no running VMs found" message for a resource group.
 pub fn format_no_running_vms_message(rg: &str) -> String {
     format!("No running VMs found in resource group '{}'", rg)
+}
+
+/// Format the "no running VMs matched" message, naming the name filter when one
+/// was applied.
+pub fn format_no_running_match_message(rg: &str, vm_pattern: Option<&str>) -> String {
+    match vm_pattern {
+        Some(p) => format!(
+            "No running VMs in resource group '{}' matched name pattern '{}'",
+            rg, p
+        ),
+        None => format_no_running_vms_message(rg),
+    }
 }
 
 /// Format the fleet execution start message.
