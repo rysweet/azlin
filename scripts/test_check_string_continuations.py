@@ -96,7 +96,17 @@ expect(
 expect("a format spec, not literal spaces", r'''    format!("{:>20}", name)''', False)
 print()
 
-print("4. The real tree")
+print("4. A comment quoting garbled output is not a hit")
+# This file's own docstrings and comments quote the broken literals; a checker
+# that flagged them would fail on itself.
+expect(
+    "a full-line comment",
+    '    // it printed "on {}                          (timeout)" before the fix',
+    False,
+)
+print()
+
+print("5. The real tree")
 rc = checker.main([str(CHECKER)])
 if rc == 0:
     PASS += 1

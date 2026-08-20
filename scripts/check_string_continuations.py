@@ -42,6 +42,17 @@ them produced sixteen hits, every one of them wrong:
 Alignment padding is excluded by the character classes: it follows a
 separator (`:`, `|`, a flag name), never a letter mid-sentence.
 
+What this does not catch
+------------------------
+A lost continuation whose indentation is under six spaces — a `const` at top
+level, say. The threshold is what keeps the false-positive rate at zero on this
+tree, and a gate people turn off catches nothing at all; but the blind spot is
+real and is stated here rather than left to be found.
+
+It also reads no Rust grammar. Lines that are entirely a `//` comment are
+skipped so a comment quoting garbled output does not trip it, but a string
+literal inside a trailing comment on a code line is still fair game.
+
 Usage: ./scripts/check_string_continuations.py [path ...]
 Exit codes: 0 = clean, 1 = at least one garbled literal.
 """
@@ -67,6 +78,11 @@ GARBLED = re.compile(r"""[A-Za-z0-9,\)\}\.\?!;']      +[A-Za-z0-9\(\{]""")
 
 
 def hits(line: str) -> list[str]:
+    # A line that is entirely a comment may legitimately quote garbled output —
+    # this file's own tests do. Anything else, including a trailing comment on a
+    # code line, is still scanned.
+    if line.lstrip().startswith("//"):
+        return []
     found = []
     for literal in STRING.findall(line):
         # Only the part before the first embedded newline: indentation *after*
