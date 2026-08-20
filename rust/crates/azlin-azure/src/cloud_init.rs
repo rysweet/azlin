@@ -370,10 +370,28 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
             cp ay-linux-$ARCH ~/.cargo/bin/ay && \
             chmod +x ~/.cargo/bin/azlin ~/.cargo/bin/azdoit ~/.cargo/bin/ay && \
             cd ~ && rm -rf /tmp/azlin-install' || echo 'WARNING: azlin binary installation failed (azlin/azdoit/ay)'", u = username),
+        // Put the installed CLIs on the default PATH.
+        //
+        // The installers above drop binaries in ~/.cargo/bin, which is only added
+        // to PATH by ~/.cargo/env sourced from .bashrc -- and bash skips .bashrc
+        // for non-interactive shells. That made `ssh <vm> 'amplihack ...'`, cron
+        // jobs and CI steps fail with "command not found" while an interactive
+        // `azlin connect` session worked, which reads as a failed install (#1095).
+        // /usr/local/bin is on the default PATH for every shell type, and linking
+        // there also removes the dependency on rustup having created ~/.cargo/env.
+        //
+        // Each link is guarded by `[ -x ... ]`: a missing binary must produce a
+        // WARNING, never a dangling symlink that makes `command -v` succeed while
+        // running the command fails.
+        format!("mkdir -p /usr/local/bin && for b in amplihack amplihack-hooks azlin azdoit ay; do src=/home/{u}/.cargo/bin/$b; if [ -x \"$src\" ]; then ln -sf \"$src\" /usr/local/bin/$b || echo \"WARNING: could not link $b into /usr/local/bin; it will be missing from non-interactive shells\"; else echo \"WARNING: $src is missing or not executable; $b will be missing from non-interactive shells\"; fi; done || echo \"WARNING: could not link the installed CLIs into /usr/local/bin\"", u = username),
         // Go
         "wget -q https://go.dev/dl/go1.26.4.linux-amd64.tar.gz -O /tmp/go.tar.gz && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz || echo 'WARNING: Go install failed'".to_string(),
         // .NET 10 SDK
-        "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && chmod +x /tmp/dotnet-install.sh && (/tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet || echo 'WARNING: .NET 10 SDK install failed') && ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet; rm -f /tmp/dotnet-install.sh".to_string(),
+        // The `ln` is guarded: the install runs inside `( ... || echo WARNING )`, so a
+        // failed SDK install still reaches this point. Linking unconditionally left a
+        // dangling /usr/local/bin/dotnet -- `command -v dotnet` succeeded, running it
+        // did not.
+        "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && chmod +x /tmp/dotnet-install.sh && (/tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet || echo 'WARNING: .NET 10 SDK install failed') && if [ -x /usr/share/dotnet/dotnet ]; then ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet; else echo 'WARNING: /usr/share/dotnet/dotnet is missing; not linking /usr/local/bin/dotnet'; fi; rm -f /tmp/dotnet-install.sh".to_string(),
         // Docker post-install
         format!("usermod -aG docker {u} && systemctl enable docker && systemctl start docker", u = username),
         // Enable systemd user linger so SSH sessions get a systemd user instance
@@ -381,6 +399,12 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         format!("loginctl enable-linger {u}", u = username),
         // bashrc additions (npm path, go path, cargo env, azlin alias)
         format!("cat >> /home/{u}/.bashrc << 'BASHEOF'\n\n# npm user-local configuration\nNPM_PACKAGES=\"${{HOME}}/.npm-packages\"\nPATH=\"$NPM_PACKAGES/bin:$PATH\"\nMANPATH=\"$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)\"\n\n# Go\nexport PATH=$PATH:/usr/local/go/bin\n\n# Cargo\nsource $HOME/.cargo/env 2>/dev/null\nBASHEOF", u = username),
+        // Non-interactive PATH check. The login-shell check below passes even when
+        // the binaries only exist in ~/.cargo/bin, which is exactly how #1095 hid:
+        // `azlin connect` worked, `ssh <vm> 'amplihack ...'` did not. `su` without
+        // `-` gives a non-login, non-interactive shell -- the same environment ssh
+        // commands, cron jobs and CI steps get.
+        format!("su {u} -s /bin/bash -c 'for b in amplihack amplihack-hooks azlin azdoit ay; do command -v $b > /dev/null || echo \"WARNING: $b is not on the default non-interactive PATH\"; done' || echo \"WARNING: could not run the non-interactive PATH check\"", u = username),
         // Version verification (rustc is in user homedir, must check as user).
         // All three azlin archive members are checked: the install chain is a
         // single `&&` sequence, so a member missing from a future tarball aborts
@@ -827,12 +851,203 @@ mod tests {
         );
     }
 
+    /// The five CLIs are installed into ~/.cargo/bin, which only reaches PATH via
+    /// ~/.cargo/env sourced from .bashrc -- and bash skips .bashrc for
+    /// non-interactive shells. Every one of them must also be linked into
+    /// /usr/local/bin, which is on the default PATH for interactive, login,
+    /// non-interactive and cron shells alike.
+    #[test]
+    fn test_default_dev_setup_commands_link_installed_clis_into_usr_local_bin() {
+        let cmds = default_dev_setup_commands("devuser");
+        let link_cmd = cmds
+            .iter()
+            .find(|c| c.contains("ln -sf \"$src\" /usr/local/bin/$b"))
+            .expect("default_dev_setup_commands must link the installed CLIs into /usr/local/bin");
+
+        for bin in ["amplihack", "amplihack-hooks", "azlin", "azdoit", "ay"] {
+            assert!(
+                link_cmd.contains(&format!(" {bin} ")) || link_cmd.contains(&format!(" {bin};")),
+                "{bin} must be linked onto the default PATH: {link_cmd}"
+            );
+        }
+        assert!(
+            link_cmd.contains("/home/devuser/.cargo/bin/$b"),
+            "link source must be the provisioned admin user's cargo bin: {link_cmd}"
+        );
+        assert!(
+            link_cmd.contains("if [ -x \"$src\" ]"),
+            "linking must be guarded so a failed install cannot leave a dangling symlink: {link_cmd}"
+        );
+        assert!(
+            link_cmd.matches("echo \"WARNING:").count() >= 2,
+            "both a failed link and a missing binary must be reported: {link_cmd}"
+        );
+    }
+
+    /// Semantic counterpart to the string assertions above: runs the generated
+    /// link step in a real shell against a scratch "cargo bin" and "/usr/local/bin"
+    /// and inspects what actually lands on disk.
+    #[cfg(unix)]
+    #[test]
+    fn test_default_dev_setup_commands_link_step_behaves_under_a_real_shell() {
+        use std::process::Command;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        const BINS: [&str; 5] = ["amplihack", "amplihack-hooks", "azlin", "azdoit", "ay"];
+
+        let unique = format!(
+            "azlin-cloud-init-link-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock before unix epoch")
+                .as_nanos()
+        );
+        let root = std::env::temp_dir().join(unique);
+        let cargo_bin = root.join("cargo-bin");
+        let local_bin = root.join("local-bin");
+
+        let cmds = default_dev_setup_commands("azureuser");
+        let link_cmd = cmds
+            .iter()
+            .find(|c| c.contains("ln -sf \"$src\" /usr/local/bin/$b"))
+            .expect("default_dev_setup_commands must link the installed CLIs into /usr/local/bin")
+            .replace(
+                "/home/azureuser/.cargo/bin",
+                cargo_bin.to_str().expect("path must be utf-8"),
+            )
+            .replace(
+                "/usr/local/bin",
+                local_bin.to_str().expect("path must be utf-8"),
+            );
+
+        // `installed` binaries exist and are executable; the rest are absent, as
+        // they would be after a failed installer.
+        let run = |installed: &[&str]| -> String {
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(&cargo_bin).expect("create scratch cargo bin");
+            for bin in installed {
+                let path = cargo_bin.join(bin);
+                std::fs::write(&path, "#!/bin/sh\n").expect("write stub binary");
+                let mut perms = std::fs::metadata(&path)
+                    .expect("stat stub binary")
+                    .permissions();
+                std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o755);
+                std::fs::set_permissions(&path, perms).expect("chmod stub binary");
+            }
+            let out = Command::new("sh")
+                .arg("-c")
+                .arg(&link_cmd)
+                .output()
+                .expect("failed to run sh");
+            assert!(
+                out.status.success(),
+                "the link step must never abort provisioning: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr)
+        };
+
+        // Happy path: every CLI installed, so every CLI gets a /usr/local/bin entry
+        // that resolves to a real executable.
+        let all_output = run(&BINS);
+        let linked: Vec<(bool, bool)> = BINS
+            .iter()
+            .map(|bin| {
+                let path = local_bin.join(bin);
+                (
+                    std::fs::symlink_metadata(&path).is_ok(),
+                    path.exists(), // follows the link: false means dangling
+                )
+            })
+            .collect();
+
+        // Failure path: the amplihack installer failed, so its binaries are absent.
+        let missing_output = run(&["azlin", "azdoit", "ay"]);
+        let amplihack_link = local_bin.join("amplihack");
+        let amplihack_link_exists = std::fs::symlink_metadata(&amplihack_link).is_ok();
+        let azlin_linked = local_bin.join("azlin").exists();
+
+        let _ = std::fs::remove_dir_all(&root);
+
+        for (bin, (exists, resolves)) in BINS.iter().zip(&linked) {
+            assert!(
+                *exists && *resolves,
+                "{bin} must be reachable from the default PATH via /usr/local/bin: {all_output}"
+            );
+        }
+        assert!(
+            !all_output.contains("WARNING:"),
+            "linking every installed CLI must not warn: {all_output}"
+        );
+
+        assert!(
+            !amplihack_link_exists,
+            "a CLI that failed to install must not get a dangling /usr/local/bin symlink: {missing_output}"
+        );
+        assert!(
+            missing_output.contains("WARNING:") && missing_output.contains("amplihack"),
+            "a missing CLI must be reported, not skipped silently: {missing_output}"
+        );
+        assert!(
+            azlin_linked,
+            "one missing CLI must not stop the others from being linked: {missing_output}"
+        );
+    }
+
+    /// Provisioning must check the CLIs from the same kind of shell that
+    /// `ssh <vm> 'amplihack ...'`, cron and CI use. The pre-existing check runs
+    /// under `su -` (a login shell), which passed even while every non-interactive
+    /// invocation failed.
+    #[test]
+    fn test_default_dev_setup_commands_verify_clis_on_the_non_interactive_path() {
+        let cmds = default_dev_setup_commands("devuser");
+        let check = cmds
+            .iter()
+            .find(|c| c.contains("not on the default non-interactive PATH"))
+            .expect("provisioning must verify the CLIs resolve from a non-interactive shell");
+        assert!(
+            check.starts_with("su devuser -s /bin/bash -c"),
+            "the check must run as the admin user in a non-login shell: {check}"
+        );
+        for bin in ["amplihack", "amplihack-hooks", "azlin", "azdoit", "ay"] {
+            assert!(
+                check.contains(&format!(" {bin} ")) || check.contains(&format!(" {bin};")),
+                "{bin} must be covered by the non-interactive PATH check: {check}"
+            );
+        }
+    }
+
+    /// The .NET install runs inside `( ... || echo WARNING )`, so a failed install
+    /// still reaches the `ln`. Linking unconditionally left a dangling
+    /// /usr/local/bin/dotnet: `command -v dotnet` succeeded, running it did not.
+    #[test]
+    fn test_default_dev_setup_commands_never_link_a_missing_dotnet() {
+        let cmds = default_dev_setup_commands("azureuser");
+        let dotnet = cmds
+            .iter()
+            .find(|c| c.contains("dotnet-install.sh"))
+            .expect("missing .NET install command");
+        assert!(
+            dotnet.contains("if [ -x /usr/share/dotnet/dotnet ]; then ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet;"),
+            "dotnet must only be linked once the SDK is actually present: {dotnet}"
+        );
+        assert!(
+            dotnet.contains("not linking /usr/local/bin/dotnet"),
+            "a missing dotnet must be reported instead of linked: {dotnet}"
+        );
+    }
+
     #[test]
     fn test_render_dev_cloud_init_script_uses_shared_packages_and_commands() {
         let script = render_dev_cloud_init_script("azureuser");
         assert!(script.starts_with("#!/bin/bash\nset -euo pipefail"));
         assert!(script.contains("fd-find"));
         assert!(script.contains("xdg-utils"));
+        assert!(
+            script.contains("ln -sf \"$src\" /usr/local/bin/$b"),
+            "the rendered script must put the installed CLIs on the default PATH"
+        );
         assert!(script.contains("/var/lib/azlin/provisioning-complete"));
         assert!(script.contains("cloud-init provisioning complete"));
     }
