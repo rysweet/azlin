@@ -147,7 +147,7 @@ pub enum Commands {
         #[arg(long)]
         dry_run: bool,
 
-        /// Command timeout in seconds
+        /// Command timeout in seconds (0 = no limit)
         #[arg(long, default_value = "30")]
         timeout: u32,
 
@@ -707,7 +707,11 @@ pub enum Commands {
         #[arg(short, long, default_value = "10")]
         interval: u32,
 
-        /// SSH timeout per VM in seconds
+        /// SSH timeout per VM in seconds (0 = no limit)
+        ///
+        /// Bounds the command on the VM, not the connection: the transport
+        /// keeps its own floor, so a small value here cannot make a bastion
+        /// hop "time out" before the command has started.
         #[arg(short, long, default_value = "5")]
         timeout: u32,
 
@@ -878,8 +882,13 @@ pub enum Commands {
         #[arg(long, default_value = "azureuser")]
         ssh_user: String,
 
-        /// Timeout in seconds
-        #[arg(long, default_value = "60")]
+        /// Timeout in seconds (0 = no limit)
+        ///
+        /// Raised from 60 when the flag was actually wired (#1089): while it
+        /// was being discarded the effective limit was infinity, and
+        /// `az vm user update` runs a VM extension that routinely takes one to
+        /// three minutes. A 60-second bound would have failed working calls.
+        #[arg(long, default_value = "300")]
         timeout: u32,
     },
 
@@ -985,8 +994,15 @@ pub enum Commands {
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
 
-        /// Timeout in seconds
-        #[arg(long, default_value = "300")]
+        /// Timeout in seconds (0 = no limit)
+        ///
+        /// Raised from 300 when the flag was actually wired (#1089). While it
+        /// was being discarded the effective limit was infinity; `apt-get
+        /// update && apt-get upgrade` on a VM that has been up for a few weeks
+        /// can exceed five minutes, so adopting the declared default unchanged
+        /// would have turned a slow-but-working command into a failing one for
+        /// everybody, without anyone passing a flag.
+        #[arg(long, default_value = "900")]
         timeout: u32,
     },
 
@@ -1217,7 +1233,10 @@ pub enum VmAction {
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
 
-        /// Timeout per update in seconds
+        /// Timeout per update in seconds (0 = no limit)
+        ///
+        /// Per update, not for the whole run: the script performs four
+        /// updates in sequence and each gets this budget.
         #[arg(long, default_value = "300")]
         timeout: u32,
     },

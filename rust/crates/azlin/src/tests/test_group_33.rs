@@ -168,7 +168,7 @@ fn test_build_log_tail_args() {
 
 #[test]
 fn test_build_dev_update_script_contains_sections() {
-    let script = crate::update_helpers::build_dev_update_script();
+    let script = crate::update_helpers::build_dev_update_script(0);
     assert!(script.starts_with("#!/bin/bash"));
     assert!(script.contains("set -e"));
     assert!(script.contains("apt-get update"));

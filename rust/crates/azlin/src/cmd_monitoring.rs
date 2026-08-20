@@ -47,15 +47,43 @@ pub(crate) async fn dispatch(
             resource_group,
             vm,
             ip,
+            timeout,
             ..
         } => {
             let targets = resolve_vm_targets(vm.as_deref(), ip.as_deref(), resource_group).await?;
+            let mut answered = 0usize;
             for target in &targets {
                 println!("── {} ──", target.vm_name);
-                match target.exec_checked("top -b -n 1 | head -30") {
-                    Ok(output) => print!("{}", output),
+                // One unreachable VM used to hang the whole sweep: `--timeout`
+                // promised "SSH timeout per VM" and enforced nothing (#1089).
+                // Per VM, so a slow host costs its own budget and not the run.
+                match crate::exec_under_timeout(target, "top -b -n 1 | head -30", timeout) {
+                    Ok(crate::TimedExec::Finished {
+                        code: 0, stdout, ..
+                    }) => {
+                        answered += 1;
+                        print!("{}", stdout);
+                    }
+                    Ok(crate::TimedExec::Finished { code, stderr, .. }) => eprintln!(
+                        "  Error: exit {}: {}",
+                        code,
+                        azlin_core::sanitizer::sanitize(stderr.trim())
+                    ),
+                    Ok(crate::TimedExec::TimedOut(note)) => eprintln!("  {}", note),
                     Err(e) => eprintln!("  Error: {}", e),
                 }
+            }
+            // A sweep in which every VM failed must not be indistinguishable,
+            // by exit code, from one in which every VM answered. A partial
+            // sweep still exits 0: the per-VM errors are on stderr and the
+            // point of a survey is what it did manage to see.
+            if answered == 0 && !targets.is_empty() {
+                anyhow::bail!(
+                    "None of the {} VM(s) answered within {}s. Raise --timeout, or check \
+                     connectivity with `azlin ip check --all`.",
+                    targets.len(),
+                    timeout
+                );
             }
         }
         azlin_cli::Commands::Health {

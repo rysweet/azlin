@@ -139,7 +139,7 @@ fn test_log_tail_args_includes_line_count() {
 
 #[test]
 fn test_build_dev_update_script_not_empty() {
-    let script = crate::update_helpers::build_dev_update_script();
+    let script = crate::update_helpers::build_dev_update_script(0);
     assert!(script.starts_with("#!/bin/bash\n"));
     assert!(script.contains("apt-get update"));
     assert!(script.contains("rustup update"));

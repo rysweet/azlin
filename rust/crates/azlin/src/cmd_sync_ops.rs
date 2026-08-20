@@ -96,6 +96,7 @@ pub(crate) fn handle_sync_keys(
     vm_name: &str,
     resource_group: Option<String>,
     ssh_user: &str,
+    timeout: u32,
 ) -> Result<()> {
     let rg = resolve_resource_group(resource_group)?;
     let ssh_dir = home_dir()?.join(".ssh");
@@ -105,8 +106,13 @@ pub(crate) fn handle_sync_keys(
     match pub_key {
         Some(key_path) => {
             let key_content = std::fs::read_to_string(&key_path)?;
-            let output = std::process::Command::new("az")
-                .args([
+            // `--timeout` was accepted and discarded, and this ran through a
+            // bare `.output()`: an `az vm user update` that never returned —
+            // a stopping VM, an ARM hiccup — held the command open forever
+            // with no way for the user to bound it (#1089).
+            let (code, _stdout, stderr) = azlin_azure::run_with_timeout(
+                "az",
+                &[
                     "vm",
                     "user",
                     "update",
@@ -118,12 +124,12 @@ pub(crate) fn handle_sync_keys(
                     ssh_user,
                     "--ssh-key-value",
                     key_content.trim(),
-                ])
-                .output()?;
-            if output.status.success() {
+                ],
+                timeout as u64,
+            )?;
+            if code == 0 {
                 println!("Synced SSH key to VM '{}' for user '{}'", vm_name, ssh_user);
             } else {
-                let stderr = String::from_utf8_lossy(&output.stderr);
                 anyhow::bail!(
                     "Failed to sync keys: {}",
                     azlin_core::sanitizer::sanitize(stderr.trim())

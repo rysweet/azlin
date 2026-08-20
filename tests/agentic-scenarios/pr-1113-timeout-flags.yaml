@@ -1,0 +1,173 @@
+name: "azlin enforces the --timeout flags it advertises"
+description: |
+  Verifies PR #1113 (issue #1089). Five commands declared a `--timeout` and
+  enforced none of it: `os-update`, `vm update-tools`, `top`, `sync-keys` and
+  `ask`. Each promised a bound on an operation that can genuinely hang, and
+  each waited for as long as the operation took.
+
+  Enforcement is not observable from the CLI without a hanging VM, so what this
+  checks is the surface and the shape: the flags survive with the defaults the
+  CLI declares, every one of them says what 0 means, the remote bound is the
+  one `fleet_select` already tests, and the transport is never shrunk below its
+  own floor by a small `--timeout`.
+
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 30000
+
+steps:
+  - name: "Build the binary under test (never assert against a stale build)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo build -p azlin 2>&1 | tail -1
+        test -x target/debug/azlin && echo "PASS: fresh azlin binary present"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "Every flag survives with its declared default and says what 0 means"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        B=rust/target/debug/azlin
+        check() {  # command..., expected default
+          local expected="${!#}"; local args=("${@:1:$#-1}")
+          H=$("$B" "${args[@]}" --help 2>&1)
+          echo "$H" | grep -q -- "--timeout" || { echo "FAIL: ${args[*]} lost --timeout"; exit 1; }
+          echo "$H" | grep -q "$expected" || { echo "FAIL: ${args[*]} default is not $expected"; exit 1; }
+          echo "$H" | grep -q "0 = no limit" || { echo "FAIL: ${args[*]} does not say what 0 means"; exit 1; }
+        }
+        check ask 30
+        check top 5
+        check sync-keys 300
+        check os-update 900
+        check vm update-tools 300
+        echo "PASS: five flags, five defaults, five statements about zero"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 30000
+
+  - name: "A raised default carries its reason where the flag is declared"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        # While the value was discarded the effective limit was infinity, so
+        # adopting the declared defaults unchanged would have turned
+        # slow-but-working commands into failing ones.
+        L=rust/crates/azlin-cli/src/lib.rs
+        grep -q "Raised from 300 when the flag was actually wired" "$L" \
+          || { echo "FAIL: os-update's raised default has no recorded reason"; exit 1; }
+        grep -q "Raised from 60 when the flag was actually wired" "$L" \
+          || { echo "FAIL: sync-keys' raised default has no recorded reason"; exit 1; }
+        echo "PASS: both raised defaults say why"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 10000
+
+  - name: "The remote bound is the one fleet_select already tests"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # Three commands, one wrapper, one set of tests — so `os-update`,
+        # `vm update-tools` and `top` cannot drift from `fleet run`.
+        grep -q "fleet_select::wrap_with_timeout" crates/azlin/src/main.rs \
+          || { echo "FAIL: exec_under_timeout does not reuse the tested wrapper"; exit 1; }
+        cargo test -p azlin --bin azlin fleet_select::tests::timeout 2>&1 | tail -3 | grep -q "0 failed" \
+          || { echo "FAIL: the wrapper's own tests do not pass"; exit 1; }
+        echo "PASS: one wrapper, tested once"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "A small --timeout cannot shrink the transport below its floor"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # `azlin top --timeout 5` over a bastion would otherwise get a
+        # 35-second budget for a hop that routinely takes longer than that to
+        # establish, and every VM would "time out" before its command started.
+        grep -q "max(BASTION_EXEC_TIMEOUT_SECS)" crates/azlin/src/main.rs \
+          || { echo "FAIL: the transport budget has no floor"; exit 1; }
+        echo "PASS: the flag bounds the command, not the connection"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 10000
+
+  - name: "vm update-tools bounds each update, as its help says"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        cargo test -p azlin --bin azlin the_dev_update_script_bounds_each_step 2>&1 \
+          | tail -3 | grep -q "1 passed" \
+          || { echo "FAIL: the per-step bound is not asserted"; exit 1; }
+        rust_help=$(target/debug/azlin vm update-tools --help 2>&1)
+        echo "$rust_help" | grep -qi "per update" \
+          || { echo "FAIL: the help no longer says per update"; exit 1; }
+        echo "PASS: per update, not per run"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "ask --dry-run is unaffected, and --timeout 0 means no limit"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        D=$(mktemp -d); echo 'default_resource_group = "rg-scenario"' > "$D/config.toml"
+        OUT=$(AZLIN_CONFIG_DIR="$D" rust/target/debug/azlin ask "what is running" \
+              --dry-run --timeout 1 2>&1) || { echo "FAIL: dry run failed: $OUT"; exit 1; }
+        echo "$OUT" | grep -q "Would query" || { echo "FAIL: $OUT"; exit 1; }
+        echo "$OUT" | grep -q "did not answer" && { echo "FAIL: a timeout fired on a call never made"; exit 1; }
+        AZLIN_CONFIG_DIR="$D" rust/target/debug/azlin ask hello --dry-run --timeout 0 >/dev/null 2>&1 \
+          || { echo "FAIL: --timeout 0 was rejected"; exit 1; }
+        echo "PASS: no call, no bound; zero means no limit"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 30000
+
+  - name: "The ledger shrank, and the one flag left is left on purpose"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        cargo run -p xtask --locked -- check-flag-wiring > /tmp/wiring.txt 2>&1 || {
+          cat /tmp/wiring.txt; echo "FAIL: gate is red"; exit 1; }
+        grep -q "35 allowlisted" /tmp/wiring.txt || {
+          cat /tmp/wiring.txt; echo "FAIL: allowlist is not at 35 entries"; exit 1; }
+        grep -q "Commands::Top::interval" crates/xtask/unwired-flags-allowlist.txt \
+          || { echo "FAIL: Top::interval left the ledger — was it wired the wrong way?"; exit 1; }
+        grep -q "Left here deliberately rather than wired the wrong way" \
+          crates/xtask/unwired-flags-allowlist.txt \
+          || { echo "FAIL: the remaining entry has no recorded reason"; exit 1; }
+        echo "PASS: 35 entries, and the one that stayed says why"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000

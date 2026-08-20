@@ -831,6 +831,46 @@ fn print_fleet_table(
     println!("{table}");
 }
 
+/// Run `cmd` on one VM under a user-supplied `--timeout`.
+///
+/// Three commands declare a `--timeout` and enforced none of it: `os-update`,
+/// `vm update-tools` and `top` all handed the command to SSH and waited
+/// (#1089). This puts `timeout(1)` around it *on the VM*, so a runaway `apt`
+/// dies there rather than being orphaned when the session is torn down, and
+/// gives the transport a matching budget so the remote limit is the one that
+/// fires.
+///
+/// What one timed-bounded remote command did.
+enum TimedExec {
+    /// The command ran to completion — successfully or not.
+    Finished {
+        code: i32,
+        stdout: String,
+        stderr: String,
+    },
+    /// `--timeout` fired. Carries the sentence naming the flag.
+    TimedOut(String),
+}
+
+fn exec_under_timeout(target: &VmSshTarget, cmd: &str, timeout: u32) -> Result<TimedExec> {
+    let wrapped = fleet_select::wrap_with_timeout(cmd, timeout);
+    // The flag bounds the *remote command*. It must never shrink the transport
+    // below what the transport itself needs: `azlin top --timeout 5` over a
+    // bastion would otherwise get a 35-second budget for a hop that routinely
+    // takes longer to establish than that, and every VM would "time out"
+    // before its command had started.
+    let transport = fleet_select::local_timeout_secs(timeout).max(BASTION_EXEC_TIMEOUT_SECS);
+    let (code, stdout, stderr) = target.exec_with_local_timeout(&wrapped, transport)?;
+    Ok(match fleet_select::timeout_note(code, timeout) {
+        Some(note) => TimedExec::TimedOut(note),
+        None => TimedExec::Finished {
+            code,
+            stdout,
+            stderr,
+        },
+    })
+}
+
 /// Execute a command on all running VMs with MultiProgress bars, then print a
 /// summary table. Each VM gets its own spinner showing live status.
 /// Uses VmSshTarget for proper bastion routing on private VMs.

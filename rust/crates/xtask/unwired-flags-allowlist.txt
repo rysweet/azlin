@@ -21,13 +21,12 @@
 #
 # Generated from the checker's report against commit fdfb27a2 (v2.6.105).
 
-# ── Other flags accepted and discarded (40) ──────────────────────────
+# ── Other flags accepted and discarded (35) ──────────────────────────
 #
 # Each of these is an independent per-flag fix: bind the field in the handler
 # and act on it, or delete the flag. They are listed individually so that
 # each fix removes exactly one line.
 
-Commands::Ask::timeout = #1089 — `azlin ask --timeout` accepted, then discarded; help promises "Command timeout in seconds"
 Commands::Ask::max_results = #1089 — `azlin ask --max-results` accepted, then discarded; help promises "Maximum results to display"
 Commands::Ask::auth_profile = #1089 — `azlin ask --auth-profile` accepted, then discarded; help promises "Service principal authentication profile to use"
 Commands::Clone::session_prefix = #1089 — `azlin clone --session-prefix` accepted, then discarded; help promises "Session name prefix for clones"
@@ -38,20 +37,21 @@ Commands::Session::resource_group = #1089 — `azlin session --resource-group` a
 Commands::Connect::disable_bastion_pool = #1089 — `azlin connect --disable-bastion-pool` accepted, then discarded; help promises "Disable bastion connection pooling"
 Commands::Gui::yes = #1089 — `azlin gui --yes` accepted, then discarded; help promises "Compatibility flag; GUI dependency setup is already non-interactive"
 Commands::Ps::grouped = #1089 — `azlin ps --grouped` accepted, then discarded; help promises "Group output by VM instead of prefixing"
-Commands::Top::interval = #1089 — `azlin top --interval` accepted, then discarded; help promises "Refresh interval in seconds"
-Commands::Top::timeout = #1089 — `azlin top --timeout` accepted, then discarded; help promises "SSH timeout per VM in seconds"
+Commands::Top::interval = #1089 — `azlin top --interval` accepted, then discarded. Unlike its
+#   sibling `--timeout` (wired), this one cannot be wired without deciding what `azlin top`
+#   *is*: it takes one snapshot and exits, so honouring a refresh interval turns it into a
+#   loop that never returns — a behaviour change that would hang every script calling it.
+#   Either `top` grows a repeating view (as `health --tui` already has) or this flag goes.
+#   Left here deliberately rather than wired the wrong way.
 Commands::Cleanup::idle_days = #1089 — `azlin cleanup --idle-days` accepted, then discarded; help promises "Idle threshold in days"
 Commands::Cleanup::include_running = #1089 — `azlin cleanup --include-running` accepted, then discarded; help promises "Include running VMs"
 Commands::Cleanup::include_named = #1089 — `azlin cleanup --include-named` accepted, then discarded; help promises "Include named sessions"
-Commands::SyncKeys::timeout = #1089 — `azlin sync-keys --timeout` accepted, then discarded; help promises "Timeout in seconds"
 Commands::Code::auth_profile = #1089 — `azlin code --auth-profile` accepted, then discarded; help promises "Service principal authentication profile to use"
 Commands::Code::user = #1089 — `azlin code --user` accepted, then discarded; help promises "SSH username for remote connection"
 Commands::Code::no_extensions = #1089 — `azlin code --no-extensions` accepted, then discarded; help promises "Skip installing VS Code extensions on remote"
-Commands::OsUpdate::timeout = #1089 — `azlin os-update --timeout` accepted, then discarded; help promises "Timeout in seconds"
 Commands::Show::verbose = #1089 — `azlin show --verbose` accepted, then discarded; help promises "Enable verbose output"
 Commands::Show::auth_profile = #1089 — `azlin show --auth-profile` accepted, then discarded; help promises "Service principal authentication profile to use"
 GuiAction::Install::yes = #1089 — `azlin gui install --yes` accepted, then discarded; help promises "Compatibility flag; the install is already non-interactive"
-VmAction::UpdateTools::timeout = #1089 — `azlin vm update-tools --timeout` accepted, then discarded; help promises "Timeout per update in seconds"
 EnvAction::Set::force = #1089 — `azlin env set --force` accepted, then discarded; help promises "Skip secret detection warnings"
 KeysAction::List::resource_group = #1089 — `azlin keys list --resource-group` accepted, then discarded
 KeysAction::List::all_vms = #1089 — `azlin keys list --all-vms` accepted, then discarded; help promises "List all VMs (not just azlin prefix)"

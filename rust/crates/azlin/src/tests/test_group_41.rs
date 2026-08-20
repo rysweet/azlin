@@ -220,7 +220,7 @@ fn test_build_log_tail_args_custom_lines() {
 
 #[test]
 fn test_build_dev_update_script_all_sections() {
-    let script = crate::update_helpers::build_dev_update_script();
+    let script = crate::update_helpers::build_dev_update_script(0);
     assert!(script.contains("apt-get update"));
     assert!(script.contains("rustup"));
     assert!(script.contains("pip3"));
