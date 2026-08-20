@@ -1217,6 +1217,9 @@ pub(crate) mod tui_dashboard;
 /// Pure helpers for the `run_on_fleet` result classification and formatting.
 mod fleet_helpers;
 
+/// Argument construction for `azlin clone`.
+mod clone_helpers;
+
 /// Reading and writing `~/.azlin/profiles/`, and what a profile can pin.
 mod auth_profile;
 

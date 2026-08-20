@@ -28,9 +28,6 @@
 # each fix removes exactly one line.
 
 Commands::Ask::max_results = #1089 — `azlin ask --max-results` accepted, then discarded; help promises "Maximum results to display"
-Commands::Clone::session_prefix = #1089 — `azlin clone --session-prefix` accepted, then discarded; help promises "Session name prefix for clones"
-Commands::Clone::vm_size = #1089 — `azlin clone --vm-size` accepted, then discarded; help promises "VM size for clones (default: same as source)"
-Commands::Clone::region = #1089 — `azlin clone --region` accepted, then discarded; help promises "Azure region (default: same as source)"
 Commands::List::show_tmux = #1089 — `azlin list --show-tmux` accepted, then discarded; help promises "Show active tmux sessions (default: true, use --no-tmux to disable)"
 Commands::Session::resource_group = #1089 — `azlin session --resource-group` accepted, then discarded; help promises "Resource group"
 Commands::Connect::disable_bastion_pool = #1089 — `azlin connect --disable-bastion-pool` accepted, then discarded; help promises "Disable bastion connection pooling"

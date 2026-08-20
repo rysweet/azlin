@@ -267,6 +267,17 @@ pub(crate) fn shell_escape(s: &str) -> String {
 /// Look up a VM's OS disk resource ID and location via `az vm show`.
 /// Returns `(disk_id, location)` for use in snapshot/clone operations.
 pub(crate) fn lookup_vm_disk_info(rg: &str, vm_name: &str) -> Result<(String, String)> {
+    let (disk, location, _size) = lookup_vm_clone_source(rg, vm_name)?;
+    Ok((disk, location))
+}
+
+/// The OS disk id, location and VM size of a clone's source, in one call.
+///
+/// The size is what makes `azlin clone --vm-size`'s documented default —
+/// "same as source" — true. `az vm create --attach-os-disk` with no `--size`
+/// uses Azure's default SKU, so before this a clone of a `Standard_D8s_v5`
+/// came back as whatever Azure picks, quietly, at a different price (#1089).
+pub(crate) fn lookup_vm_clone_source(rg: &str, vm_name: &str) -> Result<(String, String, String)> {
     let output = std::process::Command::new("az")
         .args([
             "vm",
@@ -276,7 +287,7 @@ pub(crate) fn lookup_vm_disk_info(rg: &str, vm_name: &str) -> Result<(String, St
             "--name",
             vm_name,
             "--query",
-            "[storageProfile.osDisk.managedDisk.id, location]",
+            "[storageProfile.osDisk.managedDisk.id, location, hardwareProfile.vmSize]",
             "--output",
             "tsv",
         ])
@@ -296,7 +307,22 @@ pub(crate) fn lookup_vm_disk_info(rg: &str, vm_name: &str) -> Result<(String, St
     if parts.len() < 2 || parts[0].is_empty() {
         anyhow::bail!("No OS disk found for VM '{}'", vm_name);
     }
-    Ok((parts[0].to_string(), parts[1].to_string()))
+    // The size is the one field that can legitimately be missing from an older
+    // API response; a clone with no size would silently take Azure's default,
+    // so it is an error rather than a fallback.
+    let size = parts
+        .get(2)
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Could not read the VM size of '{}'. Pass --vm-size explicitly: without \
+                 it the clone would silently take Azure's default SKU rather than the \
+                 source's.",
+                vm_name
+            )
+        })?;
+    Ok((parts[0].to_string(), parts[1].to_string(), size.to_string()))
 }
 
 /// Look up a VM's public IP address. Returns `Ok(None)` if the VM has no public IP
