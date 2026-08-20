@@ -66,6 +66,9 @@ pub(crate) fn handle_vm_clone(
     source_vm: &str,
     num_replicas: u32,
     resource_group: Option<String>,
+    session_prefix: Option<String>,
+    vm_size: Option<String>,
+    region: Option<String>,
 ) -> Result<()> {
     let rg = resolve_resource_group(resource_group)?;
     let snapshot_name = format!(
@@ -74,12 +77,21 @@ pub(crate) fn handle_vm_clone(
         chrono::Utc::now().format("%Y%m%d_%H%M%S")
     );
 
-    println!(
-        "Cloning VM '{}' ({} replica(s))...",
-        source_vm, num_replicas
-    );
+    // All three of these were accepted and discarded (#1089). Two of them
+    // documented a default the code did not implement either: `--vm-size` and
+    // `--region` both say "same as source", and only the region actually was.
+    let (disk_id, source_location, source_size) =
+        crate::dispatch_helpers::lookup_vm_clone_source(&rg, source_vm)?;
+    let location = region.unwrap_or_else(|| source_location.clone());
+    let size = vm_size.unwrap_or(source_size);
 
-    let (disk_id, location) = crate::dispatch_helpers::lookup_vm_disk_info(&rg, source_vm)?;
+    println!(
+        "Cloning VM '{}' ({} replica(s), size {}, region {})...",
+        source_vm, num_replicas, size, location
+    );
+    if let Some(note) = crate::clone_helpers::cross_region_note(&source_location, &location) {
+        eprintln!("{}", note);
+    }
 
     let pb = penguin_spinner(&format!("Snapshotting {}...", source_vm));
 
@@ -94,7 +106,7 @@ pub(crate) fn handle_vm_clone(
             "--name",
             &snapshot_name,
             "--location",
-            &location,
+            &source_location,
             "--output",
             "json",
         ])
@@ -111,45 +123,22 @@ pub(crate) fn handle_vm_clone(
     println!("Created snapshot '{}'", snapshot_name);
 
     for i in 0..num_replicas {
-        let clone_name = format!("{}-clone-{}", source_vm, i + 1);
+        let clone_name = crate::clone_helpers::clone_name(source_vm, i);
         println!("Creating clone '{}'...", clone_name);
         let disk_name = format!("{}_OsDisk", clone_name);
 
         let disk_out = std::process::Command::new("az")
-            .args([
-                "disk",
-                "create",
-                "--resource-group",
+            .args(crate::clone_helpers::build_clone_disk_args(
                 &rg,
-                "--name",
                 &disk_name,
-                "--source",
                 &snapshot_name,
-                "--output",
-                "json",
-            ])
+                &location,
+            ))
             .output()?;
 
         if disk_out.status.success() {
             println!("  Created disk '{}' from snapshot", disk_name);
             let pb = penguin_spinner(&format!("Creating VM '{}'...", clone_name));
-
-            let mut clone_args = vec![
-                "vm".to_string(),
-                "create".to_string(),
-                "--resource-group".to_string(),
-                rg.clone(),
-                "--name".to_string(),
-                clone_name.clone(),
-                "--attach-os-disk".to_string(),
-                disk_name.clone(),
-                "--os-type".to_string(),
-                "Linux".to_string(),
-                "--location".to_string(),
-                location.clone(),
-                "--output".to_string(),
-                "json".to_string(),
-            ];
 
             // For bastion VMs (no public IP on source), route through bastion VNet
             // and disable public IP on the clone too.
@@ -158,15 +147,24 @@ pub(crate) fn handle_vm_clone(
                 Ok(Some(ref ip)) if ip.is_empty() => true,
                 _ => false,
             };
-            if is_bastion {
-                clone_args.push("--public-ip-address".to_string());
-                clone_args.push(String::new());
-                let vnet_name = format!("azlin-bastion-{}-vnet", location);
-                clone_args.push("--subnet".to_string());
-                clone_args.push("default".to_string());
-                clone_args.push("--vnet-name".to_string());
-                clone_args.push(vnet_name);
-            }
+            // `--session-prefix` set nothing, so clones carried no
+            // `azlin-session` tag at all and did not appear as a session in
+            // `azlin list` (#1089).
+            let session_tag = crate::clone_helpers::clone_session_tag(
+                session_prefix.as_deref(),
+                source_vm,
+                i,
+                num_replicas,
+            );
+            let clone_args = crate::clone_helpers::build_clone_vm_args(
+                &rg,
+                &clone_name,
+                &disk_name,
+                &location,
+                &size,
+                &session_tag,
+                is_bastion,
+            );
 
             let vm_out = std::process::Command::new("az")
                 .args(&clone_args)
@@ -174,7 +172,7 @@ pub(crate) fn handle_vm_clone(
             pb.finish_and_clear();
 
             if vm_out.status.success() {
-                println!("  Created VM '{}'", clone_name);
+                println!("  Created VM '{}' (session '{}')", clone_name, session_tag);
             } else {
                 let stderr = String::from_utf8_lossy(&vm_out.stderr);
                 eprintln!(

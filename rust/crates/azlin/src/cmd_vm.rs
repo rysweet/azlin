@@ -78,9 +78,18 @@ pub(crate) async fn dispatch(
             source_vm,
             num_replicas,
             resource_group,
-            ..
+            session_prefix,
+            vm_size,
+            region,
         } => {
-            crate::cmd_vm_ops2::handle_vm_clone(&source_vm, num_replicas, resource_group)?;
+            crate::cmd_vm_ops2::handle_vm_clone(
+                &source_vm,
+                num_replicas,
+                resource_group,
+                session_prefix,
+                vm_size,
+                region,
+            )?;
         }
         _ => unreachable!(),
     }
