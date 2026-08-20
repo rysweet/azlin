@@ -194,6 +194,17 @@ azlin batch stop [OPTIONS]
 
 By default, stopped VMs are **deallocated** (no compute billing). Use `--no-deallocate` to keep the VM allocated for faster restart at the cost of continued billing.
 
+### Selection and concurrency across `batch`
+
+These apply to `batch stop`, `batch start`, `batch command` and `batch sync` alike.
+
+- `--tag` and `--vm-pattern` both narrow; passing both requires a VM to match both. A malformed `--tag` (no `=`) is rejected rather than discarded.
+- `--all` means "every VM" and cannot be combined with `--tag` or `--vm-pattern`; the combination is rejected rather than silently resolved.
+- For `batch command` and `batch sync`, a selector that matches **no** running VM is an error, not a quiet success — a scripted run must not go green having touched no host.
+- `--max-workers` is a real concurrency limit. Each VM costs a full `az` process start even with `--no-wait`, so the default of 10 is what keeps a fifty-VM stop from spending a minute and a half in Python startup. Results are reported in input order whatever order the operations finish in.
+- `batch command --timeout` is enforced **on the VM** (`timeout(1)`), so a runaway process is killed rather than orphaned, and each VM that hits it is named on stderr.
+- `batch sync` exits non-zero when any dotfile transfer fails, instead of printing "Sync complete." under a wall of rsync errors.
+
 ### Examples
 
 ```bash

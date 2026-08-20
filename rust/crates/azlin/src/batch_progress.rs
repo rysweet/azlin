@@ -105,17 +105,77 @@ fn batch_spinner_style() -> ProgressStyle {
         .expect("valid spinner template")
 }
 
+/// Run one `az vm <action> --ids <id> --no-wait` and classify the outcome.
+///
+/// Pulled out of both drivers so the parallel path cannot drift from the
+/// sequential one in how it decides success.
+fn run_one_vm_op(action: &str, id: &str) -> (VmOpStatus, std::time::Duration) {
+    let op_start = Instant::now();
+    let output = std::process::Command::new("az")
+        .args(["vm", action, "--ids", id, "--no-wait"])
+        .output();
+    let elapsed = op_start.elapsed();
+    let status = match output {
+        Ok(o) if o.status.success() => VmOpStatus::Success,
+        Ok(o) => VmOpStatus::Failed(
+            String::from_utf8_lossy(&o.stderr)
+                .lines()
+                .next()
+                .unwrap_or("unknown error")
+                .to_string(),
+        ),
+        Err(e) => VmOpStatus::Failed(e.to_string()),
+    };
+    (status, elapsed)
+}
+
+/// Run `f` over every index, at most `workers` at a time, filling `slots`.
+///
+/// Results stay in input order whatever order the operations finish in, so
+/// `--max-workers` changes how long a batch takes and never what it reports.
+/// One worker keeps the in-line loop rather than spawning a thread to do
+/// nothing but wait.
+pub(crate) fn for_each_bounded<F>(count: usize, workers: usize, f: F)
+where
+    F: Fn(usize) + Sync,
+{
+    if workers <= 1 || count <= 1 {
+        (0..count).for_each(f);
+        return;
+    }
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let f = &f;
+    let next_ref = &next;
+    std::thread::scope(|scope| {
+        for _ in 0..workers.min(count) {
+            scope.spawn(move || loop {
+                let i = next_ref.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if i >= count {
+                    break;
+                }
+                f(i);
+            });
+        }
+    });
+}
+
 /// Execute a batch operation on multiple VMs with per-VM progress bars.
+///
+/// `workers` is `--max-workers`. Each VM costs a full `az` process start even
+/// with `--no-wait`, so a sequential run over fifty VMs spent a minute and a
+/// half in Python startup while the flag that was meant to fix that was
+/// discarded (#1089).
 pub fn run_batch_with_progress(
     action: &str,
     vm_ids: &[&str],
     vm_names: &std::collections::HashMap<String, String>,
+    workers: usize,
 ) -> BatchSummary {
     let is_tty = std::io::stdout().is_terminal();
     let start = Instant::now();
 
     if !is_tty {
-        return run_batch_plain(action, vm_ids, vm_names, start);
+        return run_batch_plain(action, vm_ids, vm_names, workers, start);
     }
 
     let mp = MultiProgress::new();
@@ -141,58 +201,39 @@ pub fn run_batch_with_progress(
             .expect("valid bar template"),
     );
 
-    let mut results = Vec::with_capacity(vm_ids.len());
-    for (pb, id) in &bars {
+    let slots: Vec<std::sync::Mutex<Option<VmOpResult>>> = (0..vm_ids.len())
+        .map(|_| std::sync::Mutex::new(None))
+        .collect();
+    for_each_bounded(vm_ids.len(), workers, |i| {
+        let (pb, id) = &bars[i];
         let name = resolve_vm_name(id, vm_names);
-        let op_start = Instant::now();
         pb.set_message(format!("\x1b[36m{}\x1b[0m", action));
-
-        let output = std::process::Command::new("az")
-            .args(["vm", action, "--ids", id, "--no-wait"])
-            .output();
-
-        let elapsed = op_start.elapsed();
-        let status = match output {
-            Ok(o) if o.status.success() => {
-                pb.finish_with_message(format!(
-                    "\x1b[32msuccess\x1b[0m ({:.1}s)",
-                    elapsed.as_secs_f64()
-                ));
-                VmOpStatus::Success
-            }
-            Ok(o) => {
-                let err = String::from_utf8_lossy(&o.stderr)
-                    .lines()
-                    .next()
-                    .unwrap_or("unknown error")
-                    .to_string();
-                pb.finish_with_message(format!(
-                    "\x1b[31mfailed\x1b[0m ({:.1}s)",
-                    elapsed.as_secs_f64()
-                ));
-                VmOpStatus::Failed(err)
-            }
-            Err(e) => {
-                pb.finish_with_message(format!(
-                    "\x1b[31merror\x1b[0m ({:.1}s)",
-                    elapsed.as_secs_f64()
-                ));
-                VmOpStatus::Failed(e.to_string())
-            }
+        let (status, elapsed) = run_one_vm_op(action, id);
+        let label = match &status {
+            VmOpStatus::Success => "\x1b[32msuccess\x1b[0m",
+            VmOpStatus::Failed(_) => "\x1b[31mfailed\x1b[0m",
+            _ => "\x1b[31merror\x1b[0m",
         };
-
+        pb.finish_with_message(format!("{} ({:.1}s)", label, elapsed.as_secs_f64()));
         summary_pb.inc(1);
-        results.push(VmOpResult {
+        *slots[i].lock().expect("batch result slot poisoned") = Some(VmOpResult {
             vm_id: id.to_string(),
             vm_name: name.to_string(),
             status,
             elapsed,
         });
-    }
+    });
 
     summary_pb.finish_and_clear();
     BatchSummary {
-        results,
+        results: slots
+            .into_iter()
+            .map(|slot| {
+                slot.into_inner()
+                    .expect("batch result slot poisoned")
+                    .expect("every batch slot is filled before the scope ends")
+            })
+            .collect(),
         total_elapsed: start.elapsed(),
     }
 }
@@ -201,45 +242,57 @@ fn run_batch_plain(
     action: &str,
     vm_ids: &[&str],
     vm_names: &std::collections::HashMap<String, String>,
+    workers: usize,
     start: Instant,
 ) -> BatchSummary {
-    let mut results = Vec::with_capacity(vm_ids.len());
-    for (i, id) in vm_ids.iter().enumerate() {
+    let slots: Vec<std::sync::Mutex<Option<VmOpResult>>> = (0..vm_ids.len())
+        .map(|_| std::sync::Mutex::new(None))
+        .collect();
+    let done = std::sync::atomic::AtomicUsize::new(0);
+    for_each_bounded(vm_ids.len(), workers, |i| {
+        let id = vm_ids[i];
         let name = resolve_vm_name(id, vm_names);
-        let op_start = Instant::now();
-        eprintln!("[{}/{}] {} {}...", i + 1, vm_ids.len(), action, name);
-        let output = std::process::Command::new("az")
-            .args(["vm", action, "--ids", id, "--no-wait"])
-            .output();
-        let elapsed = op_start.elapsed();
-        let status = match output {
-            Ok(o) if o.status.success() => {
-                eprintln!("  -> success ({:.1}s)", elapsed.as_secs_f64());
-                VmOpStatus::Success
-            }
-            Ok(o) => {
-                let err = String::from_utf8_lossy(&o.stderr)
-                    .lines()
-                    .next()
-                    .unwrap_or("unknown error")
-                    .to_string();
-                eprintln!("  -> failed: {} ({:.1}s)", err, elapsed.as_secs_f64());
-                VmOpStatus::Failed(err)
-            }
-            Err(e) => {
-                eprintln!("  -> error: {} ({:.1}s)", e, elapsed.as_secs_f64());
-                VmOpStatus::Failed(e.to_string())
-            }
-        };
-        results.push(VmOpResult {
+        let (status, elapsed) = run_one_vm_op(action, id);
+        // Numbered on completion rather than on start: with several workers in
+        // flight, "[3/50] starting" printed before "[1/50] done" reads as an
+        // ordering that never happened.
+        let n = done.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        match &status {
+            VmOpStatus::Success => eprintln!(
+                "[{}/{}] {} {} -> success ({:.1}s)",
+                n,
+                vm_ids.len(),
+                action,
+                name,
+                elapsed.as_secs_f64()
+            ),
+            VmOpStatus::Failed(err) => eprintln!(
+                "[{}/{}] {} {} -> failed: {} ({:.1}s)",
+                n,
+                vm_ids.len(),
+                action,
+                name,
+                err,
+                elapsed.as_secs_f64()
+            ),
+            _ => {}
+        }
+        *slots[i].lock().expect("batch result slot poisoned") = Some(VmOpResult {
             vm_id: id.to_string(),
             vm_name: name.to_string(),
             status,
             elapsed,
         });
-    }
+    });
     BatchSummary {
-        results,
+        results: slots
+            .into_iter()
+            .map(|slot| {
+                slot.into_inner()
+                    .expect("batch result slot poisoned")
+                    .expect("every batch slot is filled before the scope ends")
+            })
+            .collect(),
         total_elapsed: start.elapsed(),
     }
 }
