@@ -1,4 +1,5 @@
 mod common;
+mod test_batch_flags;
 mod test_config_flag;
 mod test_context_switch;
 mod test_fleet_flags;

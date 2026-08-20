@@ -1,0 +1,131 @@
+name: "azlin batch honours the flags it advertises"
+description: |
+  Verifies PR #1110 (issue #1089). `azlin batch command` and `azlin batch sync`
+  declared `--tag` and passed a literal `None` to their own selection
+  validator, so a filtered batch ran on every running VM in the resource group
+  and printed a green table. `--max-workers` was declared on all four
+  subcommands and read by none; `batch command --timeout` enforced nothing.
+
+  Selection is validated before azlin makes any Azure call, so nothing here
+  needs credentials or the network.
+
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 30000
+
+steps:
+  - name: "Build the binary under test (never assert against a stale build)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo build -p azlin 2>&1 | tail -1
+        test -x target/debug/azlin && echo "PASS: fresh azlin binary present"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "--tag reaches the validator on command and sync"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        D=$(mktemp -d); echo 'default_resource_group = "rg-scenario"' > "$D/config.toml"
+        run() { AZLIN_CONFIG_DIR="$D" rust/target/debug/azlin "$@" 2>&1; }
+        OUT=$(run batch command uptime --all --tag env=dev) && {
+          echo "FAIL: batch command accepted --all with --tag"; exit 1; }
+        echo "$OUT" | grep -q -- "--all cannot be combined" || { echo "FAIL: $OUT"; exit 1; }
+        OUT=$(run batch sync --all --tag env=dev) && {
+          echo "FAIL: batch sync accepted --all with --tag"; exit 1; }
+        echo "$OUT" | grep -q -- "--all cannot be combined" || { echo "FAIL: $OUT"; exit 1; }
+        echo "PASS: the tag is no longer dropped before validation"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 20000
+
+  - name: "A malformed tag is rejected rather than becoming a fleet-wide run"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        D=$(mktemp -d); echo 'default_resource_group = "rg-scenario"' > "$D/config.toml"
+        for sub in "command uptime" "sync"; do
+          OUT=$(AZLIN_CONFIG_DIR="$D" rust/target/debug/azlin batch $sub --tag env 2>&1) && {
+            echo "FAIL: batch $sub accepted a malformed tag"; exit 1; }
+          echo "$OUT" | grep -q "key=value" || { echo "FAIL: wrong error for $sub: $OUT"; exit 1; }
+        done
+        echo "PASS: a tag with no '=' is an error"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 20000
+
+  - name: "Every subcommand still advertises every flag"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        # The cheapest way to make a flag-wiring checker green is to delete the
+        # flag rather than wire it.
+        for sub in stop start command sync; do
+          H=$(rust/target/debug/azlin batch $sub --help 2>&1)
+          for f in --max-workers --tag --vm-pattern; do
+            echo "$H" | grep -q -- "$f" || { echo "FAIL: batch $sub lost $f"; exit 1; }
+          done
+        done
+        rust/target/debug/azlin batch command --help | grep -q -- "--timeout" \
+          || { echo "FAIL: batch command lost --timeout"; exit 1; }
+        echo "PASS: all four subcommands still advertise their flags"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 20000
+
+  - name: "ARM writes are paced independently of the worker count"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # `--no-wait` returns immediately, so the worker count alone would let a
+        # large batch put that many ARM writes in flight and keep them coming.
+        grep -q "ARM_WRITES_PER_SECOND" crates/azlin/src/batch_progress.rs \
+          || { echo "FAIL: no ARM write pacing"; exit 1; }
+        grep -q "limiter.acquire();" crates/azlin/src/batch_progress.rs \
+          || { echo "FAIL: the limiter is created but never taken from"; exit 1; }
+        cargo test -p azlin-azure rate_limiter 2>&1 | grep -q "0 failed" \
+          || { echo "FAIL: rate limiter tests failed"; exit 1; }
+        echo "PASS: batch writes are rate limited and the limiter is tested"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "The flag-wiring gate is green and the ledger shrank"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        cargo run -p xtask --locked -- check-flag-wiring > /tmp/wiring.txt 2>&1 || {
+          cat /tmp/wiring.txt; echo "FAIL: gate is red"; exit 1; }
+        grep -q "43 allowlisted" /tmp/wiring.txt || {
+          cat /tmp/wiring.txt; echo "FAIL: allowlist is not at 43 entries"; exit 1; }
+        grep -c "^BatchAction::" crates/xtask/unwired-flags-allowlist.txt | grep -q '^0$' \
+          || { echo "FAIL: BatchAction entries still allowlisted"; exit 1; }
+        echo "PASS: gate green, 7 batch entries removed from the ledger"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000

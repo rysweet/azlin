@@ -21,7 +21,7 @@
 #
 # Generated from the checker's report against commit fdfb27a2 (v2.6.105).
 
-# ── Other flags accepted and discarded (50) ──────────────────────────
+# ── Other flags accepted and discarded (43) ──────────────────────────
 #
 # Each of these is an independent per-flag fix: bind the field in the handler
 # and act on it, or delete the flag. They are listed individually so that
@@ -61,13 +61,6 @@ KeysAction::List::vm_prefix = #1089 — `azlin keys list --vm-prefix` accepted, 
 AuthAction::Setup::use_certificate = #1089 — `azlin auth setup --use-certificate` accepted, then discarded; help promises "Use certificate-based auth"
 AuthAction::Setup::certificate_path = #1089 — `azlin auth setup --certificate-path` accepted, then discarded; help promises "Path to certificate file"
 AuthAction::Test::subscription_id = #1089 — `azlin auth test --subscription-id` accepted, then discarded; help promises "Test specific subscription access"
-BatchAction::Stop::max_workers = #1089 — `azlin batch stop --max-workers` accepted, then discarded; help promises "Maximum parallel workers"
-BatchAction::Start::max_workers = #1089 — `azlin batch start --max-workers` accepted, then discarded
-BatchAction::Command::tag = #1089 — `azlin batch command --tag` accepted, then discarded
-BatchAction::Command::max_workers = #1089 — `azlin batch command --max-workers` accepted, then discarded
-BatchAction::Command::timeout = #1089 — `azlin batch command --timeout` accepted, then discarded; help promises "Command timeout in seconds"
-BatchAction::Sync::tag = #1089 — `azlin batch sync --tag` accepted, then discarded
-BatchAction::Sync::max_workers = #1089 — `azlin batch sync --max-workers` accepted, then discarded
 GithubRunnerAction::Enable::auto_scale = #1089 — `azlin github-runner enable --auto-scale` accepted, then discarded; help promises "Auto-scale based on queue depth"
 DiskAction::Add::mount = #1089 — `azlin disk add --mount` accepted, then discarded; help promises "Mount point for the disk"
 IpAction::Check::all = #1089 — `azlin ip check --all` accepted, then discarded; help promises "Check all VMs in resource group"

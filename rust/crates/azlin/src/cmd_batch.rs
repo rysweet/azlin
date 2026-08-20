@@ -36,9 +36,9 @@ pub(crate) async fn dispatch(
                 tag,
                 vm_pattern,
                 all,
+                max_workers,
                 yes,
                 no_deallocate,
-                ..
             } => {
                 crate::batch_helpers::validate_selection(
                     all,
@@ -77,8 +77,12 @@ pub(crate) async fn dispatch(
                     );
                 } else {
                     let id_refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
-                    let summary =
-                        crate::batch_progress::run_batch_with_progress(az_action, &id_refs, &names);
+                    let summary = crate::batch_progress::run_batch_with_progress(
+                        az_action,
+                        &id_refs,
+                        &names,
+                        crate::fleet_select::worker_count(max_workers),
+                    );
                     println!("{}", summary.format_summary("stop"));
                 }
             }
@@ -87,8 +91,8 @@ pub(crate) async fn dispatch(
                 tag,
                 vm_pattern,
                 all,
+                max_workers,
                 yes,
-                ..
             } => {
                 crate::batch_helpers::validate_selection(
                     all,
@@ -121,76 +125,114 @@ pub(crate) async fn dispatch(
                     );
                 } else {
                     let id_refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
-                    let summary =
-                        crate::batch_progress::run_batch_with_progress("start", &id_refs, &names);
+                    let summary = crate::batch_progress::run_batch_with_progress(
+                        "start",
+                        &id_refs,
+                        &names,
+                        crate::fleet_select::worker_count(max_workers),
+                    );
                     println!("{}", summary.format_summary("start"));
                 }
             }
             azlin_cli::BatchAction::Command {
                 command,
                 resource_group,
+                tag,
                 vm_pattern,
                 all,
+                max_workers,
+                timeout,
                 show_output,
-                ..
             } => {
-                crate::batch_helpers::validate_selection(all, None, vm_pattern.as_deref())
-                    .map_err(|e| anyhow::anyhow!(e))?;
+                // `--tag` used to be dropped here — including from the
+                // validation call, which was passed a literal `None`. So
+                // `azlin batch command 'systemctl restart app' --tag env=dev`
+                // ran on every running VM in the resource group and reported
+                // success (#1089).
+                crate::batch_helpers::validate_selection(
+                    all,
+                    tag.as_deref(),
+                    vm_pattern.as_deref(),
+                )
+                .map_err(|e| anyhow::anyhow!(e))?;
+                if let Some(t) = tag.as_deref() {
+                    if crate::tag_helpers::parse_tag(t).is_none() {
+                        anyhow::bail!("Invalid tag format '{}'. Use key=value.", t);
+                    }
+                }
                 let rg = resolve_resource_group(resource_group)?;
+                let workers = crate::fleet_select::worker_count(max_workers);
                 let selection =
-                    crate::batch_helpers::describe_selection(None, vm_pattern.as_deref());
+                    crate::batch_helpers::describe_selection(tag.as_deref(), vm_pattern.as_deref());
                 let pb = penguin_spinner(&format!(
                     "Running '{}' on {} in '{}'...",
                     command, selection, rg
                 ));
-                let mut vms = get_running_vm_targets(Some(rg.clone())).await?;
-                if let Some(p) = vm_pattern.as_deref() {
-                    vms.retain(|t| crate::batch_helpers::glob_match(p, &t.vm_name));
-                }
+                // Filtering on `VmInfo` rather than on the built targets,
+                // because a `VmSshTarget` carries no tags.
+                let vms = resolve_fleet_targets(&rg, tag.as_deref(), vm_pattern.as_deref()).await?;
                 pb.finish_and_clear();
                 if vms.is_empty() {
-                    println!(
-                        "{}",
-                        crate::batch_helpers::format_no_running_match_message(
-                            &rg,
-                            vm_pattern.as_deref()
-                        )
-                    );
-                } else {
-                    println!(
-                        "{}",
-                        crate::batch_helpers::format_fleet_run_message(&command, vms.len())
-                    );
-                    run_on_fleet(&vms, &command, show_output);
+                    // A selector that matches nothing is not a success: the
+                    // pattern is wrong or the VMs are down, and a scripted
+                    // run must not go green having touched no host.
+                    anyhow::bail!(crate::fleet_select::format_no_match_message(
+                        &rg,
+                        tag.as_deref(),
+                        vm_pattern.as_deref()
+                    ));
                 }
+                println!(
+                    "{}",
+                    crate::batch_helpers::format_fleet_run_message(&command, vms.len())
+                );
+                let wrapped = crate::fleet_select::wrap_with_timeout(&command, timeout);
+                let results = run_on_fleet_with_workers_and_timeout(
+                    &vms,
+                    &wrapped,
+                    show_output,
+                    workers,
+                    crate::fleet_select::local_timeout_secs(timeout),
+                    &command,
+                );
+                report_batch_timeouts(&vms, &results, timeout);
             }
             azlin_cli::BatchAction::Sync {
                 resource_group,
+                tag,
                 vm_pattern,
                 all,
+                max_workers,
                 dry_run,
-                ..
             } => {
-                crate::batch_helpers::validate_selection(all, None, vm_pattern.as_deref())
-                    .map_err(|e| anyhow::anyhow!(e))?;
-                let rg = resolve_resource_group(resource_group)?;
-                let mut vms = get_running_vm_targets(Some(rg.clone())).await?;
-                if let Some(p) = vm_pattern.as_deref() {
-                    vms.retain(|t| crate::batch_helpers::glob_match(p, &t.vm_name));
+                // `--tag` was dropped here too, so a filtered sync pushed the
+                // caller's dotfiles to every running VM (#1089).
+                crate::batch_helpers::validate_selection(
+                    all,
+                    tag.as_deref(),
+                    vm_pattern.as_deref(),
+                )
+                .map_err(|e| anyhow::anyhow!(e))?;
+                if let Some(t) = tag.as_deref() {
+                    if crate::tag_helpers::parse_tag(t).is_none() {
+                        anyhow::bail!("Invalid tag format '{}'. Use key=value.", t);
+                    }
                 }
+                let rg = resolve_resource_group(resource_group)?;
+                let workers = crate::fleet_select::worker_count(max_workers);
+                let vms = resolve_fleet_targets(&rg, tag.as_deref(), vm_pattern.as_deref()).await?;
                 if vms.is_empty() {
-                    println!(
-                        "{}",
-                        crate::batch_helpers::format_no_running_match_message(
-                            &rg,
-                            vm_pattern.as_deref()
-                        )
-                    );
-                    return Ok(());
+                    anyhow::bail!(crate::fleet_select::format_no_match_message(
+                        &rg,
+                        tag.as_deref(),
+                        vm_pattern.as_deref()
+                    ));
                 }
                 let home = home_dir()?;
                 let dotfiles = crate::sync_helpers::default_dotfiles();
-                for target in &vms {
+                let failures = std::sync::atomic::AtomicUsize::new(0);
+                crate::batch_progress::for_each_bounded(vms.len(), workers, |i| {
+                    let target = &vms[i];
                     let (name, ip, user) = (&target.vm_name, &target.ip, &target.user);
                     for dotfile in &dotfiles {
                         let local = home.join(dotfile);
@@ -199,33 +241,44 @@ pub(crate) async fn dispatch(
                         }
                         if dry_run {
                             println!("[dry-run] Would sync {} to {}:{}", dotfile, name, dotfile);
-                        } else {
-                            let output = std::process::Command::new("rsync")
-                                .args(["-az", "-e", "ssh -o StrictHostKeyChecking=accept-new"])
-                                .arg(local.as_os_str())
-                                .arg(format!("{}@{}:~/{}", user, ip, dotfile))
-                                .output();
-                            match output {
-                                Ok(o) if o.status.success() => {
-                                    println!("Synced {} to {}", dotfile, name)
-                                }
-                                Ok(o) => {
-                                    let stderr = String::from_utf8_lossy(&o.stderr);
-                                    eprintln!(
-                                        "Failed to sync {} to {}: {}",
-                                        dotfile,
-                                        name,
-                                        azlin_core::sanitizer::sanitize(stderr.trim())
-                                    );
-                                }
-                                Err(e) => {
-                                    eprintln!("Failed to sync {} to {}: {}", dotfile, name, e)
-                                }
+                            continue;
+                        }
+                        let output = std::process::Command::new("rsync")
+                            .args(["-az", "-e", "ssh -o StrictHostKeyChecking=accept-new"])
+                            .arg(local.as_os_str())
+                            .arg(format!("{}@{}:~/{}", user, ip, dotfile))
+                            .output();
+                        match output {
+                            Ok(o) if o.status.success() => {
+                                println!("Synced {} to {}", dotfile, name)
+                            }
+                            Ok(o) => {
+                                failures.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                                let stderr = String::from_utf8_lossy(&o.stderr);
+                                eprintln!(
+                                    "Failed to sync {} to {}: {}",
+                                    dotfile,
+                                    name,
+                                    azlin_core::sanitizer::sanitize(stderr.trim())
+                                );
+                            }
+                            Err(e) => {
+                                failures.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                                eprintln!("Failed to sync {} to {}: {}", dotfile, name, e)
                             }
                         }
                     }
-                }
+                });
+                let failed = failures.into_inner();
                 if !dry_run {
+                    // "Sync complete." after a wall of rsync errors was its
+                    // own small silent success.
+                    if failed > 0 {
+                        anyhow::bail!(
+                            "{} dotfile transfer(s) failed; see the errors above.",
+                            failed
+                        );
+                    }
                     println!("Sync complete.");
                 }
             }

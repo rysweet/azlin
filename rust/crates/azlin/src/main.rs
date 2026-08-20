@@ -845,17 +845,53 @@ fn run_on_fleet_with_workers(
     show_output: bool,
     workers: usize,
 ) -> Vec<(i32, String, String)> {
+    run_on_fleet_with_workers_and_timeout(
+        targets,
+        command,
+        show_output,
+        workers,
+        BASTION_EXEC_TIMEOUT_SECS,
+        command,
+    )
+}
+
+/// [`run_on_fleet_with_workers`] with an explicit transport budget and a
+/// display form for the command.
+///
+/// `azlin batch command --timeout` wraps the user's command the same way
+/// `fleet run` does, so the transport needs the same larger budget and the
+/// spinners need the unwrapped text.
+fn run_on_fleet_with_workers_and_timeout(
+    targets: &[VmSshTarget],
+    command: &str,
+    show_output: bool,
+    workers: usize,
+    local_timeout_secs: u64,
+    display_command: &str,
+) -> Vec<(i32, String, String)> {
     let bars = fleet_progress_bars(targets);
     let results = exec_fleet(
         targets,
         command,
         workers,
         &bars,
-        BASTION_EXEC_TIMEOUT_SECS,
-        command,
+        local_timeout_secs,
+        display_command,
     );
     print_fleet_table(targets, &results, show_output);
     results
+}
+
+/// Say so when `--timeout` is what killed a command, naming each VM.
+///
+/// Without this the table shows a bare `exit 124` with nothing tying it to the
+/// flag the user passed.
+fn report_batch_timeouts(targets: &[VmSshTarget], results: &[(i32, String, String)], timeout: u32) {
+    for (target, (code, _, _)) in targets.iter().zip(results) {
+        if let Some(note) = fleet_select::timeout_note(*code, timeout) {
+            eprintln!("  {}: {}", target.vm_name, note);
+        }
+    }
 }
 
 fn main() {
