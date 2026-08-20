@@ -1,0 +1,166 @@
+name: "azlin honours the three flags that decide scope or safety"
+description: |
+  Verifies PR #1112 (issue #1089). Three flags that decided what a command
+  touched, and were discarded:
+
+  - `azlin kill --force` promised to skip a confirmation on a command that
+    never prompted, so the flag's presence told the user a prompt existed
+    while the VM went away on the first Enter.
+  - `azlin ip check --all` was discarded by a command whose own output told
+    the user to pass it, and which then exited 0 having checked nothing.
+  - `azlin do --resource-group` was discarded, so the generated `az` commands
+    ran against whatever `az` happened to default to.
+
+  Every assertion lands before azlin reaches Azure, so nothing here needs
+  credentials or the network.
+
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 30000
+
+steps:
+  - name: "Build the binary under test (never assert against a stale build)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo build -p azlin 2>&1 | tail -1
+        test -x target/debug/azlin && echo "PASS: fresh azlin binary present"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "kill asks before it authenticates, and refuses unattended"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        D=$(mktemp -d); echo 'default_resource_group = "rg-scenario"' > "$D/config.toml"
+        # AZURE_CONFIG_DIR points away from any credentials: if the
+        # confirmation came after authentication, this would fail with an
+        # `az login` error instead — which is exactly what CI caught.
+        OUT=$(AZLIN_CONFIG_DIR="$D" AZURE_CONFIG_DIR="$D" \
+              rust/target/debug/azlin kill some-vm < /dev/null 2>&1) && {
+          echo "FAIL: kill deleted without confirmation"; exit 1; }
+        echo "$OUT" | grep -q "Confirmation required" \
+          || { echo "FAIL: kill did not stop at the confirmation: $OUT"; exit 1; }
+        echo "$OUT" | grep -qi "az login" \
+          && { echo "FAIL: kill authenticated before asking: $OUT"; exit 1; }
+        echo "$OUT" | grep -q "Killed" && { echo "FAIL: it got as far as deleting"; exit 1; }
+        echo "PASS: intent first, Azure second"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 30000
+
+  - name: "ip check refuses an ambiguous selection and a missing one"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        D=$(mktemp -d); echo 'default_resource_group = "rg-scenario"' > "$D/config.toml"
+        run() { AZLIN_CONFIG_DIR="$D" rust/target/debug/azlin "$@" 2>&1; }
+        OUT=$(run ip check some-vm --all) && { echo "FAIL: --all with a VM name was accepted"; exit 1; }
+        echo "$OUT" | grep -q -- "--all cannot be combined" || { echo "FAIL: $OUT"; exit 1; }
+        # Nothing the user asked for happened, so exiting 0 would mean a
+        # scripted check passed without checking anything.
+        OUT=$(run ip check) && { echo "FAIL: a check that checked nothing exited 0"; exit 1; }
+        echo "$OUT" | grep -q -- "--all" || { echo "FAIL: $OUT"; exit 1; }
+        echo "PASS: no silent no-op, no silent winner"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 30000
+
+  - name: "The three flags are still advertised"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        B=rust/target/debug/azlin
+        "$B" kill --help 2>&1 | grep -q -- "--force" || { echo "FAIL: kill lost --force"; exit 1; }
+        "$B" ip check --help 2>&1 | grep -q -- "--all" || { echo "FAIL: ip check lost --all"; exit 1; }
+        "$B" do --help 2>&1 | grep -q -- "--resource-group" || { echo "FAIL: do lost --resource-group"; exit 1; }
+        echo "PASS: wired, not deleted"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 20000
+
+  - name: "azlin do refuses a plan that targets another resource group"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # The model is told the group; a model told the group is not a model
+        # that used it, so the generated plan is checked before any of it runs.
+        for t in a_command_targeting_another_group_is_reported \
+                 a_command_with_no_group_is_not_a_conflict \
+                 case_does_not_make_a_different_group \
+                 group_less_commands_are_countable_for_the_plan; do
+          cargo test -p azlin --bin azlin "$t" 2>&1 | tail -3 | grep -q "1 passed" \
+            || { echo "FAIL: $t did not pass"; exit 1; }
+        done
+        grep -q "name no resource group and will use whatever" crates/azlin/src/cmd_ai_ops.rs \
+          || { echo "FAIL: the plan does not name the residual risk"; exit 1; }
+        echo "PASS: conflicts refuse the batch, and group-less commands are counted"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "The test suite refuses to assert against a stale binary"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # This guard exists because three tests in this very PR "failed"
+        # against a binary built from another branch.
+        grep -q "assert_binary_is_not_stale" crates/azlin/src/tests/common.rs \
+          || { echo "FAIL: no staleness guard"; exit 1; }
+        BIN=target/debug/azlin
+        OLD=$(stat -c %Y "$BIN")
+        touch -d "+60 seconds" crates/azlin/src/cmd_network_ops.rs
+        OUT=$(cargo test -p azlin --bin azlin ip_check_rejects_all_combined_with_a_vm_name 2>&1)
+        touch crates/azlin/src/cmd_network_ops.rs
+        touch -d "@$OLD" "$BIN"
+        echo "$OUT" | grep -q "is older than" \
+          || { echo "FAIL: the guard did not fire on a stale binary"; exit 1; }
+        cargo build -p azlin >/dev/null 2>&1
+        echo "PASS: a stale binary is a clear failure, not a confusing one"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "The flag-wiring gate is green and the ledger shrank"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        cargo run -p xtask --locked -- check-flag-wiring > /tmp/wiring.txt 2>&1 || {
+          cat /tmp/wiring.txt; echo "FAIL: gate is red"; exit 1; }
+        grep -q "40 allowlisted" /tmp/wiring.txt || {
+          cat /tmp/wiring.txt; echo "FAIL: allowlist is not at 40 entries"; exit 1; }
+        for f in Commands::Kill::force Commands::Do::resource_group IpAction::Check::all; do
+          grep -q "^$f" crates/xtask/unwired-flags-allowlist.txt \
+            && { echo "FAIL: $f is still allowlisted"; exit 1; }
+        done
+        echo "PASS: gate green, three entries removed from the ledger"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
