@@ -21,6 +21,7 @@ pub(crate) async fn dispatch(
                 // could not do, and what the help has always promised, is say
                 // which VMs carry which key.
                 let rg = resolve_resource_group(resource_group)?;
+                crate::keys_list::validate_vm_prefix(&vm_prefix)?;
                 let prefix = crate::keys_list::prefix_filter(all_vms, &vm_prefix);
 
                 let az = std::process::Command::new("az")
@@ -47,7 +48,7 @@ pub(crate) async fn dispatch(
                 }
 
                 azlin_cli::table::render_rows(
-                    &["VM", "Type", "Fingerprint", "Comment"],
+                    &["VM", "User", "Type", "Fingerprint", "Comment"],
                     &crate::keys_list::build_rows(&vms),
                     output,
                 );

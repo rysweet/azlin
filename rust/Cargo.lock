@@ -199,6 +199,7 @@ dependencies = [
  "azlin-cli",
  "azlin-core",
  "azlin-ssh",
+ "base64",
  "chrono",
  "clap",
  "clap_complete",

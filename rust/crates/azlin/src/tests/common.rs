@@ -174,6 +174,11 @@ pub(super) fn run_isolated_home(dir: &TempDir, args: &[&str]) -> std::process::O
 
 /// Helper: run azlin with no Azure config and verify graceful failure.
 pub(super) fn assert_graceful_auth_error(args: &[&str]) {
+    // Same reason as `run_isolated`: `cargo test` does not relink the binary
+    // for a change confined to `src/tests/`, so without this the assertions
+    // below describe whatever build happens to be on disk. This helper reached
+    // the same stale binary `run_isolated` was already guarded against.
+    assert_binary_is_not_stale();
     let dir = TempDir::new().unwrap();
     let out = assert_cmd::Command::cargo_bin("azlin")
         .unwrap()

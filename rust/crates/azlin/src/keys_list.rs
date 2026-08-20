@@ -35,12 +35,29 @@ pub struct VmKeys {
 
 /// Which name prefix restricts the listing, following `keys rotate`: an empty
 /// string means every VM in the resource group.
-pub fn prefix_filter<'a>(all_vms: bool, vm_prefix: &'a str) -> &'a str {
+pub fn prefix_filter(all_vms: bool, vm_prefix: &str) -> &str {
     if all_vms {
         ""
     } else {
         vm_prefix
     }
+}
+
+/// Refuse a prefix that would be interpolated into the JMESPath query as
+/// something other than a literal.
+///
+/// Nothing escalates — it is the caller's own shell — but an unbalanced quote
+/// comes back from Azure as a JMESPath parse error naming neither the flag nor
+/// the value, which is the same "did something else and explained nothing"
+/// this whole issue is about.
+pub fn validate_vm_prefix(prefix: &str) -> Result<()> {
+    if let Some(bad) = prefix.chars().find(|c| matches!(c, '\'' | '`' | '\\')) {
+        anyhow::bail!(
+            "--vm-prefix cannot contain {:?}: the prefix is matched by Azure as a literal name prefix, and that character would be read as part of the query instead.",
+            bad
+        );
+    }
+    Ok(())
 }
 
 /// `az vm list` restricted to the fields the table needs.
@@ -124,14 +141,22 @@ pub fn parse_vm_keys(stdout: &[u8]) -> Result<Vec<VmKeys>> {
 /// rather than a fingerprint of nothing, because a wrong fingerprint in this
 /// table is worse than a blank cell: it would be compared and trusted.
 pub fn fingerprint(key_data: &str) -> Option<String> {
+    use base64::Engine as _;
+    use sha2::{Digest, Sha256};
+
     let blob = key_data.split_whitespace().nth(1)?;
-    let decoded = base64_decode(blob)?;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(blob)
+        .ok()?;
     if decoded.is_empty() {
         return None;
     }
-    use sha2::{Digest, Sha256};
     let digest = Sha256::digest(&decoded);
-    Some(format!("SHA256:{}", base64_encode_unpadded(&digest)))
+    // OpenSSH prints the digest unpadded, which is what `ssh-keygen -l` shows.
+    Some(format!(
+        "SHA256:{}",
+        base64::engine::general_purpose::STANDARD_NO_PAD.encode(digest)
+    ))
 }
 
 /// The comment at the end of a public key line, if it has one.
@@ -144,6 +169,27 @@ pub fn key_comment(key_data: &str) -> Option<String> {
     }
 }
 
+/// The account a key authorises, read from the path Azure records for it.
+///
+/// This is the only field in the response that says *whose* `authorized_keys`
+/// the key lands in, which for a table about who can reach a VM is the point.
+/// A path in an unexpected shape is returned whole rather than guessed at.
+pub fn key_user(path: &str) -> String {
+    let trimmed = path.trim_end_matches('/');
+    if let Some(rest) = trimmed.strip_prefix("/home/") {
+        if let Some(user) = rest.split('/').next().filter(|u| !u.is_empty()) {
+            return user.to_string();
+        }
+    }
+    if trimmed.starts_with("/root/") {
+        return "root".to_string();
+    }
+    if trimmed.is_empty() {
+        return "-".to_string();
+    }
+    trimmed.to_string()
+}
+
 /// The key algorithm, e.g. `ssh-ed25519`.
 pub fn key_algorithm(key_data: &str) -> Option<String> {
     key_data
@@ -151,59 +197,6 @@ pub fn key_algorithm(key_data: &str) -> Option<String> {
         .next()
         .filter(|a| a.starts_with("ssh-") || a.starts_with("ecdsa-"))
         .map(|a| a.to_string())
-}
-
-const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-fn base64_encode_unpadded(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let b = [
-            chunk[0],
-            *chunk.get(1).unwrap_or(&0),
-            *chunk.get(2).unwrap_or(&0),
-        ];
-        let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
-        let chars = [
-            B64[(n >> 18) as usize & 63],
-            B64[(n >> 12) as usize & 63],
-            B64[(n >> 6) as usize & 63],
-            B64[n as usize & 63],
-        ];
-        // One input byte carries two output characters, two carry three.
-        let keep = chunk.len() + 1;
-        for c in chars.iter().take(keep) {
-            out.push(*c as char);
-        }
-    }
-    out
-}
-
-fn base64_decode(input: &str) -> Option<Vec<u8>> {
-    let mut acc: u32 = 0;
-    let mut bits = 0u32;
-    let mut out = Vec::with_capacity(input.len() * 3 / 4);
-    for c in input.bytes() {
-        if c == b'=' {
-            break;
-        }
-        let v = match c {
-            b'A'..=b'Z' => c - b'A',
-            b'a'..=b'z' => c - b'a' + 26,
-            b'0'..=b'9' => c - b'0' + 52,
-            b'+' => 62,
-            b'/' => 63,
-            b'\r' | b'\n' => continue,
-            _ => return None,
-        } as u32;
-        acc = (acc << 6) | v;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((acc >> bits) as u8);
-        }
-    }
-    Some(out)
 }
 
 /// The table rows: one line per key, so a VM with two keys occupies two lines
@@ -215,6 +208,7 @@ pub fn build_rows(vms: &[VmKeys]) -> Vec<Vec<String>> {
             rows.push(vec![
                 vm.name.clone(),
                 "-".to_string(),
+                "-".to_string(),
                 "no keys recorded".to_string(),
                 "-".to_string(),
             ]);
@@ -223,6 +217,7 @@ pub fn build_rows(vms: &[VmKeys]) -> Vec<Vec<String>> {
         for key in &vm.keys {
             rows.push(vec![
                 vm.name.clone(),
+                key_user(&key.path),
                 key_algorithm(&key.key_data).unwrap_or_else(|| "-".to_string()),
                 fingerprint(&key.key_data).unwrap_or_else(|| "unreadable".to_string()),
                 key_comment(&key.key_data).unwrap_or_else(|| "-".to_string()),
@@ -331,27 +326,47 @@ mod tests {
     }
 
     #[test]
-    fn base64_round_trips_through_both_halves() {
-        for input in [
-            &b""[..],
-            &b"f"[..],
-            &b"fo"[..],
-            &b"foo"[..],
-            &b"foob"[..],
-            &b"fooba"[..],
-            &b"foobar"[..],
-        ] {
-            let encoded = base64_encode_unpadded(input);
-            assert_eq!(
-                base64_decode(&encoded).unwrap(),
-                input,
-                "round trip failed for {:?}",
-                input
-            );
+    fn a_second_real_key_gets_its_own_fingerprint() {
+        // Two real keys, both cross-checked against `ssh-keygen -lf`. A single
+        // vector can be satisfied by a constant; two cannot. The second must
+        // be a *valid* key — an unparseable blob would return None here and
+        // make the comparison pass for the wrong reason.
+        let b = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID+6l7rEcv3t2IAMWfLmCRTAdLcz0AY3XxEO6QnG2Iw5 azlin-test-2";
+        assert_eq!(
+            fingerprint(b).unwrap(),
+            "SHA256:BXZ3c6ljFG6UjGQtKofXlbm4Hk1zgm1HzZVMOwWDxSc"
+        );
+        let a = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILUy08oEACPMZQLM0aYTxQExFNSh9xspYJuOdIJokIDR azlin-test";
+        assert_ne!(fingerprint(a), fingerprint(b));
+    }
+
+    // ── validate_vm_prefix ───────────────────────────────────────
+
+    #[test]
+    fn a_prefix_that_would_break_the_query_is_refused_before_the_round_trip() {
+        assert!(validate_vm_prefix("web").is_ok());
+        assert!(validate_vm_prefix("").is_ok());
+        assert!(validate_vm_prefix("web-1_x").is_ok());
+        for bad in ["web's", "web`", "web\\"] {
+            let err = validate_vm_prefix(bad).unwrap_err().to_string();
+            assert!(err.contains("--vm-prefix"), "{}", err);
         }
-        // RFC 4648 vectors, minus the padding OpenSSH fingerprints omit.
-        assert_eq!(base64_encode_unpadded(b"f"), "Zg");
-        assert_eq!(base64_encode_unpadded(b"foobar"), "Zm9vYmFy");
+    }
+
+    // ── key_user ─────────────────────────────────────────────────
+
+    #[test]
+    fn the_account_the_key_authorises_is_read_from_the_path() {
+        assert_eq!(
+            key_user("/home/azureuser/.ssh/authorized_keys"),
+            "azureuser"
+        );
+        assert_eq!(key_user("/home/deploy/.ssh/authorized_keys"), "deploy");
+        assert_eq!(key_user("/root/.ssh/authorized_keys"), "root");
+        assert_eq!(key_user(""), "-");
+        // Not guessed at: an unfamiliar shape is shown whole rather than
+        // reported as some plausible username.
+        assert_eq!(key_user("/etc/ssh/keys"), "/etc/ssh/keys");
     }
 
     // ── comment and algorithm ────────────────────────────────────
@@ -391,7 +406,7 @@ mod tests {
                 name: "a".into(),
                 keys: vec![
                     VmPublicKey {
-                        path: "p".into(),
+                        path: "/home/azureuser/.ssh/authorized_keys".into(),
                         key_data: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILUy08oEACPMZQLM0aYTxQExFNSh9xspYJuOdIJokIDR one".into(),
                     },
                     VmPublicKey {
@@ -407,10 +422,27 @@ mod tests {
         ];
         let rows = build_rows(&vms);
         assert_eq!(rows.len(), 3);
-        assert_eq!(rows[0][0], "a");
-        assert_eq!(rows[1][3], "two");
+        assert_eq!(
+            rows[0],
+            vec![
+                "a",
+                "azureuser",
+                "ssh-ed25519",
+                &fingerprint(&vms[0].keys[0].key_data).unwrap(),
+                "one"
+            ]
+        );
+        assert_eq!(rows[1][4], "two");
         assert_eq!(rows[2][0], "b");
-        assert!(rows[2][2].contains("no keys"), "{:?}", rows[2]);
+        assert!(
+            rows[2].iter().any(|c| c.contains("no keys")),
+            "a keyless VM is still listed, saying so: {:?}",
+            rows[2]
+        );
+        assert!(
+            rows.iter().all(|r| r.len() == 5),
+            "every row fills the header"
+        );
     }
 
     // ── empty_message ────────────────────────────────────────────

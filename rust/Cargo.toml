@@ -64,6 +64,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # Crypto
 sha2 = "0.10"
+base64 = "0.22"
 
 # Misc
 chrono = { version = "0.4", features = ["serde"] }
