@@ -1,0 +1,108 @@
+name: "azlin waits for the concurrent write before re-checking the NAT subnet"
+description: |
+  Verifies PR #1108 (issue #1101). `ensure_nat_gateway` re-read the subnet
+  immediately after a 409 on the attach step. The 409 means a concurrent
+  `azlin new` is mid-write, so the immediate read is the one guaranteed to be
+  too early — azlin reported a failure for work that succeeded a moment later.
+
+  The behaviour that matters is ordering: the wait before the read, not after
+  it. That is unobservable through a real sleep and a real `az` call, so the
+  sleep and the re-read are injected and the unit tests record what happened in
+  what order. This scenario runs those tests and checks the call site actually
+  uses the extracted function.
+
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 30000
+
+steps:
+  - name: "The conflict tests pass"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        cargo test -p azlin --bin azlin nat_helpers::tests::conflict 2>&1 | tail -3
+    expect:
+      exit_code: 0
+      stdout_contains: "0 failed"
+    timeout: 600000
+
+  - name: "The wait precedes the first re-read, and a non-conflict does neither"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        for t in conflict_waits_before_the_first_recheck \
+                 a_non_conflict_failure_neither_waits_nor_rereads \
+                 conflict_keeps_looking_while_the_other_run_finishes \
+                 conflict_gives_up_after_the_bounded_number_of_looks \
+                 a_failing_recheck_surfaces_both_errors_and_stops \
+                 conflict_recheck_backoff_is_nonzero_and_bounded; do
+          cargo test -p azlin --bin azlin "$t" 2>&1 | grep -q "1 passed" \
+            || { echo "FAIL: $t did not pass"; exit 1; }
+        done
+        echo "PASS: all six ordering and bounds assertions hold"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 600000
+
+  - name: "The immediate re-read is gone from the call site"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        grep -q "resolve_attach_conflict" crates/azlin/src/nat_helpers.rs \
+          || { echo "FAIL: the extracted function is missing"; exit 1; }
+        # The old shape: a bare match on detect_nat_status directly inside the
+        # attach-failure branch, with nothing between the 409 and the read.
+        grep -A3 'eprintln!("  Attach conflicted' crates/azlin/src/nat_helpers.rs \
+          | grep -q "detect_nat_status" \
+          && { echo "FAIL: the immediate re-read is still in the conflict branch"; exit 1; }
+        grep -q "sleep(CONFLICT_RECHECK_BACKOFF);" crates/azlin/src/nat_helpers.rs \
+          || { echo "FAIL: no wait before the re-check"; exit 1; }
+        echo "PASS: the conflict path waits before it looks"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 20000
+
+  - name: "The test harness fails loudly instead of inventing results"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        grep -q 're-checked more than the {scripted} scripted time(s)' crates/azlin/src/nat_helpers.rs \
+          || { echo "FAIL: the harness still pads a short script"; exit 1; }
+        echo "PASS: a short script panics rather than passing on invented data"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 20000
+
+  - name: "The docs describe the wait without restating its value"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        D=docs/reference/nat-gateway-provisioning.md
+        grep -q "waits before looking" "$D" || { echo "FAIL: the doc does not mention the wait"; exit 1; }
+        grep -q "CONFLICT_RECHECK_BACKOFF" "$D" || { echo "FAIL: the doc does not name the constant"; exit 1; }
+        echo "PASS: the doc points at the constants instead of copying their values"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 10000

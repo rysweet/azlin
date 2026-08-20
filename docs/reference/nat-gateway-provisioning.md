@@ -109,14 +109,25 @@ azlin prints
   Attach conflicted with a concurrent operation; re-checking subnet...
 ```
 
-and re-runs detection. If the subnet is attached by then it prints
+then **waits before looking**, and re-runs detection. The wait is the point: a
+409 means the other run's write is in flight, so an immediate read is the one
+guaranteed to be too early, and azlin would report a failure for work that
+succeeded a moment later. Detection is repeated a bounded number of times,
+each preceded by its own wait; the interval and the attempt count are
+`CONFLICT_RECHECK_BACKOFF` and `CONFLICT_RECHECK_ATTEMPTS` in `nat_helpers.rs`.
+
+If the subnet is attached by then it prints
 
 ```
   ✓ Subnet already attached to NAT gateway '<name>' by a concurrent run
 ```
 
-and succeeds. Any other error, or a re-check that still reports no gateway,
-fails. This guards only against a **concurrent** azlin run: within a single
+and succeeds. If every look still reports no gateway, the original conflict is
+the failure the user sees. If the re-check itself fails, both errors are
+surfaced — the conflict and the read failure — because the second may be the
+real problem. Any non-conflict attach error fails immediately, without waiting.
+
+This guards only against a **concurrent** azlin run: within a single
 `azlin new` the subnet is read once, before the VM creation loop.
 
 ## Module API
