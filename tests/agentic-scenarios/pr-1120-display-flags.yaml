@@ -1,0 +1,146 @@
+name: "azlin ps --grouped and azlin list --show-tmux do what they say"
+description: |
+  Verifies issue #1089 for the two display flags.
+
+  `azlin ps --grouped` promised "Group output by VM instead of prefixing" and
+  was discarded — while every run printed the grouped layout regardless, and
+  the prefixed layout the flag names as the alternative had never been built.
+  So the flag could not be wired without building the other half.
+
+  `azlin list --show-tmux` was worse than discarded: declared as a bare `bool`
+  with `default_value = "true"`, it could only ever *be* true. There was no
+  spelling of it that meant anything — `--show-tmux false` did not parse, and
+  the help pointed at `--no-tmux`, the sibling that worked. Wiring the field
+  alone would have satisfied the checker and changed nothing, so the flag now
+  takes an optional value.
+
+  `azlin ask --max-results` stays on the ledger with its reason: `ask` prints
+  one answer from the model and has no result list to cap.
+
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 30000
+
+steps:
+  - name: "Build the binary under test (never assert against a stale build)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo build -p azlin 2>&1 | tail -1
+        test -x target/debug/azlin && echo "PASS: fresh azlin binary present"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 1800000
+
+  - name: "Both flags are still advertised, and --no-tmux survives"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        ./target/debug/azlin ps --help | grep -q -- "--grouped" || { echo "FAIL: --grouped gone"; exit 1; }
+        ./target/debug/azlin list --help | grep -q -- "--show-tmux" || { echo "FAIL: --show-tmux gone"; exit 1; }
+        ./target/debug/azlin list --help | grep -q -- "--no-tmux" || { echo "FAIL: --no-tmux gone"; exit 1; }
+        echo "PASS: all three advertised"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+  - name: "--show-tmux can now say false, which is the whole point"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        out=$(./target/debug/azlin list --show-tmux false 2>&1; true)
+        echo "$out" | grep -q "unexpected argument" && { echo "FAIL: still cannot say false"; exit 1; }
+        # And the old bare spelling still parses, so nobody's script breaks.
+        out=$(./target/debug/azlin list --show-tmux 2>&1; true)
+        echo "$out" | grep -q "required a value" && { echo "FAIL: bare --show-tmux broke"; exit 1; }
+        echo "PASS: both spellings parse"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+  - name: "The layouts are pinned by unit tests over the formatter"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo test -p azlin --bin azlin ps_output 2>&1 | tail -3
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok"
+    timeout: 1800000
+
+  - name: "The flags reach the binary and neither run panics"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo test -p azlin --bin azlin display_flags 2>&1 | tail -3
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok"
+    timeout: 1800000
+
+  - name: "The ledger drops both and keeps ask --max-results with its reason"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        for e in "Commands::List::show_tmux" "Commands::Ps::grouped"; do
+          grep -q "$e" crates/xtask/unwired-flags-allowlist.txt \
+            && { echo "FAIL: $e still ledgered"; exit 1; }
+        done
+        grep -q "Commands::Ask::max_results" crates/xtask/unwired-flags-allowlist.txt \
+          || { echo "FAIL: ask --max-results must stay, with its reason"; exit 1; }
+        cargo run -q -p xtask --locked -- check-flag-wiring 2>&1 | tail -2
+        echo "PASS: ledger correct and gate clean"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "The ledger's own header can no longer miscount its entries"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo test -p xtask --locked header 2>&1 | tail -3
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok"
+    timeout: 900000
+
+  - name: "The default output change is documented where a user will read it"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        grep -q "The default output changed" docs/monitoring-commands-vm-discovery.md \
+          && echo "PASS: the change is stated, not just made"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+expectations:
+  - "azlin ps prefixes every line with its VM by default, padded so columns align"
+  - "azlin ps --grouped prints exactly what every run printed before"
+  - "A VM that answers nothing says so rather than vanishing from prefixed output"
+  - "azlin list --show-tmux false turns tmux collection off; bare --show-tmux still parses"
+  - "--no-tmux keeps working, and passing both is not an error"
+  - "azlin ask --max-results stays ledgered with a reason rather than being faked"
+  - "No public IP is provisioned by any step; nothing here provisions anything at all"

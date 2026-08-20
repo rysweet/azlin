@@ -11,7 +11,7 @@ This guide documents performance characteristics of azlin commands and best prac
 | `azlin list` | 0.5-1s | 1 (single RG) | No | Use default RG |
 | `azlin list --show-all-vms` | 10-30s | N (all RGs) | No | Avoid unless needed |
 | `azlin list --show-quota` | +2-8s | 1 per region | Yes (5min) | Use `--no-quota` for speed |
-| `azlin list --show-tmux` | +1-3s | 1 per VM | No | Use `--no-tmux` for speed |
+| `azlin list --show-tmux` | +1-3s | 1 per VM | No | Use `--no-tmux` (or `--show-tmux false`) for speed |
 | `azlin new` | 3-5min | ~10-15 | No | Cannot optimize |
 | `azlin connect` | <1s | 0 | No | Already fast |
 
@@ -71,7 +71,7 @@ azlin list  # 2-4s with quota & tmux
 1. `az vm list --resource-group <rg> --show-details` (0.5-1s)
 2. `az network public-ip list --resource-group <rg>` (0.3-0.5s, batched)
 3. If `--show-quota` (default): `az vm list-usage --location <region>` per region (1-3s each)
-4. If `--show-tmux` (default): SSH to each running VM (0.5-1s each, parallel max 10)
+4. If tmux collection is on (the default; `--no-tmux` or `--show-tmux false` turns it off): SSH to each running VM (0.5-1s each, parallel max 10)
 
 **Total**: 2-8s depending on number of VMs and regions
 

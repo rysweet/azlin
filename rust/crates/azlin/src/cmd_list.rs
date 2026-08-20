@@ -15,6 +15,7 @@ pub(crate) async fn dispatch(
             all,
             tag,
             no_tmux,
+            show_tmux,
             with_latency,
             show_procs,
             with_health,
@@ -253,7 +254,13 @@ pub(crate) async fn dispatch(
                 eprintln!("[VERBOSE] Collecting tmux sessions via bastion SSH...");
             }
             let ssh_timeout = config.ssh_connect_timeout;
-            let tmux_sessions = if !no_tmux && !cross_subscription {
+            // `--show-tmux` defaults to true and was discarded, so
+            // `--show-tmux false` collected and displayed tmux sessions
+            // anyway; only its sibling `--no-tmux` was ever read (#1089).
+            // Either flag turning it off is the reading that cannot surprise
+            // anyone: both say "off" and neither has ever meant "on".
+            let want_tmux = show_tmux && !no_tmux;
+            let tmux_sessions = if want_tmux && !cross_subscription {
                 let pb = penguin_spinner("Collecting tmux sessions...");
                 let sessions = crate::cmd_list_data::collect_tmux_sessions(
                     &all_vms,
@@ -304,7 +311,7 @@ pub(crate) async fn dispatch(
             crate::cmd_list_render::render_list(
                 &crate::cmd_list_render::ListRenderConfig {
                     output,
-                    show_tmux_col: !no_tmux,
+                    show_tmux_col: want_tmux,
                     wide,
                     compact,
                     with_latency,

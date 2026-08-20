@@ -21,18 +21,25 @@
 #
 # Generated from the checker's report against commit fdfb27a2 (v2.6.105).
 
-# ── Other flags accepted and discarded (19) ──────────────────────────
+# ── Other flags accepted and discarded (17) ──────────────────────────
 #
 # Each of these is an independent per-flag fix: bind the field in the handler
 # and act on it, or delete the flag. They are listed individually so that
 # each fix removes exactly one line.
 
-Commands::Ask::max_results = #1089 — `azlin ask --max-results` accepted, then discarded; help promises "Maximum results to display"
-Commands::List::show_tmux = #1089 — `azlin list --show-tmux` accepted, then discarded; help promises "Show active tmux sessions (default: true, use --no-tmux to disable)"
+Commands::Ask::max_results = #1089 — `azlin ask --max-results` accepted, then discarded.
+#   Like `top --interval` below, this one names a thing the command does not have. `azlin ask`
+#   sends one question to the model and prints the one answer that comes back; there is no
+#   result list to cap, and nothing in the output is countable as a "result".
+#
+#   It could be wired by asking the model to keep any list in its answer to N items — but a
+#   flag whose enforcement is "we asked the model nicely" is the same lie in a politer form,
+#   and truncating free-form prose at N "results" has no defensible definition. The other
+#   honest option is deleting the flag, which is a breaking CLI change. Both are decisions for
+#   the repository owner, so this is recorded rather than guessed at.
 Commands::Session::resource_group = #1089 — `azlin session --resource-group` accepted, then discarded; help promises "Resource group"
 Commands::Connect::disable_bastion_pool = #1089 — `azlin connect --disable-bastion-pool` accepted, then discarded; help promises "Disable bastion connection pooling"
 Commands::Gui::yes = #1089 — `azlin gui --yes` accepted, then discarded; help promises "Compatibility flag; GUI dependency setup is already non-interactive"
-Commands::Ps::grouped = #1089 — `azlin ps --grouped` accepted, then discarded; help promises "Group output by VM instead of prefixing"
 Commands::Top::interval = #1089 — `azlin top --interval` accepted, then discarded. Unlike its
 #   sibling `--timeout` (wired), this one cannot be wired without deciding what `azlin top`
 #   *is*: it takes one snapshot and exits, so honouring a refresh interval turns it into a

@@ -1178,6 +1178,10 @@ mod key_helpers;
 #[allow(dead_code)]
 mod keys_list;
 
+/// Output layout for `azlin ps` across several VMs.
+#[allow(dead_code)]
+mod ps_output;
+
 /// Helpers for auth profile display — masking secrets.
 #[allow(dead_code)]
 mod auth_helpers;

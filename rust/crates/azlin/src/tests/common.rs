@@ -93,8 +93,11 @@ fn binary_mtime() -> Option<std::time::SystemTime> {
 /// The most recently modified `.rs` file that the binary is built from, and
 /// its path.
 ///
-/// Test-only files are excluded, and the exclusion is the difference between a
-/// useful guard and one everybody turns off. `src/tests/` is behind
+/// Test-only files and `crates/xtask` are excluded, and the exclusions are the
+/// difference between a useful guard and one everybody turns off. `xtask` is a
+/// build tool: the binary does not link it, so a change there can never make
+/// this binary stale, and demanding a rebuild for one would train people to
+/// distrust the message. `src/tests/` is behind
 /// `#[cfg(test)]`, so it is not an input to the non-test build at all: cargo
 /// correctly declines to relink the binary when one changes, and a guard that
 /// counted it would demand a rebuild that cargo would refuse to perform. Files
@@ -116,10 +119,12 @@ fn newest_source_mtime() -> Option<(std::time::SystemTime, std::path::PathBuf)> 
             let Ok(meta) = entry.metadata() else { continue };
             if meta.is_dir() {
                 // `target` can live inside the workspace and is not a source;
-                // `tests` directories are test-only.
+                // `tests` directories are test-only; `xtask` is a build tool
+                // the binary does not link, so editing the flag-wiring checker
+                // demanded a rebuild that would not have changed anything.
                 if path
                     .file_name()
-                    .is_some_and(|n| n == "target" || n == "tests")
+                    .is_some_and(|n| n == "target" || n == "tests" || n == "xtask")
                 {
                     continue;
                 }
