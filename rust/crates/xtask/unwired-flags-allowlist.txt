@@ -21,11 +21,20 @@
 #
 # Generated from the checker's report against commit fdfb27a2 (v2.6.105).
 
-# ── Other flags accepted and discarded (11) ──────────────────────────
+# ── What is left, and why (11) ───────────────────────────────────────
 #
-# Each of these is an independent per-flag fix: bind the field in the handler
-# and act on it, or delete the flag. They are listed individually so that
-# each fix removes exactly one line.
+# The straightforward backlog is gone: every flag that could be fixed by binding
+# a field in a handler and acting on it has been. What remains is here on
+# purpose, and each entry says which of three things it is:
+#
+#   - a flag naming a feature that does not exist, where "wiring" it means
+#     building the feature (seven of these)
+#   - a flag whose absence hides a real bug, filed separately (one)
+#   - a documented no-op kept for compatibility, which does not lie to anyone
+#     and is listed only because the checker asks whether a field is read (two)
+#
+# None of them should be fixed by making the checker green. Each names the
+# decision it is waiting on.
 
 Commands::Ask::max_results = #1089 — `azlin ask --max-results` accepted, then discarded.
 #   Like `top --interval` below, this one names a thing the command does not have. `azlin ask`
@@ -48,7 +57,15 @@ Commands::Session::resource_group = #1089 — `azlin session --resource-group` a
 #   change with a migration, and a behaviour change for anyone relying on the current
 #   collision. Deleting the flag leaves that bug in place but stops advertising a fix for it.
 #   Both are decisions for the repository owner, so this is recorded rather than guessed at.
-Commands::Gui::yes = #1089 — `azlin gui --yes` accepted, then discarded; help promises "Compatibility flag; GUI dependency setup is already non-interactive"
+Commands::Gui::yes = Documented no-op, kept for compatibility. Its help says so in as many
+#   words — "Compatibility flag; GUI dependency setup is already non-interactive" — so unlike
+#   every other line in this file it is not lying to anyone: a user who reads `--help` learns
+#   exactly what passing it will do, which is nothing. It is listed here because the checker
+#   asks only whether a field is read, and this one never is.
+#
+#   Hiding it from `--help` would satisfy the checker and make the flag less discoverable to
+#   the scripts that pass it. Deleting it would break them. Neither is an improvement, so it
+#   stays as it is, deliberately.
 Commands::Top::interval = #1089 — `azlin top --interval` accepted, then discarded. Unlike its
 #   sibling `--timeout` (wired), this one cannot be wired without deciding what `azlin top`
 #   *is*: it takes one snapshot and exits, so honouring a refresh interval turns it into a
@@ -78,8 +95,19 @@ Commands::Code::no_extensions = #1089 — `azlin code --no-extensions` accepted,
 #   Wiring it means azlin taking over remote extension management — a feature with its own
 #   design and its own way to be wrong. Deleting the flag is the other honest option and is a
 #   breaking CLI change. Both are decisions for the repository owner.
-GuiAction::Install::yes = #1089 — `azlin gui install --yes` accepted, then discarded; help promises "Compatibility flag; the install is already non-interactive"
-GithubRunnerAction::Enable::auto_scale = #1089 — `azlin github-runner enable --auto-scale` accepted, then discarded; help promises "Auto-scale based on queue depth"
+GuiAction::Install::yes = Documented no-op, kept for compatibility. See Commands::Gui::yes above.
+GithubRunnerAction::Enable::auto_scale = #1089 — `azlin github-runner enable --auto-scale`
+#   accepted, then discarded. It names a feature that does not exist. `enable` provisions
+#   `--count` VMs once and writes a TOML file; nothing watches a queue, nothing creates or
+#   removes a runner afterwards, and there is no process left running to do either.
+#
+#   Wiring it means building a scaler: something that polls GitHub for queue depth, decides
+#   when to add and when to remove, and survives between azlin invocations. That is a service,
+#   not a flag. Deleting it is the other honest option and is a breaking CLI change. Both are
+#   decisions for the repository owner.
+#
+#   The same handler provisions VMs with public IPs (#1123) and exits 0 when they fail to
+#   provision; neither is fixed by this flag and both outlive it.
 CostsAction::Dashboard::refresh = #1089 — `azlin costs dashboard --refresh` accepted, then discarded.
 #   It names a cache that does not exist. The dashboard fetches every figure from Azure on
 #   every run — `get_cost_summary`, then `az consumption usage list` — and nothing is stored

@@ -81,7 +81,7 @@ fn check_flag_wiring(verbose: bool) -> ExitCode {
         flag_wiring::HANDLER_DIR
     );
     println!(
-        "  {} allowlisted as known-unwired (backlog of #1089, see {})",
+        "  {} allowlisted as known-unwired (each with its reason, see {})",
         report.allowed.len(),
         flag_wiring::ALLOWLIST
     );
