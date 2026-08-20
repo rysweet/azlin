@@ -379,8 +379,8 @@ kubectl-style context management for seamless switching between multiple Azure t
 
 ```bash
 # Create contexts
-azlin context create dev --subscription <uuid> --tenant <uuid>
-azlin context create prod --subscription <uuid> --tenant <uuid>
+azlin context create dev --subscription-id <uuid> --tenant-id <uuid> --resource-group dev-rg
+azlin context create prod --subscription-id <uuid> --tenant-id <uuid> --resource-group prod-rg
 
 # Switch between them
 azlin context use dev
@@ -388,9 +388,16 @@ azlin list  # Shows dev VMs
 
 azlin context use prod
 azlin list  # Shows prod VMs
+
+# See the context AND the subscription actually in force
+azlin context show
 ```
 
-**Commands:** `list`, `current`, `use`, `create`, `delete`, `rename`, `migrate`
+`context use` sets the Azure CLI's active subscription and verifies it took
+effect; if it cannot, the command fails and the active context is left
+unchanged rather than reporting a switch that did not happen.
+
+**Commands:** `list`, `show`/`current`, `use`, `create`, `delete`, `rename`, `migrate`
 
 See [Context Management Guide](docs/CONTEXT_MANAGEMENT.md) for detailed documentation and use cases.
 

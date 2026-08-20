@@ -1,6 +1,6 @@
 #[allow(unused_imports)]
 use super::*;
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 pub(crate) fn handle_disk_add(
     vm_name: &str,
@@ -98,12 +98,13 @@ pub(crate) fn handle_web_start(port: u32, host: &str) -> Result<()> {
         );
     }
 
-    let config = azlin_core::AzlinConfig::load().context("Failed to load azlin config")?;
     let env_file = pwa_dir.join(".env.local");
     {
-        let cfg = &config;
         let mut env_content = String::new();
-        if let Some(ref rg) = cfg.default_resource_group {
+        // Same precedence as every other command: the active context outranks
+        // the config default, so the PWA is not configured for a resource
+        // group the user has switched away from (#1090).
+        if let Ok(rg) = crate::dispatch_helpers::resolve_resource_group(None) {
             env_content.push_str(&format!("VITE_RESOURCE_GROUP={}\n", rg));
         }
         let sub_output = std::process::Command::new("az")

@@ -16,6 +16,10 @@ now checks that the required bastion infrastructure exists in the target region:
 If any component is missing, azlin prompts you to create it, switch to a public
 IP, or abort — so you never end up with a private VM you can't SSH into.
 
+> **Bastion is inbound only.** It does not give the VM outbound internet access.
+> Egress is provided by a separate NAT gateway, checked by its own pre-check —
+> see [NAT Gateway Egress for Private VMs](nat-gateway-egress.md).
+
 ## Why Would I Use It?
 
 This feature activates automatically. You don't need to opt in.
@@ -176,6 +180,7 @@ is fully provisioned.
 | `--pool N` | Bastion check runs once before the VM creation loop, not per-VM |
 | `--no-nfs` | No interaction — NFS and bastion are independent |
 | `azlin kill` | Does not remove bastion infrastructure (shared across VMs) |
+| NAT gateway pre-check | Runs after this check and re-reads the public-IP flag. Choosing "Switch to public IP" here skips it. |
 | `azlin connect` | Uses the bastion created by pre-check for SSH tunneling |
 | `azlin tunnel` | Uses the bastion created by pre-check for port forwarding |
 
@@ -229,3 +234,4 @@ bastion's location matches your target region (case-insensitively).
 - [Troubleshoot Connection Issues](../how-to/troubleshoot-connection-issues.md)
 - [Troubleshoot Tunnel Issues](../troubleshooting/tunnel-issues.md)
 - [Bastion Security Requirements](../BASTION_SECURITY_REQUIREMENTS.md)
+- [NAT Gateway Egress for Private VMs](nat-gateway-egress.md) — the outbound half

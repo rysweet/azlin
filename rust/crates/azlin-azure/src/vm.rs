@@ -75,12 +75,44 @@ impl VmManager {
 
     // ── List operations ────────────────────────────────────────────────
 
+    /// Cache key for a (subscription, resource group) pair.
+    ///
+    /// The key used to be the resource group alone, so a `dev-rg` listed in one
+    /// subscription would be served from cache for a `dev-rg` in another. That
+    /// only became reachable once `list --all-contexts` started querying more
+    /// than one subscription in a single process (#1090), but it was always
+    /// wrong.
+    /// The subscription length prefix keeps the two components unambiguous, so
+    /// no resource-group name can be crafted to collide with another
+    /// subscription's key.
+    fn cache_key(subscription_id: &str, resource_group: &str) -> String {
+        format!(
+            "{}:{subscription_id}/{resource_group}",
+            subscription_id.len()
+        )
+    }
+
     /// List VMs in a specific resource group, returning cached data if fresh.
     ///
     /// Results are cached for 60 minutes (matching Python). Use
     /// [`list_vms_no_cache`] to bypass the cache.
     pub fn list_vms(&self, resource_group: &str) -> Result<Vec<VmInfo>> {
-        let cache_key = resource_group.to_string();
+        self.list_vms_in(&self.subscription_id, resource_group)
+    }
+
+    /// List VMs in a resource group, bypassing the cache entirely.
+    pub fn list_vms_no_cache(&self, resource_group: &str) -> Result<Vec<VmInfo>> {
+        self.list_vms_in_no_cache(&self.subscription_id, resource_group)
+    }
+
+    /// List VMs in a resource group of an *explicitly named* subscription.
+    ///
+    /// `az vm list --subscription <id>` targets one invocation without touching
+    /// the CLI's default subscription, which is what `list --all-contexts`
+    /// needs: it fans out over several contexts in one process and must not
+    /// leave the user's `az` pointing at whichever context happened to be last.
+    pub fn list_vms_in(&self, subscription_id: &str, resource_group: &str) -> Result<Vec<VmInfo>> {
+        let cache_key = Self::cache_key(subscription_id, resource_group);
 
         // Check cache
         if let Ok(cache) = VM_CACHE.lock() {
@@ -92,7 +124,7 @@ impl VmManager {
             }
         }
 
-        let result = self.fetch_vms(resource_group)?;
+        let result = self.fetch_vms(subscription_id, resource_group)?;
 
         // Store in cache
         if let Ok(mut cache) = VM_CACHE.lock() {
@@ -108,14 +140,18 @@ impl VmManager {
         Ok(result)
     }
 
-    /// List VMs in a resource group, bypassing the cache entirely.
-    pub fn list_vms_no_cache(&self, resource_group: &str) -> Result<Vec<VmInfo>> {
-        let result = self.fetch_vms(resource_group)?;
+    /// [`list_vms_in`] without the cache.
+    pub fn list_vms_in_no_cache(
+        &self,
+        subscription_id: &str,
+        resource_group: &str,
+    ) -> Result<Vec<VmInfo>> {
+        let result = self.fetch_vms(subscription_id, resource_group)?;
 
         // Update cache with fresh data
         if let Ok(mut cache) = VM_CACHE.lock() {
             cache.insert(
-                resource_group.to_string(),
+                Self::cache_key(subscription_id, resource_group),
                 CacheEntry {
                     data: result.clone(),
                     timestamp: Instant::now(),
@@ -127,18 +163,20 @@ impl VmManager {
     }
 
     /// Fetch VMs from az CLI for a specific resource group (no cache logic).
-    fn fetch_vms(&self, resource_group: &str) -> Result<Vec<VmInfo>> {
+    fn fetch_vms(&self, subscription_id: &str, resource_group: &str) -> Result<Vec<VmInfo>> {
         debug!(resource_group, "Listing VMs via az CLI");
-        let json = az_cli_with_timeout(
-            &[
-                "vm",
-                "list",
-                "--resource-group",
-                resource_group,
-                "--show-details",
-            ],
-            self.az_cli_timeout,
-        )?;
+        let mut args = vec![
+            "vm",
+            "list",
+            "--resource-group",
+            resource_group,
+            "--show-details",
+        ];
+        if !subscription_id.is_empty() {
+            args.push("--subscription");
+            args.push(subscription_id);
+        }
+        let json = az_cli_with_timeout(&args, self.az_cli_timeout)?;
 
         let vms: Vec<serde_json::Value> =
             serde_json::from_str(&json).context("Failed to parse az vm list JSON")?;
@@ -154,7 +192,7 @@ impl VmManager {
 
     /// List all VMs across the entire subscription, returning cached data if fresh.
     pub fn list_all_vms(&self) -> Result<Vec<VmInfo>> {
-        let cache_key = "__all__".to_string();
+        let cache_key = Self::cache_key(&self.subscription_id, "__all__");
 
         // Check cache
         if let Ok(cache) = VM_CACHE.lock() {
@@ -188,7 +226,7 @@ impl VmManager {
 
         if let Ok(mut cache) = VM_CACHE.lock() {
             cache.insert(
-                "__all__".to_string(),
+                Self::cache_key(&self.subscription_id, "__all__"),
                 CacheEntry {
                     data: result.clone(),
                     timestamp: Instant::now(),
@@ -886,6 +924,28 @@ fn parse_created_time(time_str: Option<&str>) -> Option<chrono::DateTime<chrono:
 mod tests {
     use super::*;
 
+    /// The VM list cache must not serve one subscription's `dev-rg` for
+    /// another's. `list --all-contexts` queries several subscriptions in a
+    /// single process, so a resource-group-only key silently returns the first
+    /// subscription's VMs for every context sharing that group name (#1090).
+    #[test]
+    fn test_cache_key_separates_subscriptions() {
+        assert_ne!(
+            VmManager::cache_key("sub-dev", "shared-rg"),
+            VmManager::cache_key("sub-prod", "shared-rg"),
+        );
+        assert_eq!(
+            VmManager::cache_key("sub-dev", "shared-rg"),
+            VmManager::cache_key("sub-dev", "shared-rg"),
+        );
+        // The separator alone is not enough: the length prefix is what stops a
+        // resource-group name from impersonating another subscription's key.
+        assert_ne!(
+            VmManager::cache_key("sub", "a/b"),
+            VmManager::cache_key("sub/a", "b"),
+        );
+    }
+
     // ── Resource-not-found detection ────────────────────────────────
     //
     // Teardown must be idempotent: deleting a resource Azure has already
@@ -1195,10 +1255,7 @@ mod tests {
             script.contains("apt update && apt install -y gh"),
             "Missing GitHub CLI install"
         );
-        assert!(
-            script.contains("InstallAzureCLIDeb"),
-            "Missing Azure CLI install"
-        );
+        assert!(script.contains("azure-cli"), "Missing Azure CLI install");
     }
 
     #[test]

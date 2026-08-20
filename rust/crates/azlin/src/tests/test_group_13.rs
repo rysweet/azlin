@@ -139,13 +139,24 @@ fn test_context_full_lifecycle() {
         .output()
         .unwrap();
     assert!(String::from_utf8_lossy(&out.stdout).contains("lifecycle-ctx"));
-    // use
-    assert_cmd::Command::cargo_bin("azlin")
+    // use — the context pins subscription "sub-123", which does not exist, so
+    // azlin must refuse the switch and leave nothing selected. Reporting
+    // success here without switching is the #1090 bug.
+    let out = assert_cmd::Command::cargo_bin("azlin")
         .unwrap()
         .args(["context", "use", "lifecycle-ctx"])
         .env("HOME", dir.path())
-        .assert()
-        .success();
+        .output()
+        .unwrap();
+    assert!(
+        !out.status.success(),
+        "switching to a context pinning a nonexistent subscription must fail: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert!(
+        !dir.path().join(".azlin").join("active-context").exists(),
+        "a refused switch must not record the context as active"
+    );
     // show
     let out = assert_cmd::Command::cargo_bin("azlin")
         .unwrap()
@@ -153,7 +164,11 @@ fn test_context_full_lifecycle() {
         .env("HOME", dir.path())
         .output()
         .unwrap();
-    assert!(String::from_utf8_lossy(&out.stdout).contains("lifecycle-ctx"));
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("No context selected."),
+        "nothing was selected, so show must say so: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
     // delete
     assert_cmd::Command::cargo_bin("azlin")
         .unwrap()

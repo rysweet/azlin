@@ -70,6 +70,54 @@ pub fn parse_env_output(output: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The sentinel shown in place of a masked environment value.
+const VALUE_MASK: &str = "********";
+
+/// Values shorter than this are redacted whole: a prefix of a short value is
+/// most of the value.
+const MIN_HINT_LEN: usize = 12;
+
+/// Mask an environment variable value for display.
+///
+/// `azlin env list` cannot tell `ANTHROPIC_API_KEY` from `LANG`, so every value
+/// is masked unless the user explicitly passes `--show-values`. Long values keep
+/// a four-character prefix, which is enough to tell two credentials apart
+/// without putting a usable secret on the screen, in scrollback or in CI logs.
+pub fn mask_env_value(value: &str) -> String {
+    if value.is_empty() {
+        return String::new();
+    }
+    if value.chars().count() > MIN_HINT_LEN {
+        let prefix: String = value.chars().take(4).collect();
+        format!("{}{}", prefix, VALUE_MASK)
+    } else {
+        VALUE_MASK.to_string()
+    }
+}
+
+/// Build the `(key, display_value)` rows for `azlin env list`.
+///
+/// `show_values` is the `--show-values` flag: false (the default) masks every
+/// value, true prints them verbatim. Keeping the decision here, rather than at
+/// the print site, is what makes it testable without an Azure VM.
+pub fn env_display_rows(env_output: &str, show_values: bool) -> Vec<(String, String)> {
+    parse_env_output(env_output)
+        .into_iter()
+        .map(|(k, v)| {
+            let display = if show_values { v } else { mask_env_value(&v) };
+            (k, display)
+        })
+        .collect()
+}
+
+/// The footer shown under a masked `env list` table.
+pub fn masked_values_hint(count: usize) -> String {
+    format!(
+        "{} value(s) masked. Pass --show-values to print them in full.",
+        count
+    )
+}
+
 /// Build a file body suitable for `env export` (one `KEY=VALUE` per line).
 pub fn build_env_file(vars: &[(String, String)]) -> String {
     vars.iter()

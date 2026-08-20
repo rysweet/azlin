@@ -37,20 +37,25 @@ pub(crate) async fn dispatch(
             azlin_cli::EnvAction::List {
                 vm_identifier,
                 resource_group,
+                show_values,
                 ip,
                 ..
             } => {
                 let target =
                     resolve_vm_ssh_target(&vm_identifier, ip.as_deref(), resource_group).await?;
                 let output = target.exec_checked(crate::env_helpers::env_list_cmd())?;
+                // Values are masked unless --show-values is passed: the help text
+                // has always promised this, but the flag was discarded (issue #1089).
+                let rows = crate::env_helpers::env_display_rows(&output, show_values);
                 let mut table =
                     crate::table_render::SimpleTable::new(&["Variable", "Value"], &[30, 50]);
-                for line in output.lines() {
-                    if let Some((k, v)) = line.split_once('=') {
-                        table.add_row(vec![k.to_string(), v.to_string()]);
-                    }
+                for (k, v) in &rows {
+                    table.add_row(vec![k.clone(), v.clone()]);
                 }
                 println!("{table}");
+                if !show_values && !rows.is_empty() {
+                    println!("{}", crate::env_helpers::masked_values_hint(rows.len()));
+                }
             }
             azlin_cli::EnvAction::Delete {
                 vm_identifier,

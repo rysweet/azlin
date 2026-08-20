@@ -29,10 +29,13 @@ fn test_context_full_crud_lifecycle() {
     assert!(contexts[0].1); // is_active
 
     // Show (read resource group)
-    let (name, rg) =
-        crate::contexts::read_context_resource_group(&ctx_dir.join("myctx.toml")).unwrap();
-    assert_eq!(name, "myctx");
-    assert_eq!(rg, Some("myrg".to_string()));
+    let ctx = crate::active_context::parse_context(
+        "myctx",
+        &fs::read_to_string(ctx_dir.join("myctx.toml")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(ctx.name, "myctx");
+    assert_eq!(ctx.resource_group.as_deref(), Some("myrg"));
 
     // Delete
     fs::remove_file(ctx_dir.join("myctx.toml")).unwrap();
@@ -75,9 +78,12 @@ fn test_context_rename_success_with_verify() {
     assert!(!ctx_dir.join("old-ctx.toml").exists());
     assert!(ctx_dir.join("new-ctx.toml").exists());
 
-    let (name, _) =
-        crate::contexts::read_context_resource_group(&ctx_dir.join("new-ctx.toml")).unwrap();
-    assert_eq!(name, "new-ctx");
+    let ctx = crate::active_context::parse_context(
+        "new-ctx",
+        &fs::read_to_string(ctx_dir.join("new-ctx.toml")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(ctx.name, "new-ctx");
 }
 
 #[test]

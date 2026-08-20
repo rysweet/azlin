@@ -16,6 +16,7 @@
 - [Configuration: Default Behaviors](./reference/config-default-behaviors.md) — Auto-sync, auto-detect, log viewer defaults
 - [Configuration: Terminal/Restore](./reference/configuration-reference.md) — Terminal launcher and restore settings
 - [Azure CLI Detection](./reference/azure-cli-detection.md) — WSL2 az CLI detection logic
+- [NAT Gateway Provisioning](./reference/nat-gateway-provisioning.md) — Egress detection, commands, and module API
 
 ## How-To Guides
 
@@ -24,7 +25,9 @@
 - [Separate Home Disk](./how-to/separate-home-disk.md) — Add a dedicated /home disk
 - [Azure CLI WSL2 Setup](./how-to/azure-cli-wsl2-setup.md) — Configure az CLI under WSL2
 - [Network Security](./how-to/network-security-enhancements.md) — NSG and bastion setup
+- [Set Up a NAT Gateway](./how-to/setup-nat-gateway.md) — Give private VMs outbound internet access
 - [Troubleshoot Connections](./how-to/troubleshoot-connection-issues.md) — Diagnose SSH and bastion issues
+- [No Outbound Internet](./troubleshooting/no-outbound-internet.md) — Diagnose private VMs that cannot reach the internet
 
 ## Tutorials
 
@@ -42,6 +45,7 @@
 
 - [Auto-Sync SSH Keys](./features/auto-sync-keys.md)
 - [Auto-Detect Resource Group](./features/auto-detect-rg.md)
+- [NAT Gateway Egress for Private VMs](./features/nat-gateway-egress.md)
 - [Health TUI Dashboard](./features/health-tui-dashboard.md)
 - [Session Restore](./features/session-restore.md)
 - [Tmux Session Status](./features/tmux-session-status.md)

@@ -6,7 +6,7 @@ use azlin_core::models::VmInfo;
 use std::collections::HashMap;
 
 /// Maximum number of tmux sessions to restore per VM to prevent resource exhaustion.
-const MAX_SESSIONS_PER_VM: usize = 20;
+pub(crate) const MAX_SESSIONS_PER_VM: usize = 20;
 
 /// Resolve SSH key path from the shared azlin private-key priority list.
 fn resolve_ssh_key() -> Option<std::path::PathBuf> {
@@ -445,45 +445,38 @@ pub(crate) fn build_wt_restore_args(
 }
 
 /// Restore tmux sessions by connecting to each VM.
-pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>) {
+///
+/// `multi_tab` is the inverse of `--no-multi-tab`: when false no terminal is
+/// spawned at all and the `azlin connect` commands are printed instead, so the
+/// user stays in the tab they are already in.
+pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>, multi_tab: bool) {
     println!("\nRestoring tmux sessions...");
+
+    let plan = crate::restore_helpers::plan_restore(tmux_sessions);
+    for warning in &plan.warnings {
+        eprintln!("  Warning: {}", warning);
+    }
 
     // In test builds, skip spawning real terminal processes to avoid
     // opening windows on the developer's screen during cargo test.
     if cfg!(test) || std::env::var("AZLIN_TEST_MODE").is_ok() {
-        for (vm_name, sessions) in tmux_sessions {
-            if !is_valid_restore_vm_name(vm_name) {
-                eprintln!("  Warning: skipping VM with invalid name");
-                continue;
-            }
-            // Iterate over all sessions, not just the first
-            if sessions.len() > MAX_SESSIONS_PER_VM {
-                eprintln!(
-                    "  Warning: limiting {} to {} sessions (found {})",
-                    vm_name,
-                    MAX_SESSIONS_PER_VM,
-                    sessions.len()
-                );
-            }
-            for raw_session in sessions.iter().take(MAX_SESSIONS_PER_VM) {
-                if let Some(session) = parse_session_name(raw_session) {
-                    println!(
-                        "  [dry-run] Would connect to {} (session: {})",
-                        vm_name, session
-                    );
-                } else {
-                    eprintln!("  Warning: skipping invalid session name for {}", vm_name);
-                }
-            }
+        for target in &plan.targets {
+            println!(
+                "  [dry-run] Would connect to {} (session: {})",
+                target.vm, target.session
+            );
         }
         return;
     }
 
     let detected_wt = std::env::var("WT_SESSION").is_ok();
 
-    // Load config for restore_mode preference.
+    // Load config for restore_mode preference. `--no-multi-tab` (multi_tab =
+    // false) overrides it: each session gets its own window instead of a tab in
+    // the current one.
     let config = crate::dispatch_helpers::load_user_config();
-    let restore_mode = &config.restore_mode;
+    let restore_mode =
+        &crate::restore_helpers::effective_restore_mode(&config.restore_mode, multi_tab);
 
     // If restore_mode is explicitly set to tab or window, force wt.exe usage
     // — but only when we're in WSL where wt.exe is actually available.
@@ -511,95 +504,70 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
         MacTerminal::Unknown
     };
 
-    for (vm_name, sessions) in tmux_sessions {
-        if !is_valid_restore_vm_name(vm_name) {
-            eprintln!("  Warning: skipping VM with invalid name");
-            continue;
-        }
-
-        // Check if we need to limit the number of sessions
-        if sessions.len() > MAX_SESSIONS_PER_VM {
-            eprintln!(
-                "  Warning: limiting {} to {} sessions (found {})",
-                vm_name,
-                MAX_SESSIONS_PER_VM,
-                sessions.len()
+    for target in &plan.targets {
+        let vm_name = &target.vm;
+        let session = &target.session;
+        if use_wt {
+            println!("  Opening tab: {} (session: {})", vm_name, session);
+            let wsl_distro = std::env::var("WSL_DISTRO_NAME").unwrap_or_else(|_| "".to_string());
+            let wt_args =
+                build_wt_restore_args(&wsl_distro, &self_exe, vm_name, session, restore_mode);
+            let wt_str_args: Vec<&str> = wt_args.iter().map(|s| s.as_str()).collect();
+            match std::process::Command::new("wt.exe")
+                .args(&wt_str_args)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .and_then(|child| child.wait_with_output())
+            {
+                Ok(output) if !output.status.success() => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    eprintln!(
+                        "  Warning: wt.exe failed for {} (exit {}): {}",
+                        vm_name,
+                        output.status.code().unwrap_or(-1),
+                        stderr.trim()
+                    );
+                }
+                Err(e) => {
+                    eprintln!("  Warning: failed to open tab for {}: {}", vm_name, e);
+                }
+                _ => {}
+            }
+            // Windows Terminal silently drops new-tab commands when
+            // many are issued simultaneously. A small delay between
+            // spawns prevents lost tabs.
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        } else if use_macos {
+            println!("  Opening window: {} (session: {})", vm_name, session);
+            let connect_cmd = escape_for_applescript(&format!(
+                "{} connect {} --tmux-session {}",
+                self_exe, vm_name, session
+            ));
+            if let Err(e) = open_macos_terminal(&macos_terminal, &connect_cmd) {
+                eprintln!("  Warning: failed to open window for {}: {}", vm_name, e);
+            }
+        } else {
+            // On Linux without Windows Terminal, open a terminal emulator.
+            let connect_cmd = format!(
+                "{} connect {} --tmux-session {}",
+                crate::dispatch_helpers::shell_escape(&self_exe),
+                crate::dispatch_helpers::shell_escape(vm_name),
+                crate::dispatch_helpers::shell_escape(session),
             );
-        }
-
-        // Iterate over all sessions up to MAX_SESSIONS_PER_VM
-        for raw_session in sessions.iter().take(MAX_SESSIONS_PER_VM) {
-            let session = match parse_session_name(raw_session) {
-                Some(s) => s,
-                None => {
-                    eprintln!("  Warning: skipping invalid session name for {}", vm_name);
-                    continue;
-                }
-            };
-
-            if use_wt {
-                println!("  Opening tab: {} (session: {})", vm_name, session);
-                let wsl_distro =
-                    std::env::var("WSL_DISTRO_NAME").unwrap_or_else(|_| "".to_string());
-                let wt_args =
-                    build_wt_restore_args(&wsl_distro, &self_exe, vm_name, &session, restore_mode);
-                let wt_str_args: Vec<&str> = wt_args.iter().map(|s| s.as_str()).collect();
-                match std::process::Command::new("wt.exe")
-                    .args(&wt_str_args)
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::piped())
-                    .spawn()
-                    .and_then(|child| child.wait_with_output())
-                {
-                    Ok(output) if !output.status.success() => {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!(
-                            "  Warning: wt.exe failed for {} (exit {}): {}",
-                            vm_name,
-                            output.status.code().unwrap_or(-1),
-                            stderr.trim()
-                        );
-                    }
-                    Err(e) => {
-                        eprintln!("  Warning: failed to open tab for {}: {}", vm_name, e);
-                    }
-                    _ => {}
-                }
-                // Windows Terminal silently drops new-tab commands when
-                // many are issued simultaneously. A small delay between
-                // spawns prevents lost tabs.
-                std::thread::sleep(std::time::Duration::from_millis(500));
-            } else if use_macos {
-                println!("  Opening window: {} (session: {})", vm_name, session);
-                let connect_cmd = escape_for_applescript(&format!(
-                    "{} connect {} --tmux-session {}",
-                    self_exe, vm_name, session
-                ));
-                if let Err(e) = open_macos_terminal(&macos_terminal, &connect_cmd) {
-                    eprintln!("  Warning: failed to open window for {}: {}", vm_name, e);
+            if let Some(term) = detect_linux_terminal() {
+                println!("  Opening terminal: {} (session: {})", vm_name, session);
+                if let Err(e) = open_linux_terminal(&term, &connect_cmd) {
+                    eprintln!("  Warning: failed to open terminal for {}: {}", vm_name, e);
                 }
             } else {
-                // On Linux without Windows Terminal, open a terminal emulator.
-                let connect_cmd = format!(
-                    "{} connect {} --tmux-session {}",
-                    crate::dispatch_helpers::shell_escape(&self_exe),
-                    crate::dispatch_helpers::shell_escape(vm_name),
-                    crate::dispatch_helpers::shell_escape(&session),
+                eprintln!(
+                    "  No terminal emulator detected for {}. Run manually:",
+                    vm_name
                 );
-                if let Some(term) = detect_linux_terminal() {
-                    println!("  Opening terminal: {} (session: {})", vm_name, session);
-                    if let Err(e) = open_linux_terminal(&term, &connect_cmd) {
-                        eprintln!("  Warning: failed to open terminal for {}: {}", vm_name, e);
-                    }
-                } else {
-                    eprintln!(
-                        "  No terminal emulator detected for {}. Run manually:",
-                        vm_name
-                    );
-                    eprintln!("    azlin connect {} --tmux-session {}", vm_name, session);
-                    eprintln!("  Tip: set AZLIN_TERMINAL=<your-terminal> to enable auto-restore.");
-                }
+                eprintln!("    azlin connect {} --tmux-session {}", vm_name, session);
+                eprintln!("  Tip: set AZLIN_TERMINAL=<your-terminal> to enable auto-restore.");
             }
         }
     }

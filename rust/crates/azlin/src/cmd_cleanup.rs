@@ -30,18 +30,22 @@ pub(crate) async fn dispatch(
             force,
             terminal,
             exclude,
-            dry_run: _dry_run,
-            no_multi_tab: _no_multi_tab,
-            verbose: _verbose,
+            dry_run,
+            no_multi_tab,
+            verbose: restore_verbose,
             ..
         } => {
             crate::cmd_cleanup_ops::handle_restore(
                 resource_group,
-                verbose,
-                skip_health_check,
-                force,
-                terminal,
-                exclude,
+                crate::cmd_cleanup_ops::RestoreOptions {
+                    verbose: verbose || restore_verbose,
+                    skip_health_check,
+                    force,
+                    terminal,
+                    exclude,
+                    dry_run,
+                    multi_tab: !no_multi_tab,
+                },
             )
             .await?;
         }

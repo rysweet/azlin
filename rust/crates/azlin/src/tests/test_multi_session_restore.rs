@@ -22,7 +22,7 @@ fn test_all_sessions_processed_not_just_first() {
     // In test mode, this prints dry-run output for all sessions
     // Before fix: Only "main" would be processed
     // After fix: All three sessions are processed
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 
     // Note: Full validation would require capturing stdout,
     // but the function behavior is verified in the implementation
@@ -51,7 +51,7 @@ fn test_multiple_vms_all_sessions() {
     // - db-server: postgres, backup, monitoring (3 tabs)
     // - app-server: app (1 tab)
     // Total: 6 terminal tabs
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 }
 
 #[test]
@@ -67,7 +67,7 @@ fn test_max_sessions_limit_enforced() {
     sessions.insert("overloaded-vm".to_string(), many_sessions);
 
     // Should only process first 20 sessions, with a warning
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 
     // The limit of 20 is enforced internally by the implementation
 }
@@ -79,7 +79,7 @@ fn test_empty_sessions_handled_gracefully() {
     sessions.insert("empty-vm".to_string(), vec![]);
 
     // Should handle gracefully without panicking
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 }
 
 #[test]
@@ -98,7 +98,7 @@ fn test_invalid_sessions_skipped_others_processed() {
     );
 
     // Should process valid-1, valid-2, valid-3 (skip invalid ones)
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 }
 
 #[test]
@@ -117,7 +117,7 @@ fn test_session_name_special_cases() {
     );
 
     // All should be processed successfully
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 }
 
 #[test]
@@ -140,7 +140,7 @@ fn test_many_sessions_single_vm() {
     );
 
     // All 7 sessions should be processed
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 }
 
 #[test]
@@ -180,7 +180,7 @@ fn test_real_world_scenario() {
     );
 
     // Should open 11 total terminal tabs across 5 VMs
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 }
 
 #[test]
@@ -198,7 +198,7 @@ fn test_session_ordering_preserved() {
     );
 
     // Sessions should be processed in order: first, second, third, fourth
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
 }
 
 #[test]
@@ -215,7 +215,7 @@ fn test_performance_with_many_vms() {
 
     // Should handle 50 VMs * 2 sessions = 100 total tabs efficiently
     let start = std::time::Instant::now();
-    restore_tmux_sessions(&sessions);
+    restore_tmux_sessions(&sessions, true);
     let duration = start.elapsed();
 
     // Should complete quickly in test mode (< 100ms)

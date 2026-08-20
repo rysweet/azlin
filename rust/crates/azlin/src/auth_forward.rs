@@ -254,6 +254,137 @@ fn wait_for_cloud_init(
     }
 }
 
+// ── Post-provision egress verification (issue #1092) ─────────────────
+
+/// Outcome of the outbound-internet probe run on a freshly created VM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EgressStatus {
+    /// The VM reached the public internet.
+    Ok,
+    /// The VM explicitly reported no outbound internet.
+    Failed,
+    /// No verdict observed. Warns, but never marks the VM degraded — treating
+    /// SSH noise as failure is the mirror image of the bug this guards against.
+    Unknown,
+}
+
+/// The verdict reachable without an SSH round-trip, if there is one.
+///
+/// `None` means "run the probe". `Some` covers the two cases where the probe
+/// cannot tell us anything it does not already know:
+///
+/// - the VM has a public IP, so its instance IP already provides egress and a
+///   round-trip would only confirm the obvious — `Ok`;
+/// - SSH readiness timed out, so SSH never authenticated. The probe cannot
+///   reach the guest to read a sentinel, and it would spend a full connect
+///   timeout per VM inside a fully sequential creation loop to arrive at
+///   `Unknown` regardless.
+///
+/// `Unknown` is the honest verdict in the second case; this only declines to
+/// pay for it. It is never used to *infer* failure: a VM is marked degraded
+/// solely by its own explicit `fail` sentinel.
+pub(crate) fn egress_probe_shortcut(want_public_ip: bool, ssh_ready: bool) -> Option<EgressStatus> {
+    if want_public_ip {
+        Some(EgressStatus::Ok)
+    } else if !ssh_ready {
+        Some(EgressStatus::Unknown)
+    } else {
+        None
+    }
+}
+
+/// The remote probe. A fixed literal: no interpolation, so no injection
+/// surface, and time-bounded so a black-holed route cannot hang VM creation.
+///
+/// TLS validation is deliberate. Never weaken it to make the probe "more
+/// reliable" — a probe that succeeds against a captive portal is worse than
+/// no probe.
+pub(crate) fn egress_probe_command() -> &'static str {
+    "if curl -fsI -m 10 https://packages.microsoft.com >/dev/null 2>&1; then \
+     echo 'azlin-egress: ok'; else echo 'azlin-egress: fail'; fi"
+}
+
+/// Read the probe's verdict out of remote stdout.
+///
+/// The output is remote-controlled, so only whole trimmed lines matching a
+/// sentinel exactly are accepted — never a substring scan, which a chatty motd
+/// or a compromised guest could spoof. Anything else degrades to
+/// [`EgressStatus::Unknown`], and `fail` beats `ok` when both appear.
+pub(crate) fn parse_egress_probe(output: &str) -> EgressStatus {
+    let mut seen_ok = false;
+    for line in output.lines().map(str::trim) {
+        match line {
+            "azlin-egress: fail" => return EgressStatus::Failed,
+            "azlin-egress: ok" => seen_ok = true,
+            _ => {}
+        }
+    }
+    if seen_ok {
+        EgressStatus::Ok
+    } else {
+        EgressStatus::Unknown
+    }
+}
+
+/// The banner shown for a VM that came up without outbound internet.
+///
+/// Never echoes raw remote stdout: it can carry ANSI and control sequences.
+/// `resource_group` is interpolated so the printed `az` command is runnable
+/// as-is rather than needing a hand-edit.
+pub(crate) fn egress_failure_message(vm_name: &str, resource_group: &str, region: &str) -> String {
+    let region = region.to_lowercase();
+    format!(
+        "VM '{vm_name}' has NO outbound internet. It is reachable, but every \
+         apt/curl/wget on it will fail and the cloud-init toolchain install \
+         (az, gh, node, go, rust) is incomplete.\n  \
+         Azure Bastion is inbound-only and does not provide egress. Check that a \
+         NAT gateway is attached to the 'default' subnet of \
+         '{vnet}':\n    \
+         az network vnet subnet show --resource-group {resource_group} \
+         --vnet-name {vnet} --name default --query natGateway\n  \
+         Then re-run `azlin new` (NAT provisioning is idempotent), or delete and \
+         recreate this VM once egress is in place.",
+        vnet = crate::bastion_helpers::bastion_vnet_name(&region),
+    )
+}
+
+/// Run the egress probe over the already-established SSH path.
+///
+/// Best-effort by design: an SSH failure here yields [`EgressStatus::Unknown`],
+/// not `Failed`. Only the VM's own explicit `fail` sentinel marks it degraded.
+///
+/// Downgrading the *verdict* is right; discarding the *diagnostic* is not. The
+/// cause is printed before it is dropped, because "could not verify outbound
+/// internet" alone leaves the user unable to tell an auth failure from a
+/// timeout from a host that never came up. Sanitized on the way out for the
+/// same reason [`egress_failure_message`] never echoes remote stdout: an SSH
+/// error can carry remote stderr, and with it ANSI and control sequences.
+pub(crate) fn verify_egress(
+    ip: &str,
+    user: &str,
+    bastion_port: Option<u16>,
+    key_override: Option<&std::path::Path>,
+    interactive_ssh: bool,
+) -> EgressStatus {
+    match ssh_output(
+        ip,
+        user,
+        bastion_port,
+        egress_probe_command(),
+        key_override,
+        interactive_ssh,
+    ) {
+        Ok(out) => parse_egress_probe(&out),
+        Err(e) => {
+            eprintln!(
+                "  Egress probe could not run: {}",
+                azlin_core::sanitizer::sanitize(&e.to_string())
+            );
+            EgressStatus::Unknown
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CloudInitStatus {
     Done,
@@ -1437,5 +1568,191 @@ mod tests {
     fn test_parse_cloud_init_status_unknown_when_missing_status_line() {
         let output = "cloud-init says hello\n";
         assert_eq!(parse_cloud_init_status(output), CloudInitStatus::Unknown);
+    }
+
+    // ── Post-provision egress verification (issue #1092) ─────────────
+    //
+    // Azure Bastion is inbound-only. A private VM in a region with no NAT
+    // gateway is reachable but has zero outbound internet: apt/curl/wget all
+    // fail and the cloud-init toolchain install collapses, while azlin still
+    // reports "created successfully". `verify_egress` runs a single cheap
+    // probe over the already-established SSH path and prints a sentinel line
+    // that `parse_egress_probe` matches EXACTLY.
+    //
+    // Threat model: the probe output is remote-controlled. Match whole
+    // trimmed lines only — never substring-scan the buffer, never echo raw
+    // remote stdout (it can carry ANSI/control sequences).
+
+    #[test]
+    fn test_parse_egress_probe_ok() {
+        assert_eq!(parse_egress_probe("azlin-egress: ok\n"), EgressStatus::Ok);
+    }
+
+    #[test]
+    fn test_parse_egress_probe_fail() {
+        assert_eq!(
+            parse_egress_probe("azlin-egress: fail\n"),
+            EgressStatus::Failed
+        );
+    }
+
+    #[test]
+    fn test_parse_egress_probe_tolerates_surrounding_whitespace_and_noise_lines() {
+        let out = "Warning: Permanently added host.\n  azlin-egress: ok  \n";
+        assert_eq!(parse_egress_probe(out), EgressStatus::Ok);
+    }
+
+    #[test]
+    fn test_parse_egress_probe_empty_is_unknown() {
+        assert_eq!(parse_egress_probe(""), EgressStatus::Unknown);
+        assert_eq!(parse_egress_probe("   \n\n"), EgressStatus::Unknown);
+    }
+
+    #[test]
+    fn test_parse_egress_probe_garbage_is_unknown() {
+        // Unknown means "we could not observe egress", which warns only.
+        // Only an explicit `fail` sentinel marks a VM degraded — treating SSH
+        // noise as failure is the mirror-image of the bug in #1092.
+        // A missing `curl` is deliberately NOT used as the example here: the
+        // probe redirects stderr, so an absent binary takes the `else` branch
+        // and emits a real `fail` verdict rather than this text. The garbage
+        // this arm actually guards against is SSH-layer chatter.
+        assert_eq!(
+            parse_egress_probe("Connection to 10.0.0.4 closed.\n"),
+            EgressStatus::Unknown
+        );
+        assert_eq!(parse_egress_probe("azlin-egress:"), EgressStatus::Unknown);
+        assert_eq!(
+            parse_egress_probe("azlin-egress: maybe"),
+            EgressStatus::Unknown
+        );
+    }
+
+    #[test]
+    fn test_parse_egress_probe_rejects_substring_embedded_sentinel() {
+        // Not a whole line → not a verdict. Guards against a compromised or
+        // chatty guest smuggling the sentinel inside other output.
+        assert_eq!(
+            parse_egress_probe("motd: run `echo azlin-egress: ok` to test\n"),
+            EgressStatus::Unknown
+        );
+    }
+
+    #[test]
+    fn test_parse_egress_probe_rejects_ansi_prefixed_sentinel() {
+        // Fail-safe direction: an escape-laden line degrades to Unknown
+        // (warn only), never to a spurious Ok.
+        assert_eq!(
+            parse_egress_probe("\u{1b}[2Kazlin-egress: ok\n"),
+            EgressStatus::Unknown
+        );
+    }
+
+    #[test]
+    fn test_parse_egress_probe_failure_wins_over_success() {
+        // If both sentinels appear, the pessimistic verdict wins.
+        let out = "azlin-egress: ok\nazlin-egress: fail\n";
+        assert_eq!(parse_egress_probe(out), EgressStatus::Failed);
+    }
+
+    #[test]
+    fn test_parse_egress_probe_handles_large_buffer_without_verdict() {
+        let out = "x".repeat(1024 * 1024);
+        assert_eq!(parse_egress_probe(&out), EgressStatus::Unknown);
+    }
+
+    #[test]
+    fn test_egress_probe_command_is_a_safe_fixed_literal() {
+        // No interpolation, no shell metacharacter injection surface, and a
+        // bounded timeout so a black-holed route cannot hang VM creation.
+        let cmd = egress_probe_command();
+        assert!(cmd.contains("azlin-egress: ok"));
+        assert!(cmd.contains("azlin-egress: fail"));
+        assert!(cmd.contains("https://packages.microsoft.com"));
+        assert!(cmd.contains("-m 10"), "probe must be time-bounded");
+        assert!(
+            !cmd.contains("-k") && !cmd.contains("--insecure"),
+            "probe must validate TLS: never weaken it to make it 'more reliable'"
+        );
+    }
+
+    #[test]
+    fn test_egress_probe_is_skipped_for_a_public_ip_vm() {
+        // Its own instance IP is the egress. An SSH round-trip here buys
+        // nothing but latency.
+        assert_eq!(
+            egress_probe_shortcut(true, true),
+            Some(EgressStatus::Ok),
+            "a public-IP VM needs no probe"
+        );
+        assert_eq!(
+            egress_probe_shortcut(true, false),
+            Some(EgressStatus::Ok),
+            "still no probe when SSH never came up"
+        );
+    }
+
+    #[test]
+    fn test_egress_probe_is_skipped_when_ssh_never_authenticated() {
+        // A readiness timeout means SSH never authenticated, so the probe can
+        // only burn its own connect timeout and return Unknown. Creation is
+        // sequential, so that cost is paid once per VM.
+        assert_eq!(
+            egress_probe_shortcut(false, false),
+            Some(EgressStatus::Unknown),
+            "an unreachable guest cannot be probed"
+        );
+    }
+
+    #[test]
+    fn test_skipping_the_probe_never_invents_a_verdict() {
+        // The whole issue is about silent degradation, so the cheap path must
+        // never claim egress it did not observe -- and equally must never call
+        // a VM degraded without its own `fail` sentinel.
+        for (public, ready) in [(true, true), (true, false), (false, false)] {
+            assert_ne!(
+                egress_probe_shortcut(public, ready),
+                Some(EgressStatus::Failed),
+                "degraded is only ever the VM's own verdict ({public}, {ready})"
+            );
+        }
+        assert_ne!(
+            egress_probe_shortcut(false, false),
+            Some(EgressStatus::Ok),
+            "an unprobed private VM must never be reported as having egress"
+        );
+    }
+
+    #[test]
+    fn test_a_reachable_private_vm_is_always_probed() {
+        // The case the feature exists for: private VM, SSH up, egress unknown
+        // until the guest says otherwise.
+        assert_eq!(egress_probe_shortcut(false, true), None);
+    }
+
+    #[test]
+    fn test_egress_failure_message_is_actionable() {
+        let msg = egress_failure_message("azlin-vm-1", "prod-rg", "centralus");
+        assert!(msg.contains("azlin-vm-1"));
+        assert!(msg.contains("centralus"));
+        assert!(
+            msg.to_lowercase().contains("outbound") || msg.to_lowercase().contains("egress"),
+            "message must name the actual problem: {msg}"
+        );
+        assert!(
+            msg.contains("nat gateway") || msg.contains("NAT gateway"),
+            "message must point at the NAT gateway: {msg}"
+        );
+        // The diagnostic command is the whole point of the banner. Printing it
+        // with a literal `<rg>` makes the user hand-edit it first, which is
+        // exactly the friction this message exists to remove.
+        assert!(
+            !msg.contains("<rg>"),
+            "must not print a placeholder resource group: {msg}"
+        );
+        assert!(
+            msg.contains("--resource-group prod-rg"),
+            "must name the real resource group: {msg}"
+        );
     }
 }

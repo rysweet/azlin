@@ -218,38 +218,47 @@ fn test_summarise_batch_other_action() {
 // ── all_contexts tests ────────────────────────────────────────
 
 #[test]
-fn test_read_context_resource_group_with_rg() {
+fn test_context_file_with_rg() {
     let tmp = TempDir::new().unwrap();
     let ctx_path = tmp.path().join("dev.toml");
     fs::write(
         &ctx_path,
-        "name = \"dev\"\nresource_group = \"dev-rg\"\nregion = \"westus2\"\n",
+        "name = \"dev\"\nsubscription_id = \"sub-dev\"\nresource_group = \"dev-rg\"\nregion = \"westus2\"\n",
     )
     .unwrap();
 
-    let (name, rg) = crate::contexts::read_context_resource_group(&ctx_path).unwrap();
-    assert_eq!(name, "dev");
-    assert_eq!(rg, Some("dev-rg".to_string()));
+    let ctx = crate::active_context::parse_context("dev", &fs::read_to_string(&ctx_path).unwrap())
+        .unwrap();
+    assert_eq!(ctx.name, "dev");
+    assert_eq!(ctx.resource_group.as_deref(), Some("dev-rg"));
+    // `list --all-contexts` needs the subscription too: without it the header
+    // it prints cannot be attributed to the rows it prints (#1090).
+    assert_eq!(ctx.subscription_id.as_deref(), Some("sub-dev"));
 }
 
 #[test]
-fn test_read_context_resource_group_without_rg() {
+fn test_context_file_without_rg() {
     let tmp = TempDir::new().unwrap();
     let ctx_path = tmp.path().join("minimal.toml");
     fs::write(&ctx_path, "name = \"minimal\"\n").unwrap();
 
-    let (name, rg) = crate::contexts::read_context_resource_group(&ctx_path).unwrap();
-    assert_eq!(name, "minimal");
-    assert_eq!(rg, None);
+    let ctx =
+        crate::active_context::parse_context("minimal", &fs::read_to_string(&ctx_path).unwrap())
+            .unwrap();
+    assert_eq!(ctx.name, "minimal");
+    assert_eq!(ctx.resource_group, None);
+    assert!(ctx.pins_no_subscription());
 }
 
 #[test]
-fn test_read_context_resource_group_falls_back_to_filename() {
+fn test_context_file_falls_back_to_filename() {
     let tmp = TempDir::new().unwrap();
     let ctx_path = tmp.path().join("staging.toml");
     fs::write(&ctx_path, "resource_group = \"staging-rg\"\n").unwrap();
 
-    let (name, rg) = crate::contexts::read_context_resource_group(&ctx_path).unwrap();
-    assert_eq!(name, "staging");
-    assert_eq!(rg, Some("staging-rg".to_string()));
+    let ctx =
+        crate::active_context::parse_context("staging", &fs::read_to_string(&ctx_path).unwrap())
+            .unwrap();
+    assert_eq!(ctx.name, "staging");
+    assert_eq!(ctx.resource_group.as_deref(), Some("staging-rg"));
 }

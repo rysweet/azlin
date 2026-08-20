@@ -1,6 +1,6 @@
 #[allow(unused_imports)]
 use super::*;
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 pub(crate) async fn handle_ask(
     query: Option<String>,
@@ -15,17 +15,10 @@ pub(crate) async fn handle_ask(
     }
 
     let client = azlin_ai::AnthropicClient::new()?;
-    let rg = match resource_group {
-        Some(rg) => rg,
-        None => {
-            let config = azlin_core::AzlinConfig::load().context("Failed to load azlin config")?;
-            config.default_resource_group.ok_or_else(|| {
-                anyhow::anyhow!(
-                    "No resource group specified. Use --resource-group or set in config."
-                )
-            })?
-        }
-    };
+    // Full precedence: --resource-group, then the active context, then the
+    // config default. Reading the config default directly here skipped the
+    // context entirely (#1090).
+    let rg = crate::dispatch_helpers::resolve_resource_group(resource_group)?;
 
     let context = format!("Resource group: {}", rg);
     let pb = penguin_spinner("Querying Claude...");

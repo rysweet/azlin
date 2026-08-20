@@ -34,48 +34,91 @@ pub(crate) async fn dispatch(
             azlin_cli::BatchAction::Stop {
                 resource_group,
                 tag,
+                vm_pattern,
+                all,
                 yes,
-                no_deallocate: _no_deallocate,
+                no_deallocate,
                 ..
             } => {
+                crate::batch_helpers::validate_selection(
+                    all,
+                    tag.as_deref(),
+                    vm_pattern.as_deref(),
+                )
+                .map_err(|e| anyhow::anyhow!(e))?;
                 let rg = resolve_resource_group(resource_group)?;
-                let filter_msg = crate::batch_helpers::resolve_filter_display(tag.as_deref());
-                let prompt =
-                    crate::batch_helpers::build_confirmation_prompt("Stop", filter_msg, &rg);
+                let selection =
+                    crate::batch_helpers::describe_selection(tag.as_deref(), vm_pattern.as_deref());
+                // --no-deallocate keeps the VMs allocated, mirroring `azlin stop`.
+                let az_action = crate::batch_helpers::batch_stop_action(no_deallocate);
+                let verb = if no_deallocate {
+                    "Stop (keeping allocated)"
+                } else {
+                    "Stop and deallocate"
+                };
+                let prompt = crate::batch_helpers::build_confirmation_prompt(verb, &selection, &rg);
                 if !safe_confirm_with_flag(&prompt, yes, "--yes")? {
                     println!("Cancelled.");
                     return Ok(());
                 }
                 let (ids, names) = list_vms_with_names(&rg, tag.as_deref())?;
+                let ids = match vm_pattern.as_deref() {
+                    Some(p) => crate::batch_helpers::filter_ids_by_pattern(&ids, &names, p),
+                    None => ids,
+                };
                 if ids.is_empty() {
-                    println!("{}", crate::batch_helpers::format_no_vms_message(&rg));
+                    println!(
+                        "{}",
+                        crate::batch_helpers::format_no_match_message(
+                            &rg,
+                            tag.as_deref(),
+                            vm_pattern.as_deref()
+                        )
+                    );
                 } else {
                     let id_refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
-                    let summary = crate::batch_progress::run_batch_with_progress(
-                        "deallocate",
-                        &id_refs,
-                        &names,
-                    );
+                    let summary =
+                        crate::batch_progress::run_batch_with_progress(az_action, &id_refs, &names);
                     println!("{}", summary.format_summary("stop"));
                 }
             }
             azlin_cli::BatchAction::Start {
                 resource_group,
                 tag,
+                vm_pattern,
+                all,
                 yes,
                 ..
             } => {
+                crate::batch_helpers::validate_selection(
+                    all,
+                    tag.as_deref(),
+                    vm_pattern.as_deref(),
+                )
+                .map_err(|e| anyhow::anyhow!(e))?;
                 let rg = resolve_resource_group(resource_group)?;
-                let filter_msg = crate::batch_helpers::resolve_filter_display(tag.as_deref());
+                let selection =
+                    crate::batch_helpers::describe_selection(tag.as_deref(), vm_pattern.as_deref());
                 let prompt =
-                    crate::batch_helpers::build_confirmation_prompt("Start", filter_msg, &rg);
+                    crate::batch_helpers::build_confirmation_prompt("Start", &selection, &rg);
                 if !safe_confirm_with_flag(&prompt, yes, "--yes")? {
                     println!("Cancelled.");
                     return Ok(());
                 }
                 let (ids, names) = list_vms_with_names(&rg, tag.as_deref())?;
+                let ids = match vm_pattern.as_deref() {
+                    Some(p) => crate::batch_helpers::filter_ids_by_pattern(&ids, &names, p),
+                    None => ids,
+                };
                 if ids.is_empty() {
-                    println!("{}", crate::batch_helpers::format_no_vms_message(&rg));
+                    println!(
+                        "{}",
+                        crate::batch_helpers::format_no_match_message(
+                            &rg,
+                            tag.as_deref(),
+                            vm_pattern.as_deref()
+                        )
+                    );
                 } else {
                     let id_refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
                     let summary =
@@ -86,18 +129,32 @@ pub(crate) async fn dispatch(
             azlin_cli::BatchAction::Command {
                 command,
                 resource_group,
+                vm_pattern,
+                all,
                 show_output,
                 ..
             } => {
+                crate::batch_helpers::validate_selection(all, None, vm_pattern.as_deref())
+                    .map_err(|e| anyhow::anyhow!(e))?;
                 let rg = resolve_resource_group(resource_group)?;
-                let pb =
-                    penguin_spinner(&format!("Running '{}' on all VMs in '{}'...", command, rg));
-                let vms = get_running_vm_targets(Some(rg.clone())).await?;
+                let selection =
+                    crate::batch_helpers::describe_selection(None, vm_pattern.as_deref());
+                let pb = penguin_spinner(&format!(
+                    "Running '{}' on {} in '{}'...",
+                    command, selection, rg
+                ));
+                let mut vms = get_running_vm_targets(Some(rg.clone())).await?;
+                if let Some(p) = vm_pattern.as_deref() {
+                    vms.retain(|t| crate::batch_helpers::glob_match(p, &t.vm_name));
+                }
                 pb.finish_and_clear();
                 if vms.is_empty() {
                     println!(
                         "{}",
-                        crate::batch_helpers::format_no_running_vms_message(&rg)
+                        crate::batch_helpers::format_no_running_match_message(
+                            &rg,
+                            vm_pattern.as_deref()
+                        )
                     );
                 } else {
                     println!(
@@ -109,15 +166,25 @@ pub(crate) async fn dispatch(
             }
             azlin_cli::BatchAction::Sync {
                 resource_group,
+                vm_pattern,
+                all,
                 dry_run,
                 ..
             } => {
+                crate::batch_helpers::validate_selection(all, None, vm_pattern.as_deref())
+                    .map_err(|e| anyhow::anyhow!(e))?;
                 let rg = resolve_resource_group(resource_group)?;
-                let vms = get_running_vm_targets(Some(rg.clone())).await?;
+                let mut vms = get_running_vm_targets(Some(rg.clone())).await?;
+                if let Some(p) = vm_pattern.as_deref() {
+                    vms.retain(|t| crate::batch_helpers::glob_match(p, &t.vm_name));
+                }
                 if vms.is_empty() {
                     println!(
                         "{}",
-                        crate::batch_helpers::format_no_running_vms_message(&rg)
+                        crate::batch_helpers::format_no_running_match_message(
+                            &rg,
+                            vm_pattern.as_deref()
+                        )
                     );
                     return Ok(());
                 }

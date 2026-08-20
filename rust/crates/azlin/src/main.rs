@@ -883,6 +883,10 @@ mod sessions;
 /// Context TOML helpers for reading, writing, and listing contexts.
 mod contexts;
 
+/// Read side of `azlin context use` — resolves the selected context and the
+/// subscription / resource group every command must run against.
+mod active_context;
+
 /// Helpers for `azlin env` subcommands — pure functions that build SSH commands
 /// and parse environment variable output. No network I/O.
 #[allow(dead_code)]
@@ -934,6 +938,10 @@ mod cp_helpers;
 /// Helpers for Bastion host JSON extraction.
 #[allow(dead_code)]
 mod bastion_helpers;
+
+/// NAT gateway provisioning for private VMs (outbound internet) — issue #1092.
+/// Azure Bastion is inbound-only and provides no egress.
+mod nat_helpers;
 
 /// Scoped bastion tunnel for SSH/SCP through Azure Bastion.
 #[allow(dead_code)]
@@ -995,6 +1003,9 @@ mod autopilot_helpers;
 
 /// Pure helpers for VM lifecycle action labelling.
 mod stop_helpers;
+
+/// Pure planning helpers for `azlin restore` (dry-run preview, tab expansion).
+mod restore_helpers;
 
 /// Pure helpers for display-formatting inline values.
 mod display_helpers;
