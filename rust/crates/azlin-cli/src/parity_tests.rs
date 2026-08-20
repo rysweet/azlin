@@ -220,14 +220,22 @@ mod parity_tests {
     // 4. DISK ADD — missing --mount flag (default: "/tmp")
     // =====================================================================
 
+    /// `--mount` used to default to `/tmp` and was discarded, so nothing was
+    /// ever mounted anywhere. Now that the flag is honoured (#1089), a default
+    /// would format the new disk and mount it over the VM's `/tmp` on every
+    /// `azlin disk add` — so there is no default, and omitting the flag means
+    /// attach without mounting.
     #[test]
-    fn test_disk_add_has_mount_flag_with_default() {
+    fn test_disk_add_mount_has_no_default() {
         let cli = Cli::parse_from(["azlin", "disk", "add", "my-vm", "--size", "128"]);
         if let Commands::Disk {
             action: DiskAction::Add { mount, .. },
         } = cli.command
         {
-            assert_eq!(mount, "/tmp", "disk add --mount should default to '/tmp'");
+            assert_eq!(
+                mount, None,
+                "disk add without --mount must not mount anything"
+            );
         } else {
             panic!("Expected Disk Add command");
         }
@@ -250,7 +258,8 @@ mod parity_tests {
         } = cli.command
         {
             assert_eq!(
-                mount, "/mnt/data",
+                mount.as_deref(),
+                Some("/mnt/data"),
                 "disk add --mount should accept custom value"
             );
         } else {
