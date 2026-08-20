@@ -1176,26 +1176,38 @@ mod tests {
     // the sleep and the re-read are injected.
 
     /// Record of what `resolve_attach_conflict` did, in order.
+    ///
+    /// The wait keeps its full `Duration`: recorded as whole seconds, a
+    /// backoff of 500ms would log as `Slept(0)` and the ordering assertion
+    /// below would compare `Slept(0)` against `Slept(0)` and pass.
     #[derive(Debug, PartialEq, Eq)]
     enum Step {
-        Slept(u64),
+        Slept(std::time::Duration),
         Rechecked,
     }
 
     /// Drive `resolve_attach_conflict` with a scripted sequence of re-read
     /// results, returning its verdict alongside the calls it made.
+    ///
+    /// Running off the end of the script panics rather than inventing another
+    /// result. A harness that pads a short script reports success for
+    /// behaviour nobody wrote down — the same shape as the bugs it exists to
+    /// catch.
     fn drive_conflict(
         attach_err: anyhow::Error,
         results: Vec<Result<NatStatus>>,
     ) -> (Result<String>, Vec<Step>) {
         let log = std::cell::RefCell::new(Vec::new());
+        let scripted = results.len();
         let mut remaining = results.into_iter();
         let verdict = resolve_attach_conflict(
             attach_err,
-            |d| log.borrow_mut().push(Step::Slept(d.as_secs())),
+            |d| log.borrow_mut().push(Step::Slept(d)),
             || {
                 log.borrow_mut().push(Step::Rechecked);
-                remaining.next().unwrap_or_else(|| Ok(NatStatus::Absent))
+                remaining.next().unwrap_or_else(|| {
+                    panic!("re-checked more than the {scripted} scripted time(s)")
+                })
             },
         );
         (verdict, log.into_inner())
@@ -1215,10 +1227,7 @@ mod tests {
         // commits and reports a failure for work that succeeded.
         assert_eq!(
             steps,
-            vec![
-                Step::Slept(CONFLICT_RECHECK_BACKOFF.as_secs()),
-                Step::Rechecked
-            ]
+            vec![Step::Slept(CONFLICT_RECHECK_BACKOFF), Step::Rechecked]
         );
     }
 
@@ -1265,10 +1274,7 @@ mod tests {
         for pair in steps.chunks(2) {
             assert_eq!(
                 pair,
-                [
-                    Step::Slept(CONFLICT_RECHECK_BACKOFF.as_secs()),
-                    Step::Rechecked
-                ],
+                [Step::Slept(CONFLICT_RECHECK_BACKOFF), Step::Rechecked],
                 "{steps:?}"
             );
         }
