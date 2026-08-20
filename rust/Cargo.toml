@@ -7,10 +7,11 @@ members = [
     "crates/azlin-cli",
     "crates/azlin-ssh",
     "crates/azlin",
+    "crates/xtask",
 ]
 
 [workspace.package]
-version = "2.6.103"
+version = "2.6.108"
 edition = "2021"
 rust-version = "1.85"
 authors = ["Ryan Sweet <rysweet@microsoft.com>"]

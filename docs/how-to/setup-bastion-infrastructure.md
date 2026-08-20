@@ -3,6 +3,10 @@
 Create Azure Bastion infrastructure in a new region so that `azlin new` can
 provision private (bastion-routed) VMs there.
 
+Bastion provides **inbound** access only. Private VMs also need a NAT gateway
+for **outbound** internet access — see
+[How to Set Up a NAT Gateway](setup-nat-gateway.md).
+
 ## Automatic Setup (Recommended)
 
 Simply run `azlin new` targeting the region. If no bastion exists, azlin offers
@@ -102,5 +106,6 @@ az network bastion list --resource-group $RG --query "[].{name:name, location:lo
 ## See Also
 
 - [Bastion Pre-Check for Private VMs](../features/bastion-pre-check.md)
+- [How to Set Up a NAT Gateway](setup-nat-gateway.md)
 - [How to Use SSH Tunnels](use-tunnels.md)
 - [Troubleshoot Connection Issues](troubleshoot-connection-issues.md)

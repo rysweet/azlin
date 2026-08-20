@@ -238,6 +238,153 @@ pub(crate) fn prompt_bastion_action(region: &str, yes: bool) -> Result<BastionMi
     })
 }
 
+/// Action to take when the VM subnet in the target region has no NAT gateway.
+///
+/// Mirrors [`BastionMissingAction`]. Azure Bastion is inbound-only, so a
+/// private VM with a bastion but no NAT gateway is reachable yet has zero
+/// outbound internet — see issue #1092.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NatMissingAction {
+    /// Create the NAT gateway, then proceed with the private VM.
+    CreateNatGateway,
+    /// Switch to a public IP instead — an instance IP provides its own egress.
+    SwitchToPublicIp,
+    /// Abort VM creation.
+    Abort,
+}
+
+/// Decide what to do about a missing NAT gateway without touching the terminal.
+///
+/// Returns `None` when there is no automatic answer and the user must be
+/// asked. Split out from [`prompt_nat_action`] so the policy is testable: the
+/// bastion original reads ambient TTY state inline and cannot be tested at all.
+pub(crate) fn decide_nat_action(yes: bool, stdin_is_tty: bool) -> Option<NatMissingAction> {
+    if yes || !stdin_is_tty {
+        return Some(NatMissingAction::CreateNatGateway);
+    }
+    None
+}
+
+/// Map a `dialoguer::Select` index onto an action.
+///
+/// Fails closed: any index the menu did not offer aborts rather than
+/// proceeding without egress.
+pub(crate) fn map_nat_selection(selection: usize) -> NatMissingAction {
+    match selection {
+        0 => NatMissingAction::CreateNatGateway,
+        1 => NatMissingAction::SwitchToPublicIp,
+        _ => NatMissingAction::Abort,
+    }
+}
+
+/// The manual remediation steps, with no framing verdict of their own.
+///
+/// Shared by the two paths that reach it, which must NOT claim the same thing:
+/// declining creates nothing, whereas a failure part-way through provisioning
+/// may have already created the public IP and the gateway. So the verdict
+/// belongs to the caller and only the steps are shared.
+///
+/// `resource_group` is interpolated rather than left as a `<rg>` placeholder:
+/// a command the user has to hand-edit before running is not remediation.
+fn nat_remediation_text(resource_group: &str, region: &str) -> String {
+    let natgw = crate::nat_helpers::natgw_name_for_region(region);
+    let pip = crate::nat_helpers::natgw_pip_name(region);
+    format!(
+        "Azure Bastion is inbound-only: it lets you reach the VM, but it does not \
+         provide egress. Without a NAT gateway every apt/curl/wget on the VM fails \
+         and the cloud-init toolchain install collapses.\n\n\
+         To provision egress manually:\n  \
+         az network public-ip create --resource-group {resource_group} --name {pip} \
+         --location {region} --sku Standard --allocation-method Static --zone 1 2 3\n  \
+         az network nat gateway create --resource-group {resource_group} --name {natgw} \
+         --location {region} --sku Standard --idle-timeout 10 \
+         --public-ip-addresses {pip}\n  \
+         az network vnet subnet update --resource-group {resource_group} \
+         --vnet-name {vnet} --name default --nat-gateway {natgw}\n\n\
+         Or re-run with --public to give this VM its own public IP instead.",
+        vnet = crate::bastion_helpers::bastion_vnet_name(region),
+    )
+}
+
+/// The error text shown when the user declines NAT provisioning.
+///
+/// This issue is about silent degradation, so declining must fail loudly *and*
+/// actionably: naming both resources and the exact `az` commands means a user
+/// who says no can still fix it by hand.
+pub(crate) fn nat_abort_message(resource_group: &str, region: &str) -> String {
+    let region = region.to_lowercase();
+    format!(
+        "Aborted: the VM subnet in {region} has no NAT gateway, so a private VM \
+         created there would have no outbound internet.\n{}",
+        nat_remediation_text(resource_group, &region)
+    )
+}
+
+/// The error text shown when NAT provisioning was attempted and failed.
+///
+/// Deliberately distinct from [`nat_abort_message`]. Provisioning creates the
+/// public IP, then the gateway, then the subnet association, so a failure at
+/// step two or three leaves real resources behind — a Standard public IP costs
+/// money whether or not anything is attached to it. Calling that "Aborted"
+/// tells the user nothing exists while two resources bill, which is the same
+/// silent-degradation defect this issue exists to remove, one layer up.
+pub(crate) fn nat_provisioning_failed_message(resource_group: &str, region: &str) -> String {
+    let region = region.to_lowercase();
+    let natgw = crate::nat_helpers::natgw_name_for_region(&region);
+    let pip = crate::nat_helpers::natgw_pip_name(&region);
+    format!(
+        "NAT gateway provisioning FAILED for {region}, so no VM was created.\n\
+         Provisioning runs in three steps, so partial resources may already exist \
+         and may already be billing. Check resource group '{resource_group}' for \
+         public IP '{pip}' and NAT gateway '{natgw}' before retrying:\n  \
+         az network nat gateway list --resource-group {resource_group} -o table\n  \
+         az network public-ip list --resource-group {resource_group} -o table\n\n\
+         Re-running `azlin new` is safe: provisioning is idempotent and reuses \
+         whatever already exists.\n\n{}",
+        nat_remediation_text(resource_group, &region)
+    )
+}
+
+/// Ask the user what to do about a missing NAT gateway.
+///
+/// - `--yes` or a non-TTY stdin → auto-create (never hang a script, never
+///   silently ship a VM with no egress)
+/// - interactive → three options mirroring the bastion prompt
+pub(crate) fn prompt_nat_action(region: &str, yes: bool) -> Result<NatMissingAction> {
+    use std::io::IsTerminal;
+
+    eprintln!(
+        "No NAT gateway found for the VM subnet in {region}. Private VMs there have \
+         no outbound internet (Azure Bastion is inbound-only)."
+    );
+
+    if let Some(action) = decide_nat_action(yes, std::io::stdin().is_terminal()) {
+        if yes {
+            eprintln!("--yes flag set: auto-creating NAT gateway...");
+        } else {
+            eprintln!(
+                "Warning: non-interactive session detected. Auto-creating a NAT gateway \
+                 in {region} so the VM has outbound internet. Use --public to give the VM \
+                 its own public IP instead."
+            );
+        }
+        return Ok(action);
+    }
+
+    let items = &[
+        "Create NAT gateway now (takes ~1-2 min, ~$36/mo per region)",
+        "Switch to public IP instead",
+        "Abort",
+    ];
+    let selection = dialoguer::Select::new()
+        .with_prompt("How would you like to proceed?")
+        .items(items)
+        .default(0)
+        .interact()?;
+
+    Ok(map_nat_selection(selection))
+}
+
 fn requires_post_create_ssh(
     repo_requested: bool,
     has_home_seed_sources: bool,
@@ -469,7 +616,15 @@ pub(crate) async fn handle_vm_new(
     } else {
         config_defaults.default_vm_size.clone()
     };
-    let loc = region.unwrap_or_else(|| config_defaults.default_region.clone());
+    // Region precedence matches the resource group's: --region, then the
+    // active context, then the config default. Reading the config default
+    // directly here meant a context's `region` was recorded and ignored
+    // (#1090).
+    let loc = crate::active_context::resolve_region(
+        region,
+        crate::active_context::load_active()?.as_ref(),
+        config_defaults.default_region.clone(),
+    );
 
     // ── Region-fit: auto-find a region with available quota + SKU ──────
     let loc = if region_fit {
@@ -623,6 +778,64 @@ pub(crate) async fn handle_vm_new(
             }
         }
     }
+
+    // ── NAT gateway pre-check: a bastion is INBOUND only. Without a NAT
+    //    gateway on the VM subnet a private VM has zero outbound internet:
+    //    it connects fine, but apt/curl/wget all fail and the cloud-init
+    //    toolchain install collapses silently (issue #1092).
+    //
+    //    `want_public_ip` is re-tested rather than nested in the block above
+    //    because SwitchToPublicIp mutates it — a VM that just opted into a
+    //    public IP has its own egress and needs no gateway. The check is
+    //    outside the per-VM loop: a NAT gateway is regional and shared.
+    if !want_public_ip {
+        let ip_tags = config_defaults.bastion_pip_ip_tags();
+        // A failed read must NOT degrade to `Absent`. The final provisioning
+        // step is `subnet update --nat-gateway`, which REPLACES the subnet's
+        // association rather than appending: proceeding on a transient ARM
+        // failure could silently repoint a hand-made or corporate gateway and
+        // start billing a second gateway plus a second Standard public IP.
+        // This is also the exact subnet `az vm create` places the NIC in, so
+        // if it is unreadable, VM creation would fail moments later anyway.
+        let status = crate::nat_helpers::detect_nat_status(&rg, &final_loc).with_context(|| {
+            format!(
+                "Could not determine whether the VM subnet in {final_loc} has outbound \
+                 internet. Refusing to create a private VM that may silently have no \
+                 egress. Re-run with --public to give this VM its own public IP instead."
+            )
+        })?;
+
+        if let crate::nat_helpers::NatStatus::Attached { name } = &status {
+            eprintln!("  ✓ NAT gateway '{name}' provides egress for {final_loc}");
+        } else {
+            match prompt_nat_action(&final_loc, yes)? {
+                NatMissingAction::CreateNatGateway => {
+                    let pb =
+                        penguin_spinner(&format!("Provisioning NAT gateway in {}...", final_loc));
+                    let result = crate::nat_helpers::ensure_nat_gateway(&rg, &final_loc, &ip_tags);
+                    pb.finish_and_clear();
+                    // R4: never fall through to `az vm create` without egress.
+                    result.with_context(|| nat_provisioning_failed_message(&rg, &final_loc))?;
+                }
+                NatMissingAction::SwitchToPublicIp => {
+                    eprintln!(
+                        "Switching to public IP for this VM \
+                         (an instance IP provides its own egress)."
+                    );
+                    want_public_ip = true;
+                }
+                NatMissingAction::Abort => {
+                    anyhow::bail!("{}", nat_abort_message(&rg, &final_loc));
+                }
+            }
+        }
+    }
+
+    // VMs whose egress probe reported failure. Collected across the loop so
+    // every VM's name and connection details are printed before we exit
+    // non-zero — aborting mid-loop would strand a billing VM the user cannot
+    // find.
+    let mut degraded_vms: Vec<String> = Vec::new();
 
     for i in 0..vm_count {
         let vm_name = if let Some(ref n) = name {
@@ -866,7 +1079,52 @@ pub(crate) async fn handle_vm_new(
             eprintln!("⚠ {}", readiness.recovery_message());
         }
 
-        println!("VM '{}' created successfully!", vm.name);
+        // Cheap outbound-internet probe. A private VM with no NAT gateway is
+        // reachable and reports Running, so without this check a silently
+        // broken VM is announced as "created successfully" (issue #1092).
+        // `egress_probe_shortcut` skips the round-trip in the two cases where
+        // it cannot change the verdict -- a public-IP VM, and a VM whose SSH
+        // readiness timed out.
+        let egress = match crate::auth_forward::egress_probe_shortcut(
+            want_public_ip,
+            readiness.is_ready(),
+        ) {
+            Some(status) => status,
+            None => crate::auth_forward::verify_egress(
+                effective_ip,
+                &admin_user,
+                bastion_port,
+                Some(created_private_key.as_path()),
+                interactive_post_create_ssh,
+            ),
+        };
+        match egress {
+            crate::auth_forward::EgressStatus::Failed => {
+                eprintln!(
+                    "⚠ {}",
+                    crate::auth_forward::egress_failure_message(&vm.name, &rg, &final_loc)
+                );
+                degraded_vms.push(vm.name.clone());
+                // Deliberately not an early return: the VM exists and is
+                // billing, so its name and connection details must still be
+                // printed. The non-zero exit is raised after the loop.
+                println!(
+                    "VM '{}' created — DEGRADED: no outbound internet access.",
+                    vm.name
+                );
+            }
+            crate::auth_forward::EgressStatus::Unknown => {
+                eprintln!(
+                    "Warning: could not verify outbound internet on '{}'. If package \
+                     installs fail, check for a NAT gateway in {final_loc}.",
+                    vm.name
+                );
+                println!("VM '{}' created successfully!", vm.name);
+            }
+            crate::auth_forward::EgressStatus::Ok => {
+                println!("VM '{}' created successfully!", vm.name);
+            }
+        }
 
         // Forward auth credentials to the new VM (best-effort)
         if let Err(e) = crate::auth_forward::forward_auth_credentials(
@@ -978,6 +1236,21 @@ pub(crate) async fn handle_vm_new(
             }
         }
     }
+
+    // Every VM's name and connection details have now been printed, so it is
+    // safe to exit non-zero. Reporting a VM with no egress as a success is the
+    // silent degradation this whole change exists to remove.
+    if !degraded_vms.is_empty() {
+        anyhow::bail!(
+            "{} VM(s) were created but have NO outbound internet: {}. \
+             They are reachable but their toolchain install is incomplete. \
+             See the warnings above for how to provision a NAT gateway in {}.",
+            degraded_vms.len(),
+            degraded_vms.join(", "),
+            final_loc
+        );
+    }
+
     Ok(())
 }
 
@@ -1298,5 +1571,158 @@ mod tests {
             sku.contains("s_v5"),
             "D-series SKU must be v5 with premium storage (s_v5)"
         );
+    }
+
+    // ── NAT gateway policy (issue #1092) ─────────────────────────────
+    //
+    // Mirrors the bastion prompt, with one deliberate improvement: the
+    // bastion original is untestable because it reads ambient TTY state
+    // inline. Here the decision is a pure function of (yes, stdin_is_tty)
+    // and `prompt_nat_action` is a thin dialoguer shell over it.
+
+    use super::{
+        decide_nat_action, map_nat_selection, nat_abort_message, nat_provisioning_failed_message,
+        NatMissingAction,
+    };
+
+    #[test]
+    fn test_decide_nat_action_yes_flag_auto_creates() {
+        assert_eq!(
+            decide_nat_action(true, true),
+            Some(NatMissingAction::CreateNatGateway)
+        );
+        assert_eq!(
+            decide_nat_action(true, false),
+            Some(NatMissingAction::CreateNatGateway)
+        );
+    }
+
+    #[test]
+    fn test_decide_nat_action_non_tty_auto_creates() {
+        // CI and `azlin new` from a script must not hang on a prompt, and
+        // must not silently produce a VM with no egress.
+        assert_eq!(
+            decide_nat_action(false, false),
+            Some(NatMissingAction::CreateNatGateway)
+        );
+    }
+
+    #[test]
+    fn test_decide_nat_action_interactive_defers_to_prompt() {
+        // None means "no automatic answer — ask the user".
+        assert_eq!(decide_nat_action(false, true), None);
+    }
+
+    #[test]
+    fn test_map_nat_selection_mirrors_bastion_option_order() {
+        assert_eq!(map_nat_selection(0), NatMissingAction::CreateNatGateway);
+        assert_eq!(map_nat_selection(1), NatMissingAction::SwitchToPublicIp);
+        assert_eq!(map_nat_selection(2), NatMissingAction::Abort);
+    }
+
+    #[test]
+    fn test_map_nat_selection_unknown_index_aborts() {
+        // Fail closed: an unexpected index must never mean "create" or
+        // "proceed anyway".
+        assert_eq!(map_nat_selection(99), NatMissingAction::Abort);
+    }
+
+    #[test]
+    fn test_nat_abort_message_is_actionable() {
+        // R4: declining must fail LOUDLY. The message has to be enough to
+        // fix the problem by hand — this whole issue is about silent
+        // degradation, so an unactionable error would just move the failure.
+        let msg = nat_abort_message("my-rg", "centralus");
+        assert!(msg.contains("centralus"), "must name the region: {msg}");
+        assert!(
+            msg.contains("azlin-natgw-centralus"),
+            "must name the gateway: {msg}"
+        );
+        assert!(
+            msg.contains("azlin-natgw-centralus-ip-tagged"),
+            "must name the public IP: {msg}"
+        );
+        assert!(
+            msg.contains("az network nat gateway create"),
+            "must give the manual remediation: {msg}"
+        );
+        assert!(
+            msg.to_lowercase().contains("inbound"),
+            "must state that Bastion is inbound-only, or users will assume \
+             the bastion already gives them egress: {msg}"
+        );
+        assert!(
+            msg.to_lowercase().contains("outbound") || msg.to_lowercase().contains("egress"),
+            "must name the missing capability: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_nat_abort_message_normalizes_region_case() {
+        let msg = nat_abort_message("my-rg", "CentralUS");
+        assert!(msg.contains("azlin-natgw-centralus"));
+        assert!(!msg.contains("azlin-natgw-CentralUS"));
+    }
+
+    #[test]
+    fn test_nat_messages_interpolate_the_resource_group() {
+        // AC7 asks for actionable remediation. A command carrying a literal
+        // `<rg>` placeholder is not actionable: the user must hand-edit it
+        // before it runs, and the resource group is in scope at both call
+        // sites, so leaving it unbound was pure loss.
+        for msg in [
+            nat_abort_message("prod-rg", "centralus"),
+            nat_provisioning_failed_message("prod-rg", "centralus"),
+        ] {
+            assert!(
+                !msg.contains("<rg>"),
+                "must not print a placeholder resource group: {msg}"
+            );
+            assert!(
+                msg.contains("--resource-group prod-rg"),
+                "must name the real resource group: {msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_provisioning_failure_is_not_reported_as_an_abort() {
+        // The distinction is the point: declining creates nothing, whereas a
+        // failure mid-sequence can leave a Standard public IP and a gateway
+        // behind, both billing. Saying "Aborted" there would repeat the exact
+        // silent-degradation defect this issue exists to remove.
+        let msg = nat_provisioning_failed_message("prod-rg", "centralus");
+        assert!(
+            !msg.starts_with("Aborted"),
+            "a failed attempt is not an abort: {msg}"
+        );
+        assert!(
+            msg.to_lowercase().contains("failed"),
+            "must say provisioning failed: {msg}"
+        );
+        assert!(
+            msg.contains("azlin-natgw-centralus-ip-tagged")
+                && msg.contains("azlin-natgw-centralus"),
+            "must name both resources that may already be billing: {msg}"
+        );
+        assert!(
+            msg.to_lowercase().contains("billing") || msg.to_lowercase().contains("bill"),
+            "must warn that partial resources may cost money: {msg}"
+        );
+        assert!(
+            msg.contains("az network nat gateway list"),
+            "must give the user a way to check what exists: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_both_nat_messages_share_the_remediation_steps() {
+        // The framing differs; the fix does not. If these ever diverge, one
+        // of the two paths is teaching the user a stale command.
+        let abort = nat_abort_message("prod-rg", "centralus");
+        let failed = nat_provisioning_failed_message("prod-rg", "centralus");
+        let steps = super::nat_remediation_text("prod-rg", "centralus");
+        assert!(abort.contains(&steps));
+        assert!(failed.contains(&steps));
     }
 }

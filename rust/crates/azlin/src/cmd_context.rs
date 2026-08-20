@@ -2,6 +2,25 @@
 use super::*;
 use anyhow::{Context, Result};
 
+/// Ask the Azure CLI which subscription it is on, without failing the command.
+///
+/// `context show` is an inspection command and must stay useful when `az` is
+/// absent or logged out, so the failure is reported inline rather than raised.
+fn effective_subscription() -> crate::handlers::EffectiveSubscription {
+    match azlin_azure::AzureAuth::effective_account() {
+        Ok((subscription_id, _tenant)) => {
+            crate::handlers::EffectiveSubscription::Known(subscription_id)
+        }
+        Err(e) => crate::handlers::EffectiveSubscription::Unavailable(
+            e.to_string()
+                .lines()
+                .next()
+                .unwrap_or("az failed")
+                .to_string(),
+        ),
+    }
+}
+
 pub(crate) async fn dispatch(
     command: azlin_cli::Commands,
     verbose: bool,
@@ -11,9 +30,9 @@ pub(crate) async fn dispatch(
     let _ = (verbose, output);
     match command {
         azlin_cli::Commands::Context { action } => {
-            let azlin_home = home_dir()?.join(".azlin");
-            let ctx_dir = azlin_home.join("contexts");
-            let active_ctx_path = azlin_home.join("active-context");
+            let azlin_home = crate::active_context::state_dir()?;
+            let ctx_dir = crate::active_context::contexts_dir_in(&azlin_home);
+            let active_ctx_path = crate::active_context::active_context_path_in(&azlin_home);
             std::fs::create_dir_all(&ctx_dir)?;
 
             match action {
@@ -50,10 +69,20 @@ pub(crate) async fn dispatch(
                             let name = name.trim().to_string();
                             let path = ctx_dir.join(format!("{}.toml", name));
                             let content = std::fs::read_to_string(&path).ok();
-                            println!(
-                                "{}",
-                                crate::handlers::format_context_show(&name, content.as_deref())
-                            );
+                            let mut out =
+                                crate::handlers::format_context_show(&name, content.as_deref());
+                            // Report the subscription azlin would *actually*
+                            // use, read back from the CLI, so a mismatch with
+                            // the context file is visible instead of assumed.
+                            let pinned = content
+                                .as_deref()
+                                .and_then(|c| crate::active_context::parse_context(&name, c).ok())
+                                .and_then(|c| c.subscription_id);
+                            out.push_str(&crate::handlers::format_context_effective(
+                                pinned.as_deref(),
+                                &effective_subscription(),
+                            ));
+                            println!("{}", out);
                         }
                         Err(_) => println!("No context selected."),
                     }
@@ -66,8 +95,42 @@ pub(crate) async fn dispatch(
                     if !ctx_path.exists() {
                         anyhow::bail!("Context '{}' not found.", name);
                     }
-                    std::fs::write(&active_ctx_path, &name)?;
-                    println!("{}", crate::handlers::format_context_switched(&name));
+                    let ctx = crate::active_context::parse_context(
+                        &name,
+                        &std::fs::read_to_string(&ctx_path)?,
+                    )?;
+
+                    // Perform the switch *before* recording it. If the Azure
+                    // CLI cannot be moved onto the context's subscription, the
+                    // marker is left untouched and nothing claims success —
+                    // the failure mode in #1090 was a confirmed switch that
+                    // never happened.
+                    match ctx.subscription_id.as_deref() {
+                        Some(sub) => {
+                            let auth =
+                                azlin_azure::AzureAuth::for_subscription(sub).map_err(|e| {
+                                    anyhow::anyhow!(
+                                        "Did not switch to context '{name}': {e}\n\
+                                         The active context is unchanged."
+                                    )
+                                })?;
+                            std::fs::write(&active_ctx_path, &name)?;
+                            println!(
+                                "{}",
+                                crate::handlers::format_context_switched_to_subscription(
+                                    &name,
+                                    auth.subscription_id()
+                                )
+                            );
+                        }
+                        None => {
+                            std::fs::write(&active_ctx_path, &name)?;
+                            println!(
+                                "{}",
+                                crate::handlers::format_context_switched_no_subscription(&name)
+                            );
+                        }
+                    }
                 }
                 azlin_cli::ContextAction::Create {
                     name,

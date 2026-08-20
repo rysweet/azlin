@@ -28,6 +28,63 @@ fn test_format_context_show_no_content() {
 }
 
 #[test]
+fn test_format_context_effective_reports_mismatch() {
+    let out = format_context_effective(
+        Some("sub-prod"),
+        &EffectiveSubscription::Known("sub-dev".to_string()),
+    );
+    assert!(out.contains("MISMATCH"), "{out}");
+    assert!(out.contains("sub-prod"), "{out}");
+    assert!(out.contains("sub-dev"), "{out}");
+}
+
+#[test]
+fn test_format_context_effective_reports_agreement() {
+    let out = format_context_effective(
+        Some("sub-prod"),
+        &EffectiveSubscription::Known("sub-prod".to_string()),
+    );
+    assert!(!out.contains("MISMATCH"), "{out}");
+    assert!(
+        out.contains("already on this context's subscription"),
+        "{out}"
+    );
+}
+
+#[test]
+fn test_format_context_effective_flags_context_with_no_subscription() {
+    let out = format_context_effective(None, &EffectiveSubscription::Known("sub-dev".to_string()));
+    assert!(out.contains("pins no subscription_id"), "{out}");
+}
+
+#[test]
+fn test_format_context_effective_when_az_unavailable() {
+    let out = format_context_effective(
+        Some("sub-prod"),
+        &EffectiveSubscription::Unavailable("az not found".to_string()),
+    );
+    assert!(out.contains("unknown"), "{out}");
+    assert!(out.contains("az not found"), "{out}");
+}
+
+#[test]
+fn test_format_context_switched_names_the_subscription() {
+    let out = format_context_switched_to_subscription("prod", "sub-prod");
+    assert!(out.contains("prod"));
+    assert!(
+        out.contains("sub-prod"),
+        "the confirmation must name what actually changed: {out}"
+    );
+}
+
+#[test]
+fn test_format_context_switched_warns_when_no_subscription_pinned() {
+    let out = format_context_switched_no_subscription("prod");
+    assert!(out.contains("Warning"), "{out}");
+    assert!(out.contains("--subscription-id"), "{out}");
+}
+
+#[test]
 fn test_format_context_messages() {
     assert!(format_context_switched("prod").contains("prod"));
     assert!(format_context_created("staging").contains("staging"));

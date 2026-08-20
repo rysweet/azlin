@@ -160,40 +160,59 @@ async fn test_dispatch_context_show() {
     assert!(r.is_ok());
 }
 
-#[tokio::test]
-async fn test_dispatch_context_create_use_rename_delete() {
-    // Create
-    let r = run_dispatch(&[
-        "context",
-        "create",
-        "test-cov-ctx",
-        "--subscription-id",
-        "00000000-0000-0000-0000-000000000000",
-        "--tenant-id",
-        "11111111-1111-1111-1111-111111111111",
-        "--resource-group",
-        "test-rg",
-        "--region",
-        "westus2",
-    ])
-    .await;
-    assert!(r.is_ok(), "context create failed: {:?}", r.err());
+/// Context CRUD through the real binary, isolated to a temp state directory.
+///
+/// This ran in-process against the developer's real `~/.azlin` before #1090.
+/// That was already the #1079 hazard, and became sharper once `context use`
+/// started calling `az account set`: an in-process run would have repointed the
+/// developer's actual Azure CLI. A subprocess with `AZLIN_CONFIG_DIR` set
+/// cannot.
+///
+/// `use` is deliberately exercised on a context that pins no subscription, so
+/// the step is deterministic without Azure. The subscription-pinned path is
+/// covered by `tests::test_context_switch`.
+#[test]
+fn test_context_create_use_rename_delete_isolated() {
+    let dir = tempfile::TempDir::new().unwrap();
 
-    // Use
-    let r = run_dispatch(&["context", "use", "test-cov-ctx"]).await;
-    assert!(r.is_ok(), "context use failed: {:?}", r.err());
+    let out = run_isolated(
+        &dir,
+        &[
+            "context",
+            "create",
+            "test-cov-ctx",
+            "--resource-group",
+            "test-rg",
+            "--region",
+            "westus2",
+        ],
+    );
+    assert_isolated_ok(&out, "context create");
 
-    // Rename
-    let r = run_dispatch(&["context", "rename", "test-cov-ctx", "test-cov-ctx-renamed"]).await;
-    assert!(r.is_ok(), "context rename failed: {:?}", r.err());
+    let out = run_isolated(&dir, &["context", "use", "test-cov-ctx"]);
+    assert_isolated_ok(&out, "context use");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("active-context"))
+            .unwrap()
+            .trim(),
+        "test-cov-ctx"
+    );
 
-    // Show (should show the renamed context)
-    let r = run_dispatch(&["context", "show"]).await;
-    assert!(r.is_ok());
+    let out = run_isolated(
+        &dir,
+        &["context", "rename", "test-cov-ctx", "test-cov-ctx-renamed"],
+    );
+    assert_isolated_ok(&out, "context rename");
 
-    // Delete
-    let r = run_dispatch(&["context", "delete", "test-cov-ctx-renamed", "--force"]).await;
-    assert!(r.is_ok(), "context delete failed: {:?}", r.err());
+    let out = run_isolated(&dir, &["context", "show"]);
+    assert_isolated_ok(&out, "context show");
+    assert!(String::from_utf8_lossy(&out.stdout).contains("test-cov-ctx-renamed"));
+
+    let out = run_isolated(
+        &dir,
+        &["context", "delete", "test-cov-ctx-renamed", "--force"],
+    );
+    assert_isolated_ok(&out, "context delete");
 }
 
 #[tokio::test]

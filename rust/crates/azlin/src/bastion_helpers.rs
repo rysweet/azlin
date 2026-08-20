@@ -168,7 +168,7 @@ pub fn build_check_bastion_subnet_args(resource_group: &str, region: &str) -> Ve
 // ── Orchestrator: ensure bastion infrastructure exists ────────────────
 
 /// Run an `az` CLI command and return its output.
-fn run_az(args: &[String]) -> anyhow::Result<std::process::Output> {
+pub(crate) fn run_az(args: &[String]) -> anyhow::Result<std::process::Output> {
     Ok(std::process::Command::new("az")
         .args(args)
         .stdout(std::process::Stdio::piped())
@@ -177,7 +177,7 @@ fn run_az(args: &[String]) -> anyhow::Result<std::process::Output> {
 }
 
 /// Run an `az` CLI command and bail with a contextual message on failure.
-fn run_az_or_bail(args: &[String], context: &str) -> anyhow::Result<()> {
+pub(crate) fn run_az_or_bail(args: &[String], context: &str) -> anyhow::Result<()> {
     let output = run_az(args)?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

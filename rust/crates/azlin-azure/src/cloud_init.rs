@@ -267,9 +267,23 @@ pub fn default_dev_setup_commands(username: &str) -> Vec<String> {
         // Python 3.14 - install via deadsnakes but do NOT change system python3
         "if python3.14 --version 2>/dev/null; then echo 'Python 3.14 available'; else add-apt-repository -y ppa:deadsnakes/ppa && apt update && apt install -y python3.14 python3.14-venv python3.14-dev || echo 'WARNING: Python 3.14 install failed'; fi".to_string(),
         // GitHub CLI
-        "mkdir -p -m 755 /etc/apt/keyrings && wget -nv -O /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && mkdir -p -m 755 /etc/apt/sources.list.d && echo \"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && apt update && apt install -y gh".to_string(),
-        // Azure CLI
-        "curl -sL https://aka.ms/InstallAzureCLIDeb | bash".to_string(),
+        "mkdir -p -m 755 /etc/apt/keyrings && wget -nv -O /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && mkdir -p -m 755 /etc/apt/sources.list.d && echo \"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && apt update && apt install -y gh || echo 'WARNING: GitHub CLI install failed'".to_string(),
+        // Azure CLI.
+        //
+        // Not `curl -sL https://aka.ms/InstallAzureCLIDeb | bash`. That script
+        // derives its apt dist from `lsb_release -cs` and 404s on any codename
+        // Microsoft has not published. Ubuntu 26.04 ("resolute") is not
+        // published — only up to "noble" is — so on 26.04 it simply fails.
+        //
+        // Worse, it failed *silently*: in a `curl ... | bash` pipeline the exit
+        // status is bash's, so a failed download still exits 0, and `-s`
+        // suppressed curl's error. Provisioning reported success on a VM with
+        // no `az` installed and nothing in cloud-init-output.log to say so.
+        //
+        // Install from the repo directly instead: use the running codename when
+        // Microsoft publishes it, fall back to the newest published LTS when
+        // they do not, and report failure either way.
+        r#"AZ_DIST=$(lsb_release -cs) && if ! curl -fsSL "https://packages.microsoft.com/repos/azure-cli/dists/$AZ_DIST/Release" >/dev/null 2>&1; then echo "NOTE: azure-cli has no apt dist for '$AZ_DIST'; falling back to noble"; AZ_DIST=noble; fi && mkdir -p -m 755 /etc/apt/keyrings && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg && chmod go+r /etc/apt/keyrings/microsoft.gpg && mkdir -p -m 755 /etc/apt/sources.list.d && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ $AZ_DIST main" > /etc/apt/sources.list.d/azure-cli.list && apt-get update && apt-get install -y azure-cli || echo 'WARNING: Azure CLI install failed'"#.to_string(),
         // Chromium (Ubuntu ships this as a snap-backed launcher)
         "apt-get install -y chromium-browser".to_string(),
         // Chromium wrappers so SSH/X11 launches use a scoped user session instead of
@@ -315,7 +329,7 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         // astral-uv (uv package manager)
         "snap install astral-uv --classic || true".to_string(),
         // Node.js 24 LTS (via NodeSource)
-        "curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt install -y nodejs".to_string(),
+        "curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt install -y nodejs || echo 'WARNING: Node.js install failed'".to_string(),
         // npm user-local configuration
         format!("mkdir -p /home/{u}/.npm-packages && echo 'prefix=${{HOME}}/.npm-packages' > /home/{u}/.npmrc && chown {u}:{u} /home/{u}/.npmrc /home/{u}/.npm-packages", u = username),
         // Tmux configuration
@@ -323,9 +337,17 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         // Fix tmux socket dir permissions (Ubuntu 25.10+)
         format!("chmod 1777 /tmp && TMUX_UID=$(id -u {u}) && mkdir -p /tmp/tmux-$TMUX_UID && chmod 700 /tmp/tmux-$TMUX_UID && chown {u}:{u} /tmp/tmux-$TMUX_UID", u = username),
         // Claude Code AI Assistant
-        format!("su - {u} -c 'curl -fsSL https://claude.ai/install.sh | bash' || echo 'WARNING: Claude Code installation failed'", u = username),
+        // Download, then execute. NOT `curl ... | bash` inside `su -c`: the
+        // generated script sets `pipefail`, but that is a per-shell option and
+        // the fresh login shell `su -` starts does not inherit it. Verified:
+        // `bash -c 'set -o pipefail; bash -c "false | true; echo $?"'` prints 0.
+        // So a failed download would leave bash reading empty stdin, exiting 0,
+        // and the `|| echo WARNING` below would never fire — #1069 one level
+        // deeper.
+        format!("su - {u} -c 'curl -fsSL https://claude.ai/install.sh -o /tmp/claude-install.sh && sh /tmp/claude-install.sh; rc=$?; rm -f /tmp/claude-install.sh; exit $rc' || echo 'WARNING: Claude Code installation failed'", u = username),
         // Rust
-        format!("su - {u} -c 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'", u = username),
+        // Download, then execute — same `su -c` pipefail reasoning as above.
+        format!("su - {u} -c 'curl --proto =https --tlsv1.2 -fsSf https://sh.rustup.rs -o /tmp/rustup-init.sh && sh /tmp/rustup-init.sh -y; rc=$?; rm -f /tmp/rustup-init.sh; exit $rc' || echo 'WARNING: Rust install failed'", u = username),
         // amplihack-rs (pre-built binary from latest GitHub release, falls back to cargo install)
         format!("su - {u} -c 'ARCH=$(uname -m | sed s/aarch64/aarch64/ | sed s/x86_64/x86_64/) && \
             URL=$(curl -fsSL https://api.github.com/repos/rysweet/amplihack-rs/releases/latest | grep browser_download_url | grep $ARCH-unknown-linux-gnu.tar.gz\\\" | head -1 | cut -d\\\"  -f4) && \
@@ -348,10 +370,28 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
             cp ay-linux-$ARCH ~/.cargo/bin/ay && \
             chmod +x ~/.cargo/bin/azlin ~/.cargo/bin/azdoit ~/.cargo/bin/ay && \
             cd ~ && rm -rf /tmp/azlin-install' || echo 'WARNING: azlin binary installation failed (azlin/azdoit/ay)'", u = username),
+        // Put the installed CLIs on the default PATH.
+        //
+        // The installers above drop binaries in ~/.cargo/bin, which is only added
+        // to PATH by ~/.cargo/env sourced from .bashrc -- and bash skips .bashrc
+        // for non-interactive shells. That made `ssh <vm> 'amplihack ...'`, cron
+        // jobs and CI steps fail with "command not found" while an interactive
+        // `azlin connect` session worked, which reads as a failed install (#1095).
+        // /usr/local/bin is on the default PATH for every shell type, and linking
+        // there also removes the dependency on rustup having created ~/.cargo/env.
+        //
+        // Each link is guarded by `[ -x ... ]`: a missing binary must produce a
+        // WARNING, never a dangling symlink that makes `command -v` succeed while
+        // running the command fails.
+        format!("mkdir -p /usr/local/bin && for b in amplihack amplihack-hooks azlin azdoit ay; do src=/home/{u}/.cargo/bin/$b; if [ -x \"$src\" ]; then ln -sf \"$src\" /usr/local/bin/$b || echo \"WARNING: could not link $b into /usr/local/bin; it will be missing from non-interactive shells\"; else echo \"WARNING: $src is missing or not executable; $b will be missing from non-interactive shells\"; fi; done || echo \"WARNING: could not link the installed CLIs into /usr/local/bin\"", u = username),
         // Go
-        "wget -q https://go.dev/dl/go1.26.4.linux-amd64.tar.gz -O /tmp/go.tar.gz && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz".to_string(),
+        "wget -q https://go.dev/dl/go1.26.4.linux-amd64.tar.gz -O /tmp/go.tar.gz && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz || echo 'WARNING: Go install failed'".to_string(),
         // .NET 10 SDK
-        "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && chmod +x /tmp/dotnet-install.sh && (/tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet || echo 'WARNING: .NET 10 SDK install failed') && ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet; rm -f /tmp/dotnet-install.sh".to_string(),
+        // The `ln` is guarded: the install runs inside `( ... || echo WARNING )`, so a
+        // failed SDK install still reaches this point. Linking unconditionally left a
+        // dangling /usr/local/bin/dotnet -- `command -v dotnet` succeeded, running it
+        // did not.
+        "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && chmod +x /tmp/dotnet-install.sh && (/tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet || echo 'WARNING: .NET 10 SDK install failed') && if [ -x /usr/share/dotnet/dotnet ]; then ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet; else echo 'WARNING: /usr/share/dotnet/dotnet is missing; not linking /usr/local/bin/dotnet'; fi; rm -f /tmp/dotnet-install.sh".to_string(),
         // Docker post-install
         format!("usermod -aG docker {u} && systemctl enable docker && systemctl start docker", u = username),
         // Enable systemd user linger so SSH sessions get a systemd user instance
@@ -359,6 +399,12 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         format!("loginctl enable-linger {u}", u = username),
         // bashrc additions (npm path, go path, cargo env, azlin alias)
         format!("cat >> /home/{u}/.bashrc << 'BASHEOF'\n\n# npm user-local configuration\nNPM_PACKAGES=\"${{HOME}}/.npm-packages\"\nPATH=\"$NPM_PACKAGES/bin:$PATH\"\nMANPATH=\"$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)\"\n\n# Go\nexport PATH=$PATH:/usr/local/go/bin\n\n# Cargo\nsource $HOME/.cargo/env 2>/dev/null\nBASHEOF", u = username),
+        // Non-interactive PATH check. The login-shell check below passes even when
+        // the binaries only exist in ~/.cargo/bin, which is exactly how #1095 hid:
+        // `azlin connect` worked, `ssh <vm> 'amplihack ...'` did not. `su` without
+        // `-` gives a non-login, non-interactive shell -- the same environment ssh
+        // commands, cron jobs and CI steps get.
+        format!("su {u} -s /bin/bash -c 'for b in amplihack amplihack-hooks azlin azdoit ay; do command -v $b > /dev/null || echo \"WARNING: $b is not on the default non-interactive PATH\"; done' || echo \"WARNING: could not run the non-interactive PATH check\"", u = username),
         // Version verification (rustc is in user homedir, must check as user).
         // All three azlin archive members are checked: the install chain is a
         // single `&&` sequence, so a member missing from a future tarball aborts
@@ -489,7 +535,7 @@ mod tests {
             "Missing GitHub CLI install command"
         );
         assert!(
-            cmds.iter().any(|c| c.contains("InstallAzureCLIDeb")),
+            cmds.iter().any(|c| c.contains("azure-cli")),
             "Missing Azure CLI install command"
         );
         assert!(
@@ -805,12 +851,203 @@ mod tests {
         );
     }
 
+    /// The five CLIs are installed into ~/.cargo/bin, which only reaches PATH via
+    /// ~/.cargo/env sourced from .bashrc -- and bash skips .bashrc for
+    /// non-interactive shells. Every one of them must also be linked into
+    /// /usr/local/bin, which is on the default PATH for interactive, login,
+    /// non-interactive and cron shells alike.
+    #[test]
+    fn test_default_dev_setup_commands_link_installed_clis_into_usr_local_bin() {
+        let cmds = default_dev_setup_commands("devuser");
+        let link_cmd = cmds
+            .iter()
+            .find(|c| c.contains("ln -sf \"$src\" /usr/local/bin/$b"))
+            .expect("default_dev_setup_commands must link the installed CLIs into /usr/local/bin");
+
+        for bin in ["amplihack", "amplihack-hooks", "azlin", "azdoit", "ay"] {
+            assert!(
+                link_cmd.contains(&format!(" {bin} ")) || link_cmd.contains(&format!(" {bin};")),
+                "{bin} must be linked onto the default PATH: {link_cmd}"
+            );
+        }
+        assert!(
+            link_cmd.contains("/home/devuser/.cargo/bin/$b"),
+            "link source must be the provisioned admin user's cargo bin: {link_cmd}"
+        );
+        assert!(
+            link_cmd.contains("if [ -x \"$src\" ]"),
+            "linking must be guarded so a failed install cannot leave a dangling symlink: {link_cmd}"
+        );
+        assert!(
+            link_cmd.matches("echo \"WARNING:").count() >= 2,
+            "both a failed link and a missing binary must be reported: {link_cmd}"
+        );
+    }
+
+    /// Semantic counterpart to the string assertions above: runs the generated
+    /// link step in a real shell against a scratch "cargo bin" and "/usr/local/bin"
+    /// and inspects what actually lands on disk.
+    #[cfg(unix)]
+    #[test]
+    fn test_default_dev_setup_commands_link_step_behaves_under_a_real_shell() {
+        use std::process::Command;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        const BINS: [&str; 5] = ["amplihack", "amplihack-hooks", "azlin", "azdoit", "ay"];
+
+        let unique = format!(
+            "azlin-cloud-init-link-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock before unix epoch")
+                .as_nanos()
+        );
+        let root = std::env::temp_dir().join(unique);
+        let cargo_bin = root.join("cargo-bin");
+        let local_bin = root.join("local-bin");
+
+        let cmds = default_dev_setup_commands("azureuser");
+        let link_cmd = cmds
+            .iter()
+            .find(|c| c.contains("ln -sf \"$src\" /usr/local/bin/$b"))
+            .expect("default_dev_setup_commands must link the installed CLIs into /usr/local/bin")
+            .replace(
+                "/home/azureuser/.cargo/bin",
+                cargo_bin.to_str().expect("path must be utf-8"),
+            )
+            .replace(
+                "/usr/local/bin",
+                local_bin.to_str().expect("path must be utf-8"),
+            );
+
+        // `installed` binaries exist and are executable; the rest are absent, as
+        // they would be after a failed installer.
+        let run = |installed: &[&str]| -> String {
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(&cargo_bin).expect("create scratch cargo bin");
+            for bin in installed {
+                let path = cargo_bin.join(bin);
+                std::fs::write(&path, "#!/bin/sh\n").expect("write stub binary");
+                let mut perms = std::fs::metadata(&path)
+                    .expect("stat stub binary")
+                    .permissions();
+                std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o755);
+                std::fs::set_permissions(&path, perms).expect("chmod stub binary");
+            }
+            let out = Command::new("sh")
+                .arg("-c")
+                .arg(&link_cmd)
+                .output()
+                .expect("failed to run sh");
+            assert!(
+                out.status.success(),
+                "the link step must never abort provisioning: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr)
+        };
+
+        // Happy path: every CLI installed, so every CLI gets a /usr/local/bin entry
+        // that resolves to a real executable.
+        let all_output = run(&BINS);
+        let linked: Vec<(bool, bool)> = BINS
+            .iter()
+            .map(|bin| {
+                let path = local_bin.join(bin);
+                (
+                    std::fs::symlink_metadata(&path).is_ok(),
+                    path.exists(), // follows the link: false means dangling
+                )
+            })
+            .collect();
+
+        // Failure path: the amplihack installer failed, so its binaries are absent.
+        let missing_output = run(&["azlin", "azdoit", "ay"]);
+        let amplihack_link = local_bin.join("amplihack");
+        let amplihack_link_exists = std::fs::symlink_metadata(&amplihack_link).is_ok();
+        let azlin_linked = local_bin.join("azlin").exists();
+
+        let _ = std::fs::remove_dir_all(&root);
+
+        for (bin, (exists, resolves)) in BINS.iter().zip(&linked) {
+            assert!(
+                *exists && *resolves,
+                "{bin} must be reachable from the default PATH via /usr/local/bin: {all_output}"
+            );
+        }
+        assert!(
+            !all_output.contains("WARNING:"),
+            "linking every installed CLI must not warn: {all_output}"
+        );
+
+        assert!(
+            !amplihack_link_exists,
+            "a CLI that failed to install must not get a dangling /usr/local/bin symlink: {missing_output}"
+        );
+        assert!(
+            missing_output.contains("WARNING:") && missing_output.contains("amplihack"),
+            "a missing CLI must be reported, not skipped silently: {missing_output}"
+        );
+        assert!(
+            azlin_linked,
+            "one missing CLI must not stop the others from being linked: {missing_output}"
+        );
+    }
+
+    /// Provisioning must check the CLIs from the same kind of shell that
+    /// `ssh <vm> 'amplihack ...'`, cron and CI use. The pre-existing check runs
+    /// under `su -` (a login shell), which passed even while every non-interactive
+    /// invocation failed.
+    #[test]
+    fn test_default_dev_setup_commands_verify_clis_on_the_non_interactive_path() {
+        let cmds = default_dev_setup_commands("devuser");
+        let check = cmds
+            .iter()
+            .find(|c| c.contains("not on the default non-interactive PATH"))
+            .expect("provisioning must verify the CLIs resolve from a non-interactive shell");
+        assert!(
+            check.starts_with("su devuser -s /bin/bash -c"),
+            "the check must run as the admin user in a non-login shell: {check}"
+        );
+        for bin in ["amplihack", "amplihack-hooks", "azlin", "azdoit", "ay"] {
+            assert!(
+                check.contains(&format!(" {bin} ")) || check.contains(&format!(" {bin};")),
+                "{bin} must be covered by the non-interactive PATH check: {check}"
+            );
+        }
+    }
+
+    /// The .NET install runs inside `( ... || echo WARNING )`, so a failed install
+    /// still reaches the `ln`. Linking unconditionally left a dangling
+    /// /usr/local/bin/dotnet: `command -v dotnet` succeeded, running it did not.
+    #[test]
+    fn test_default_dev_setup_commands_never_link_a_missing_dotnet() {
+        let cmds = default_dev_setup_commands("azureuser");
+        let dotnet = cmds
+            .iter()
+            .find(|c| c.contains("dotnet-install.sh"))
+            .expect("missing .NET install command");
+        assert!(
+            dotnet.contains("if [ -x /usr/share/dotnet/dotnet ]; then ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet;"),
+            "dotnet must only be linked once the SDK is actually present: {dotnet}"
+        );
+        assert!(
+            dotnet.contains("not linking /usr/local/bin/dotnet"),
+            "a missing dotnet must be reported instead of linked: {dotnet}"
+        );
+    }
+
     #[test]
     fn test_render_dev_cloud_init_script_uses_shared_packages_and_commands() {
         let script = render_dev_cloud_init_script("azureuser");
         assert!(script.starts_with("#!/bin/bash\nset -euo pipefail"));
         assert!(script.contains("fd-find"));
         assert!(script.contains("xdg-utils"));
+        assert!(
+            script.contains("ln -sf \"$src\" /usr/local/bin/$b"),
+            "the rendered script must put the installed CLIs on the default PATH"
+        );
         assert!(script.contains("/var/lib/azlin/provisioning-complete"));
         assert!(script.contains("cloud-init provisioning complete"));
     }
@@ -1121,5 +1358,85 @@ mod tests {
             !script.contains("evil user"),
             "Unsafe username must not appear in disk blocks"
         );
+    }
+    /// The Azure CLI install must not fail silently, and must cope with an
+    /// Ubuntu release Microsoft has not published an apt dist for.
+    ///
+    /// Observed on a real Ubuntu 26.04 VM: codename "resolute",
+    /// `https://packages.microsoft.com/repos/azure-cli/dists/resolute/Release`
+    /// returns 404 (noble returns 200), `which az` reported nothing, and
+    /// cloud-init-output.log contained zero mentions of the install — because
+    /// `curl -sL ... | bash` exits with bash's status, so a failed download
+    /// still succeeded, and `-s` hid the error.
+    #[test]
+    fn azure_cli_install_reports_failure_and_handles_unpublished_codename() {
+        let cmds = default_dev_setup_commands("azureuser");
+        let az = cmds
+            .iter()
+            .find(|c| c.contains("azure-cli"))
+            .expect("dev setup must install the Azure CLI");
+
+        assert!(
+            !az.contains("InstallAzureCLIDeb"),
+            "must not use the aka.ms script, which 404s on unpublished codenames: {az}"
+        );
+        assert!(
+            az.contains("|| echo 'WARNING: Azure CLI install failed'"),
+            "a failed Azure CLI install must be reported, not swallowed: {az}"
+        );
+        assert!(
+            az.contains("AZ_DIST=noble"),
+            "must fall back to a published dist when the running codename is absent: {az}"
+        );
+        assert!(
+            az.contains("lsb_release -cs"),
+            "must prefer the running codename when it is published: {az}"
+        );
+        // `curl -s` hides the very error that needs surfacing; -f makes curl
+        // fail loudly on a 404 instead of writing the error page to the pipe.
+        assert!(
+            az.contains("curl -fsSL"),
+            "curl must fail on HTTP errors rather than piping an error page: {az}"
+        );
+    }
+
+    /// A `| bash` / `| sh` inside `su -c` defeats the outer `|| echo WARNING`.
+    ///
+    /// The generated script sets `pipefail`, but that is per-shell and the
+    /// fresh login shell `su -` starts does not inherit it, so a failed
+    /// download leaves the shell reading empty stdin and exiting 0. The guard
+    /// below only checks that `|| echo` is *present*, which such a line
+    /// satisfies while still being silent — so this asserts the stronger
+    /// property directly.
+    #[test]
+    fn su_payloads_never_pipe_a_download_into_a_shell() {
+        for cmd in default_dev_setup_commands("azureuser") {
+            if !cmd.contains("su - ") {
+                continue;
+            }
+            let pipes_to_shell = (cmd.contains("| bash") || cmd.contains("| sh"))
+                && (cmd.contains("curl ") || cmd.contains("wget "));
+            assert!(
+                !pipes_to_shell || cmd.contains("set -o pipefail"),
+                "a download piped into a shell inside `su -c` cannot report failure \
+                 (pipefail is not inherited); download to a file and execute it: {cmd}"
+            );
+        }
+    }
+
+    /// Every dev-setup step that can fail should say so. This guards the class
+    /// of bug rather than the single instance — an unguarded step is how the
+    /// Azure CLI silently went missing in the first place.
+    #[test]
+    fn network_installing_dev_setup_commands_report_their_failures() {
+        let cmds = default_dev_setup_commands("azureuser");
+        for cmd in &cmds {
+            // Only steps that reach the network can fail for environmental
+            // reasons worth reporting.
+            let fetches = cmd.contains("curl ") || cmd.contains("wget ");
+            if fetches && !cmd.contains("|| echo") {
+                panic!("network-installing step has no failure report: {cmd}");
+            }
+        }
     }
 }
