@@ -337,6 +337,15 @@ fn try_detect_nat_status(resource_group: &str, region: &str) -> Result<NatStatus
 /// `ensure_bastion_infrastructure` may have created this very VNet moments
 /// earlier and ARM read-after-write is not instantaneous.
 pub fn detect_nat_status(resource_group: &str, region: &str) -> Result<NatStatus> {
+    // This is the first `az` call on the private-VM path, and it runs *before*
+    // `ensure_nat_gateway`'s validation — `cmd_vm_ops` calls it directly with a
+    // resource group that came straight from the config file (deserialized with
+    // a bare `toml::from_str`, so never field-validated). A value beginning with
+    // `-` would be read by `az` as a flag, so guard at this boundary too rather
+    // than relying on a caller that may not run first.
+    validate_resource_group(resource_group)?;
+    normalize_region(region)?;
+
     let first = match try_detect_nat_status(resource_group, region) {
         Ok(status) => return Ok(status),
         Err(e) => e,
@@ -908,6 +917,28 @@ mod tests {
     fn test_validate_nat_inputs_rejects_bad_region_and_rg() {
         assert!(validate_nat_inputs(RG, "-g", TAGS).is_err());
         assert!(validate_nat_inputs("-g", REGION, TAGS).is_err());
+    }
+
+    #[test]
+    fn test_detect_nat_status_validates_before_running_az() {
+        // `detect_nat_status` is the FIRST az call on the private-VM path and
+        // is invoked directly by `cmd_vm_ops`, ahead of `ensure_nat_gateway`'s
+        // validation. A resource group beginning with `-` would reach the `az`
+        // command line as a flag, so it must be rejected before the process
+        // spawns rather than trusted to a caller that runs second.
+        //
+        // These cases fail during validation, so no `az` process is spawned
+        // and the test stays offline.
+        let err = detect_nat_status("-g", REGION).unwrap_err().to_string();
+        assert!(
+            err.contains("invalid resource group"),
+            "must reject before spawning az: {err}"
+        );
+        let err = detect_nat_status(RG, "--debug").unwrap_err().to_string();
+        assert!(
+            err.contains("invalid Azure region"),
+            "must reject before spawning az: {err}"
+        );
     }
 
     // ── Error annotation ─────────────────────────────────────────────
