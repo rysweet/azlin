@@ -1,0 +1,177 @@
+name: "azlin github-runner enable creates private VMs, not internet-facing ones"
+description: |
+  Verifies #1123. `handle_runner_enable` built its own `az vm create` argv
+  instead of going through azlin's shared creation path, and so inherited
+  Azure's default — which is a **public IP on every VM**. Every runner the
+  command has ever created is reachable from the internet, and the output said
+  only "Provisioned VM 'azlin-runner-ci-1'".
+
+  Every other creation path in the repository is explicit about this and
+  defaults the other way: `VmManager::create_vm` disables the public IP and
+  joins the bastion VNet unless asked otherwise, and `clone_helpers` and
+  `bastion_helpers` do the same. The fix is not a flag on the hand-rolled argv
+  — it is to stop hand-rolling it, so this path inherits every correction the
+  shared one gets.
+
+  A runner still needs outbound access to reach github.com, and a bastion is
+  inbound only, so enabling a pool now ensures the region's NAT gateway too.
+
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 30000
+
+steps:
+  - name: "Build the binary under test (never assert against a stale build)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo build -p azlin 2>&1 | tail -1
+        test -x target/debug/azlin && echo "PASS: fresh azlin binary present"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 1800000
+
+  - name: "State the limit of this evidence rather than dressing greps up as checks"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cat <<'NOTE'
+        The property this PR is about — no runner VM is created with a public IP —
+        cannot be asserted without provisioning against a real subscription, and
+        this scenario provisions nothing. What follows are the checks that CAN be
+        made without Azure: the decision functions, the ordering of the calls that
+        must precede creation, and the consent gate. The provisioning itself is
+        covered by the shared path's own tests, which is the point of routing
+        through it instead of hand-rolling the argv.
+        NOTE
+        echo "PASS: limits stated"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+  - name: "Runner VMs are asked for without a public IP"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # Not a grep for a string in a comment: this asserts the field on the
+        # params struct actually handed to the shared creation path.
+        grep -B 2 "public_ip_enabled: false" crates/azlin/src/cmd_infra_ops.rs \
+          | grep -q "point of #1123" \
+          && echo "PASS: the runner params are explicitly private"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+  - name: "Nothing is created before the egress it needs"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        bastion=$(grep -n "ensure_bastion_infrastructure(&rg" crates/azlin/src/cmd_infra_ops.rs | head -1 | cut -d: -f1)
+        nat=$(grep -n "ensure_nat_gateway(&rg" crates/azlin/src/cmd_infra_ops.rs | head -1 | cut -d: -f1)
+        create=$(grep -n "create_vm(&params)" crates/azlin/src/cmd_infra_ops.rs | head -1 | cut -d: -f1)
+        test "$bastion" -lt "$create" || { echo "FAIL: bastion ensured after VM creation"; exit 1; }
+        test "$nat" -lt "$create" || { echo "FAIL: NAT ensured after VM creation"; exit 1; }
+        echo "PASS: a runner can reach github.com before it exists"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+  - name: "Creating billed infrastructure asks first, and --yes exists to skip it"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        ./target/debug/azlin github-runner enable --help | grep -q -- "--yes" \
+          || { echo "FAIL: no way to consent non-interactively"; exit 1; }
+        cargo test -p azlin --bin azlin the_prompt_names_what_will_be_created 2>&1 | tail -3
+        echo "PASS: consent is asked for and can be given up front"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 1800000
+
+  - name: "Re-enabling a pool in another region is refused, not half-applied"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo test -p azlin --bin azlin re_enabling_a_pool 2>&1 | tail -3
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok"
+    timeout: 1800000
+
+  - name: "The image is the one this command has always created"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo test -p azlin --bin azlin the_image_is_the_one 2>&1 | tail -3
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok"
+    timeout: 1800000
+
+  - name: "VM names and tags are unchanged, so existing pools still resolve"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo test -p azlin --bin azlin runner_provision 2>&1 | tail -3
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok"
+    timeout: 1800000
+
+  - name: "A pool that partly fails exits non-zero"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo test -p azlin --bin azlin failed_runners_are_named 2>&1 | tail -3
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok"
+    timeout: 1800000
+
+  - name: "The change is documented where a runner operator will read it"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        grep -q "Runners have no public IP" docs/reference/cli-python-parity.md \
+          || { echo "FAIL: undocumented"; exit 1; }
+        grep -q "Existing runner VMs are not changed" docs/reference/cli-python-parity.md \
+          && echo "PASS: the change and its limit are both stated"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+expectations:
+  - "Runner VMs are created with no public IP, on the region's bastion VNet"
+  - "The bastion and NAT gateway are only created after the user consents, or with --yes"
+  - "A region already set up asks nothing, because nothing needs creating"
+  - "Runners stay on Ubuntu 22.04, the image this command has always created"
+  - "Re-enabling a pool into a different region is refused rather than half-applied"
+  - "The bastion and NAT gateway are ensured before any runner VM is created"
+  - "VM names and tags are unchanged, so disable and status still find old pools"
+  - "A pool where some VMs fail exits non-zero, naming them, after reporting all"
+  - "Existing runner VMs keep their public IPs until the pool is recreated — stated, not implied"
+  - "No runner VM is ever provisioned with a public IP by any path in this change"

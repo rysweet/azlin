@@ -524,6 +524,87 @@ azlin logs my-vm --type all
 
 ---
 
+## github-runner enable
+
+Provision a pool of self-hosted GitHub Actions runner VMs.
+
+```
+azlin github-runner enable [OPTIONS]
+```
+
+### Options
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--repo` | `TEXT` | — | Repository the pool serves (recorded in tags and config) |
+| `--pool` | `TEXT` | — | Pool name; VMs are `azlin-runner-<pool>-<n>` |
+| `--count` | `INT` | — | How many runner VMs to create |
+| `--labels` | `TEXT` | `self-hosted` | Runner labels (recorded in config) |
+| `--vm-size` | `TEXT` | `Standard_B2s` | VM size |
+| `--resource-group`, `--rg` | `TEXT` | config default | Azure resource group |
+| `--auto-scale` | flag | `false` | **Not implemented** — see below |
+| `--yes` | flag | `false` | Create the region's bastion and NAT gateway without asking |
+
+### Runners have no public IP
+
+> **This changed.** Until #1123, this command built its own `az vm create`
+> invocation instead of going through azlin's shared creation path — and
+> inherited Azure's default, which is a **public IP on every VM**. Every runner
+> the command has ever created is reachable from the internet, and the output
+> said only `Provisioned VM 'azlin-runner-ci-1'`.
+>
+> Runners are now created the same way `azlin new` creates VMs: no public IP,
+> on the region's bastion VNet. **Existing runner VMs are not changed** —
+> `azlin github-runner disable` and re-enabling the pool replaces them.
+
+Because a bastion is inbound only, a private VM with no NAT gateway can be
+reached and cannot reach anything — and a runner that cannot reach github.com
+is not a runner. Enabling a pool therefore ensures both the bastion
+infrastructure and the NAT gateway for the region before any VM is created.
+Both are regional and shared with every other azlin VM in that region.
+
+**Creating either is asked for first**, because both are billed monthly for as
+long as they exist — the same consent `azlin new` asks for. Only what is
+actually missing is offered, so enabling a second pool in a region that is
+already set up asks nothing. `--yes` gives consent up front; without a terminal
+and without the flag, the command refuses rather than provisioning.
+
+(The bastion and the NAT gateway each carry a public IP of their own; that is
+what they are. The change here is that the *runner VMs* no longer do.)
+
+The region comes from `default_region` in the config and is recorded in the
+pool's TOML file, so `status` and `disable` can tell which region a pool lives
+in. A pool lives in exactly one region: re-running `enable` for an existing pool
+after changing `default_region` is **refused**, because the second run would
+create VMs with the same names in a different region of the same resource group.
+Disable the pool first, or set the region back.
+
+### Runners stay on Ubuntu 22.04
+
+The command has always created 22.04 runners, and there is no `--image` flag to
+ask for anything else. Routing this path through azlin's shared VM creation made
+it tempting to take that path's default — now 26.04 — which would have moved
+every re-enabled pool four releases forward silently. `azlin new` defaults to
+26.04; runner pools do not.
+
+### A pool that partly fails now exits non-zero
+
+`azlin github-runner enable --count 5` with five failures used to print five
+errors and exit 0. It now exits non-zero, naming the VMs that did not come up —
+after writing the pool config and reporting every VM, so a partial failure
+never hides the runners that did come up. The message says plainly that the
+config was still written and that `status` will report the pool as enabled with
+fewer runners than requested.
+
+### `--auto-scale` is not implemented
+
+`enable` provisions `--count` VMs once and writes a TOML file. Nothing watches a
+queue, nothing creates or removes a runner afterwards, and no process is left
+running to do either. Wiring the flag means building a scaler — a service, not a
+flag. Tracked under #1089.
+
+---
+
 ## doit deploy
 
 Ask the model for a plan of `az` commands and run them.
