@@ -386,6 +386,76 @@ fn read_failure_message(region: &str, first: &str, second: Option<&str>) -> Stri
     }
 }
 
+/// Pause before each post-conflict subnet re-check.
+///
+/// A 409 means a concurrent `azlin new` is *mid-write* on this subnet. Reading
+/// it back immediately can land before that write commits, so azlin would
+/// report a failure for work that succeeded a moment later (#1101). Three
+/// seconds is longer than [`READ_RETRY_BACKOFF`] on purpose: that one waits
+/// out an ARM throttle window, this one waits out somebody else's subnet PUT.
+const CONFLICT_RECHECK_BACKOFF: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// How many times to re-check the subnet after a conflict.
+///
+/// One look is a coin flip on whether the other run has committed yet. Three,
+/// spaced by [`CONFLICT_RECHECK_BACKOFF`], cover ~9s — invisible next to the
+/// `az vm create` this is unblocking, and enough for a subnet association to
+/// land in the common case.
+const CONFLICT_RECHECK_ATTEMPTS: usize = 3;
+
+/// Decide what a failed attach means and, if it was a lost race, wait for the
+/// winner to finish.
+///
+/// Split out from [`ensure_nat_gateway`] with `sleep` and `recheck` injected
+/// because that is the only way to test it: the behaviour that matters is
+/// *ordering* — that the wait happens before the first re-read, not after it —
+/// and neither a real sleep nor a real `az` call can be observed from a unit
+/// test. The closures make both observable without a process mock, which is
+/// why #1101 was deferred out of #1097 in the first place.
+///
+/// Returns the attached gateway's name when the race resolved in our favour.
+fn resolve_attach_conflict<S, R>(
+    attach_err: anyhow::Error,
+    mut sleep: S,
+    mut recheck: R,
+) -> Result<String>
+where
+    S: FnMut(std::time::Duration),
+    R: FnMut() -> Result<NatStatus>,
+{
+    if !CONFLICT_MARKERS
+        .iter()
+        .any(|m| attach_err.to_string().contains(m))
+    {
+        return Err(attach_err);
+    }
+    eprintln!("  Attach conflicted with a concurrent operation; re-checking subnet...");
+    for _ in 0..CONFLICT_RECHECK_ATTEMPTS {
+        // Wait first. The conflict is evidence that a write is in flight, so
+        // the immediate read is the one guaranteed to be too early.
+        sleep(CONFLICT_RECHECK_BACKOFF);
+        match recheck() {
+            Ok(NatStatus::Attached { name }) => return Ok(name),
+            // The other run has not committed an association yet. It may still
+            // be mid-write, so look again rather than calling the race lost.
+            Ok(_) => continue,
+            // The re-read itself failed. Reporting only the conflict would
+            // send the user chasing a race that may not exist when the actual
+            // problem is that the subnet is now unreadable — and if that was
+            // an RBAC denial, `annotate_authz` is the one thing that tells
+            // them which role they are missing. `detect_nat_status` already
+            // retries a failing read internally, so there is nothing to gain
+            // by looping on it here.
+            Err(re_read) => {
+                return Err(attach_err.context(conflict_recheck_failure_message(&re_read)))
+            }
+        }
+    }
+    // Every look came back with no association, so the original conflict is
+    // still the real failure.
+    Err(attach_err)
+}
+
 /// Render the context added when the post-conflict subnet re-read also failed.
 ///
 /// Pure so the one branch that could lose an error is testable: the caller has
@@ -456,30 +526,14 @@ pub fn ensure_nat_gateway(resource_group: &str, region: &str, ip_tags: &str) -> 
     ) {
         // A concurrent `azlin new` in the same region writes the same subnet.
         // Azure serialises those with 409/AnotherOperationInProgress, so a
-        // conflict here usually means the other run already did the work.
-        // Re-read before failing: the goal is egress on the subnet, not
+        // conflict here usually means the other run is doing the work. Wait,
+        // then re-read before failing: the goal is egress on the subnet, not
         // winning the race.
-        if !CONFLICT_MARKERS.iter().any(|m| e.to_string().contains(m)) {
-            return Err(e);
-        }
-        eprintln!("  Attach conflicted with a concurrent operation; re-checking subnet...");
-        match detect_nat_status(resource_group, region) {
-            Ok(NatStatus::Attached { name }) => {
-                eprintln!(
-                    "  ✓ Subnet already attached to NAT gateway '{name}' by a concurrent run"
-                );
-                return Ok(());
-            }
-            // The concurrent run finished without attaching anything, so the
-            // original conflict is still the real failure.
-            Ok(_) => return Err(e),
-            // The re-read itself failed. Reporting only the conflict would
-            // send the user chasing a race that may not exist when the actual
-            // problem is that the subnet is now unreadable — and if that was
-            // an RBAC denial, `annotate_authz` is the one thing that tells
-            // them which role they are missing.
-            Err(re_read) => return Err(e.context(conflict_recheck_failure_message(&re_read))),
-        }
+        let name = resolve_attach_conflict(e, std::thread::sleep, || {
+            detect_nat_status(resource_group, region)
+        })?;
+        eprintln!("  ✓ Subnet already attached to NAT gateway '{name}' by a concurrent run");
+        return Ok(());
     }
     eprintln!("  ✓ Attached to subnet '{VM_SUBNET}' of '{vnet}'");
     eprintln!("  ✓ Outbound internet enabled for private VMs in {region}");
@@ -1110,6 +1164,169 @@ mod tests {
         assert!(
             !throttled.contains("Network Contributor"),
             "throttling is not a permissions failure: {throttled}"
+        );
+    }
+
+    // ── The post-conflict re-check (#1101) ───────────────────────────
+    //
+    // What matters here is *ordering*: the wait has to happen before the first
+    // re-read, because the 409 is evidence that somebody else's write is in
+    // flight and an immediate read is the one guaranteed to be too early. That
+    // is unobservable through a real sleep and a real `az` call, which is why
+    // the sleep and the re-read are injected.
+
+    /// Record of what `resolve_attach_conflict` did, in order.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Step {
+        Slept(u64),
+        Rechecked,
+    }
+
+    /// Drive `resolve_attach_conflict` with a scripted sequence of re-read
+    /// results, returning its verdict alongside the calls it made.
+    fn drive_conflict(
+        attach_err: anyhow::Error,
+        results: Vec<Result<NatStatus>>,
+    ) -> (Result<String>, Vec<Step>) {
+        let log = std::cell::RefCell::new(Vec::new());
+        let mut remaining = results.into_iter();
+        let verdict = resolve_attach_conflict(
+            attach_err,
+            |d| log.borrow_mut().push(Step::Slept(d.as_secs())),
+            || {
+                log.borrow_mut().push(Step::Rechecked);
+                remaining.next().unwrap_or_else(|| Ok(NatStatus::Absent))
+            },
+        );
+        (verdict, log.into_inner())
+    }
+
+    #[test]
+    fn conflict_waits_before_the_first_recheck() {
+        let (verdict, steps) = drive_conflict(
+            anyhow::anyhow!("AnotherOperationInProgress"),
+            vec![Ok(NatStatus::Attached {
+                name: "azlin-natgw-southcentralus".to_string(),
+            })],
+        );
+        assert_eq!(verdict.unwrap(), "azlin-natgw-southcentralus");
+        // The first thing that happens is the wait, not the read. Reading
+        // first is the bug (#1101): it lands before the concurrent write
+        // commits and reports a failure for work that succeeded.
+        assert_eq!(
+            steps,
+            vec![
+                Step::Slept(CONFLICT_RECHECK_BACKOFF.as_secs()),
+                Step::Rechecked
+            ]
+        );
+    }
+
+    #[test]
+    fn a_non_conflict_failure_neither_waits_nor_rereads() {
+        let (verdict, steps) = drive_conflict(
+            anyhow::anyhow!("ResourceNotFound: no such subnet"),
+            vec![Ok(NatStatus::Attached {
+                name: "should-not-be-consulted".to_string(),
+            })],
+        );
+        assert!(verdict.is_err());
+        assert!(verdict
+            .unwrap_err()
+            .to_string()
+            .contains("ResourceNotFound"));
+        assert!(
+            steps.is_empty(),
+            "a real failure must not be delayed by a race that did not happen: {steps:?}"
+        );
+    }
+
+    #[test]
+    fn conflict_keeps_looking_while_the_other_run_finishes() {
+        // The winner of the race has not committed its association yet on the
+        // first two looks. Giving up there is what made this a coin flip.
+        let (verdict, steps) = drive_conflict(
+            anyhow::anyhow!("Conflict"),
+            vec![
+                Ok(NatStatus::Absent),
+                Ok(NatStatus::Absent),
+                Ok(NatStatus::Attached {
+                    name: "azlin-natgw-westus2".to_string(),
+                }),
+            ],
+        );
+        assert_eq!(verdict.unwrap(), "azlin-natgw-westus2");
+        assert_eq!(
+            steps.iter().filter(|s| **s == Step::Rechecked).count(),
+            3,
+            "{steps:?}"
+        );
+        // Every re-read is preceded by its own wait.
+        for pair in steps.chunks(2) {
+            assert_eq!(
+                pair,
+                [
+                    Step::Slept(CONFLICT_RECHECK_BACKOFF.as_secs()),
+                    Step::Rechecked
+                ],
+                "{steps:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn conflict_gives_up_after_the_bounded_number_of_looks() {
+        let (verdict, steps) = drive_conflict(
+            anyhow::anyhow!("AnotherOperationInProgress"),
+            (0..CONFLICT_RECHECK_ATTEMPTS + 5)
+                .map(|_| Ok(NatStatus::Absent))
+                .collect(),
+        );
+        let err = verdict.unwrap_err().to_string();
+        // The original conflict is still the real failure, and is what the
+        // user sees — not a manufactured "gave up" message.
+        assert!(err.contains("AnotherOperationInProgress"), "{err}");
+        assert_eq!(
+            steps.iter().filter(|s| **s == Step::Rechecked).count(),
+            CONFLICT_RECHECK_ATTEMPTS,
+            "the re-check must be bounded: {steps:?}"
+        );
+    }
+
+    #[test]
+    fn a_failing_recheck_surfaces_both_errors_and_stops() {
+        let (verdict, steps) = drive_conflict(
+            anyhow::anyhow!("AnotherOperationInProgress"),
+            vec![Err(anyhow::anyhow!(
+                "AuthorizationFailed on the subnet read"
+            ))],
+        );
+        let err = format!("{:#}", verdict.unwrap_err());
+        assert!(err.contains("AnotherOperationInProgress"), "{err}");
+        assert!(err.contains("AuthorizationFailed"), "{err}");
+        // `detect_nat_status` already retries a failing read internally;
+        // looping on it here would only multiply the wait before the same
+        // verdict.
+        assert_eq!(
+            steps.iter().filter(|s| **s == Step::Rechecked).count(),
+            1,
+            "{steps:?}"
+        );
+    }
+
+    #[test]
+    fn conflict_recheck_backoff_is_nonzero_and_bounded() {
+        assert!(
+            !CONFLICT_RECHECK_BACKOFF.is_zero(),
+            "an immediate re-read is the bug this exists to fix (#1101)"
+        );
+        // Longer than the throttle backoff: this one waits out somebody
+        // else's subnet PUT, not an ARM retry-after.
+        assert!(CONFLICT_RECHECK_BACKOFF >= READ_RETRY_BACKOFF);
+        let worst_case = CONFLICT_RECHECK_BACKOFF * CONFLICT_RECHECK_ATTEMPTS as u32;
+        assert!(
+            worst_case <= std::time::Duration::from_secs(30),
+            "the whole re-check has to stay invisible next to `az vm create`"
         );
     }
 
