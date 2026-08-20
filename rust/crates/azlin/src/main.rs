@@ -753,6 +753,30 @@ fn main() {
 async fn async_main(start: std::time::Instant) -> Result<()> {
     let cli = azlin_cli::Cli::parse();
 
+    // --config: the single point where the flag becomes real.
+    //
+    // Installing the path here, before anything dispatches, is what makes
+    // `--config` true for all ~60 subcommands at once. Handlers keep calling
+    // `AzlinConfig::load()` and get the file the user named; there is no
+    // per-handler plumbing to forget. Before this, `--config` was declared on
+    // 60 variants and honoured by one, so `azlin killall --config
+    // ./staging.toml --force` read `~/.azlin/config.toml` and could delete
+    // every azlin VM in the wrong resource group while reporting success
+    // (#1089).
+    if let Some(path) = cli.config.as_deref() {
+        if let Err(e) = azlin_core::AzlinConfig::use_config_file(path) {
+            eprintln!("azlin-error: {e}");
+            eprintln!();
+            eprintln!(
+                "azlin will not fall back to ~/.azlin/config.toml for a --config file it \n\
+                 cannot read: that file names a different resource group and subscription, \n\
+                 so falling back would run this command somewhere you did not ask for. \n\
+                 Check the path, or drop --config to use the default config."
+            );
+            std::process::exit(2);
+        }
+    }
+
     // --startup-time: print diagnostic timing and exit immediately
     if cli.startup_time {
         let parse_elapsed = start.elapsed();
