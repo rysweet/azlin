@@ -213,9 +213,14 @@ fn name_and_group<'a>(
 ///
 /// Shared with orphan detection in `cleanup` so the two paths cannot drift.
 pub fn public_ip_is_unassociated(ip: &serde_json::Value) -> bool {
-    ip.get("ipConfiguration")
-        .map(|v| v.is_null())
-        .unwrap_or(true)
+    // `ipConfiguration` only ever holds NIC and Bastion IP configurations — a
+    // NAT gateway's SNAT address reports it as null. Judging by that field
+    // alone would classify the address providing outbound internet for every
+    // private VM in the region as an orphan, so cleanup would delete it and
+    // teardown would advise removing it: silent, region-wide loss of egress
+    // (issue #1092). Both associations must be absent.
+    let is_free = |key: &str| ip.get(key).map(|v| v.is_null()).unwrap_or(true);
+    is_free("ipConfiguration") && is_free("natGateway")
 }
 
 /// Whether an NSG is free of any association.
@@ -999,6 +1004,55 @@ mod tests {
         assert!(public_ip_is_unassociated(&free));
         assert!(!public_ip_is_unassociated(&bound));
         assert!(public_ip_is_unassociated(&serde_json::json!({})));
+    }
+
+    /// A NAT gateway's SNAT address reports `ipConfiguration: null` — that
+    /// field only ever holds NIC and Bastion IP configurations. Judging by
+    /// `ipConfiguration` alone therefore classifies the address that provides
+    /// outbound internet for every private VM in the region as an orphan, so
+    /// `azlin cleanup --force` deletes it and `azlin kill`/`destroy`/`delete`
+    /// list it under "Left in place (may keep billing)" and advise removing
+    /// it. The result is silent, region-wide loss of egress — the exact
+    /// failure mode of issue #1092. The predicate must require BOTH
+    /// `ipConfiguration` and `natGateway` to be null/absent.
+    #[test]
+    fn public_ip_attached_to_nat_gateway_is_not_unassociated() {
+        let nat_pip: serde_json::Value = serde_json::json!({
+            "name": "azlin-natgw-southcentralus-ip-tagged",
+            "ipConfiguration": null,
+            "natGateway": {
+                "id": "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Network/natGateways/azlin-natgw-southcentralus"
+            }
+        });
+        assert!(
+            !public_ip_is_unassociated(&nat_pip),
+            "a NAT gateway's SNAT address must never be treated as an orphan"
+        );
+    }
+
+    #[test]
+    fn public_ip_with_explicit_null_nat_gateway_is_unassociated() {
+        let free: serde_json::Value = serde_json::json!({
+            "ipConfiguration": null,
+            "natGateway": null
+        });
+        assert!(public_ip_is_unassociated(&free));
+    }
+
+    #[test]
+    fn nat_attached_public_ip_is_excluded_from_the_teardown_plan() {
+        // End-to-end through the planner: even carrying a matching session
+        // tag, a NAT-attached address must not be scheduled for deletion.
+        let pips = format!(
+            r#"[{{"name":"{VM}PublicIP","ipConfiguration":null,
+                  "natGateway":{{"id":"/subscriptions/s/resourceGroups/rg/providers/Microsoft.Network/natGateways/azlin-natgw-westus2"}},
+                  "tags":{{"azlin-session":"{SESSION}"}}}}]"#
+        );
+        let plan = plan_with("[]", "[]", &pips, "[]");
+        assert!(
+            plan.of_kind(TeardownKind::PublicIp).is_empty(),
+            "NAT-attached public IP must not be scheduled for deletion"
+        );
     }
 
     #[test]
