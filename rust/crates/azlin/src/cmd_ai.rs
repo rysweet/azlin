@@ -22,10 +22,10 @@ pub(crate) async fn dispatch(
             request,
             dry_run,
             yes,
+            resource_group,
             verbose,
-            ..
         } => {
-            crate::cmd_ai_ops::handle_do(&request, dry_run, yes, verbose).await?;
+            crate::cmd_ai_ops::handle_do(&request, dry_run, yes, verbose, resource_group).await?;
         }
         azlin_cli::Commands::Doit { action } => match action {
             azlin_cli::DoitAction::Deploy {

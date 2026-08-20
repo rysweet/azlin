@@ -28,10 +28,10 @@ pub(crate) async fn dispatch(
             azlin_cli::IpAction::Check {
                 vm_identifier,
                 resource_group,
+                all,
                 port,
-                ..
             } => {
-                crate::cmd_network_ops::handle_ip_check(vm_identifier, resource_group, port)?;
+                crate::cmd_network_ops::handle_ip_check(vm_identifier, resource_group, all, port)?;
             }
         },
 

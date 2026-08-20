@@ -85,8 +85,27 @@ pub(crate) async fn dispatch(
         azlin_cli::Commands::Kill {
             vm_name,
             resource_group,
-            ..
+            force,
         } => {
+            // `--force` was declared and discarded, and `kill` prompted for
+            // nothing — so the flag's existence told the user a prompt was
+            // there to be skipped while the VM went away on the first Enter
+            // (#1089). `kill` and `destroy` share `execute_teardown`; they now
+            // share the confirmation too.
+            //
+            // Before authenticating, deliberately. The question is about
+            // intent, not about Azure state, so a cancelled kill should cost
+            // no API calls — and in a non-interactive context the user gets
+            // "use --force" rather than an `az login` error that says nothing
+            // about the real problem.
+            if !safe_confirm(
+                &crate::lifecycle_helpers::kill_confirm_prompt(&vm_name),
+                force,
+            )? {
+                println!("Cancelled.");
+                return Ok(());
+            }
+
             let auth = create_auth()?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;

@@ -11,6 +11,19 @@ pub fn destroy_confirm_prompt(vm_name: &str) -> String {
     format!("Destroy VM '{}'? This cannot be undone.", vm_name)
 }
 
+/// The confirmation `azlin kill` asks before deleting a VM.
+///
+/// `kill` declared `--force` ("Skip confirmation prompt") and then never
+/// prompted, so `azlin kill <vm>` deleted the VM and its network resources
+/// immediately (#1089). The lie ran the dangerous way round: the presence of
+/// the flag told the user a prompt existed to be skipped.
+///
+/// Worded like [`destroy_confirm_prompt`] because the two do the same thing —
+/// `kill` and `destroy` share `execute_teardown`.
+pub fn kill_confirm_prompt(vm_name: &str) -> String {
+    format!("Kill VM '{}'? This cannot be undone.", vm_name)
+}
+
 /// Maximum number of VM names listed inline before the list is truncated.
 const NAME_LIST_LIMIT: usize = 10;
 

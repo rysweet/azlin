@@ -422,6 +422,12 @@ Are you sure you want to delete this VM? [y/N]:
 azlin kill my-vm --force
 ```
 
+> **`--force` is required in scripts.** `azlin kill` refuses to delete when
+> stdin is not a terminal and `--force` was not given, so a CI job or cron
+> entry must pass it explicitly. Until this was fixed, `--force` was accepted
+> and ignored and `azlin kill` never prompted at all — so a script that omits
+> it was, in effect, relying on the bug.
+
 **Delete all VMs in resource group:**
 ```bash
 azlin killall
