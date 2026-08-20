@@ -119,7 +119,9 @@ web-1       root      9012  0.0  0.0   56789   1234 ?      S    06:00   0:00 /us
 ```
 
 so `azlin ps | grep python` answers *which VM is running python*, which is the
-question a fleet-wide `ps` is asked.
+question a fleet-wide `ps` is asked. A run that targets **one** VM —
+`azlin ps --vm web-1` — carries no prefix: the name is one the caller just
+typed, and stamping it onto every line is noise.
 
 **`--grouped`** prints what every run printed before — a header and a block per
 VM:

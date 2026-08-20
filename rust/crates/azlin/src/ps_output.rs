@@ -14,23 +14,39 @@
 /// One VM's output with its name on every line.
 ///
 /// Names are padded to a common width so the process columns stay aligned
-/// across VMs; a run of one VM still gets its prefix, because a script that
-/// splits on the prefix should not have to special-case the single-VM run.
+/// across VMs. A width of zero means no prefix at all: `azlin ps --vm web-1`
+/// would otherwise stamp a name the user just typed onto all twenty lines,
+/// which is noise, and people run that form — scripts run the fleet-wide one.
 pub fn prefix_lines(vm_name: &str, output: &str, name_width: usize) -> String {
+    use std::fmt::Write as _;
+
+    if name_width == 0 {
+        // Still normalised to exactly one newline per line of input.
+        let mut out = String::with_capacity(output.len() + 1);
+        for line in output.lines() {
+            out.push_str(line);
+            out.push('\n');
+        }
+        return out;
+    }
+
     let mut out = String::with_capacity(output.len() + output.lines().count() * (name_width + 2));
     for line in output.lines() {
-        out.push_str(&format!(
-            "{:<width$}  {}\n",
-            vm_name,
-            line,
-            width = name_width
-        ));
+        // `write!` into the buffer rather than a `format!` per line: this is a
+        // fleet command, so the line count is however many VMs times twenty.
+        let _ = writeln!(out, "{:<width$}  {}", vm_name, line, width = name_width);
     }
     out
 }
 
 /// The width to pad VM names to, given every VM in this run.
+///
+/// Zero for a single VM — see [`prefix_lines`] — and the longest name
+/// otherwise, so one long name does not misalign the rest.
 pub fn name_width(vm_names: &[String]) -> usize {
+    if vm_names.len() < 2 {
+        return 0;
+    }
     vm_names
         .iter()
         .map(|n| n.chars().count())
@@ -48,7 +64,7 @@ pub fn group_header(vm_name: &str) -> String {
 /// An empty block under a header is readable; an empty *prefixed* section is
 /// indistinguishable from the VM having been skipped, so it says so.
 pub fn empty_note(vm_name: &str, grouped: bool, name_width: usize) -> String {
-    if grouped {
+    if grouped || name_width == 0 {
         "  (no output)\n".to_string()
     } else {
         format!("{:<width$}  (no output)\n", vm_name, width = name_width)
@@ -83,17 +99,28 @@ mod tests {
     }
 
     #[test]
-    fn a_single_vm_is_prefixed_too() {
-        // A script splitting on the prefix should not need a special case for
-        // the one-VM run, which is the run it will be tested against.
-        let out = prefix_lines("only", "x\n", name_width(&["only".to_string()]));
-        assert!(out.starts_with("only  "), "{:?}", out);
+    fn a_single_vm_is_not_prefixed_with_the_name_the_user_just_typed() {
+        // `azlin ps --vm web-1` would otherwise stamp "web-1" onto all twenty
+        // lines. People run that form; scripts run the fleet-wide one.
+        let width = name_width(&["only".to_string()]);
+        assert_eq!(width, 0);
+        assert_eq!(prefix_lines("only", "x\ny\n", width), "x\ny\n");
+    }
+
+    #[test]
+    fn two_vms_are_both_prefixed() {
+        let names = vec!["a".to_string(), "b".to_string()];
+        let width = name_width(&names);
+        assert!(width > 0);
+        assert!(prefix_lines("a", "x\n", width).starts_with('a'));
     }
 
     #[test]
     fn empty_output_says_so_rather_than_vanishing() {
         assert_eq!(empty_note("web-1", false, 5), "web-1  (no output)\n");
         assert_eq!(empty_note("web-1", true, 5), "  (no output)\n");
+        // A single VM carries no prefix here either, for the same reason.
+        assert_eq!(empty_note("web-1", false, 0), "  (no output)\n");
     }
 
     #[test]

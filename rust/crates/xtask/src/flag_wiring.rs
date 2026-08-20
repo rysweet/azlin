@@ -533,7 +533,8 @@ fn header_count_mismatch(src: &str, actual: usize) -> Option<String> {
         if stated != actual {
             return Some(format!(
                 "allowlist line {}: the header says {stated} entries and the file has {actual}. \
-                 Update the header when adding or retiring a line.",
+                 The count is derived, not authored — read it off the file with \
+                 `grep -cE '^[A-Za-z].*::.* = ' crates/xtask/unwired-flags-allowlist.txt`.",
                 i + 1
             ));
         }

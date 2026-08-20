@@ -330,8 +330,8 @@ pub enum Commands {
         #[arg(long)]
         tag: Option<String>,
 
-        /// Show active tmux sessions (default: true; `--show-tmux false` or
-        /// `--no-tmux` disables)
+        /// Show active tmux sessions (default: true; `--show-tmux false`
+        /// disables)
         #[arg(
             long,
             num_args = 0..=1,
@@ -340,7 +340,7 @@ pub enum Commands {
         )]
         show_tmux: bool,
 
-        /// Disable tmux session checking
+        /// Shorthand for `--show-tmux false`
         #[arg(long)]
         no_tmux: bool,
 
