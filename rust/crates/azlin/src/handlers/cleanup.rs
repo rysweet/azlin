@@ -279,7 +279,7 @@ pub fn format_cleanup_scan_header(resource_group: &str, age_days: u32, dry_run: 
 pub fn format_age_filter_note(
     age_days: u32,
     held_back: usize,
-    undated_kept: usize,
+    undated: &[(azlin_azure::orphan_detector::ResourceType, usize)],
 ) -> Option<String> {
     if age_days == 0 {
         return None;
@@ -291,11 +291,21 @@ pub fn format_age_filter_note(
             held_back, age_days
         ));
     }
-    if undated_kept > 0 {
+    if !undated.is_empty() {
+        // The types come from the data rather than a fixed list. Naming them
+        // as an assertion about Azure would become a lie the moment `az`
+        // started reporting a creation time for one of them — which is the
+        // same shape as the bug this whole change fixes.
+        let total: usize = undated.iter().map(|(_, n)| n).sum();
+        let types = undated
+            .iter()
+            .map(|(t, n)| format!("{} × {}", n, t))
+            .collect::<Vec<_>>()
+            .join(", ");
         parts.push(format!(
-            "{} could not be aged (Azure reports no creation time for network \
-             interfaces, public IPs or NSGs) and are included",
-            undated_kept
+            "{} could not be aged because Azure reported no creation time for them \
+             ({}) and are included",
+            total, types
         ));
     }
     if parts.is_empty() {

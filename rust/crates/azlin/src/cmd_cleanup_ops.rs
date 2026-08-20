@@ -127,14 +127,13 @@ pub(crate) fn handle_cleanup(
     // (#1089). A resource with no creation time is kept rather than dropped:
     // only disks report one, and excluding the rest for having an unknown age
     // would silently stop cleaning up most of what this command exists for.
-    let undated = azlin_azure::orphan_detector::undated_count(&all_orphans);
     let (all_orphans, held_back) =
         azlin_azure::orphan_detector::partition_by_age(all_orphans, age_days, chrono::Utc::now());
-    if let Some(note) = crate::handlers::format_age_filter_note(
-        age_days,
-        held_back.len(),
-        undated.min(all_orphans.len()),
-    ) {
+    // Counted after the partition: undated resources are never held back, so
+    // this is the set that survived, and there is nothing to clamp against.
+    let undated = azlin_azure::orphan_detector::undated_types(&all_orphans);
+    if let Some(note) = crate::handlers::format_age_filter_note(age_days, held_back.len(), &undated)
+    {
         println!("{}", note);
     }
 

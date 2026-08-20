@@ -112,14 +112,24 @@ pub fn partition_by_age(
     })
 }
 
-/// How many of these resources Azure gave no creation time for.
+/// Which resource types Azure gave no creation time for, and how many.
 ///
-/// Reported so "unfiltered" is visible rather than assumed.
-pub fn undated_count(resources: &[OrphanedResource]) -> usize {
-    resources
-        .iter()
-        .filter(|r| r.created_time.is_none())
-        .count()
+/// Returns the *observed* types rather than a fixed list. An earlier version
+/// of the caller's message named "network interfaces, public IPs or NSGs" as
+/// an assertion about Azure — which would have become a lie the moment `az`
+/// started reporting `timeCreated` on one of them, or disk parsing regressed
+/// and disks joined the undated set. That is the same shape as the bug this
+/// change fixes one layer up, where a header asserted a filter that had not
+/// run.
+pub fn undated_types(resources: &[OrphanedResource]) -> Vec<(ResourceType, usize)> {
+    let mut counts: Vec<(ResourceType, usize)> = Vec::new();
+    for r in resources.iter().filter(|r| r.created_time.is_none()) {
+        match counts.iter_mut().find(|(t, _)| *t == r.resource_type) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((r.resource_type.clone(), 1)),
+        }
+    }
+    counts
 }
 
 /// Calculate total estimated savings from cleaning up orphaned resources
@@ -195,7 +205,28 @@ mod tests {
         let (old, held) = partition_by_age(vec![orphan("nic-1", None)], 7, now());
         assert_eq!(old.len(), 1);
         assert!(held.is_empty());
-        assert_eq!(undated_count(&old), 1);
+        assert_eq!(undated_types(&old), vec![(ResourceType::Disk, 1)]);
+    }
+
+    /// The types are read from the data, not asserted. A message naming a
+    /// fixed list would become a lie the moment `az` started reporting
+    /// `timeCreated` on one of them — the same shape as the bug this fixes.
+    #[test]
+    fn undated_types_are_observed_not_assumed() {
+        let mut nic = orphan("nic-1", None);
+        nic.resource_type = ResourceType::NetworkInterface;
+        let mut pip = orphan("pip-1", None);
+        pip.resource_type = ResourceType::PublicIp;
+        let dated = orphan("disk-1", Some("2026-01-01T00:00:00Z"));
+        let observed = undated_types(&[nic, pip, dated]);
+        assert_eq!(
+            observed,
+            vec![
+                (ResourceType::NetworkInterface, 1),
+                (ResourceType::PublicIp, 1)
+            ]
+        );
+        assert!(!observed.iter().any(|(t, _)| *t == ResourceType::Disk));
     }
 
     /// "Older than zero days" is everything, which is also what the flag's
