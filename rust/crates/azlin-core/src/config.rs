@@ -1,6 +1,23 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+/// The config file named by a global `--config <path>`, installed once at startup.
+///
+/// `--config` was declared on 60 subcommand variants and read by exactly one
+/// of them (#1089). Every other command called [`AzlinConfig::load`], which
+/// resolves `$AZLIN_CONFIG_DIR/config.toml` or `~/.azlin/config.toml` — so
+/// `azlin killall --config ./staging.toml --force` deleted VMs in whatever
+/// resource group the *default* config named, and reported success.
+///
+/// Storing the path process-wide rather than threading it through 60 handlers
+/// is deliberate: config resolution already had exactly one chokepoint
+/// (`config_path`), and moving the override there makes all 60 commands
+/// correct in one edit. Threading a parameter would make each handler a place
+/// the fix can be forgotten, which is how this bug was written in the first
+/// place.
+static EXPLICIT_CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 /// Default Azure Public IP `--ip-tags` value applied to Bastion public IPs.
 ///
@@ -206,9 +223,58 @@ impl AzlinConfig {
             .join(".azlin"))
     }
 
-    /// Returns the config file path (~/.azlin/config.toml)
+    /// Returns the config file path.
+    ///
+    /// An explicit `--config <path>` installed by [`Self::use_config_file`]
+    /// wins over `$AZLIN_CONFIG_DIR/config.toml`, which wins over
+    /// `~/.azlin/config.toml`.
     pub fn config_path() -> crate::Result<PathBuf> {
+        if let Some(explicit) = EXPLICIT_CONFIG_PATH.get() {
+            return Ok(explicit.clone());
+        }
         Ok(Self::config_dir()?.join("config.toml"))
+    }
+
+    /// Point this process at an explicit config file (`--config <path>`).
+    ///
+    /// Called once, from `main`, before any command runs, so that every
+    /// subsequent [`Self::load`] — in any handler, however deep — reads the
+    /// file the user named.
+    ///
+    /// Fails when the file is missing or unparseable. Falling back to
+    /// `~/.azlin/config.toml` for an explicitly named file is the silent
+    /// degradation this repository has been removing (#1069, #1073, #1080,
+    /// #1087, #1092), and here it is the destructive shape: the fallback
+    /// config names a different resource group, so the fallback runs the
+    /// user's `killall` somewhere they did not ask for.
+    ///
+    /// Note the asymmetry with [`Self::load_from_path`], which returns
+    /// defaults for a missing file. That is right for the *default* path — a
+    /// fresh install has no `~/.azlin/config.toml` and defaults are what the
+    /// user means. It is wrong for a path the user typed.
+    pub fn use_config_file(path: &Path) -> crate::Result<()> {
+        if !path.exists() {
+            return Err(crate::AzlinError::Config(format!(
+                "Config file not found: {}",
+                path.display()
+            )));
+        }
+        // Parse eagerly: a malformed file must stop the command before it
+        // acts, not halfway through it.
+        Self::load_from_path(path)?;
+        // Resolve now, in case a handler later changes the working directory:
+        // a relative `--config ./staging.toml` must keep meaning the file the
+        // user pointed at from their shell.
+        let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        EXPLICIT_CONFIG_PATH.set(resolved).map_err(|_| {
+            crate::AzlinError::Config("Config file path already set for this process".into())
+        })?;
+        Ok(())
+    }
+
+    /// The explicit `--config` path, if one was installed for this process.
+    pub fn explicit_config_path() -> Option<PathBuf> {
+        EXPLICIT_CONFIG_PATH.get().cloned()
     }
 
     /// Load config from disk, returning defaults if file doesn't exist.
@@ -225,6 +291,14 @@ impl AzlinConfig {
     /// ```
     pub fn load() -> crate::Result<Self> {
         let path = Self::config_path()?;
+        // A `--config` file that vanished between startup and this read must
+        // not silently become "defaults" — the caller asked for that file.
+        if EXPLICIT_CONFIG_PATH.get().is_some() && !path.exists() {
+            return Err(crate::AzlinError::Config(format!(
+                "Config file named by --config no longer exists: {}",
+                path.display()
+            )));
+        }
         Self::load_from_path(&path)
     }
 
@@ -267,10 +341,19 @@ impl AzlinConfig {
     /// assert_eq!(loaded.default_vm_size, config.default_vm_size);
     /// ```
     pub fn save(&self) -> crate::Result<()> {
-        let dir = Self::config_dir()?;
-        std::fs::create_dir_all(&dir)
-            .map_err(|e| crate::AzlinError::Config(format!("Failed to create config dir: {e}")))?;
+        // Derive the directory from the resolved path rather than from
+        // `config_dir()`: under `--config /elsewhere/staging.toml` the two
+        // disagree, and writing next to the file we read is what the user
+        // asked for.
         let path = Self::config_path()?;
+        match path.parent() {
+            Some(dir) if !dir.as_os_str().is_empty() => {
+                std::fs::create_dir_all(dir).map_err(|e| {
+                    crate::AzlinError::Config(format!("Failed to create config dir: {e}"))
+                })?;
+            }
+            _ => {}
+        }
         let contents = toml::to_string_pretty(self)
             .map_err(|e| crate::AzlinError::Config(format!("Failed to serialize config: {e}")))?;
 
@@ -1432,6 +1515,56 @@ mod tests {
         assert!(
             msg.contains("vm_storage"),
             "error should identify the duplicated key: {msg}"
+        );
+    }
+    /// `--config` must refuse a path that does not exist rather than silently
+    /// falling back to `~/.azlin/config.toml`.
+    ///
+    /// The fallback is the dangerous case: `azlin killall --config
+    /// ./staging.toml --force` reading the default config could delete every
+    /// azlin VM in the wrong resource group while reporting success (#1089).
+    ///
+    /// Safe as a unit test despite `EXPLICIT_CONFIG_PATH` being a process-wide
+    /// `OnceCell`: both error paths return before `.set()` is reached.
+    #[test]
+    fn use_config_file_rejects_a_missing_path() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let missing = dir.path().join("nope.toml");
+        let err = AzlinConfig::use_config_file(&missing)
+            .expect_err("a --config path that does not exist must be an error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("Config file not found"),
+            "error must say the file is missing: {msg}"
+        );
+        assert!(
+            msg.contains("nope.toml"),
+            "error must name the path the user typed: {msg}"
+        );
+    }
+
+    /// A `--config` file that exists but cannot be parsed must fail eagerly,
+    /// before the command acts — not halfway through it.
+    #[test]
+    fn use_config_file_rejects_a_malformed_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let bad = dir.path().join("bad.toml");
+        // The exact corruption from #1079: a duplicated table.
+        std::fs::write(
+            &bad,
+            "default_resource_group = \"rg\"\n\n[vm_storage]\na = \"b\"\n\n[vm_storage]\n",
+        )
+        .unwrap();
+        let msg = AzlinConfig::use_config_file(&bad)
+            .expect_err("a malformed --config file must be an error")
+            .to_string();
+        assert!(
+            msg.contains("Failed to parse config at"),
+            "error must say parsing failed and name the file: {msg}"
+        );
+        assert!(
+            msg.contains("bad.toml"),
+            "error must name the offending file: {msg}"
         );
     }
 }

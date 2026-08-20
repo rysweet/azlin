@@ -536,7 +536,6 @@ pub(crate) async fn handle_vm_new(
     name: Option<String>,
     pool: Option<u32>,
     no_auto_connect: bool,
-    config: Option<std::path::PathBuf>,
     template: Option<String>,
     nfs_storage: Option<String>,
     _no_nfs: bool,
@@ -570,26 +569,13 @@ pub(crate) async fn handle_vm_new(
 
     // Resolve VM size: --vm-size overrides --size tier, which overrides config default
     let vm_count = pool.unwrap_or(1);
-    let config_defaults = if let Some(ref config_path) = config {
-        match azlin_core::AzlinConfig::load_from(config_path) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!(
-                    "Warning: failed to load config from {}: {e}",
-                    config_path.display()
-                );
-                azlin_core::AzlinConfig::default()
-            }
-        }
-    } else {
-        match azlin_core::AzlinConfig::load() {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Warning: failed to load config, using defaults: {e}");
-                azlin_core::AzlinConfig::default()
-            }
-        }
-    };
+    // `--config` is resolved once in main() and installed as the process
+    // config path, so this is the same call every other command makes. The
+    // previous code branched on a per-variant `config` field and, on either
+    // branch, warned and continued with defaults — which meant a typo'd path
+    // or a malformed file provisioned a VM of the default size in the default
+    // region while printing "Warning:" above a wall of progress output.
+    let config_defaults = crate::dispatch_helpers::load_user_config();
     let user_specified_size = vm_size.is_some() || size.is_some();
     let user_specified_region = region.is_some();
 

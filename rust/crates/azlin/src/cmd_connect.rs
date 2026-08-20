@@ -404,7 +404,6 @@ pub(crate) async fn dispatch(
         azlin_cli::Commands::Show {
             name,
             resource_group,
-            config: _,
             output,
             verbose: _,
             auth_profile: _,

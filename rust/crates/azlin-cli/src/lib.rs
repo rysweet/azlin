@@ -38,6 +38,20 @@ pub struct Cli {
     /// Show startup time diagnostic and exit
     #[arg(long, global = true)]
     pub startup_time: bool,
+
+    /// Config file to run against
+    ///
+    /// Honoured by every command. Defaults to $AZLIN_CONFIG_DIR/config.toml,
+    /// else ~/.azlin/config.toml. A path that does not exist or does not parse
+    /// is an error, never a silent fallback to the default config.
+    // Global rather than per-subcommand: `--config` used to be declared on 60
+    // variants and read by exactly one of them (#1089), so `azlin killall
+    // --config ./staging.toml --force` read ~/.azlin/config.toml and could
+    // delete every azlin VM in the wrong resource group while reporting
+    // success. One global arg installed once in main() makes all 60 correct at
+    // once, and leaves no per-handler site where the next flag can be missed.
+    #[arg(long, global = true, value_name = "PATH")]
+    pub config: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
@@ -129,10 +143,6 @@ pub enum Commands {
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
 
-        /// Config file path
-        #[arg(long)]
-        config: Option<String>,
-
         /// Show query plan without executing
         #[arg(long)]
         dry_run: bool,
@@ -166,10 +176,6 @@ pub enum Commands {
         /// Resource group
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
 
         /// Show detailed execution information
         #[arg(short, long)]
@@ -226,10 +232,6 @@ pub enum Commands {
         /// Do not auto-connect via SSH
         #[arg(long)]
         no_auto_connect: bool,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
 
         /// Template name to use for VM configuration
         #[arg(long)]
@@ -312,10 +314,6 @@ pub enum Commands {
         /// Azure region (default: same as source)
         #[arg(long)]
         region: Option<String>,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
     },
 
     /// List VMs in resource group
@@ -392,10 +390,6 @@ pub enum Commands {
         #[arg(long, short = 'r')]
         restore: bool,
 
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
-
         /// Enable verbose output for list command
         #[arg(long)]
         verbose: bool,
@@ -413,10 +407,6 @@ pub enum Commands {
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
 
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
-
         /// Clear session name
         #[arg(long)]
         clear: bool,
@@ -427,10 +417,6 @@ pub enum Commands {
         /// Resource group
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
 
         /// Show status for specific VM only
         #[arg(long)]
@@ -445,10 +431,6 @@ pub enum Commands {
         /// Resource group
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
     },
 
     /// Stop/deallocate a VM
@@ -459,10 +441,6 @@ pub enum Commands {
         /// Resource group
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
 
         /// Deallocate to save costs (default: yes). Use --no-deallocate to
         /// power off without deallocation.
@@ -482,10 +460,6 @@ pub enum Commands {
         /// Resource group
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
 
         /// Disable tmux session management
         #[arg(long)]
@@ -625,10 +599,6 @@ pub enum Commands {
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
 
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
-
         /// Check a single VM by name
         #[arg(long)]
         vm: Option<String>,
@@ -648,10 +618,6 @@ pub enum Commands {
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
 
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
-
         /// Target a single VM by name
         #[arg(long)]
         vm: Option<String>,
@@ -666,10 +632,6 @@ pub enum Commands {
         /// Resource group
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
 
         /// Group output by VM instead of prefixing
         #[arg(long)]
@@ -689,10 +651,6 @@ pub enum Commands {
         /// Resource group
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
 
         /// Show per-VM breakdown
         #[arg(long)]
@@ -737,10 +695,6 @@ pub enum Commands {
         /// Resource group
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
     },
 
     /// Distributed real-time monitoring dashboard
@@ -748,10 +702,6 @@ pub enum Commands {
         /// Resource group
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
 
         /// Refresh interval in seconds
         #[arg(short, long, default_value = "10")]
@@ -780,10 +730,6 @@ pub enum Commands {
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
 
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
-
         /// Skip confirmation prompt
         #[arg(short, long)]
         force: bool,
@@ -798,10 +744,6 @@ pub enum Commands {
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
 
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
-
         /// Skip confirmation prompt
         #[arg(long)]
         force: bool,
@@ -815,10 +757,6 @@ pub enum Commands {
         /// Resource group
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
 
         /// Skip confirmation prompt
         #[arg(long)]
@@ -839,10 +777,6 @@ pub enum Commands {
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
 
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
-
         /// Skip confirmation prompt
         #[arg(long)]
         force: bool,
@@ -860,10 +794,6 @@ pub enum Commands {
         /// Resource group
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
 
         /// Age threshold in days
         #[arg(long, default_value = "1")]
@@ -917,10 +847,6 @@ pub enum Commands {
         /// Resource group
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
     },
 
     /// Sync ~/.azlin/home/ to VM home directory
@@ -936,10 +862,6 @@ pub enum Commands {
         /// Resource group
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
     },
 
     /// Manually sync SSH keys to VM authorized_keys
@@ -959,10 +881,6 @@ pub enum Commands {
         /// Timeout in seconds
         #[arg(long, default_value = "60")]
         timeout: u32,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
     },
 
     // ── Advanced Commands ─────────────────────────────────────────────
@@ -1011,10 +929,6 @@ pub enum Commands {
         /// Resource group
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
 
         /// Service principal authentication profile to use
         #[arg(long)]
@@ -1071,10 +985,6 @@ pub enum Commands {
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
 
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
-
         /// Timeout in seconds
         #[arg(long, default_value = "300")]
         timeout: u32,
@@ -1085,10 +995,6 @@ pub enum Commands {
         /// Resource group
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
 
         /// Skip VM health checks
         #[arg(long)]
@@ -1145,9 +1051,6 @@ pub enum Commands {
         /// Resource group
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        /// Config file path
-        #[arg(long)]
-        config: Option<String>,
         /// Output format
         #[arg(short, long, default_value = "table")]
         output: OutputFormat,
@@ -1314,10 +1217,6 @@ pub enum VmAction {
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
 
-        /// Config file path
-        #[arg(long)]
-        config: Option<PathBuf>,
-
         /// Timeout per update in seconds
         #[arg(long, default_value = "300")]
         timeout: u32,
@@ -1467,8 +1366,6 @@ pub enum EnvAction {
         env_var: String,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// Skip secret detection warnings
         #[arg(long)]
         force: bool,
@@ -1482,8 +1379,6 @@ pub enum EnvAction {
         vm_identifier: String,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// Show full values (default: masked)
         #[arg(long)]
         show_values: bool,
@@ -1499,8 +1394,6 @@ pub enum EnvAction {
         key: String,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// Direct IP address (skip Azure lookup)
         #[arg(long)]
         ip: Option<String>,
@@ -1513,8 +1406,6 @@ pub enum EnvAction {
         output_file: Option<String>,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// Direct IP address (skip Azure lookup)
         #[arg(long)]
         ip: Option<String>,
@@ -1527,8 +1418,6 @@ pub enum EnvAction {
         env_file: PathBuf,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// Direct IP address (skip Azure lookup)
         #[arg(long)]
         ip: Option<String>,
@@ -1539,8 +1428,6 @@ pub enum EnvAction {
         vm_identifier: String,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// Skip confirmation prompt
         #[arg(long)]
         force: bool,
@@ -1560,8 +1447,6 @@ pub enum SnapshotAction {
         vm_name: String,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
     },
     /// List all snapshots for a VM
     List {
@@ -1569,8 +1454,6 @@ pub enum SnapshotAction {
         vm_name: String,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
     },
     /// Restore a VM from a snapshot
     Restore {
@@ -1580,8 +1463,6 @@ pub enum SnapshotAction {
         snapshot_name: String,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// Skip confirmation prompt
         #[arg(long)]
         force: bool,
@@ -1592,8 +1473,6 @@ pub enum SnapshotAction {
         snapshot_name: String,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// Skip confirmation prompt
         #[arg(long)]
         force: bool,
@@ -1604,8 +1483,6 @@ pub enum SnapshotAction {
         vm_name: String,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// Snapshot interval in hours
         #[arg(long)]
         every: u32,
@@ -1619,15 +1496,11 @@ pub enum SnapshotAction {
         vm_name: String,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
     },
     /// Sync snapshots for VMs with schedules
     Sync {
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// Sync specific VM only
         #[arg(long)]
         vm: Option<String>,
@@ -1638,8 +1511,6 @@ pub enum SnapshotAction {
         vm_name: String,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
     },
 }
 
@@ -1737,8 +1608,6 @@ pub enum KeysAction {
     Rotate {
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// Rotate keys for all VMs (not just azlin prefix)
         #[arg(long)]
         all_vms: bool,
@@ -1753,8 +1622,6 @@ pub enum KeysAction {
     List {
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// List all VMs (not just azlin prefix)
         #[arg(long)]
         all_vms: bool,
@@ -1875,8 +1742,6 @@ pub enum BatchAction {
         all: bool,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// Maximum parallel workers
         #[arg(long, default_value = "10")]
         max_workers: u32,
@@ -1897,8 +1762,6 @@ pub enum BatchAction {
         all: bool,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         #[arg(long, default_value = "10")]
         max_workers: u32,
         /// Skip confirmation prompt
@@ -1917,8 +1780,6 @@ pub enum BatchAction {
         all: bool,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         #[arg(long, default_value = "10")]
         max_workers: u32,
         /// Command timeout in seconds
@@ -1938,8 +1799,6 @@ pub enum BatchAction {
         all: bool,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         #[arg(long, default_value = "10")]
         max_workers: u32,
         /// Show what would be synced without syncing
@@ -2070,8 +1929,6 @@ pub enum GithubRunnerAction {
         labels: Option<String>,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// Auto-scale based on queue depth
         #[arg(long)]
         auto_scale: bool,
@@ -2207,23 +2064,15 @@ pub enum AutopilotAction {
 #[derive(Subcommand, Debug)]
 pub enum ContextAction {
     /// List all contexts
-    List {
-        #[arg(long)]
-        config: Option<PathBuf>,
-    },
+    List {},
     /// Show current context (alias: current)
     #[command(alias = "current")]
-    Show {
-        #[arg(long)]
-        config: Option<PathBuf>,
-    },
+    Show {},
     /// Switch to a context (alias: switch)
     #[command(alias = "switch")]
     Use {
         /// Context name
         name: String,
-        #[arg(long)]
-        config: Option<PathBuf>,
     },
     /// Create a new context
     Create {
@@ -2244,15 +2093,11 @@ pub enum ContextAction {
         /// Key Vault name
         #[arg(long)]
         key_vault_name: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
     },
     /// Delete a context
     Delete {
         /// Context name
         name: String,
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// Skip confirmation prompt
         #[arg(short, long)]
         force: bool,
@@ -2263,13 +2108,9 @@ pub enum ContextAction {
         old_name: String,
         /// New name
         new_name: String,
-        #[arg(long)]
-        config: Option<PathBuf>,
     },
     /// Migrate legacy configuration
     Migrate {
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// Force migration even if contexts exist
         #[arg(short, long)]
         force: bool,
@@ -2292,8 +2133,6 @@ pub enum DiskAction {
         sku: String,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// Logical Unit Number
         #[arg(long)]
         lun: Option<u32>,
@@ -2313,8 +2152,6 @@ pub enum IpAction {
         vm_identifier: Option<String>,
         #[arg(long, alias = "rg")]
         resource_group: Option<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// Check all VMs in resource group
         #[arg(long)]
         all: bool,
@@ -2491,8 +2328,6 @@ pub enum SessionsAction {
         /// VM names to include in the session
         #[arg(long, num_args = 1..)]
         vms: Vec<String>,
-        #[arg(long)]
-        config: Option<PathBuf>,
         /// Session description
         #[arg(long)]
         description: Option<String>,
@@ -3536,11 +3371,11 @@ mod tests {
     #[test]
     fn test_show_command() {
         let cli = Cli::parse_from(["azlin", "show", "my-vm"]);
+        assert!(cli.config.is_none());
         if let Commands::Show {
             name,
             output,
             resource_group,
-            config,
             verbose,
             auth_profile,
         } = cli.command
@@ -3548,11 +3383,33 @@ mod tests {
             assert_eq!(name, "my-vm");
             assert!(matches!(output, OutputFormat::Table));
             assert!(resource_group.is_none());
-            assert!(config.is_none());
             assert!(!verbose);
             assert!(auth_profile.is_none());
         } else {
             panic!("Expected Show command");
+        }
+    }
+
+    /// `--config` is one global arg, reachable after any subcommand.
+    ///
+    /// It used to be 60 per-variant declarations honoured by one handler
+    /// (#1089); parsing it in one place is what lets `main` install it once
+    /// for every command.
+    #[test]
+    fn config_flag_is_global_and_parses_after_any_subcommand() {
+        for args in [
+            vec!["azlin", "killall", "--config", "/tmp/staging.toml"],
+            vec!["azlin", "--config", "/tmp/staging.toml", "killall"],
+            vec!["azlin", "batch", "stop", "--config", "/tmp/staging.toml"],
+            vec!["azlin", "config", "show", "--config", "/tmp/staging.toml"],
+            vec!["azlin", "new", "--config", "/tmp/staging.toml"],
+        ] {
+            let cli = Cli::parse_from(args.clone());
+            assert_eq!(
+                cli.config.as_deref(),
+                Some(std::path::Path::new("/tmp/staging.toml")),
+                "--config not captured for {args:?}"
+            );
         }
     }
 
