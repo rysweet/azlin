@@ -1,0 +1,135 @@
+name: "The version bump repairs a stale Cargo.lock and CI catches one before it merges"
+description: |
+  Verifies PR #1107 (issue #1100). A workspace crate added on a branch that
+  predates a release bump lands on main a version behind, and every
+  `cargo build --locked` afterwards fails with a message naming neither the
+  crate nor the cause. This is how main broke on 2026-08-19.
+
+  Everything here is offline: the checker is pure bash over manifests, and the
+  bump simulation operates on a copy of the real manifests in a temp dir.
+
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 30000
+
+steps:
+  - name: "The checker's own tests pass"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        # A checker nobody checks is how the first version of this went wrong.
+        ./scripts/test_sync_cargo_lock_versions.sh | tail -2
+    expect:
+      exit_code: 0
+      stdout_contains: "0 failed"
+    timeout: 60000
+
+  - name: "This repository's Cargo.lock is in sync"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        ./scripts/sync-cargo-lock-versions.sh --check | tail -1
+    expect:
+      exit_code: 0
+      stdout_contains: "is in sync with the workspace version"
+    timeout: 20000
+
+  - name: "The bump repairs a crate left behind by a bump it predates"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        SIM=$(mktemp -d)
+        cp -r --parents rust/Cargo.toml rust/Cargo.lock rust/crates/*/Cargo.toml \
+             scripts/sync-cargo-lock-versions.sh "$SIM"/
+        cd "$SIM"
+        CURRENT=$(grep '^version' rust/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+        NEW="9.9.9"
+        # What the release job does first: bump the workspace version.
+        sed -i "s/^version = \"${CURRENT}\"/version = \"${NEW}\"/" rust/Cargo.toml
+        # The #1100 shape: one member's lock entry predates the last bump.
+        sed -i "/^name = \"xtask\"\$/{n;s/^version = \".*\"\$/version = \"0.0.1\"/}" rust/Cargo.lock
+        # The old implementation matched on `version = "${CURRENT}"`, so a
+        # member that is not at CURRENT matched nothing and stayed stale.
+        OLD_STYLE=$(sed "/^name = \"xtask\"\$/{n;s/^version = \"${CURRENT}\"/version = \"${NEW}\"/}" rust/Cargo.lock \
+                    | grep -A1 '^name = "xtask"$' | tail -1)
+        echo "old-style sed leaves: ${OLD_STYLE}"
+        echo "${OLD_STYLE}" | grep -q '0.0.1' \
+          || { echo "FAIL: the old sed would have repaired it, so this test proves nothing"; cd /; rm -rf "$SIM"; exit 1; }
+        ./scripts/sync-cargo-lock-versions.sh "${NEW}" >/dev/null
+        REPAIRED=$(grep -A1 '^name = "xtask"$' rust/Cargo.lock | tail -1)
+        cd /; rm -rf "$SIM"
+        echo "${REPAIRED}" | grep -q "9.9.9" \
+          || { echo "FAIL: the stale member was not repaired: ${REPAIRED}"; exit 1; }
+        echo "PASS: the bump repairs what the old sed could not match"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 30000
+
+  - name: "The release job calls the script rather than carrying its own sed"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        grep -q "scripts/sync-cargo-lock-versions.sh" .github/workflows/rust-release.yml \
+          || { echo "FAIL: the release bump does not use the shared script"; exit 1; }
+        grep -q 'sed -i "/\^name = .\${pkg}' .github/workflows/rust-release.yml \
+          && { echo "FAIL: the old inline sed is still in the release job"; exit 1; }
+        echo "PASS: one implementation, used by both the bump and the gate"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 10000
+
+  - name: "CI gates the lock, and its path filter covers the script it runs"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        grep -q "^  lock-sync:" .github/workflows/rust-ci.yml \
+          || { echo "FAIL: no lock-sync job"; exit 1; }
+        grep -q "scripts/sync-cargo-lock-versions.sh --check" .github/workflows/rust-ci.yml \
+          || { echo "FAIL: the job does not run the checker"; exit 1; }
+        grep -q "scripts/test_sync_cargo_lock_versions.sh" .github/workflows/rust-ci.yml \
+          || { echo "FAIL: the job does not run the checker's tests"; exit 1; }
+        # A gate whose own script can change without re-running the gate is not
+        # a gate.
+        grep -q "'scripts/sync-cargo-lock-versions.sh'" .github/workflows/rust-ci.yml \
+          || { echo "FAIL: the script is not in the workflow's path filter"; exit 1; }
+        python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/rust-ci.yml')); yaml.safe_load(open('.github/workflows/rust-release.yml'))" \
+          || { echo "FAIL: a workflow file is not valid YAML"; exit 1; }
+        echo "PASS: the gate exists, runs its own tests, and re-runs when it changes"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 20000
+
+  - name: "The checker is portable across the awk implementations CI may have"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        # ubuntu-latest ships mawk as /usr/bin/awk; a gawk-only construct would
+        # fail only in CI, which is the worst place to find out.
+        for bin in /usr/bin/mawk /usr/bin/gawk; do
+          [ -x "$bin" ] || continue
+          out=$(PATH="$(dirname $bin):$PATH" ./scripts/sync-cargo-lock-versions.sh --check | tail -1)
+          echo "$out" | grep -q "7 member(s)" || { echo "FAIL: wrong result under $bin: $out"; exit 1; }
+        done
+        echo "PASS: same result under every available awk"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 30000

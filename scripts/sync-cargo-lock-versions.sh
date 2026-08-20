@@ -122,7 +122,15 @@ for member_path in ${MEMBER_PATHS}; do
 
   pkg=$(sed -n '/^\[package\]/,/^\[/p' "${member_toml}" \
     | grep -m1 '^name = ' | sed 's/.*"\(.*\)"/\1/')
-  [ -n "${pkg}" ] || die "could not read package name from ${member_toml}"
+  # A name that is not a crate name means the `name = "..."` line was written
+  # in a form this sed does not understand (a literal string, say). Saying so
+  # here beats reporting it later as a missing lock entry for a package called
+  # `name = 'azlin'`.
+  case "${pkg}" in
+    *[!A-Za-z0-9_-]* | "")
+      die "could not read a crate name from ${member_toml} (got '${pkg}'). Expected a \`name = \"...\"\` line in the [package] table."
+      ;;
+  esac
 
   # Only members that inherit the workspace version are ours to rewrite. A
   # crate that pins its own version has a different correct answer, and
