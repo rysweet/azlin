@@ -22,6 +22,7 @@ pub(crate) async fn dispatch(
                     labels,
                     resource_group,
                     vm_size,
+                    yes,
                     ..
                 } => {
                     crate::cmd_infra_ops::handle_runner_enable(
@@ -31,6 +32,7 @@ pub(crate) async fn dispatch(
                         labels,
                         resource_group,
                         vm_size,
+                        yes,
                         &runner_dir,
                     )
                     .await?;

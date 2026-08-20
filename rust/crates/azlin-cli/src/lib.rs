@@ -1957,6 +1957,9 @@ pub enum GithubRunnerAction {
         /// Auto-scale based on queue depth
         #[arg(long)]
         auto_scale: bool,
+        /// Create the region's bastion and NAT gateway without asking
+        #[arg(short, long)]
+        yes: bool,
     },
     /// Disable GitHub Actions runner fleet
     Disable {

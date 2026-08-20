@@ -40,6 +40,38 @@ pub fn runner_tags(pool: &str, repo: &str) -> HashMap<String, String> {
     tags
 }
 
+/// The image runner VMs are created from.
+///
+/// The hand-rolled argv passed `--image Ubuntu2204`. Going through the shared
+/// creation path made it tempting to take `VmImage::default()`, which is now
+/// 26.04 — a four-release jump on a machine that runs CI, applied silently to
+/// any pool that gets re-enabled. This command has no `--image` flag, so the
+/// user has no way to ask for either; preserving what the command has always
+/// created is the only choice that surprises nobody.
+pub fn runner_image() -> Result<azlin_core::models::VmImage, String> {
+    azlin_core::models::VmImage::from_image_spec("22.04-lts")
+}
+
+/// Refuse to re-enable a pool into a different region than the one it lives in.
+///
+/// The region is new here — the old code had none — and it is read from
+/// `default_region` at enable time. Change that default, re-run `enable` for an
+/// existing pool, and the second run creates VMs with the same names in a
+/// different region of the same resource group: a name collision at best, two
+/// half-pools at worst, with the TOML file recording whichever ran last.
+pub fn region_conflict(recorded: Option<&str>, requested: &str, pool: &str) -> Option<String> {
+    let recorded = recorded?;
+    if recorded.eq_ignore_ascii_case(requested.trim()) {
+        return None;
+    }
+    Some(format!(
+        "Pool '{}' already exists in region '{}', and this run would create runners in '{}'. \
+         Two regions cannot share one pool: the VM names would collide. Run \
+         `azlin github-runner disable {}` first, or set default_region back to '{}'.",
+        pool, recorded, requested, pool, recorded
+    ))
+}
+
 /// What to say when some runners in a pool did not come up.
 ///
 /// The loop used to print each failure and return `Ok(())`, so
@@ -53,12 +85,43 @@ pub fn runner_failure_message(failed: &[String], total: u32, pool: &str) -> Opti
     Some(format!(
         "{} of {} runner VM(s) in pool '{}' could not be provisioned: {}. \
          The pool configuration was still written, so `azlin github-runner status {}` \
-         will report the pool as enabled with fewer runners than requested.",
+         will report the pool as enabled with fewer runners than requested. Re-running \
+         `azlin github-runner enable` for this pool is safe: the runners that came up are \
+         left alone, and the bastion and NAT gateway are only created if missing.",
         failed.len(),
         total,
         pool,
         failed.join(", "),
         pool
+    ))
+}
+
+/// What to ask before creating regional infrastructure for a runner pool.
+///
+/// `azlin new` asks before creating a bastion or a NAT gateway, because both
+/// carry a monthly bill. Enabling a pool went straight to creating them: the
+/// ensure functions were reused and the gate around them was left behind in
+/// `cmd_vm_ops`. This command is not interactive, which is a reason it cannot
+/// prompt casually — not a reason it may provision without consent.
+///
+/// Returns `None` when both already exist, so a second pool in a region that
+/// is already set up asks nothing.
+pub fn confirm_infrastructure_prompt(
+    region: &str,
+    needs_bastion: bool,
+    needs_nat: bool,
+) -> Option<String> {
+    let what = match (needs_bastion, needs_nat) {
+        (true, true) => "a bastion host and a NAT gateway",
+        (true, false) => "a bastion host",
+        (false, true) => "a NAT gateway",
+        (false, false) => return None,
+    };
+    Some(format!(
+        "Runner pools need private VMs with outbound access, which requires {} in {}. \
+         Both are billed monthly for as long as they exist, and are shared with every other \
+         azlin VM in that region. Create {}?",
+        what, region, what
     ))
 }
 
@@ -101,6 +164,32 @@ mod tests {
     }
 
     #[test]
+    fn the_image_is_the_one_this_command_has_always_created() {
+        // Not `VmImage::default()`: that is 26.04 now, and a pool re-enabled
+        // after this change would come back four releases newer without
+        // anything saying so.
+        let image = runner_image().unwrap();
+        assert_eq!(image.offer, "ubuntu-22_04-lts", "{}", image);
+        assert_eq!(image.publisher, "Canonical");
+    }
+
+    #[test]
+    fn re_enabling_a_pool_in_a_different_region_is_refused() {
+        assert_eq!(region_conflict(None, "westus2", "ci"), None);
+        assert_eq!(region_conflict(Some("westus2"), "westus2", "ci"), None);
+        assert_eq!(region_conflict(Some("westus2"), "  WestUS2 ", "ci"), None);
+
+        let msg = region_conflict(Some("westus2"), "eastus", "ci").unwrap();
+        assert!(msg.contains("westus2") && msg.contains("eastus"), "{}", msg);
+        assert!(msg.contains("names would collide"), "{}", msg);
+        assert!(
+            msg.contains("disable ci"),
+            "the way out must be in the message: {}",
+            msg
+        );
+    }
+
+    #[test]
     fn every_runner_coming_up_reports_nothing() {
         assert_eq!(runner_failure_message(&[], 3, "ci"), None);
     }
@@ -115,6 +204,30 @@ mod tests {
             "the config file was still written, and status will disagree: {}",
             msg
         );
+        assert!(
+            msg.contains("Re-running") && msg.contains("is safe"),
+            "a command that provisions infrastructure must say whether re-running doubles it: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn nothing_is_asked_when_the_region_is_already_set_up() {
+        assert_eq!(confirm_infrastructure_prompt("westus2", false, false), None);
+    }
+
+    #[test]
+    fn the_prompt_names_what_will_be_created_and_that_it_is_billed() {
+        let both = confirm_infrastructure_prompt("westus2", true, true).unwrap();
+        assert!(both.contains("bastion host and a NAT gateway"), "{}", both);
+        assert!(both.contains("billed monthly"), "{}", both);
+        assert!(both.contains("westus2"), "{}", both);
+
+        // Only the missing half is offered, so a region with a bastion and no
+        // gateway does not read as though both are about to be created.
+        let nat_only = confirm_infrastructure_prompt("westus2", false, true).unwrap();
+        assert!(nat_only.contains("a NAT gateway"), "{}", nat_only);
+        assert!(!nat_only.contains("bastion"), "{}", nat_only);
     }
 
     #[test]

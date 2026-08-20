@@ -2,6 +2,7 @@
 use super::*;
 use anyhow::Result;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_runner_enable(
     repo: Option<String>,
     pool: String,
@@ -9,6 +10,7 @@ pub(crate) async fn handle_runner_enable(
     labels: Option<String>,
     resource_group: Option<String>,
     vm_size: Option<String>,
+    yes: bool,
     runner_dir: &std::path::Path,
 ) -> Result<()> {
     let rg = resolve_resource_group(resource_group)?;
@@ -20,6 +22,24 @@ pub(crate) async fn handle_runner_enable(
     let size = vm_size.unwrap_or_else(|| "Standard_B2s".to_string());
     let config_defaults = crate::dispatch_helpers::load_user_config();
     let region = config_defaults.default_region.clone();
+
+    // A pool lives in one region. The region is read from the config at enable
+    // time, so changing `default_region` and re-running would otherwise create
+    // a second set of VMs with the same names in a different region.
+    let pool_path = runner_dir.join(format!("{}.toml", pool));
+    let recorded_region = std::fs::read_to_string(&pool_path)
+        .ok()
+        .and_then(|text| text.parse::<toml::Value>().ok())
+        .and_then(|v| {
+            v.get("region")
+                .and_then(|r| r.as_str())
+                .map(|s| s.to_string())
+        });
+    if let Some(message) =
+        crate::runner_provision::region_conflict(recorded_region.as_deref(), &region, &pool)
+    {
+        anyhow::bail!("{}", message);
+    }
 
     let mut config = toml::map::Map::new();
     config.insert("pool".to_string(), toml::Value::String(pool.clone()));
@@ -38,7 +58,6 @@ pub(crate) async fn handle_runner_enable(
         toml::Value::String(chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()),
     );
     let val = toml::Value::Table(config);
-    let pool_path = runner_dir.join(format!("{}.toml", pool));
     std::fs::write(&pool_path, toml::to_string_pretty(&val)?)?;
 
     println!("Enabling GitHub runner fleet:");
@@ -53,18 +72,43 @@ pub(crate) async fn handle_runner_enable(
 
     // A bastion is inbound only, so a private VM with no NAT gateway can be
     // reached and cannot reach anything — and a GitHub runner that cannot
-    // reach github.com is not a runner. Both are ensured before any VM is
-    // created, once, because both are regional and shared.
+    // reach github.com is not a runner. Both are regional and shared, so they
+    // are ensured once, before any VM exists.
+    //
+    // Both are also billed monthly, which is why `azlin new` asks before
+    // creating either. Asked here too, and only about what is actually
+    // missing: a second pool in a region that is already set up asks nothing.
     let ip_tags = config_defaults.bastion_pip_ip_tags();
-    let pb = penguin_spinner(&format!("Ensuring bastion infrastructure in {}...", region));
-    let result = crate::bastion_helpers::ensure_bastion_infrastructure(&rg, &region, &ip_tags);
-    pb.finish_and_clear();
-    result?;
+    let bastions = crate::list_helpers::detect_bastion_hosts(&rg).unwrap_or_default();
+    let needs_bastion = !crate::bastion_helpers::bastion_exists_in_region(&bastions, &region);
+    let needs_nat = !matches!(
+        crate::nat_helpers::detect_nat_status(&rg, &region),
+        Ok(crate::nat_helpers::NatStatus::Attached { .. })
+    );
+    if let Some(prompt) =
+        crate::runner_provision::confirm_infrastructure_prompt(&region, needs_bastion, needs_nat)
+    {
+        if !crate::dispatch_helpers::safe_confirm_with_flag(&prompt, yes, "--yes")? {
+            anyhow::bail!(
+                "Cancelled: runner pool '{}' needs private VMs with outbound access, and the \
+                 infrastructure for that was not created.",
+                pool
+            );
+        }
+    }
 
-    let pb = penguin_spinner(&format!("Ensuring NAT gateway in {}...", region));
-    let result = crate::nat_helpers::ensure_nat_gateway(&rg, &region, &ip_tags);
-    pb.finish_and_clear();
-    result?;
+    if needs_bastion {
+        let pb = penguin_spinner(&format!("Ensuring bastion infrastructure in {}...", region));
+        let result = crate::bastion_helpers::ensure_bastion_infrastructure(&rg, &region, &ip_tags);
+        pb.finish_and_clear();
+        result?;
+    }
+    if needs_nat {
+        let pb = penguin_spinner(&format!("Ensuring NAT gateway in {}...", region));
+        let result = crate::nat_helpers::ensure_nat_gateway(&rg, &region, &ip_tags);
+        pb.finish_and_clear();
+        result?;
+    }
 
     let keypair = crate::key_helpers::ensure_ssh_keypair().map_err(|e| anyhow::anyhow!("{e}"))?;
     let auth = create_auth()?;
@@ -83,7 +127,7 @@ pub(crate) async fn handle_runner_enable(
             vm_size: size.clone(),
             admin_username: DEFAULT_ADMIN_USERNAME.to_string(),
             ssh_key_path: keypair.public_key.clone(),
-            image: azlin_core::models::VmImage::default(),
+            image: crate::runner_provision::runner_image().map_err(|e| anyhow::anyhow!("{}", e))?,
             tags: crate::runner_provision::runner_tags(&pool, &repo_name),
             // The whole point of #1123. Hand-rolling `az vm create` inherited
             // Azure's default, which is a public IP on every runner.

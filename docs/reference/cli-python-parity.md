@@ -543,6 +543,7 @@ azlin github-runner enable [OPTIONS]
 | `--vm-size` | `TEXT` | `Standard_B2s` | VM size |
 | `--resource-group`, `--rg` | `TEXT` | config default | Azure resource group |
 | `--auto-scale` | flag | `false` | **Not implemented** — see below |
+| `--yes` | flag | `false` | Create the region's bastion and NAT gateway without asking |
 
 ### Runners have no public IP
 
@@ -559,16 +560,32 @@ azlin github-runner enable [OPTIONS]
 Because a bastion is inbound only, a private VM with no NAT gateway can be
 reached and cannot reach anything — and a runner that cannot reach github.com
 is not a runner. Enabling a pool therefore ensures both the bastion
-infrastructure and the NAT gateway for the region, creating them if they are
-missing, before any VM is created. Both are regional and shared with every
-other azlin VM in that region.
+infrastructure and the NAT gateway for the region before any VM is created.
+Both are regional and shared with every other azlin VM in that region.
+
+**Creating either is asked for first**, because both are billed monthly for as
+long as they exist — the same consent `azlin new` asks for. Only what is
+actually missing is offered, so enabling a second pool in a region that is
+already set up asks nothing. `--yes` gives consent up front; without a terminal
+and without the flag, the command refuses rather than provisioning.
 
 (The bastion and the NAT gateway each carry a public IP of their own; that is
 what they are. The change here is that the *runner VMs* no longer do.)
 
 The region comes from `default_region` in the config and is recorded in the
 pool's TOML file, so `status` and `disable` can tell which region a pool lives
-in.
+in. A pool lives in exactly one region: re-running `enable` for an existing pool
+after changing `default_region` is **refused**, because the second run would
+create VMs with the same names in a different region of the same resource group.
+Disable the pool first, or set the region back.
+
+### Runners stay on Ubuntu 22.04
+
+The command has always created 22.04 runners, and there is no `--image` flag to
+ask for anything else. Routing this path through azlin's shared VM creation made
+it tempting to take that path's default — now 26.04 — which would have moved
+every re-enabled pool four releases forward silently. `azlin new` defaults to
+26.04; runner pools do not.
 
 ### A pool that partly fails now exits non-zero
 
