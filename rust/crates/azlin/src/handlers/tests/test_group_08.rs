@@ -41,19 +41,28 @@ fn test_format_cost_actions_header_live() {
     assert!(out.contains("Cost actions (apply)"));
 }
 
+/// This asserted that no `--query` was passed without a priority, which was
+/// true and was the bug: the category filter was applied at one call site by
+/// hand and dropped here, so a priority widened the command from cost
+/// recommendations to every recommendation Advisor has (#1089).
 #[test]
 fn test_build_advisor_args_no_priority() {
-    let args = build_advisor_args("my-rg", None);
+    let args = build_advisor_args("my-rg", None).unwrap();
     assert!(args.contains(&"my-rg".to_string()));
-    assert!(!args.contains(&"--query".to_string()));
+    let query_idx = args.iter().position(|a| a == "--query").unwrap();
+    assert_eq!(args[query_idx + 1], "[?category=='Cost']");
 }
 
 #[test]
 fn test_build_advisor_args_with_priority() {
-    let args = build_advisor_args("my-rg", Some("High"));
-    assert!(args.contains(&"--query".to_string()));
+    let args = build_advisor_args("my-rg", Some("High")).unwrap();
     let query_idx = args.iter().position(|a| a == "--query").unwrap();
     assert!(args[query_idx + 1].contains("High"));
+    assert!(
+        args[query_idx + 1].contains("category=='Cost'"),
+        "a priority must not widen the command: {}",
+        args[query_idx + 1]
+    );
 }
 
 // ── Cleanup/orphan tests ────────────────────────────────────────────

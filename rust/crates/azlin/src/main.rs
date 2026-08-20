@@ -1174,6 +1174,10 @@ mod storage_helpers;
 #[allow(dead_code)]
 mod key_helpers;
 
+/// `azlin doit deploy` — artifacts, iteration cap, and what quiet hides.
+#[allow(dead_code)]
+mod doit_deploy;
+
 /// VM-side SSH key inventory for `azlin keys list`.
 #[allow(dead_code)]
 mod keys_list;

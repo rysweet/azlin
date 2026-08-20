@@ -1,0 +1,168 @@
+name: "azlin costs actions --priority filters, and doit deploy's three flags apply"
+description: |
+  Verifies issue #1089 for the costs-and-deploy flags.
+
+  `azlin costs actions --priority` was discarded, and this one had teeth: the
+  filter did nothing, so `azlin costs actions apply --priority high` listed
+  *and applied* every cost recommendation Advisor had — deallocating the
+  Low-impact VMs the filter existed to exclude.
+
+  Fixing it exposed a second bug in the shared `build_advisor_args`, already
+  used by `costs recommend`: given a priority it replaced the whole query and
+  dropped `category=='Cost'`, so a priority widened the command from cost
+  recommendations to every recommendation Advisor has, security ones included.
+
+  `azlin doit deploy --max-iterations` is the other one that mattered: nothing
+  bounded how many commands a model could hand back to be executed against a
+  live subscription, while `--help` advertised a limit of 50.
+
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 30000
+
+steps:
+  - name: "Build the binary under test (never assert against a stale build)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo build -p azlin 2>&1 | tail -1
+        test -x target/debug/azlin && echo "PASS: fresh azlin binary present"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 1800000
+
+  - name: "All four flags are still advertised"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        ./target/debug/azlin costs actions --help | grep -q -- "--priority" \
+          || { echo "FAIL: --priority gone"; exit 1; }
+        for f in --output-dir --max-iterations --quiet; do
+          ./target/debug/azlin doit deploy --help | grep -q -- "$f" \
+            || { echo "FAIL: $f gone"; exit 1; }
+        done
+        echo "PASS: all four advertised"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+  - name: "A priority never widens the query beyond cost recommendations"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo test -p azlin --bin azlin priority_tests 2>&1 | tail -3
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok"
+    timeout: 1800000
+
+  - name: "An unknown priority is refused by name, before any network call"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        out=$(./target/debug/azlin costs actions list --rg rg-nonexistent --priority urgent 2>&1; true)
+        echo "$out" | grep -q "urgent" || { echo "FAIL: does not name the value: $out"; exit 1; }
+        echo "$out" | grep -q "High, Medium, Low" || { echo "FAIL: does not name the options: $out"; exit 1; }
+        echo "PASS: refused by name"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+  - name: "An over-limit plan is refused whole rather than truncated"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo test -p azlin --bin azlin doit_deploy 2>&1 | tail -3
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok"
+    timeout: 1800000
+
+  - name: "The four flags parse and stop before the model call"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo test -p azlin --bin azlin costs_doit 2>&1 | tail -3
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok"
+    timeout: 1800000
+
+  - name: "The ledger drops four and states why costs dashboard --refresh stays"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        for e in "CostsAction::Actions::priority" "DoitAction::Deploy::output_dir" \
+                 "DoitAction::Deploy::max_iterations" "DoitAction::Deploy::quiet"; do
+          grep -q "$e" crates/xtask/unwired-flags-allowlist.txt \
+            && { echo "FAIL: $e still ledgered"; exit 1; }
+        done
+        grep -q "names a cache that does not exist" crates/xtask/unwired-flags-allowlist.txt \
+          || { echo "FAIL: --refresh must stay, with its reason"; exit 1; }
+        cargo run -q -p xtask --locked -- check-flag-wiring 2>&1 | tail -2
+        echo "PASS: ledger correct and gate clean"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "No test reaches out to 10.0.0.1 any more"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        grep -n 'collect_health_metrics(.*"10.0.0.1".*"Running"' crates/azlin/src/cmd_monitoring.rs \
+          && { echo "FAIL: a test still SSHes to a real private address"; exit 1; }
+        echo "PASS: the timeout tests need no network"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+  - name: "Applying cost recommendations asks first, naming the count and level"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        ./target/debug/azlin costs actions --help | grep -q -- "--yes" \
+          || { echo "FAIL: apply has no way to skip the prompt"; exit 1; }
+        cargo test -p azlin --bin azlin the_apply_prompt_names 2>&1 | tail -3
+        echo "PASS: apply confirms before deallocating"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 1800000
+
+expectations:
+  - "costs actions --priority high lists and applies only High-impact recommendations"
+  - "costs actions apply confirms before deallocating, and --yes skips the prompt"
+  - "A transcript survives a run that aborts on a command that cannot be started"
+  - "The category=='Cost' filter survives a priority, on both costs subcommands"
+  - "An unrecognised priority is an error naming the three Advisor reports"
+  - "A valid priority matching nothing says which level was empty"
+  - "doit deploy refuses an over-limit plan whole, before the confirmation prompt"
+  - "--max-iterations 0 means no limit, as zero does on every other azlin limit"
+  - "--output-dir writes plan.txt before the run and transcript.txt after"
+  - "--quiet hides progress and never hides failures or the prompt"
+  - "No public IP is provisioned by any step; nothing here provisions anything at all"

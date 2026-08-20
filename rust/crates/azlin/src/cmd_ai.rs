@@ -35,9 +35,19 @@ pub(crate) async fn dispatch(
                 request,
                 dry_run,
                 yes,
-                ..
+                output_dir,
+                max_iterations,
+                quiet,
             } => {
-                crate::cmd_ai_ops::handle_doit_deploy(&request, dry_run, yes).await?;
+                crate::cmd_ai_ops::handle_doit_deploy(
+                    &request,
+                    dry_run,
+                    yes,
+                    output_dir,
+                    max_iterations,
+                    quiet,
+                )
+                .await?;
             }
             azlin_cli::DoitAction::Status { session } => {
                 crate::cmd_ai_ops2::handle_doit_status(session)?;

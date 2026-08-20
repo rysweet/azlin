@@ -21,7 +21,7 @@
 #
 # Generated from the checker's report against commit fdfb27a2 (v2.6.105).
 
-# ── Other flags accepted and discarded (15) ──────────────────────────
+# ── Other flags accepted and discarded (11) ──────────────────────────
 #
 # Each of these is an independent per-flag fix: bind the field in the handler
 # and act on it, or delete the flag. They are listed individually so that
@@ -80,8 +80,13 @@ Commands::Code::no_extensions = #1089 — `azlin code --no-extensions` accepted,
 #   breaking CLI change. Both are decisions for the repository owner.
 GuiAction::Install::yes = #1089 — `azlin gui install --yes` accepted, then discarded; help promises "Compatibility flag; the install is already non-interactive"
 GithubRunnerAction::Enable::auto_scale = #1089 — `azlin github-runner enable --auto-scale` accepted, then discarded; help promises "Auto-scale based on queue depth"
-CostsAction::Dashboard::refresh = #1089 — `azlin costs dashboard --refresh` accepted, then discarded; help promises "Force refresh (ignore cache)"
-CostsAction::Actions::priority = #1089 — `azlin costs actions --priority` accepted, then discarded; help promises "Filter by priority"
-DoitAction::Deploy::output_dir = #1089 — `azlin doit deploy --output-dir` accepted, then discarded; help promises "Output directory for generated artifacts"
-DoitAction::Deploy::max_iterations = #1089 — `azlin doit deploy --max-iterations` accepted, then discarded; help promises "Maximum execution iterations"
-DoitAction::Deploy::quiet = #1089 — `azlin doit deploy --quiet` accepted, then discarded; help promises "Reduce output verbosity"
+CostsAction::Dashboard::refresh = #1089 — `azlin costs dashboard --refresh` accepted, then discarded.
+#   It names a cache that does not exist. The dashboard fetches every figure from Azure on
+#   every run — `get_cost_summary`, then `az consumption usage list` — and nothing is stored
+#   between runs, so there is nothing stale for a refresh to bypass. (azlin's one cache is a
+#   process-local VM list with a TTL, which a one-shot CLI can never reuse across runs either;
+#   `list --no-cache` has the same shape and is out of scope here.)
+#
+#   Wiring it means building a cost cache first — a file, a TTL, an invalidation rule, and a
+#   decision about stale cost figures being shown at all. Deleting the flag is the other honest
+#   option and is a breaking CLI change. Both are decisions for the repository owner.
