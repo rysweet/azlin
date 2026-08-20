@@ -1,6 +1,7 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::{Context, Result};
+use azlin_azure::orphan_detector::{OrphanedResource, ResourceType};
 
 pub(crate) fn handle_cleanup(
     resource_group: Option<String>,
@@ -47,11 +48,10 @@ pub(crate) fn handle_cleanup(
     let nics: Vec<serde_json::Value> =
         serde_json::from_str(&nic_json).context("Failed to parse NIC list JSON")?;
     for nic in &nics {
-        let attached = nic
-            .get("virtualMachine")
-            .map(|v| !v.is_null())
-            .unwrap_or(false);
-        if !attached {
+        // Shares `nic_is_unassociated` with the teardown planner. Checking
+        // `virtualMachine` alone flags private-endpoint NICs, which Azure then
+        // refuses to delete on every run.
+        if azlin_azure::teardown::nic_is_unassociated(nic) {
             if let Some(name) = nic.get("name").and_then(|n| n.as_str()) {
                 let nic_rg = nic
                     .get("resourceGroup")
@@ -154,6 +154,7 @@ pub(crate) fn handle_cleanup(
     }
 
     let mut deleted = 0usize;
+    let mut deleted_nics = false;
     for r in &all_orphans {
         let result = match r.resource_type {
             ResourceType::Disk => std::process::Command::new("az")
@@ -168,6 +169,9 @@ pub(crate) fn handle_cleanup(
                     "--no-wait",
                 ])
                 .output(),
+            // Deliberately NOT --no-wait: the recheck pass below re-lists NSGs
+            // to find ones freed by these deletions, and that only works once
+            // the NIC is actually gone.
             ResourceType::NetworkInterface => std::process::Command::new("az")
                 .args([
                     "network",
@@ -177,7 +181,6 @@ pub(crate) fn handle_cleanup(
                     &r.name,
                     "-g",
                     &r.resource_group,
-                    "--no-wait",
                 ])
                 .output(),
             ResourceType::PublicIp => std::process::Command::new("az")
@@ -206,6 +209,9 @@ pub(crate) fn handle_cleanup(
         match result {
             Ok(o) if o.status.success() => {
                 deleted += 1;
+                if r.resource_type == ResourceType::NetworkInterface {
+                    deleted_nics = true;
+                }
                 println!("  Deleted {} '{}'", r.resource_type, r.name);
             }
             Ok(o) => {
@@ -222,11 +228,176 @@ pub(crate) fn handle_cleanup(
             }
         }
     }
+    // ── Recheck pass ────────────────────────────────────────────────────
+    //
+    // Association is computed before anything is deleted, so a resource whose
+    // only referent is *also* being deleted in this run is never listed. The
+    // concrete case: an NSG attached to an orphaned NIC. The NIC is correctly
+    // detected, the NSG is skipped as "in use", and after the run the NSG is
+    // still there — with nothing left referencing it. It can never be
+    // collected, because every future run reaches the same conclusion.
+    //
+    // `destroy` already solves this with a second planning pass (added in
+    // #1071 for the NIC -> NSG ordering). `cleanup` had no equivalent, so
+    // clearing an NSG took two manual invocations, which is exactly how the
+    // leaked `devNSG`/`ia3NSG`/`devaNSG` survived.
+    let freed = if deleted_nics {
+        recheck_freed_resources(&rg)?
+    } else {
+        Vec::new()
+    };
+    let mut freed_deleted = 0usize;
+    for r in &freed {
+        let result = delete_orphan(r);
+        match result {
+            Ok(o) if o.status.success() => {
+                freed_deleted += 1;
+                println!(
+                    "  Deleted {} '{}' (freed by this run)",
+                    r.resource_type, r.name
+                );
+            }
+            Ok(o) => eprintln!(
+                "  Failed to delete {} '{}': {}",
+                r.resource_type,
+                r.name,
+                String::from_utf8_lossy(&o.stderr).trim()
+            ),
+            Err(e) => eprintln!("  Failed to delete {} '{}': {}", r.resource_type, r.name, e),
+        }
+    }
+
     println!(
         "{}",
-        crate::handlers::format_cleanup_complete(deleted, all_orphans.len())
+        crate::handlers::format_cleanup_complete(
+            deleted + freed_deleted,
+            all_orphans.len() + freed.len()
+        )
     );
     Ok(())
+}
+
+/// Re-scan for NSGs and Public IPs that became unassociated during this run.
+///
+/// Only called when at least one NIC was deleted, since that is the only
+/// deletion here that can free another resource.
+fn recheck_freed_resources(rg: &str) -> Result<Vec<OrphanedResource>> {
+    // Check the exit status. Returning stdout unconditionally means an `az`
+    // failure (expired login, throttling, RBAC) yields an empty string, which
+    // then fails to parse, which the `if let Ok(..)` below would discard —
+    // three layers of silence ending in "Cleanup complete" while the resource
+    // this pass exists to collect is still there.
+    let az_list = |args: &[&str]| -> Result<String> {
+        let out = std::process::Command::new("az")
+            .args(args)
+            .args(["-g", rg, "-o", "json"])
+            .output()?;
+        if !out.status.success() {
+            anyhow::bail!(
+                "az {} failed: {}",
+                args.join(" "),
+                String::from_utf8_lossy(&out.stderr).trim()
+            );
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    };
+    let mut freed = Vec::new();
+
+    let nsg_json = az_list(&["network", "nsg", "list"])?;
+    {
+        let nsgs: Vec<serde_json::Value> = serde_json::from_str(&nsg_json)
+            .context("Failed to parse NSG list during cleanup recheck")?;
+        for nsg in &nsgs {
+            if azlin_azure::teardown::nsg_is_unassociated(nsg) {
+                if let Some(name) = nsg.get("name").and_then(|n| n.as_str()) {
+                    freed.push(OrphanedResource {
+                        name: name.to_string(),
+                        resource_type: ResourceType::NetworkSecurityGroup,
+                        resource_group: nsg
+                            .get("resourceGroup")
+                            .and_then(|r| r.as_str())
+                            .unwrap_or(rg)
+                            .to_string(),
+                        estimated_monthly_cost: 0.0,
+                    });
+                }
+            }
+        }
+    }
+
+    let pip_json = az_list(&["network", "public-ip", "list"])?;
+    {
+        let ips: Vec<serde_json::Value> = serde_json::from_str(&pip_json)
+            .context("Failed to parse public IP list during cleanup recheck")?;
+        for ip in &ips {
+            if azlin_azure::teardown::public_ip_is_unassociated(ip) {
+                if let Some(name) = ip.get("name").and_then(|n| n.as_str()) {
+                    freed.push(OrphanedResource {
+                        name: name.to_string(),
+                        resource_type: ResourceType::PublicIp,
+                        resource_group: ip
+                            .get("resourceGroup")
+                            .and_then(|r| r.as_str())
+                            .unwrap_or(rg)
+                            .to_string(),
+                        estimated_monthly_cost: ORPHANED_PUBLIC_IP_MONTHLY_COST,
+                    });
+                }
+            }
+        }
+    }
+    Ok(freed)
+}
+
+/// Issue the delete for one orphaned resource.
+fn delete_orphan(r: &OrphanedResource) -> std::io::Result<std::process::Output> {
+    match r.resource_type {
+        ResourceType::Disk => std::process::Command::new("az")
+            .args([
+                "disk",
+                "delete",
+                "--name",
+                &r.name,
+                "-g",
+                &r.resource_group,
+                "--yes",
+                "--no-wait",
+            ])
+            .output(),
+        ResourceType::NetworkInterface => std::process::Command::new("az")
+            .args([
+                "network",
+                "nic",
+                "delete",
+                "--name",
+                &r.name,
+                "-g",
+                &r.resource_group,
+            ])
+            .output(),
+        ResourceType::PublicIp => std::process::Command::new("az")
+            .args([
+                "network",
+                "public-ip",
+                "delete",
+                "--name",
+                &r.name,
+                "-g",
+                &r.resource_group,
+            ])
+            .output(),
+        ResourceType::NetworkSecurityGroup => std::process::Command::new("az")
+            .args([
+                "network",
+                "nsg",
+                "delete",
+                "--name",
+                &r.name,
+                "-g",
+                &r.resource_group,
+            ])
+            .output(),
+    }
 }
 
 /// Options for `azlin restore` beyond the resource group.
