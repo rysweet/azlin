@@ -9,6 +9,11 @@ on:
       - 'src/azlin/cli.py'
       - 'src/azlin/commands/*.py'
       - 'scripts/validate_documentation.py'
+      - 'scripts/check_doc_code_references.py'
+      - 'scripts/test_check_doc_code_references.py'
+      # A rename in the Rust sources can dangle a doc citation without the
+      # doc changing, so the reference check has to run on those too.
+      - 'rust/crates/**/*.rs'
       - '.github/workflows/doc-validation.yml'
   push:
     branches: [main, develop]
@@ -18,6 +23,9 @@ on:
       - 'docs/**/*.md'
       - 'src/azlin/cli.py'
       - 'src/azlin/commands/*.py'
+      - 'scripts/check_doc_code_references.py'
+      - 'scripts/test_check_doc_code_references.py'
+      - 'rust/crates/**/*.rs'
   workflow_dispatch:
 
 concurrency:
@@ -68,6 +76,17 @@ jobs:
         env:
           # Ensure colored output is disabled for CI
           NO_COLOR: "1"
+
+      # Reference docs cite Rust symbols instead of copying the argv and
+      # message text the tests already own (#1103). A pointer rots the same
+      # way a copy does, and a dangling one is worse: it reads as a citation
+      # and leads nowhere. Its own tests run first, because a checker that
+      # cannot fail is worse than no checker.
+      - name: Test the doc-reference checker
+        run: python scripts/test_check_doc_code_references.py
+
+      - name: Check reference docs cite symbols that exist
+        run: python scripts/check_doc_code_references.py
 
       - name: Report validation results
         if: failure()
