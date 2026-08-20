@@ -389,13 +389,16 @@ fn read_failure_message(region: &str, first: &str, second: Option<&str>) -> Stri
 /// Render the context added when the post-conflict subnet re-read also failed.
 ///
 /// Pure so the one branch that could lose an error is testable: the caller has
-/// two errors in hand and must surface both, and the re-read is exactly where
-/// an RBAC denial would otherwise go unannotated.
+/// two errors in hand and must surface both.
+///
+/// Deliberately does NOT call [`annotate_authz`]. `detect_nat_status` already
+/// annotates its own errors, so `re_read` arrives carrying the role hint when
+/// it is a denial; re-annotating here would print that paragraph twice.
 fn conflict_recheck_failure_message(re_read: &anyhow::Error) -> String {
-    annotate_authz(format!(
+    format!(
         "The attach conflicted with a concurrent operation, and the follow-up \
          subnet re-check also failed: {re_read}"
-    ))
+    )
 }
 
 /// Ensure the VM subnet in `region` has outbound internet via a NAT gateway.
@@ -1083,15 +1086,23 @@ mod tests {
     }
 
     #[test]
-    fn test_conflict_recheck_failure_message_annotates_an_authz_denial() {
-        // annotate_authz exists precisely for this case, and this was the one
-        // path where a denial could reach the user without the role name.
-        let denied = conflict_recheck_failure_message(&anyhow::anyhow!(
-            "AuthorizationFailed: the client does not have authorization"
-        ));
-        assert!(
-            denied.contains("Network Contributor"),
-            "an RBAC denial on the re-read must still name the missing role: {denied}"
+    fn test_conflict_recheck_failure_message_carries_the_role_hint_exactly_once() {
+        // `detect_nat_status` annotates its own errors, so a denial arrives
+        // already carrying the hint. Surfacing it is the fix; re-annotating it
+        // here would print the same paragraph twice in one error.
+        let already_annotated = anyhow::anyhow!(
+            "{}",
+            annotate_authz(read_failure_message(
+                "centralus",
+                "AuthorizationFailed: the client does not have authorization",
+                None,
+            ))
+        );
+        let msg = conflict_recheck_failure_message(&already_annotated);
+        assert_eq!(
+            msg.matches("Network Contributor").count(),
+            1,
+            "the role hint must survive, and must appear once: {msg}"
         );
 
         // And a non-authz failure must not be mislabeled as a permissions problem.
