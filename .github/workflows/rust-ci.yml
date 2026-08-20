@@ -12,12 +12,16 @@ on:
       # exercised by the job that depends on it.
       - 'scripts/sync-cargo-lock-versions.sh'
       - 'scripts/test_sync_cargo_lock_versions.sh'
+      - 'scripts/check_string_continuations.py'
+      - 'scripts/test_check_string_continuations.py'
   pull_request:
     paths:
       - 'rust/**'
       - '.github/workflows/rust-ci.yml'
       - 'scripts/sync-cargo-lock-versions.sh'
       - 'scripts/test_sync_cargo_lock_versions.sh'
+      - 'scripts/check_string_continuations.py'
+      - 'scripts/test_check_string_continuations.py'
 
 permissions: {}
 
@@ -97,6 +101,15 @@ jobs:
         run: ./scripts/test_sync_cargo_lock_versions.sh
       - name: Check Cargo.lock against the workspace version
         run: ./scripts/sync-cargo-lock-versions.sh --check
+      # A lost `\` line continuation splices source indentation into a string
+      # literal. `cargo fmt` does not look inside literals and clippy has no
+      # opinion, so the only signal is garbled output nobody reads character by
+      # character. It has happened twice in the #1089 series. Its own tests run
+      # first, because a heuristic nobody checks is worse than none.
+      - name: Test the string-literal checker
+        run: python3 ./scripts/test_check_string_continuations.py
+      - name: Check for garbled string literals
+        run: python3 ./scripts/check_string_continuations.py
 
   # CLI wiring gate: fail CI on any flag that reaches `--help` and is then
   # discarded by the handler (issue #1089). Its own job for the same reason

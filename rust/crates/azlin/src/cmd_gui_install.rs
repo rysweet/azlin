@@ -147,10 +147,9 @@ pub(crate) async fn dispatch(
     } else {
         println!("  clients: any standard VNC viewer");
     }
-    println!(
-        "  connect: azlin gui {}            (VNC, the default)",
-        name
-    );
+    // No padding before the annotation: `name` is variable-length, so the
+    // spaces never aligned it with anything and the following line has none.
+    println!("  connect: azlin gui {} (VNC, the default)", name);
     if rdp_available {
         println!("  connect: azlin gui {} --protocol rdp", name);
     }
