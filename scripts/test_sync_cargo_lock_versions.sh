@@ -198,8 +198,73 @@ fi
 rm -rf "${root}"
 echo ""
 
-# ─── 8. The real repository is in sync ──────────────────────────────────
-echo "8. This repository"
+# ─── 8. Manifest layouts the parser must survive ────────────────────────
+echo "8. Manifest layouts"
+
+# `members = ["crates/a", "crates/b"]` is valid TOML. Under a line-oriented
+# reading the array's range never closed, and every quoted string in the rest
+# of the manifest — dependency names, version requirements — became a
+# "workspace member".
+root="$(mktemp -d)"
+mkdir -p "${root}/rust/crates/azlin"
+cat > "${root}/rust/Cargo.toml" <<'TOML'
+[workspace]
+resolver = "2"
+members = ["crates/azlin"]
+
+[workspace.package]
+version = "1.0.0"
+
+[workspace.dependencies]
+serde = "1"
+tokio = { version = "1" }
+TOML
+printf '[package]\nname = "azlin"\nversion.workspace = true\n' \
+  > "${root}/rust/crates/azlin/Cargo.toml"
+printf 'version = 4\n\n[[package]]\nname = "azlin"\nversion = "1.0.0"\n' \
+  > "${root}/rust/Cargo.lock"
+out="$(SYNC_LOCK_REPO_ROOT="${root}" "${SCRIPT}" --check 2>&1)"
+if [ $? -eq 0 ] && ! echo "${out}" | grep -q "has no Cargo.toml"; then
+  pass "an inline members array is parsed correctly"
+else
+  fail "an inline members array confused the parser: ${out}"
+fi
+rm -rf "${root}"
+
+# Both spellings of workspace version inheritance have to be recognised, or a
+# crate using the table form is silently skipped and its lock entry rots.
+root="$(mktemp -d)"
+mkdir -p "${root}/rust/crates/azlin"
+printf '[workspace]\nmembers = [\n    "crates/azlin",\n]\n\n[workspace.package]\nversion = "2.0.0"\n' \
+  > "${root}/rust/Cargo.toml"
+printf '[package]\nname = "azlin"\nversion = { workspace = true }\n' \
+  > "${root}/rust/crates/azlin/Cargo.toml"
+printf 'version = 4\n\n[[package]]\nname = "azlin"\nversion = "1.9.9"\n' \
+  > "${root}/rust/Cargo.lock"
+out="$(SYNC_LOCK_REPO_ROOT="${root}" "${SCRIPT}" --check 2>&1)"
+if echo "${out}" | grep -q "error: rust/Cargo.lock has azlin 1.9.9"; then
+  pass "version = { workspace = true } is recognised as inheriting"
+else
+  fail "the table spelling was treated as an independent version: ${out}"
+fi
+rm -rf "${root}"
+
+# A members array that never closes must be reported, not silently read to
+# end of file.
+root="$(mktemp -d)"
+mkdir -p "${root}/rust"
+printf '[workspace]\nmembers = [\n    "crates/azlin",\n' > "${root}/rust/Cargo.toml"
+printf 'version = 4\n' > "${root}/rust/Cargo.lock"
+if ! SYNC_LOCK_REPO_ROOT="${root}" "${SCRIPT}" --check >/dev/null 2>&1; then
+  pass "an unterminated members array is rejected"
+else
+  fail "an unterminated members array passed"
+fi
+rm -rf "${root}"
+echo ""
+
+# ─── 9. The real repository is in sync ──────────────────────────────────
+echo "9. This repository"
 if "${SCRIPT}" --check >/dev/null 2>&1; then
   pass "rust/Cargo.lock matches rust/Cargo.toml"
 else

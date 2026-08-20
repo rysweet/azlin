@@ -85,13 +85,36 @@ fi
 
 # Members come from the `members = [...]` array, so adding, renaming or
 # removing a crate cannot silently drop it from this loop.
-MEMBER_PATHS=$(sed -n '/^members = \[/,/^\]/p' "${CARGO_TOML}" \
-  | grep -oE '"[^"]+"' | tr -d '"')
+#
+# The array is collected from the opening `[` to the first `]`, wherever those
+# fall, rather than assuming one entry per line with a bare `]` in column zero.
+# `members = ["crates/a", "crates/b"]` is valid TOML, and under the
+# line-oriented reading the range never closed: it ran to end of file and every
+# quoted string in the rest of the manifest — dependency names, version
+# requirements — became a "workspace member". This script exists because an
+# assumption about file layout stopped holding, so it should not rest on one.
+MEMBER_PATHS=$(awk '
+  !collecting && /^[[:space:]]*members[[:space:]]*=[[:space:]]*\[/ {
+    collecting = 1
+    line = substr($0, index($0, "["))
+    buf = buf line
+    if (index(line, "]")) { print buf; exit }
+    next
+  }
+  collecting {
+    buf = buf $0
+    if (index($0, "]")) { print buf; exit }
+  }
+' "${CARGO_TOML}" | grep -oE '"[^"]+"' | tr -d '"' || true)
 [ -n "${MEMBER_PATHS}" ] \
-  || die "could not parse any workspace members from ${CARGO_TOML}"
+  || die "could not parse a members array from ${CARGO_TOML}. Expected a [workspace] 'members = [ ... ]' array; if the manifest layout has changed, fix the parsing here rather than letting the lock go unchecked."
 
-failures=0
-checked=0
+# Resolve every member to its package name and decide, once, which ones
+# inherit the workspace version — before anything is written. The release job
+# has already rewritten four other version files by the time it calls this, so
+# a parsing failure has to be found before the lock is touched rather than
+# after.
+INHERITING=""
 for member_path in ${MEMBER_PATHS}; do
   member_toml="${REPO_ROOT}/rust/${member_path}/Cargo.toml"
   [ -f "${member_toml}" ] \
@@ -104,12 +127,23 @@ for member_path in ${MEMBER_PATHS}; do
   # Only members that inherit the workspace version are ours to rewrite. A
   # crate that pins its own version has a different correct answer, and
   # rewriting it would be the same class of mistake in the other direction.
-  if ! grep -qE '^version(\.workspace| *= *\{ *workspace) *= *(true|true *\})' "${member_toml}"; then
+  # The two spellings cargo accepts are `version.workspace = true` and
+  # `version = { workspace = true }`.
+  if grep -qE '^[[:space:]]*version[[:space:]]*\.[[:space:]]*workspace[[:space:]]*=[[:space:]]*true' "${member_toml}" \
+     || grep -qE '^[[:space:]]*version[[:space:]]*=[[:space:]]*\{[^}]*workspace[[:space:]]*=[[:space:]]*true' "${member_toml}"; then
+    INHERITING="${INHERITING} ${pkg}"
+  else
     echo "skip ${pkg}: pins its own version (no version.workspace = true)"
-    continue
   fi
-  checked=$((checked + 1))
+done
 
+checked=0
+for pkg in ${INHERITING}; do checked=$((checked + 1)); done
+[ "${checked}" -gt 0 ] \
+  || die "no workspace member inherits the workspace version; the parsing in this script has drifted from the manifests"
+
+failures=0
+for pkg in ${INHERITING}; do
   # The lock entry is `name = "<pkg>"` followed on the next line by
   # `version = "..."`. The old value is deliberately not matched on.
   if ! grep -qE "^name = \"${pkg}\"\$" "${CARGO_LOCK}"; then
@@ -132,9 +166,6 @@ for member_path in ${MEMBER_PATHS}; do
     echo "ok ${pkg} ${actual}"
   fi
 done
-
-[ "${checked}" -gt 0 ] \
-  || die "no workspace member inherits the workspace version; the parsing in this script has drifted from the manifests"
 
 if [ "${failures}" -gt 0 ]; then
   echo "" >&2
