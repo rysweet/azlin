@@ -159,14 +159,14 @@ steps:
         cd rust
         cargo run -p xtask --locked -- check-flag-wiring > /tmp/wiring.txt 2>&1 || {
           cat /tmp/wiring.txt; echo "FAIL: gate is red"; exit 1; }
-        grep -q "38 allowlisted" /tmp/wiring.txt || {
-          cat /tmp/wiring.txt; echo "FAIL: allowlist is not at 38 entries"; exit 1; }
+        grep -q "35 allowlisted" /tmp/wiring.txt || {
+          cat /tmp/wiring.txt; echo "FAIL: allowlist is not at 35 entries"; exit 1; }
         grep -q "Commands::Top::interval" crates/xtask/unwired-flags-allowlist.txt \
           || { echo "FAIL: Top::interval left the ledger — was it wired the wrong way?"; exit 1; }
         grep -q "Left here deliberately rather than wired the wrong way" \
           crates/xtask/unwired-flags-allowlist.txt \
           || { echo "FAIL: the remaining entry has no recorded reason"; exit 1; }
-        echo "PASS: 38 entries, and the one that stayed says why"
+        echo "PASS: 35 entries, and the one that stayed says why"
     expect:
       exit_code: 0
       stdout_contains: "PASS"
