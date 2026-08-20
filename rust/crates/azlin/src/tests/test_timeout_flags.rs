@@ -42,8 +42,12 @@ fn every_timeout_flag_survives_with_its_declared_default() {
     for (args, default) in [
         (vec!["ask", "--help"], "30"),
         (vec!["top", "--help"], "5"),
-        (vec!["sync-keys", "--help"], "60"),
-        (vec!["os-update", "--help"], "300"),
+        // Raised when the flags were wired: while the value was being
+        // discarded the effective limit was infinity, and adopting the
+        // declared defaults unchanged would have turned slow-but-working
+        // commands into failing ones. See the CLI definitions for why.
+        (vec!["sync-keys", "--help"], "300"),
+        (vec!["os-update", "--help"], "900"),
         (vec!["vm", "update-tools", "--help"], "300"),
     ] {
         let text = combined(&run_isolated(&dir, &args));
@@ -74,11 +78,51 @@ fn ask_dry_run_is_unaffected_by_the_timeout() {
     assert!(!text.contains("did not answer"), "{text}");
 }
 
-/// A timeout of zero disables the remote wrapper rather than killing the
-/// command instantly — `timeout(1)` reads 0 as "no limit" and so does azlin.
+/// A timeout of zero disables the bound rather than firing instantly —
+/// `timeout(1)` reads 0 as "no limit" and so does azlin, on every one of
+/// these flags.
 #[test]
 fn a_zero_timeout_is_accepted_as_no_limit() {
     let dir = config_dir();
     let out = run_isolated(&dir, &["ask", "hello", "--dry-run", "--timeout", "0"]);
     assert!(out.status.success(), "{}", combined(&out));
+}
+
+/// Every command that takes a `--timeout` says what 0 means, because the two
+/// readings — "no limit" and "give up immediately" — are opposites and the
+/// user has no way to tell them apart from the outside.
+#[test]
+fn every_timeout_flag_documents_what_zero_means() {
+    let dir = config_dir();
+    for args in [
+        vec!["ask", "--help"],
+        vec!["top", "--help"],
+        vec!["sync-keys", "--help"],
+        vec!["os-update", "--help"],
+        vec!["vm", "update-tools", "--help"],
+    ] {
+        let text = combined(&run_isolated(&dir, &args));
+        assert!(
+            text.contains("0 = no limit"),
+            "{args:?} does not say what --timeout 0 means:\n{text}"
+        );
+    }
+}
+
+/// The per-step script is what `--timeout` on `vm update-tools` bounds, so a
+/// step must actually be wrapped, and `0` must leave the script bare.
+#[test]
+fn the_dev_update_script_bounds_each_step() {
+    let bounded = crate::update_helpers::build_dev_update_script(300);
+    assert_eq!(
+        bounded.matches("timeout 300 bash -c").count(),
+        crate::update_helpers::dev_update_step_count() as usize,
+        "every step must carry its own bound:\n{bounded}"
+    );
+    let unbounded = crate::update_helpers::build_dev_update_script(0);
+    assert!(!unbounded.contains("timeout "), "{unbounded}");
+    // The optional steps keep their `|| true`: a missing rustup is still not
+    // an error, only a step that hangs is.
+    assert!(unbounded.contains("|| true"), "{unbounded}");
+    assert!(bounded.contains("|| true"), "{bounded}");
 }

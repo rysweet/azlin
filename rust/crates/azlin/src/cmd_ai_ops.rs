@@ -27,17 +27,24 @@ pub(crate) async fn handle_ask(
     // back left the spinner turning until the user gave up (#1089). The bound
     // is on the whole request rather than on connect, because a stalled
     // response body is the shape that actually happens.
-    let answer = tokio::time::timeout(
-        std::time::Duration::from_secs(timeout as u64),
-        client.ask(&query_text, &context),
-    )
-    .await;
+    //
+    // `--timeout 0` means "no limit", the same reading `timeout(1)` gives it
+    // and the same one every other azlin timeout flag has. Handing 0 to
+    // `tokio::time::timeout` would instead fire immediately, so 0 would mean
+    // "no limit" on four commands and "fail instantly" on this one.
+    let request = client.ask(&query_text, &context);
+    let answer = if timeout == 0 {
+        Ok(request.await)
+    } else {
+        tokio::time::timeout(std::time::Duration::from_secs(timeout as u64), request).await
+    };
     pb.finish_and_clear();
     match answer {
         Ok(result) => println!("{}", result?),
         Err(_) => anyhow::bail!(
             "The Claude API did not answer within {}s (--timeout). Raise --timeout, \
-             or re-run with --dry-run to see the query without sending it.",
+             use --timeout 0 for no limit, or re-run with --dry-run to see the query \
+             without sending it.",
             timeout
         ),
     }

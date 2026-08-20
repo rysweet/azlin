@@ -294,8 +294,14 @@ pub(crate) async fn dispatch(
             // An `apt` that never returns used to hold the command open
             // forever: `--timeout` was accepted and enforced nothing (#1089).
             let (code, stdout, stderr) = match crate::exec_under_timeout(&target, &cmd, timeout)? {
-                Ok(result) => result,
-                Err(note) => anyhow::bail!("OS update on '{}' {}", vm_identifier, note),
+                crate::TimedExec::Finished {
+                    code,
+                    stdout,
+                    stderr,
+                } => (code, stdout, stderr),
+                crate::TimedExec::TimedOut(note) => {
+                    anyhow::bail!("OS update on '{}' {}", vm_identifier, note)
+                }
             };
             if code == 0 {
                 let green = Style::new().green();
