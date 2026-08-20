@@ -41,7 +41,8 @@ Commands::Session::resource_group = #1089 — `azlin session --resource-group` a
 #   `azlin session` reads and writes `session_names` in the local config and never contacts
 #   Azure, so there is nothing for a resource group to scope. It is not a harmless flag,
 #   though: the map is keyed by VM name alone, so two VMs called `dev` in different resource
-#   groups share one session name today, silently.
+#   groups share one session name today, silently — filed as #1122, so the bug is findable
+#   somewhere other than a flag-wiring debt file.
 #
 #   Wiring the flag properly means scoping sessions per resource group — a config schema
 #   change with a migration, and a behaviour change for anyone relying on the current

@@ -733,6 +733,16 @@ pub enum TunnelSharing {
     /// Reuse a live tunnel if one exists, and register the one we create.
     Pooled,
     /// Neither reuse nor register. Dies with this process.
+    ///
+    /// **Only safe for a caller whose process owns the tunnel's lifetime.**
+    /// An unregistered tunnel cannot be found by `azlin tunnel close`, and the
+    /// watchdog prunes the registry rather than the world, so nothing can
+    /// close it from outside. `azlin connect` qualifies: the process *is* the
+    /// SSH session and both end together. A detached tunnel-host — what
+    /// `azlin code` spawns — does not: an unregistered detached tunnel would
+    /// outlive its command with no command able to clean it up. Route that
+    /// through [`Pooled`](Self::Pooled), or teach the registry about private
+    /// tunnels first.
     Private,
 }
 

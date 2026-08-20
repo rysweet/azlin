@@ -231,7 +231,17 @@ pub(crate) async fn dispatch(
                 }
             };
 
-            let username = vm.admin_username.unwrap_or_else(|| user.clone());
+            // `--user` was bound here and could never win: the VM's admin
+            // username was preferred and Azure reports one for every VM azlin
+            // creates, so `--user deploy` was read, kept, and overridden
+            // (#1089). The flag-wiring gate sees a field that is used and is
+            // satisfied — this is the sub-class it cannot detect, and the
+            // reason `azlin code --user` and this one had to be fixed
+            // together despite looking like different bugs.
+            let username = user
+                .clone()
+                .or_else(|| vm.admin_username.clone())
+                .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
             let use_bastion = vm.public_ip.is_none();
 
             // Display SSH status bar unless disabled

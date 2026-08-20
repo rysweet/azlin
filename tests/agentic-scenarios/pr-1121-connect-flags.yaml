@@ -7,6 +7,12 @@ description: |
   own admin user. Both halves were wrong, in opposite directions — a VM with a
   different admin worked by accident, and `--user deploy` did nothing.
 
+  `azlin connect --user` was the same flag with a different bug: it *was* bound
+  by the handler and could never win, because the VM's admin username was
+  preferred over it and Azure reports one for every VM azlin creates. The gate
+  sees a field that is used and is satisfied — this is the sub-class it cannot
+  detect, and it had to be found by reading the handler.
+
   `azlin connect --disable-bastion-pool` was discarded. The pool is real: the
   tunnel registry lets one process reuse a live bastion tunnel opened by
   another. A connection asking not to share one shared it anyway.
@@ -51,7 +57,9 @@ steps:
         ./target/debug/azlin code --help | grep -q -- "--user" || { echo "FAIL: --user gone"; exit 1; }
         ./target/debug/azlin connect --help | grep -q -- "--disable-bastion-pool" \
           || { echo "FAIL: --disable-bastion-pool gone"; exit 1; }
-        echo "PASS: both advertised"
+        ./target/debug/azlin connect --help | grep -q -- "--user" \
+          || { echo "FAIL: connect --user gone"; exit 1; }
+        echo "PASS: all three advertised"
     expect:
       exit_code: 0
       stdout_contains: "PASS"
@@ -127,6 +135,8 @@ steps:
 
 expectations:
   - "azlin code --user deploy connects as deploy; omitting it uses the VM's admin user"
+  - "azlin connect --user deploy does the same, instead of being overridden by the VM"
+  - "Both commands describe the same default in the same words"
   - "A VM whose admin user is not azureuser keeps working exactly as before"
   - "azlin connect --disable-bastion-pool opens its own tunnel"
   - "It also does not register that tunnel, so other processes' pooling is undisturbed"

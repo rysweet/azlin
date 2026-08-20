@@ -78,6 +78,17 @@ Defaults to the VM's own admin user, read from Azure — not to the literal
 this flag was wired it was discarded entirely, so a VM with a different admin
 user worked by accident and `--user deploy` did nothing at all.
 
+`azlin connect --user` had the same flag and a different bug: it was read, and
+then lost every time, because the VM's admin username was preferred over it and
+Azure reports one for every VM azlin creates. Both now mean the same thing — an
+explicit `--user` wins, and omitting it uses the VM's admin user.
+
+> **Session names are not scoped by resource group.** `azlin session` stores
+> them keyed by VM name alone, so two VMs called `dev` in different resource
+> groups share one name. Tracked as
+> [#1122](https://github.com/rysweet/azlin/issues/1122); `azlin session
+> --resource-group` is accepted and discarded until it is fixed.
+
 ### `--no-extensions` and `~/.azlin/vscode/` are not implemented
 
 `azlin code` opens a `vscode-remote://` URI and installs nothing. VS Code's own

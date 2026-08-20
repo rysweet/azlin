@@ -422,7 +422,12 @@ pub(crate) async fn dispatch(
             auth_profile,
             user,
             key,
-            no_extensions: _no_extensions,
+            // Not wired, and not silently swallowed: `azlin code` opens a
+            // `vscode-remote://` URI and installs nothing, so there is no
+            // install to skip. The reason is on the ledger under
+            // `Commands::Code::no_extensions`; binding it here to keep the
+            // compiler quiet is what made this whole class of bug invisible.
+            no_extensions: _unimplemented_no_extensions,
             workspace,
             ..
         } => {
