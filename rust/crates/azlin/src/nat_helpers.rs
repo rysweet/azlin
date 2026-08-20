@@ -290,8 +290,12 @@ const READ_RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_secs(2
 /// Append the missing-role hint when an `az` failure was an authorization
 /// denial. Provisioning egress needs write access to the VNet and to public
 /// IPs; without naming the role the user cannot act on the error.
+fn is_authz_failure(message: &str) -> bool {
+    AUTHZ_MARKERS.iter().any(|m| message.contains(m))
+}
+
 fn annotate_authz(message: String) -> String {
-    if AUTHZ_MARKERS.iter().any(|m| message.contains(m)) {
+    if is_authz_failure(&message) {
         format!(
             "{message}\n  This is a permissions failure, not a missing resource. \
              Provisioning egress requires the 'Network Contributor' role (or \
@@ -325,11 +329,24 @@ fn try_detect_nat_status(resource_group: &str, region: &str) -> Result<NatStatus
 /// Because that makes a read failure fatal to `azlin new`, the read is retried
 /// once after [`READ_RETRY_BACKOFF`]. ARM throttling and transient 5xx are
 /// common enough that a single blip should not block VM creation.
+///
+/// An authorization denial is exempt: RBAC does not grant itself two seconds
+/// later, so retrying one costs a measured ~4s of the ~6s failure path (a
+/// failing ARM read is ~2.1s, plus the backoff) to reach an identical verdict.
+/// Only authz is exempted. A *not-found* read is still retried, because
+/// `ensure_bastion_infrastructure` may have created this very VNet moments
+/// earlier and ARM read-after-write is not instantaneous.
 pub fn detect_nat_status(resource_group: &str, region: &str) -> Result<NatStatus> {
     let first = match try_detect_nat_status(resource_group, region) {
         Ok(status) => return Ok(status),
         Err(e) => e,
     };
+    if is_authz_failure(&first) {
+        anyhow::bail!(
+            "{}",
+            annotate_authz(read_failure_message(region, &first, None))
+        );
+    }
     std::thread::sleep(READ_RETRY_BACKOFF);
     let second = match try_detect_nat_status(resource_group, region) {
         Ok(status) => return Ok(status),
@@ -337,13 +354,27 @@ pub fn detect_nat_status(resource_group: &str, region: &str) -> Result<NatStatus
     };
     anyhow::bail!(
         "{}",
-        annotate_authz(format!(
-            "`az network vnet subnet show` failed twice for subnet '{VM_SUBNET}' of \
-             VNet '{}' in {}:\n  first attempt:  {first}\n  second attempt: {second}",
-            crate::bastion_helpers::bastion_vnet_name(region),
-            region.to_lowercase(),
-        ))
+        annotate_authz(read_failure_message(region, &first, Some(&second)))
     )
+}
+
+/// Render the failure text for an unreadable subnet.
+///
+/// `second` is `None` when the retry was skipped as pointless, so the message
+/// never claims two attempts were made when only one was.
+fn read_failure_message(region: &str, first: &str, second: Option<&str>) -> String {
+    let vnet = crate::bastion_helpers::bastion_vnet_name(region);
+    let region = region.to_lowercase();
+    match second {
+        Some(second) => format!(
+            "`az network vnet subnet show` failed twice for subnet '{VM_SUBNET}' of \
+             VNet '{vnet}' in {region}:\n  first attempt:  {first}\n  second attempt: {second}"
+        ),
+        None => format!(
+            "`az network vnet subnet show` failed for subnet '{VM_SUBNET}' of \
+             VNet '{vnet}' in {region}:\n  {first}"
+        ),
+    }
 }
 
 /// Ensure the VM subnet in `region` has outbound internet via a NAT gateway.
@@ -925,6 +956,60 @@ mod tests {
                 CONFLICT_MARKERS.iter().any(|m| e.contains(m)),
                 "must be treated as a lost race, not a failure: {e}"
             );
+        }
+    }
+
+    #[test]
+    fn test_authz_failures_are_not_retried() {
+        // A failing ARM read measures ~2.1s, so retrying one costs ~4.2s
+        // (two reads plus the backoff) on the critical path of `azlin new`.
+        // That is worth paying for a throttle or a 5xx, which clear on their
+        // own. It is pure waste for an RBAC denial, which does not.
+        for e in [
+            "AuthorizationFailed: the client does not have permission",
+            "The client 'x' does not have authorization to perform action 'read'",
+        ] {
+            assert!(is_authz_failure(e), "must skip the pointless retry: {e}");
+        }
+    }
+
+    #[test]
+    fn test_not_found_is_still_retried() {
+        // Deliberately NOT exempted. `ensure_bastion_infrastructure` creates
+        // this VNet immediately before the NAT check runs, and ARM
+        // read-after-write is not instantaneous, so a not-found here can be
+        // eventual consistency that the retry genuinely resolves.
+        for e in [
+            "ResourceNotFound: the subnet could not be found",
+            "ResourceGroupNotFound: Resource group 'rg' could not be found.",
+            "(TooManyRequests) rate limit exceeded",
+            "output was not JSON: EOF while parsing a value",
+        ] {
+            assert!(!is_authz_failure(e), "must keep its retry: {e}");
+        }
+    }
+
+    #[test]
+    fn test_read_failure_message_reports_only_the_attempts_made() {
+        // The skipped-retry path must not claim two attempts happened.
+        let one = read_failure_message("SouthCentralUS", "AuthorizationFailed", None);
+        assert!(one.contains("failed for subnet"), "{one}");
+        assert!(!one.contains("twice"), "must not overstate attempts: {one}");
+        assert!(!one.contains("second attempt"), "{one}");
+
+        let two = read_failure_message("SouthCentralUS", "429", Some("429 again"));
+        assert!(two.contains("failed twice"), "{two}");
+        assert!(two.contains("first attempt"), "{two}");
+        assert!(two.contains("second attempt"), "{two}");
+
+        // Both shapes keep the operator oriented: subnet, VNet, region.
+        for m in [&one, &two] {
+            assert!(m.contains("default"), "must name the subnet: {m}");
+            assert!(
+                m.contains("azlin-bastion-southcentralus-vnet"),
+                "must name the VNet: {m}"
+            );
+            assert!(m.contains("southcentralus"), "must name the region: {m}");
         }
     }
 
