@@ -19,14 +19,12 @@ You can SSH into it; it cannot download anything.
 
 ## What the Pre-Check Does
 
-When you run `azlin new` without `--public` or `--no-bastion`, azlin creates a
-private VM in the `default` subnet of `azlin-bastion-{region}-vnet`. Before
-creating the VM, azlin reads that subnet and checks whether a NAT gateway is
-attached to it.
-
-If none is attached, azlin prompts you to create one, switch to a public IP, or
-abort. Creation is never silent and never optional-by-default: azlin will not
-create a private VM in a subnet it knows has no egress.
+Before creating a private VM, azlin reads the subnet the VM will land in and
+checks whether a NAT gateway is attached. If none is, it prompts you to create
+one, switch to a public IP, or abort — never silently, and never
+optional-by-default: azlin will not create a private VM in a subnet it knows has
+no egress. For when the check runs and when it is skipped, see
+[When the Pre-Check Runs](../reference/nat-gateway-provisioning.md#when-the-pre-check-runs).
 
 ## Why This Exists
 
@@ -61,171 +59,70 @@ Two independent mechanisms, at two points in time:
 
 ## Usage
 
-### Interactive Mode (default)
-
-```bash
-azlin new --name my-vm --region centralus
-```
-
-If the subnet has no NAT gateway:
+Creating a private VM in a region whose subnet has no NAT gateway stops for a
+decision before anything is created:
 
 ```
-No NAT gateway found for the VM subnet in centralus. Private VMs there have no outbound internet (Azure Bastion is inbound-only).
-
 How would you like to proceed?
 > Create NAT gateway now (takes ~1-2 min, ~$36/mo per region)
   Switch to public IP instead
   Abort
-
-Creating NAT gateway public IP 'azlin-natgw-centralus-ip-tagged' (Standard, zones 1 2 3)...
-  ✓ Public IP 'azlin-natgw-centralus-ip-tagged' ready
-Creating NAT gateway 'azlin-natgw-centralus' (Standard SKU, 10 min idle timeout)...
-  ✓ NAT gateway 'azlin-natgw-centralus' created
-Attaching 'azlin-natgw-centralus' to subnet 'default' of 'azlin-bastion-centralus-vnet'...
-  ✓ Attached to subnet 'default' of 'azlin-bastion-centralus-vnet'
-  ✓ Outbound internet enabled for private VMs in centralus
-
-Creating VM 'my-vm'...
 ```
 
-The banner and every progress line are written to stderr; a spinner reading
-`Provisioning NAT gateway in centralus...` runs alongside them and is cleared
-when provisioning finishes.
+Creating the gateway attaches it to the VM subnet and continues with the private
+VM; switching to a public IP skips NAT creation, because the VM's own address
+provides egress; aborting creates nothing at all. The prompt banner and every
+progress line go to stderr, alongside a spinner cleared when provisioning
+finishes.
 
-| Option | What happens |
-|--------|--------------|
-| **Create NAT gateway now** | Creates the public IP and gateway, attaches the gateway to the `default` subnet, then continues with the private VM. |
-| **Switch to public IP instead** | Skips NAT creation. The VM gets its own public IP, which provides egress on its own. |
-| **Abort** | Cancels VM creation. No VM and no network resources are created. |
-
-### Non-Interactive / CI Mode
-
-When stdin is not a TTY, azlin auto-selects "Create NAT gateway now" and warns
-on stderr:
-
-```bash
-echo "" | azlin new --name ci-vm --region centralus
-# stderr: Warning: non-interactive session detected. Auto-creating a NAT gateway
-#         in centralus so the VM has outbound internet. Use --public to give the
-#         VM its own public IP instead.
-```
-
-This mirrors the bastion pre-check, which auto-creates a substantially more
-expensive resource under the same conditions.
-
-### With `--yes`
-
-```bash
-azlin new --name my-vm --region centralus --yes
-# stderr: --yes flag set: auto-creating NAT gateway...
-```
-
-### With `--public` or `--no-bastion`
-
-Both opt into a VM-attached public IP, which provides its own egress. The NAT
-pre-check is skipped entirely:
-
-```bash
-azlin new --name my-vm --region centralus --public
-azlin new --name my-vm --region centralus --no-bastion
-```
-
-Choosing **Switch to public IP instead** at the bastion prompt has the same
-effect: the NAT pre-check re-reads the flag afterwards and does not run.
+`--yes`, a non-TTY stdin, `--public`, and `--no-bastion` each remove the prompt.
+Non-interactive runs auto-create the gateway, mirroring the bastion pre-check,
+which auto-creates a substantially more expensive resource under the same
+conditions. For the full matrix, see
+[Prompt Selection](../reference/nat-gateway-provisioning.md#prompt-selection).
 
 ## What Gets Created
 
-| Resource | Name | Details |
-|----------|------|---------|
-| Public IP | `azlin-natgw-{region}-ip-tagged` | Standard SKU, Static allocation, zones `1 2 3`, IP tag from `bastion_pip_ip_tags` |
-| NAT Gateway | `azlin-natgw-{region}` | Standard SKU, 10-minute idle timeout, regional (no zone) |
-| Subnet attachment | `default` subnet of `azlin-bastion-{region}-vnet` | The VM subnet — **never** `AzureBastionSubnet` |
-
-Resources are created in the same resource group used for VM provisioning, and
-are shared by every private VM in that region. A NAT gateway cannot be attached
-to `AzureBastionSubnet`: Azure rejects it, and it would not help anyway, since
-the bastion carries inbound traffic only.
-
-The zonal public IP paired with a regional gateway is intentional and matches
-the verified working configuration. Do not "harmonize" them.
+A Standard, zone-redundant public IP and a regional NAT gateway, both named
+after the region, with the gateway attached to the `default` subnet of
+`azlin-bastion-{region}-vnet` — the VM subnet, **never** `AzureBastionSubnet`,
+which Azure rejects and which would not help anyway, since the bastion carries
+inbound traffic only. Both live in the resource group used for VM provisioning
+and are shared by every private VM in that region. The zonal public IP on a
+regional gateway is intentional and matches the verified working configuration;
+do not "harmonize" them. The exact names are in
+[Resource Naming](../reference/nat-gateway-provisioning.md#resource-naming) and
+the exact `az` invocations in
+[Azure CLI Commands](../reference/nat-gateway-provisioning.md#azure-cli-commands).
 
 ### Idempotent
 
-The check asks a single question: *does this subnet have egress?* If the subnet
-read succeeds and reports any attached NAT gateway — including one you created
-yourself under a different name — the subnet is already satisfied and azlin
-creates nothing and touches nothing:
-
-```
-$ azlin new --name my-vm --region southcentralus
-#   ✓ NAT gateway 'azlin-natgw-southcentralus' provides egress for southcentralus
-```
-
-(A re-run that reaches `ensure_nat_gateway` itself — for example after choosing
-**Create NAT gateway now** on a subnet another run has just attached — reports
-`  ✓ NAT gateway '<name>' already provides egress for <region>`.)
-
-This guarantee holds only when azlin could actually read the subnet. See
-[Detection Failure Is Not Absence](#detection-failure-is-not-absence) — a failed
-read is never silently downgraded to "no gateway", because the last step of the
-create plan *replaces* whatever gateway the subnet already had.
-
-Resource names are fully determined by the region, and `az ... create` is
-create-or-update, so a re-run after an interrupted attempt reuses the existing
-public IP and gateway rather than allocating a second one. This matters: every
-duplicate Standard public IP bills about $3.65/month forever.
+The check asks a single question — *does this subnet have egress?* — so any
+attached gateway satisfies it, including one you created yourself under a
+different name, and because the names derive only from the region, a re-run
+after an interrupted attempt reuses the existing resources rather than billing a
+second Standard address forever. This holds only when azlin could actually read
+the subnet; see [Detection Failure Is Not Absence](#detection-failure-is-not-absence).
 
 ### Creation Failure
 
-If any step fails, azlin exits non-zero **before** creating a VM. The failing
-`az` error is reported underneath the same abort text that a declined prompt
-produces — the region, both resource names, and the three manual commands:
-
-```
-Error: Aborted: the VM subnet in centralus has no NAT gateway, so a private VM created there would have no outbound internet.
-Azure Bastion is inbound-only: it lets you reach the VM, but it does not provide egress. Without a NAT gateway every apt/curl/wget on the VM fails and the cloud-init toolchain install collapses.
-
-To provision egress manually:
-  az network public-ip create --resource-group <rg> --name azlin-natgw-centralus-ip-tagged --location centralus --sku Standard --allocation-method Static --zone 1 2 3
-  az network nat gateway create --resource-group <rg> --name azlin-natgw-centralus --location centralus --sku Standard --idle-timeout 10 --public-ip-addresses azlin-natgw-centralus-ip-tagged
-  az network vnet subnet update --resource-group <rg> --vnet-name azlin-bastion-centralus-vnet --name default --nat-gateway azlin-natgw-centralus
-
-Or re-run with --public to give this VM its own public IP instead.
-
-Caused by:
-    Failed to create NAT gateway 'azlin-natgw-centralus' in centralus: <sanitized az error>
-```
-
-Choosing **Abort** at the prompt produces the same text with no `Caused by:`
-section.
+Any failed step exits non-zero **before** a VM exists, reporting the sanitized
+`az` error under the same abort text a declined prompt produces — the region,
+both resource names, and the three commands to provision egress by hand. The
+exact wording is in
+[Detection Failure vs. Provisioning Failure](../reference/nat-gateway-provisioning.md#detection-failure-vs-provisioning-failure).
 
 ### Detection Failure Is Not Absence
 
-If the `az network vnet subnet show` call itself errors, times out, or returns
-JSON azlin cannot parse, azlin does **not** treat that as "no gateway". It
-retries the read once, and if the retry also fails it aborts non-zero without
-creating anything:
-
-```
-Error: Could not determine whether the VM subnet in centralus has outbound internet. Refusing to create a private VM that may silently have no egress. Re-run with --public to give this VM its own public IP instead.
-
-Caused by:
-    `az network vnet subnet show` failed twice for subnet 'default' of VNet 'azlin-bastion-centralus-vnet' in centralus:
-      first attempt:  <sanitized az error>
-      second attempt: <sanitized az error>
-```
-
-Falling through to the create path on an unreadable subnet would be actively
-destructive, not merely redundant. The final step of the create plan is
-`az network vnet subnet update --nat-gateway azlin-natgw-<region>`, and that
-command *replaces* any existing association. A single transient ARM read failure
-against a subnet carrying a hand-made or corporate-named gateway would silently
-repoint the whole subnet at a brand-new azlin gateway, orphan the old one, and
-start billing a second gateway plus a second public IP — with no message saying
-so. Aborting is strictly cheaper than that.
-
-The same rule covers a manually built VNet with no `default` subnet: the read
-fails, azlin says so by name, and no resource is created.
+A subnet read that errors, times out, or returns unparseable JSON is retried
+once and then aborts non-zero rather than being downgraded to "no gateway",
+because the create plan's final step *replaces* the subnet's existing
+association: one transient ARM failure against a subnet carrying a hand-made or
+corporate-named gateway would silently repoint it at a brand-new azlin gateway,
+orphan the old one, and start billing a second gateway plus a second public IP
+with nothing saying so. The same rule covers a manually built VNet with no
+`default` subnet. For the exact error text, see
+[Why an Unreadable Subnet Aborts](../reference/nat-gateway-provisioning.md#why-an-unreadable-subnet-aborts).
 
 ### You May Already Have Egress Without a NAT Gateway
 
@@ -257,70 +154,39 @@ informed purchase rather than a surprised one.
 ## Post-Provision Egress Verification
 
 After a private VM is created and SSH is ready, azlin runs one probe over the
-existing SSH session:
+existing SSH session: a TLS `HEAD` request with full certificate validation,
+sending no VM data and transferring no body. It runs on **private VMs only** — a
+VM with its own public IP has egress by construction, so the probe is skipped.
 
-```bash
-curl -fsI -m 10 https://packages.microsoft.com
-```
+Only a definite failure marks a VM **degraded**. An SSH hiccup during the probe
+is not evidence that egress is absent, and treating it as such would manufacture
+exactly the kind of misleading status this feature was built to remove. A VM
+missing `curl` does report degraded rather than indeterminate, and that is the
+intended reading — on an image whose toolchain is installed by cloud-init over
+the network, a missing `curl` is itself evidence that egress was unavailable.
 
-The probe is a TLS `HEAD` request with full certificate validation. It sends no
-VM data and transfers no body. It runs on **private VMs only** — a VM with its
-own public IP has egress by construction, so the probe is skipped and the VM is
-treated as reachable without an SSH round-trip.
+A degraded VM is still fully announced: the rest of the creation flow prints its
+connection details, and the non-zero exit comes after all of it, so a degraded
+VM is never left unnamed. With `--pool N`, degraded names are collected across
+the whole batch and azlin exits non-zero once at the end.
 
-| Probe result | VM reported as | Exit code |
-|--------------|----------------|-----------|
-| Reachable | Complete | 0 |
-| Explicitly unreachable | **Degraded** | non-zero |
-| Indeterminate (SSH transport failure) | Complete, with a warning | 0 |
-
-Only a definite failure marks a VM degraded. An SSH hiccup during the probe is
-not evidence that egress is absent, and treating it as such would manufacture
-exactly the kind of misleading status this feature was built to remove. If both
-verdict lines somehow appear in one output, the failure verdict wins.
-
-Note that a VM missing `curl` reports **degraded**, not indeterminate: the probe
-is a single `if`, so an absent binary takes the `else` branch and emits the same
-`fail` verdict a blocked request does. That is the intended reading — on an
-image whose toolchain is installed by cloud-init over the network, a missing
-`curl` is itself evidence that egress was unavailable.
-
-A degraded VM is announced on stdout, after a stderr banner naming the VNet and
-the query that shows what is attached:
-
-```
-⚠ VM 'my-vm' has NO outbound internet. It is reachable, but every apt/curl/wget on it will fail and the cloud-init toolchain install (az, gh, node, go, rust) is incomplete.
-  Azure Bastion is inbound-only and does not provide egress. Check that a NAT gateway is attached to the 'default' subnet of 'azlin-bastion-centralus-vnet':
-    az network vnet subnet show --resource-group <rg> --vnet-name azlin-bastion-centralus-vnet --name default --query natGateway
-  Then re-run `azlin new` (NAT provisioning is idempotent), or delete and recreate this VM once egress is in place.
-VM 'my-vm' created — DEGRADED: no outbound internet access.
-```
-
-The VM's connection details are printed by the rest of the creation flow, so a
-degraded VM is never left unnamed — the non-zero exit comes after all of it.
-
-With `--pool N`, degraded VM names are collected across the whole batch. Every
-VM's details are printed, and azlin exits non-zero once at the end.
+The probe command, the result-to-status table, the degraded banner, and the exit
+codes are in
+[Post-Provision Egress Probe](../reference/nat-gateway-provisioning.md#post-provision-egress-probe)
+and
+[Exit Codes and Output Ordering](../reference/nat-gateway-provisioning.md#exit-codes-and-output-ordering).
 
 ## Configuration
 
-There is no new configuration key. The NAT gateway's public IP carries the same
-IP tag as the bastion public IP, resolved from the same source:
-
-| Setting | Config field | Environment variable | Default |
-|---------|--------------|----------------------|---------|
-| IP tag | `bastion_pip_ip_tags` | `AZLIN_BASTION_PIP_IP_TAGS` | `FirstPartyUsage=/ATEVETNonProd` |
-
-```bash
-azlin config set bastion_pip_ip_tags "FirstPartyUsage=/ATEVETProd"
-```
-
-See [Bastion Public IP IP-Tag](bastion-pip-first-party-ip-tag.md) for the full
-precedence rules and validation. The IP tag is immutable after the address is
-allocated — if Azure rejects it, azlin fails rather than retrying without it.
-
-The NAT gateway public IP deliberately carries **no** Azure resource tags,
-including no `azlin-session` tag. Tagging it would make it a teardown candidate.
+There is no new configuration key: the NAT gateway's public IP carries the same
+IP tag as the bastion public IP, from the same `bastion_pip_ip_tags` setting
+(environment variable `AZLIN_BASTION_PIP_IP_TAGS`, default
+`FirstPartyUsage=/ATEVETNonProd`) — see
+[Bastion Public IP IP-Tag](bastion-pip-first-party-ip-tag.md) for precedence and
+validation. The tag is immutable after the address is allocated, so if Azure
+rejects it azlin fails rather than retrying without it. The address deliberately
+carries **no** Azure resource tags, including no `azlin-session` tag: tagging it
+would make it a teardown candidate.
 
 ## Cost
 
@@ -341,11 +207,9 @@ the Azure Bastion that azlin already auto-creates alongside it.
 |---------|-------------|
 | Bastion pre-check | Runs first. The NAT check runs after it and re-reads the public-IP flag, so choosing "Switch to public IP" at the bastion prompt skips NAT entirely. |
 | `--pool N` | The NAT check runs once before the VM creation loop, not per VM. The egress probe runs per VM. |
-| `azlin kill` / `azlin destroy` / `azlin delete` | Never removes the NAT gateway or its public IP — both are shared regional infrastructure, like the bastion. These commands tear down one VM's own session resources only. `azlin destroy --delete-rg` does not change this: the flag is refused outright, because deleting a resource group would destroy unrelated resources. |
-| `azlin cleanup` | Will not delete a NAT gateway's public IP. A NAT-attached address reports `ipConfiguration: null`, which previously looked exactly like an orphan; the orphan predicate now also requires `natGateway` to be absent. |
-| Teardown's "Left in place (may keep billing)" advisory | Printed by `azlin kill` / `azlin destroy` / `azlin delete` when resources are skipped. For the same reason as above, it no longer lists the NAT public IP among addresses you are advised to reclaim. |
-| `az group delete` | Deletes the NAT gateway and its public IP along with everything else. azlin never runs it for you. |
 | `azlin connect` / `azlin tunnel` | Unaffected. These use the bastion, which is inbound. |
+| `azlin kill` / `azlin destroy` / `azlin delete` / `azlin cleanup` | Never remove the NAT gateway or its public IP, and never name that address in teardown's "Left in place (may keep billing)" advisory — both are shared regional infrastructure, like the bastion, and these commands tear down one VM's own session resources only. A NAT-attached address reports `ipConfiguration: null`, which previously looked exactly like an orphan; the orphan predicate now also requires `natGateway` to be absent. `azlin destroy --delete-rg` does not change this: the flag is refused outright, because deleting a resource group would destroy unrelated resources. See [Teardown Interaction](../reference/nat-gateway-provisioning.md#teardown-interaction). |
+| `az group delete` | Deletes the NAT gateway and its public IP along with everything else. azlin never runs it for you. |
 
 ## Security Posture
 
