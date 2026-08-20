@@ -49,41 +49,98 @@ pub(crate) fn handle_disk_add(
     Ok(())
 }
 
+/// Report one VM's address and whether `port` accepts a connection.
+///
+/// Returns `false` when the VM has no address at all, so a `--all` sweep can
+/// tell "checked and closed" from "could not check".
+fn report_ip_check(vm_name: &str, ip: Option<String>, port: u32) -> bool {
+    match ip {
+        Some(addr) => {
+            println!("VM '{}': {}", vm_name, addr);
+            let addr_port = format!("{}:{}", addr, port);
+            match addr_port.parse::<std::net::SocketAddr>() {
+                Ok(sock_addr) => {
+                    match std::net::TcpStream::connect_timeout(
+                        &sock_addr,
+                        std::time::Duration::from_secs(5),
+                    ) {
+                        Ok(_) => println!("  Port {} on {} is OPEN", port, addr),
+                        Err(_) => println!("  Port {} on {} is CLOSED", port, addr),
+                    }
+                }
+                Err(e) => eprintln!("  Invalid address '{}': {}", addr_port, e),
+            }
+            true
+        }
+        None => {
+            println!("VM '{}': no IP address found", vm_name);
+            false
+        }
+    }
+}
+
 pub(crate) fn handle_ip_check(
     vm_identifier: Option<String>,
     resource_group: Option<String>,
+    all: bool,
     port: u32,
 ) -> Result<()> {
     let rg = resolve_resource_group(resource_group)?;
+
+    // Naming a VM *and* asking for all of them is ambiguous; picking a winner
+    // silently is the shape of bug this work removes.
+    if all && vm_identifier.is_some() {
+        anyhow::bail!(
+            "--all cannot be combined with a VM name. Drop one: `azlin ip check <vm>` \
+             checks that VM, `azlin ip check --all` checks every VM in the resource group."
+        );
+    }
+
     if let Some(name) = vm_identifier {
         let auth = create_auth()?;
         let vm_manager = azlin_azure::VmManager::new(&auth);
         let vm = vm_manager.get_vm(&rg, &name)?;
+        report_ip_check(&name, vm.public_ip.or(vm.private_ip), port);
+        return Ok(());
+    }
 
-        let ip = vm.public_ip.or(vm.private_ip);
-        match ip {
-            Some(addr) => {
-                println!("VM '{}': {}", name, addr);
-                let addr_port = format!("{}:{}", addr, port);
-                match addr_port.parse::<std::net::SocketAddr>() {
-                    Ok(sock_addr) => {
-                        match std::net::TcpStream::connect_timeout(
-                            &sock_addr,
-                            std::time::Duration::from_secs(5),
-                        ) {
-                            Ok(_) => println!("  Port {} on {} is OPEN", port, addr),
-                            Err(_) => println!("  Port {} on {} is CLOSED", port, addr),
-                        }
-                    }
-                    Err(e) => eprintln!("  Invalid address '{}': {}", addr_port, e),
-                }
-            }
-            None => println!("VM '{}': no IP address found", name),
-        }
-    } else {
-        println!(
+    if !all {
+        // Not `Ok(())`: nothing the user asked for happened. Exiting 0 here
+        // meant a scripted check passed without checking anything — and the
+        // message named a flag that was itself discarded (#1089).
+        anyhow::bail!(
             "Specify a VM name or use --all to check all VMs in '{}'",
             rg
+        );
+    }
+
+    let auth = create_auth()?;
+    let vm_manager = azlin_azure::VmManager::new(&auth);
+    let vms = vm_manager.list_vms(&rg)?;
+    if vms.is_empty() {
+        anyhow::bail!("No VMs found in resource group '{}'", rg);
+    }
+    println!(
+        "Checking {} VM(s) in '{}' on port {}...",
+        vms.len(),
+        rg,
+        port
+    );
+    let mut unaddressed = 0usize;
+    for vm in &vms {
+        if !report_ip_check(
+            &vm.name,
+            vm.public_ip.clone().or(vm.private_ip.clone()),
+            port,
+        ) {
+            unaddressed += 1;
+        }
+    }
+    if unaddressed > 0 {
+        eprintln!(
+            "{} of {} VM(s) had no address and were not checked.",
+            unaddressed,
+            vms.len()
         );
     }
     Ok(())
