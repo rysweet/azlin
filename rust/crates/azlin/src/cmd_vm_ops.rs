@@ -776,52 +776,42 @@ pub(crate) async fn handle_vm_new(
     //    outside the per-VM loop: a NAT gateway is regional and shared.
     if !want_public_ip {
         let ip_tags = config_defaults.bastion_pip_ip_tags();
-        // A failed read must NOT degrade to `Absent`. The final provisioning
-        // step is `subnet update --nat-gateway`, which REPLACES the subnet's
-        // association rather than appending: proceeding on a transient ARM
-        // failure could silently repoint a hand-made or corporate gateway and
-        // start billing a second gateway plus a second Standard public IP.
-        // This is also the exact subnet `az vm create` places the NIC in, so
-        // if it is unreadable, VM creation would fail moments later anyway.
-        let status = crate::nat_helpers::detect_nat_status(&rg, &final_loc).with_context(|| {
-            format!(
-                "Could not determine whether the VM subnet in {final_loc} has outbound \
-                 internet. Refusing to create a private VM that may silently have no \
-                 egress. Re-run with --public to give this VM its own public IP instead."
-            )
-        })?;
-
-        if let crate::nat_helpers::NatStatus::Attached { name } = &status {
-            eprintln!("  ✓ NAT gateway '{name}' provides egress for {final_loc}");
-        } else {
-            match prompt_nat_action(&final_loc, yes)? {
-                NatMissingAction::CreateNatGateway => {
-                    let pb =
-                        penguin_spinner(&format!("Provisioning NAT gateway in {}...", final_loc));
-                    let result = crate::nat_helpers::ensure_nat_gateway(&rg, &final_loc, &ip_tags);
-                    pb.finish_and_clear();
-                    // R4: never fall through to `az vm create` without egress.
-                    result.with_context(|| nat_provisioning_failed_message(&rg, &final_loc))?;
-                }
-                NatMissingAction::SwitchToPublicIp => {
-                    eprintln!(
-                        "Switching to public IP for this VM \
-                         (an instance IP provides its own egress)."
-                    );
-                    want_public_ip = true;
-                }
-                NatMissingAction::Abort => {
-                    anyhow::bail!("{}", nat_abort_message(&rg, &final_loc));
-                }
+        // The gate itself lives in `egress_gate` so every branch of it can be
+        // driven from a unit test; the Azure read, the prompt and the
+        // provisioning step are passed in from here (#1102). The property it
+        // enforces — R4, never fall through to `az vm create` without egress —
+        // is carried by `EgressDecision` having no "proceed anyway" variant.
+        let decision = crate::egress_gate::resolve_private_vm_egress(
+            &rg,
+            &final_loc,
+            || crate::nat_helpers::detect_nat_status(&rg, &final_loc),
+            || prompt_nat_action(&final_loc, yes),
+            || {
+                let pb = penguin_spinner(&format!("Provisioning NAT gateway in {}...", final_loc));
+                let result = crate::nat_helpers::ensure_nat_gateway(&rg, &final_loc, &ip_tags);
+                pb.finish_and_clear();
+                result
+            },
+        )?;
+        match decision {
+            crate::egress_gate::EgressDecision::NatGateway { name: Some(name) } => {
+                eprintln!("  ✓ NAT gateway '{name}' provides egress for {final_loc}");
+            }
+            crate::egress_gate::EgressDecision::NatGateway { name: None } => {}
+            crate::egress_gate::EgressDecision::SwitchToPublicIp => {
+                eprintln!(
+                    "Switching to public IP for this VM \
+                     (an instance IP provides its own egress)."
+                );
+                want_public_ip = true;
             }
         }
     }
 
-    // VMs whose egress probe reported failure. Collected across the loop so
-    // every VM's name and connection details are printed before we exit
-    // non-zero — aborting mid-loop would strand a billing VM the user cannot
-    // find.
-    let mut degraded_vms: Vec<String> = Vec::new();
+    // R5. Collected across the loop so every VM's name and connection details
+    // are printed before we exit non-zero — aborting mid-loop would strand a
+    // billing VM the user cannot find.
+    let mut degraded_vms = crate::egress_gate::DegradedVms::new();
 
     for i in 0..vm_count {
         let vm_name = if let Some(ref n) = name {
@@ -1090,7 +1080,7 @@ pub(crate) async fn handle_vm_new(
                     "⚠ {}",
                     crate::auth_forward::egress_failure_message(&vm.name, &rg, &final_loc)
                 );
-                degraded_vms.push(vm.name.clone());
+                degraded_vms.record(&vm.name);
                 // Deliberately not an early return: the VM exists and is
                 // billing, so its name and connection details must still be
                 // printed. The non-zero exit is raised after the loop.
@@ -1226,15 +1216,8 @@ pub(crate) async fn handle_vm_new(
     // Every VM's name and connection details have now been printed, so it is
     // safe to exit non-zero. Reporting a VM with no egress as a success is the
     // silent degradation this whole change exists to remove.
-    if !degraded_vms.is_empty() {
-        anyhow::bail!(
-            "{} VM(s) were created but have NO outbound internet: {}. \
-             They are reachable but their toolchain install is incomplete. \
-             See the warnings above for how to provision a NAT gateway in {}.",
-            degraded_vms.len(),
-            degraded_vms.join(", "),
-            final_loc
-        );
+    if let Some(failure) = degraded_vms.into_failure(&final_loc) {
+        return Err(failure);
     }
 
     Ok(())
