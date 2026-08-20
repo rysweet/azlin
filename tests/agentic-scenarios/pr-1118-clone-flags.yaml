@@ -1,0 +1,130 @@
+name: "azlin clone honours --session-prefix, --vm-size and --region"
+description: |
+  Verifies PR #1118 (issue #1089). `handle_vm_clone` destructured its three
+  remaining flags away with `..`, so `--session-prefix`, `--vm-size` and
+  `--region` parsed, appeared in `--help`, and were dropped.
+
+  Two of the three had a documented default that was not implemented either:
+  `--vm-size` says "same as source" but `az vm create --attach-os-disk` with
+  no `--size` uses *Azure's* default SKU, and `--region` says "same as
+  source" while the clone landed wherever the config pointed. So passing the
+  flag and omitting it were broken in different directions, and `--help` was
+  the only correct description of either.
+
+  Fixing `--region` exposed two more: a cross-region `az disk create
+  --source` needs the snapshot's full resource id and an incremental
+  snapshot, and a failed clone exited 0 with a billing snapshot left behind.
+
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 30000
+
+steps:
+  - name: "Build the binary under test (never assert against a stale build)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo build -p azlin 2>&1 | tail -1
+        test -x target/debug/azlin && echo "PASS: fresh azlin binary present"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "The three flags are still advertised by --help"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        out=$(cd rust && ./target/debug/azlin clone --help)
+        for f in --session-prefix --vm-size --region; do
+          echo "$out" | grep -q -- "$f" || { echo "FAIL: $f missing from --help"; exit 1; }
+        done
+        echo "PASS: all three flags advertised"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+  - name: "The flag-wiring gate no longer carries the clone entries"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        for e in "Commands::Clone::session_prefix" "Commands::Clone::vm_size" "Commands::Clone::region"; do
+          grep -q "$e" crates/xtask/unwired-flags-allowlist.txt \
+            && { echo "FAIL: $e still ledgered as unwired"; exit 1; }
+        done
+        cargo xtask check-flag-wiring 2>&1 | tail -2
+        echo "PASS: clone entries retired and the gate is clean"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 600000
+
+  - name: "The argv builders carry each flag's value, and the documented defaults hold"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo test -p azlin --bin azlin clone_helpers 2>&1 | tail -3
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok"
+    timeout: 900000
+
+  - name: "A cross-region clone asks for an incremental snapshot; a same-region one does not"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        cargo test -p azlin --bin azlin snapshot_args 2>&1 | tail -3
+        echo "PASS: --incremental is scoped to cross-region clones"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "A failed clone names the snapshot it left billing"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        cargo test -p azlin --bin azlin clone_failure_message 2>&1 | tail -3
+        echo "PASS: failures surface the leftover snapshot"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "The reference documents the size change, not just the fix"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        grep -q "eight times the bill" docs/reference/cli-python-parity.md \
+          && echo "PASS: the cost change is stated where a user will read it"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+expectations:
+  - "Each of --session-prefix, --vm-size and --region reaches the az argv it names"
+  - "Omitting --vm-size clones at the source VM's size, which is what --help promised"
+  - "Omitting --region clones into the source VM's region, not the config default"
+  - "A cross-region clone passes the snapshot's resource id and asks for --incremental"
+  - "A same-region clone does not ask for --incremental (different billing and restore)"
+  - "A failed clone exits non-zero and names the snapshot still billing"
+  - "No public IP is provisioned by any step; nothing here provisions anything at all"
