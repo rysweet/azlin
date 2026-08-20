@@ -21,7 +21,7 @@
 #
 # Generated from the checker's report against commit fdfb27a2 (v2.6.105).
 
-# ── Other flags accepted and discarded (28) ──────────────────────────
+# ── Other flags accepted and discarded (25) ──────────────────────────
 #
 # Each of these is an independent per-flag fix: bind the field in the handler
 # and act on it, or delete the flag. They are listed individually so that
@@ -59,15 +59,12 @@ Commands::Cleanup::include_named = #1089 — see Commands::Cleanup::idle_days ab
 Commands::Code::user = #1089 — `azlin code --user` accepted, then discarded; help promises "SSH username for remote connection"
 Commands::Code::no_extensions = #1089 — `azlin code --no-extensions` accepted, then discarded; help promises "Skip installing VS Code extensions on remote"
 GuiAction::Install::yes = #1089 — `azlin gui install --yes` accepted, then discarded; help promises "Compatibility flag; the install is already non-interactive"
-EnvAction::Set::force = #1089 — `azlin env set --force` accepted, then discarded; help promises "Skip secret detection warnings"
 KeysAction::List::resource_group = #1089 — `azlin keys list --resource-group` accepted, then discarded
 KeysAction::List::all_vms = #1089 — `azlin keys list --all-vms` accepted, then discarded; help promises "List all VMs (not just azlin prefix)"
 KeysAction::List::vm_prefix = #1089 — `azlin keys list --vm-prefix` accepted, then discarded; help promises "Only list VMs with this prefix"
 GithubRunnerAction::Enable::auto_scale = #1089 — `azlin github-runner enable --auto-scale` accepted, then discarded; help promises "Auto-scale based on queue depth"
-DiskAction::Add::mount = #1089 — `azlin disk add --mount` accepted, then discarded; help promises "Mount point for the disk"
 CostsAction::Dashboard::refresh = #1089 — `azlin costs dashboard --refresh` accepted, then discarded; help promises "Force refresh (ignore cache)"
 CostsAction::Actions::priority = #1089 — `azlin costs actions --priority` accepted, then discarded; help promises "Filter by priority"
 DoitAction::Deploy::output_dir = #1089 — `azlin doit deploy --output-dir` accepted, then discarded; help promises "Output directory for generated artifacts"
 DoitAction::Deploy::max_iterations = #1089 — `azlin doit deploy --max-iterations` accepted, then discarded; help promises "Maximum execution iterations"
 DoitAction::Deploy::quiet = #1089 — `azlin doit deploy --quiet` accepted, then discarded; help promises "Reduce output verbosity"
-SessionsAction::Save::description = #1089 — `azlin sessions save --description` accepted, then discarded; help promises "Session description"

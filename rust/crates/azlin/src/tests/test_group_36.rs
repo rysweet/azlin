@@ -253,9 +253,14 @@ fn test_session_build_write_list_roundtrip() {
         "dev-session",
         "dev-rg",
         &["vm-1".to_string(), "vm-2".to_string()],
+        None,
     );
-    let session2 =
-        crate::sessions::build_session_toml("staging-session", "staging-rg", &["vm-3".to_string()]);
+    let session2 = crate::sessions::build_session_toml(
+        "staging-session",
+        "staging-rg",
+        &["vm-3".to_string()],
+        None,
+    );
 
     fs::write(
         dir.join("dev-session.toml"),

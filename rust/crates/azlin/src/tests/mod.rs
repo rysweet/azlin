@@ -81,3 +81,4 @@ mod test_group_73;
 mod test_multi_session_restore;
 mod test_scope_flags;
 mod test_timeout_flags;
+mod test_vm_state_flags;

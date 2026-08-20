@@ -30,6 +30,73 @@ pub fn validate_env_key(key: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Key fragments that mean the value is probably a credential.
+///
+/// Matched case-insensitively on the key, because that is the signal a user
+/// actually controls and the one that does not depend on guessing entropy.
+const SECRET_KEY_MARKERS: [&str; 9] = [
+    "secret",
+    "password",
+    "passwd",
+    "token",
+    "apikey",
+    "api_key",
+    "credential",
+    "private_key",
+    "access_key",
+];
+
+/// Why a value looks like a credential, or `None` if it does not.
+///
+/// `azlin env set --force` promised to "Skip secret detection warnings" and
+/// there was no secret detection to skip (#1089). That matters more here than
+/// on most commands: `env set` writes the value into `~/.profile` on the VM,
+/// where it is world-readable by anything running as that user, survives
+/// reboots, and is picked up by every later shell — including ones the user
+/// did not open.
+///
+/// The check is deliberately conservative. It looks at the *key*, not the
+/// value's entropy: a false positive on `DATABASE_PASSWORD` costs one
+/// `--force`, while a heuristic that flagged high-entropy values would fire on
+/// every UUID and be turned off within a week.
+///
+/// A private key pasted as a value is caught on shape rather than name,
+/// because nobody calls that variable `SECRET`.
+///
+/// **Scope: `env set` only.** `azlin env import` writes the same file in bulk
+/// and does not call this, so a user who hits the warning once and reaches for
+/// `import` gets around the check without meaning to. That is a real gap and
+/// is stated here rather than left for someone to find: covering `import`
+/// means deciding what to do with a file of fifty variables where three look
+/// like credentials, which is a different design question from warning about
+/// one.
+pub fn secret_warning(key: &str, value: &str) -> Option<String> {
+    let lower = key.to_ascii_lowercase();
+    if let Some(marker) = SECRET_KEY_MARKERS.iter().find(|m| lower.contains(**m)) {
+        return Some(format!(
+            "the name '{}' contains '{}', so this looks like a credential",
+            key, marker
+        ));
+    }
+    if value.contains("-----BEGIN") && value.contains("PRIVATE KEY") {
+        return Some(format!(
+            "the value of '{}' looks like a PEM private key",
+            key
+        ));
+    }
+    None
+}
+
+/// The full warning shown before writing a suspected credential to the VM.
+pub fn secret_warning_message(vm: &str, reason: &str) -> String {
+    format!(
+        "Warning: {reason}.\n           `env set` writes this into ~/.profile on '{vm}', where it persists across \
+         reboots and is read by every later shell. Anything able to read that file, \
+         or to run as that user, can read the value.\n           Consider a secret store the VM reads at run time instead. Use --force to \
+         set it anyway."
+    )
+}
+
 /// Build the shell command that upserts `KEY=VALUE` in `~/.profile`.
 /// The `escaped_value` must already be shell-escaped (e.g. via `shell_escape`).
 pub fn build_env_set_cmd(key: &str, escaped_value: &str) -> String {

@@ -17,10 +17,17 @@ pub(crate) async fn dispatch(
                 sku,
                 resource_group,
                 lun,
-                mount: _mount,
-                ..
+                mount,
             } => {
-                crate::cmd_network_ops::handle_disk_add(&vm_name, size, &sku, resource_group, lun)?;
+                crate::cmd_network_ops::handle_disk_add(
+                    &vm_name,
+                    size,
+                    &sku,
+                    resource_group,
+                    lun,
+                    mount,
+                )
+                .await?;
             }
         },
 

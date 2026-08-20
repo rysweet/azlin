@@ -281,13 +281,18 @@ pub(crate) async fn dispatch(
                 session_name,
                 resource_group,
                 vms,
-                ..
+                description,
             } => {
                 let rg = resolve_resource_group(resource_group)?;
                 let sessions_dir = home_dir()?.join(".azlin").join("sessions");
                 std::fs::create_dir_all(&sessions_dir)?;
 
-                let session_val = crate::sessions::build_session_toml(&session_name, &rg, &vms);
+                let session_val = crate::sessions::build_session_toml(
+                    &session_name,
+                    &rg,
+                    &vms,
+                    description.as_deref(),
+                );
                 let path = sessions_dir.join(format!("{}.toml", session_name));
                 std::fs::write(&path, toml::to_string_pretty(&session_val)?)?;
                 println!("Saved session '{}' to {}", session_name, path.display());
@@ -333,15 +338,37 @@ pub(crate) async fn dispatch(
                 if names.is_empty() {
                     println!("No saved sessions.");
                 } else {
-                    let rows: Vec<Vec<String>> = names.into_iter().map(|n| vec![n]).collect();
+                    // Show the description `sessions save --description` records.
+                    // It was accepted and discarded, so the one field saying what
+                    // a session was *for* never reached the file and there was
+                    // nothing to list (#1089).
+                    let rows: Vec<Vec<String>> = names
+                        .into_iter()
+                        .map(|n| {
+                            let description =
+                                std::fs::read_to_string(dir.join(format!("{}.toml", n)))
+                                    .ok()
+                                    .and_then(|c| crate::sessions::session_description(&c))
+                                    .unwrap_or_default();
+                            vec![n, description]
+                        })
+                        .collect();
                     match output {
                         azlin_cli::OutputFormat::Table => {
                             for row in &rows {
-                                println!("  {}", row[0]);
+                                if row[1].is_empty() {
+                                    println!("  {}", row[0]);
+                                } else {
+                                    println!("  {}  — {}", row[0], row[1]);
+                                }
                             }
                         }
                         _ => {
-                            azlin_cli::table::render_rows(&["Session"], &rows, output);
+                            azlin_cli::table::render_rows(
+                                &["Session", "Description"],
+                                &rows,
+                                output,
+                            );
                         }
                     }
                 }

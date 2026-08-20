@@ -117,6 +117,7 @@ fn test_session_full_lifecycle_save_list_load_delete() {
         "test-session",
         "my-rg",
         &["vm1".to_string(), "vm2".to_string()],
+        None,
     );
     let content = toml::to_string_pretty(&session).unwrap();
     fs::write(sessions_dir.join("test-session.toml"), &content).unwrap();
@@ -140,7 +141,7 @@ fn test_session_full_lifecycle_save_list_load_delete() {
 
 #[test]
 fn test_session_save_empty_vms_lifecycle() {
-    let session = crate::sessions::build_session_toml("empty-sess", "rg", &[]);
+    let session = crate::sessions::build_session_toml("empty-sess", "rg", &[], None);
     let content = toml::to_string_pretty(&session).unwrap();
     let (rg, vms, _created) = crate::sessions::parse_session_toml(&content).unwrap();
     assert_eq!(rg, "rg");

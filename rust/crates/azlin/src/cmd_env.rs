@@ -16,7 +16,7 @@ pub(crate) async fn dispatch(
                 env_var,
                 resource_group,
                 ip,
-                ..
+                force,
             } => {
                 let (key, value) = match crate::env_helpers::split_env_var(&env_var) {
                     Some(kv) => kv,
@@ -24,6 +24,19 @@ pub(crate) async fn dispatch(
                         anyhow::bail!("Invalid format. Use KEY=VALUE");
                     }
                 };
+                // `--force` promised to "Skip secret detection warnings" and
+                // there was no secret detection to skip (#1089). Checked before
+                // the VM is resolved, so a refused write costs no Azure call.
+                if let Some(reason) = crate::env_helpers::secret_warning(key, value) {
+                    eprintln!(
+                        "{}",
+                        crate::env_helpers::secret_warning_message(&vm_identifier, &reason)
+                    );
+                    if !safe_confirm_with_flag("Write it anyway?", force, "--force")? {
+                        println!("Cancelled.");
+                        return Ok(());
+                    }
+                }
                 let target =
                     resolve_vm_ssh_target(&vm_identifier, ip.as_deref(), resource_group).await?;
                 let escaped = shell_escape(value);
