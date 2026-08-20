@@ -6,9 +6,7 @@ use super::super::*;
 fn test_format_cost_history_header() {
     let out = format_cost_history_header("my-rg", 30);
     assert!(out.contains("my-rg"));
-    // "day(s)" since the header now distinguishes a real threshold
-    // from `--age-days 0`, which means any age.
-    assert!(out.contains("30 day(s)"));
+    assert!(out.contains("30 days"));
 }
 
 #[test]
