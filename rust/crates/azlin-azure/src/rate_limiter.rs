@@ -63,6 +63,29 @@ impl RateLimiter {
         }
     }
 
+    /// Take a token, sleeping until one is available.
+    ///
+    /// [`try_acquire`](Self::try_acquire) reports how long a caller would have
+    /// to wait; this is for callers that intend to wait anyway. It loops
+    /// rather than sleeping once, because several threads waking from the same
+    /// reported wait would otherwise all take the one token that refilled.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use azlin_azure::rate_limiter::RateLimiter;
+    ///
+    /// let limiter = RateLimiter::new(2.0, 1000.0);
+    /// limiter.acquire();
+    /// limiter.acquire();
+    /// limiter.acquire(); // waits ~1ms for a refill rather than failing
+    /// ```
+    pub fn acquire(&self) {
+        while let Some(wait) = self.try_acquire() {
+            std::thread::sleep(wait.max(Duration::from_millis(1)));
+        }
+    }
+
     /// Get current token count.
     ///
     /// # Examples
@@ -109,6 +132,25 @@ mod tests {
         let limiter = RateLimiter::new(1.0, 1.0);
         assert!(limiter.try_acquire().is_none()); // first allowed
         assert!(limiter.try_acquire().is_some()); // second blocked
+    }
+
+    /// Several threads competing for one refilling bucket must all get
+    /// through, and none may take a token that is not there. A single sleep of
+    /// the reported wait would let every waiter wake together and take the one
+    /// token that refilled.
+    #[test]
+    fn test_acquire_is_safe_under_contention() {
+        let limiter = RateLimiter::new(2.0, 2000.0);
+        let taken = std::sync::atomic::AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    limiter.acquire();
+                    taken.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                });
+            }
+        });
+        assert_eq!(taken.load(std::sync::atomic::Ordering::SeqCst), 8);
     }
 
     #[test]

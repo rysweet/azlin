@@ -105,11 +105,35 @@ fn batch_spinner_style() -> ProgressStyle {
         .expect("valid spinner template")
 }
 
+/// Sustained ARM write rate a batch is allowed to reach, in operations per
+/// second, and the burst it may open with.
+///
+/// `az vm stop --no-wait` returns immediately, so `--max-workers 50` would put
+/// fifty ARM writes in flight and keep them coming. The sequential loop this
+/// replaced was accidentally a rate limiter; removing it is the point of the
+/// flag, and something has to take its place or the first large batch finds
+/// out what Azure Resource Manager thinks about it — as a wall of 429s that
+/// look like azlin's fault.
+///
+/// These numbers are deliberately conservative: ARM's write limits are
+/// per-subscription and shared with everything else the user is running, and a
+/// batch that finishes in twelve seconds instead of eight is not the problem
+/// this flag was raised to solve.
+const ARM_WRITES_PER_SECOND: f64 = 10.0;
+const ARM_WRITE_BURST: f64 = 10.0;
+
 /// Run one `az vm <action> --ids <id> --no-wait` and classify the outcome.
 ///
 /// Pulled out of both drivers so the parallel path cannot drift from the
 /// sequential one in how it decides success.
-fn run_one_vm_op(action: &str, id: &str) -> (VmOpStatus, std::time::Duration) {
+///
+/// `limiter` paces the ARM write; with one worker it never blocks.
+fn run_one_vm_op(
+    action: &str,
+    id: &str,
+    limiter: &azlin_azure::rate_limiter::RateLimiter,
+) -> (VmOpStatus, std::time::Duration) {
+    limiter.acquire();
     let op_start = Instant::now();
     let output = std::process::Command::new("az")
         .args(["vm", action, "--ids", id, "--no-wait"])
@@ -201,6 +225,8 @@ pub fn run_batch_with_progress(
             .expect("valid bar template"),
     );
 
+    let limiter =
+        azlin_azure::rate_limiter::RateLimiter::new(ARM_WRITE_BURST, ARM_WRITES_PER_SECOND);
     let slots: Vec<std::sync::Mutex<Option<VmOpResult>>> = (0..vm_ids.len())
         .map(|_| std::sync::Mutex::new(None))
         .collect();
@@ -208,7 +234,7 @@ pub fn run_batch_with_progress(
         let (pb, id) = &bars[i];
         let name = resolve_vm_name(id, vm_names);
         pb.set_message(format!("\x1b[36m{}\x1b[0m", action));
-        let (status, elapsed) = run_one_vm_op(action, id);
+        let (status, elapsed) = run_one_vm_op(action, id, &limiter);
         let label = match &status {
             VmOpStatus::Success => "\x1b[32msuccess\x1b[0m",
             VmOpStatus::Failed(_) => "\x1b[31mfailed\x1b[0m",
@@ -245,6 +271,8 @@ fn run_batch_plain(
     workers: usize,
     start: Instant,
 ) -> BatchSummary {
+    let limiter =
+        azlin_azure::rate_limiter::RateLimiter::new(ARM_WRITE_BURST, ARM_WRITES_PER_SECOND);
     let slots: Vec<std::sync::Mutex<Option<VmOpResult>>> = (0..vm_ids.len())
         .map(|_| std::sync::Mutex::new(None))
         .collect();
@@ -252,7 +280,7 @@ fn run_batch_plain(
     for_each_bounded(vm_ids.len(), workers, |i| {
         let id = vm_ids[i];
         let name = resolve_vm_name(id, vm_names);
-        let (status, elapsed) = run_one_vm_op(action, id);
+        let (status, elapsed) = run_one_vm_op(action, id, &limiter);
         // Numbered on completion rather than on start: with several workers in
         // flight, "[3/50] starting" printed before "[1/50] done" reads as an
         // ordering that never happened.
