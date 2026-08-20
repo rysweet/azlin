@@ -1141,6 +1141,9 @@ pub(crate) mod tui_dashboard;
 /// Pure helpers for the `run_on_fleet` result classification and formatting.
 mod fleet_helpers;
 
+/// The `azlin new` egress requirements (R4 and R5 of issue #1092).
+mod egress_gate;
+
 /// Pure helpers for the `fleet run` selection, gating and reporting flags.
 mod fleet_select;
 
