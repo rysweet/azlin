@@ -301,6 +301,7 @@ The `--if-mem-below` flag accepts a float value representing a memory usage perc
 - `--smart-route` orders targets least-loaded first; a VM with no usable reading sorts last. Combined with `--count N` this picks the N least-loaded VMs.
 - `--timeout` is enforced on the VM (`timeout(1)`), so a runaway process is killed rather than orphaned, and the transport is given a longer budget so the remote limit is the one that fires.
 - `--show-diff` groups VMs by identical `(exit status, output)`, largest group first, instead of opening the per-VM tab view. Two VMs that both printed nothing are only grouped together if they also exited the same way.
+- `--parallel` is a real concurrency limit. On bastion-routed VMs each worker is a separate `az network bastion ssh` process, so the default of 10 means ten Azure CLI processes at once; pass a lower `--parallel` on a small control machine.
 
 ### Examples
 

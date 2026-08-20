@@ -325,7 +325,8 @@ pub(crate) async fn dispatch(
                 );
                 let wrapped = fs::wrap_with_timeout(&command, timeout);
                 let local_timeout = fs::local_timeout_secs(timeout);
-                let mut outputs = collect_fleet_outputs(&vms, &wrapped, workers, local_timeout);
+                let mut outputs =
+                    collect_fleet_outputs(&vms, &wrapped, workers, local_timeout, &command);
                 annotate_fleet_timeouts(&mut outputs, timeout);
 
                 if retry_failed {
@@ -343,8 +344,13 @@ pub(crate) async fn dispatch(
                         );
                         let retry_targets: Vec<VmSshTarget> =
                             failed.iter().map(|i| vms[*i].clone()).collect();
-                        let mut retried =
-                            collect_fleet_outputs(&retry_targets, &wrapped, workers, local_timeout);
+                        let mut retried = collect_fleet_outputs(
+                            &retry_targets,
+                            &wrapped,
+                            workers,
+                            local_timeout,
+                            &command,
+                        );
                         annotate_fleet_timeouts(&mut retried, timeout);
                         for (slot, result) in failed.iter().zip(retried) {
                             if result.succeeded() {
@@ -476,6 +482,7 @@ fn probe_fleet_load(targets: &[VmSshTarget], workers: usize) -> Vec<crate::fleet
         workers,
         &bars,
         crate::fleet_select::local_timeout_secs(crate::fleet_select::PROBE_TIMEOUT_SECS),
+        "sampling load",
     )
     .into_iter()
     .map(|(code, stdout, _)| crate::fleet_select::parse_probe(code, &stdout))
@@ -505,18 +512,26 @@ fn collect_fleet_outputs(
     command: &str,
     workers: usize,
     local_timeout_secs: u64,
+    display_command: &str,
 ) -> Vec<crate::fleet_tabs::VmOutput> {
     let bars = crate::fleet_progress_bars(targets);
-    crate::exec_fleet(targets, command, workers, &bars, local_timeout_secs)
-        .into_iter()
-        .zip(targets)
-        .map(
-            |((exit_code, stdout, stderr), target)| crate::fleet_tabs::VmOutput {
-                vm_name: target.vm_name.clone(),
-                exit_code,
-                stdout,
-                stderr,
-            },
-        )
-        .collect()
+    crate::exec_fleet(
+        targets,
+        command,
+        workers,
+        &bars,
+        local_timeout_secs,
+        display_command,
+    )
+    .into_iter()
+    .zip(targets)
+    .map(
+        |((exit_code, stdout, stderr), target)| crate::fleet_tabs::VmOutput {
+            vm_name: target.vm_name.clone(),
+            exit_code,
+            stdout,
+            stderr,
+        },
+    )
+    .collect()
 }

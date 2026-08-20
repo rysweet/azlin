@@ -733,15 +733,22 @@ fn fleet_progress_bars(targets: &[VmSshTarget]) -> Vec<ProgressBar> {
 /// `VmSshTarget::exec_inner` needs the ambient tokio runtime, which a plain
 /// `std::thread` does not carry, and would silently fall back to subprocess ssh
 /// for everyone who never asked for parallelism.
+///
+/// `display_command` is what the progress spinners show. It differs from
+/// `command` whenever the caller has wrapped the user's command — otherwise
+/// `--timeout` would splash `timeout 300 bash -c '...'` across the UI.
 fn exec_fleet(
     targets: &[VmSshTarget],
     command: &str,
     workers: usize,
     bars: &[ProgressBar],
     local_timeout_secs: u64,
+    display_command: &str,
 ) -> Vec<(i32, String, String)> {
     let run_one = |i: usize| -> (i32, String, String) {
-        bars[i].set_message(format!("running: {}", command));
+        // The spinner shows what the user typed, not the `timeout N bash -c
+        // '...'` wrapper `--timeout` adds around it.
+        bars[i].set_message(format!("running: {}", display_command));
         let result = match targets[i].exec_with_local_timeout(command, local_timeout_secs) {
             Ok(r) => r,
             Err(e) => (-1, String::new(), e.to_string()),
@@ -820,7 +827,14 @@ fn run_on_fleet_with_workers(
     workers: usize,
 ) -> Vec<(i32, String, String)> {
     let bars = fleet_progress_bars(targets);
-    let results = exec_fleet(targets, command, workers, &bars, BASTION_EXEC_TIMEOUT_SECS);
+    let results = exec_fleet(
+        targets,
+        command,
+        workers,
+        &bars,
+        BASTION_EXEC_TIMEOUT_SECS,
+        command,
+    );
     print_fleet_table(targets, &results, show_output);
     results
 }
