@@ -2,14 +2,22 @@
 use super::*;
 use anyhow::Result;
 
-pub(crate) fn handle_disk_add(
+pub(crate) async fn handle_disk_add(
     vm_name: &str,
     size: u32,
     sku: &str,
     resource_group: Option<String>,
     lun: Option<u32>,
+    mount: Option<String>,
 ) -> Result<()> {
-    let rg = resolve_resource_group(resource_group)?;
+    // Validated before the disk is created: a bad mount path should cost
+    // nothing, and a disk attached for a mount that then fails is a billed
+    // resource the user did not ask to keep.
+    if let Some(path) = mount.as_deref() {
+        crate::mount_helpers::validate_mount_path(path)
+            .map_err(|e| anyhow::anyhow!("Invalid --mount path: {}", e))?;
+    }
+    let rg = resolve_resource_group(resource_group.clone())?;
     let disk_name = format!("{}_datadisk_{}", vm_name, lun.unwrap_or(0));
 
     let pb = penguin_spinner(&format!("Adding {} GB disk to {}...", size, vm_name));
@@ -34,18 +42,49 @@ pub(crate) fn handle_disk_add(
         .output()?;
 
     pb.finish_and_clear();
-    if output.status.success() {
-        println!(
-            "Attached {} GB disk '{}' to VM '{}'",
-            size, disk_name, vm_name
-        );
-    } else {
+    if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!(
             "Failed to attach disk: {}",
             azlin_core::sanitizer::sanitize(stderr.trim())
         );
     }
+    println!(
+        "Attached {} GB disk '{}' to VM '{}'",
+        size, disk_name, vm_name
+    );
+
+    // `--mount` was accepted and discarded, so the disk arrived raw and the
+    // user had to find, format and mount it themselves (#1089).
+    let Some(mount_path) = mount else {
+        return Ok(());
+    };
+    let lun = lun.unwrap_or(0);
+    let target = resolve_vm_ssh_target(vm_name, None, resource_group).await?;
+    let pb = penguin_spinner(&format!("Formatting and mounting at {}...", mount_path));
+    let script = crate::mount_helpers::build_disk_mount_script(lun, &mount_path);
+    let result = target.exec(&script);
+    pb.finish_and_clear();
+    let (code, stdout, stderr) = result?;
+    if code != 0 {
+        // The disk exists and is billing whether or not the mount worked, so
+        // say so rather than leaving the user to discover it.
+        anyhow::bail!(
+            "Disk '{}' is attached to '{}' but could not be mounted at {}: {}\n\
+             The disk still exists and is billing. Retry with \
+             `azlin disk add --lun {} --mount {}` once the cause is fixed, or detach it.",
+            disk_name,
+            vm_name,
+            mount_path,
+            azlin_core::sanitizer::sanitize(stderr.trim()),
+            lun,
+            mount_path
+        );
+    }
+    if stdout.contains("not reformatting") {
+        println!("  Existing filesystem kept (not reformatted)");
+    }
+    println!("Mounted at {} (persisted in /etc/fstab)", mount_path);
     Ok(())
 }
 

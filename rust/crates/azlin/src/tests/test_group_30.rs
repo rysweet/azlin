@@ -11,7 +11,7 @@ fn test_session_save_then_list() {
     let dir = tmp.path().join("sessions");
     fs::create_dir_all(&dir).unwrap();
     for name in &["alpha", "beta", "gamma"] {
-        let s = crate::sessions::build_session_toml(name, "rg", &[]);
+        let s = crate::sessions::build_session_toml(name, "rg", &[], None);
         let content = toml::to_string_pretty(&s).unwrap();
         fs::write(dir.join(format!("{}.toml", name)), content).unwrap();
     }
@@ -25,7 +25,7 @@ fn test_session_save_then_list() {
 #[test]
 fn test_session_parse_with_many_vms() {
     let vms: Vec<String> = (0..20).map(|i| format!("vm-{:03}", i)).collect();
-    let built = crate::sessions::build_session_toml("big", "rg-big", &vms);
+    let built = crate::sessions::build_session_toml("big", "rg-big", &vms, None);
     let serialized = toml::to_string_pretty(&built).unwrap();
     let (rg, parsed_vms, _) = crate::sessions::parse_session_toml(&serialized).unwrap();
     assert_eq!(rg, "rg-big");

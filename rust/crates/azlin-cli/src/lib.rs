@@ -2155,9 +2155,15 @@ pub enum DiskAction {
         /// Logical Unit Number
         #[arg(long)]
         lun: Option<u32>,
-        /// Mount point for the disk
-        #[arg(long, default_value = "/tmp")]
-        mount: String,
+        /// Mount point for the disk. Omit to attach without mounting.
+        ///
+        /// The default used to be `/tmp` and was discarded (#1089). Wiring it
+        /// unchanged would have formatted the new disk and mounted it over the
+        /// VM's `/tmp` on every `azlin disk add`, which is not something a
+        /// default should do. There is no default now: attaching and mounting
+        /// are separate asks.
+        #[arg(long)]
+        mount: Option<String>,
     },
 }
 

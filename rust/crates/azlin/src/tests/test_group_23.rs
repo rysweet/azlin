@@ -148,7 +148,8 @@ fn test_template_import_invalid_toml() {
 
 #[test]
 fn test_session_build_toml_fields() {
-    let s = crate::sessions::build_session_toml("dev", "rg-dev", &["vm1".into(), "vm2".into()]);
+    let s =
+        crate::sessions::build_session_toml("dev", "rg-dev", &["vm1".into(), "vm2".into()], None);
     let t = s.as_table().unwrap();
     assert_eq!(t["name"].as_str().unwrap(), "dev");
     assert_eq!(t["resource_group"].as_str().unwrap(), "rg-dev");
@@ -160,7 +161,7 @@ fn test_session_build_toml_fields() {
 
 #[test]
 fn test_session_build_toml_empty_vms() {
-    let s = crate::sessions::build_session_toml("empty", "rg", &[]);
+    let s = crate::sessions::build_session_toml("empty", "rg", &[], None);
     let t = s.as_table().unwrap();
     assert!(t["vms"].as_array().unwrap().is_empty());
 }
@@ -217,7 +218,7 @@ fn test_session_list_names_filters_toml() {
 
 #[test]
 fn test_session_build_and_parse_roundtrip() {
-    let built = crate::sessions::build_session_toml("rt", "rg-rt", &["vm-x".into()]);
+    let built = crate::sessions::build_session_toml("rt", "rg-rt", &["vm-x".into()], None);
     let serialized = toml::to_string_pretty(&built).unwrap();
     let (rg, vms, created) = crate::sessions::parse_session_toml(&serialized).unwrap();
     assert_eq!(rg, "rg-rt");

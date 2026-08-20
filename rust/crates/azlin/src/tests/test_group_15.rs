@@ -115,8 +115,12 @@ fn test_templates_import_missing_name() {
 
 #[test]
 fn test_sessions_build_toml() {
-    let val =
-        crate::sessions::build_session_toml("s1", "rg1", &["vm1".to_string(), "vm2".to_string()]);
+    let val = crate::sessions::build_session_toml(
+        "s1",
+        "rg1",
+        &["vm1".to_string(), "vm2".to_string()],
+        None,
+    );
     let tbl = val.as_table().unwrap();
     assert_eq!(tbl["name"].as_str().unwrap(), "s1");
     assert_eq!(tbl["resource_group"].as_str().unwrap(), "rg1");
