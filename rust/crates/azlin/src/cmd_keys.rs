@@ -11,58 +11,46 @@ pub(crate) async fn dispatch(
     let _ = (verbose, output);
     match command {
         azlin_cli::Commands::Keys { action } => match action {
-            azlin_cli::KeysAction::List { .. } => {
-                let ssh_dir = home_dir()?.join(".ssh");
+            azlin_cli::KeysAction::List {
+                resource_group,
+                all_vms,
+                vm_prefix,
+            } => {
+                // This listed the caller's `~/.ssh` directory and ignored all
+                // three flags (#1089). `ls -l ~/.ssh` still does that; what it
+                // could not do, and what the help has always promised, is say
+                // which VMs carry which key.
+                let rg = resolve_resource_group(resource_group)?;
+                let prefix = crate::keys_list::prefix_filter(all_vms, &vm_prefix);
 
-                if !ssh_dir.exists() {
-                    println!("No SSH directory found at {}", ssh_dir.display());
+                let az = std::process::Command::new("az")
+                    .args(crate::keys_list::build_vm_keys_args(&rg, prefix))
+                    .output()
+                    .context("Failed to run `az vm list`. Is the Azure CLI installed?")?;
+
+                if !az.status.success() {
+                    let stderr = String::from_utf8_lossy(&az.stderr);
+                    anyhow::bail!(
+                        "Failed to list VMs in '{}': {}",
+                        rg,
+                        azlin_core::sanitizer::sanitize(stderr.trim())
+                    );
+                }
+
+                let vms = crate::keys_list::parse_vm_keys(&az.stdout)?;
+                if vms.is_empty() {
+                    println!(
+                        "{}",
+                        crate::keys_list::empty_message(&rg, all_vms, &vm_prefix)
+                    );
                     return Ok(());
                 }
 
-                let entries = std::fs::read_dir(&ssh_dir)?;
-                let mut rows: Vec<Vec<String>> = Vec::new();
-
-                for entry in entries {
-                    let entry = entry?;
-                    let name = entry.file_name().to_string_lossy().to_string();
-
-                    let is_key = crate::key_helpers::is_known_key_name(&name)
-                        || (!name.starts_with('.')
-                            && !name.ends_with(".pub")
-                            && ssh_dir.join(format!("{}.pub", name)).exists());
-
-                    if !is_key {
-                        continue;
-                    }
-
-                    let meta = entry.metadata()?;
-                    let modified = meta
-                        .modified()
-                        .map(|t| {
-                            let dt: chrono::DateTime<chrono::Utc> = t.into();
-                            dt.format("%Y-%m-%d %H:%M").to_string()
-                        })
-                        .unwrap_or_else(|_| "-".to_string());
-
-                    let key_type = crate::key_helpers::detect_key_type(&name);
-
-                    rows.push(vec![
-                        name,
-                        key_type.to_string(),
-                        meta.len().to_string(),
-                        modified,
-                    ]);
-                }
-
-                if rows.is_empty() {
-                    println!("No SSH keys found in {}", ssh_dir.display());
-                } else {
-                    azlin_cli::table::render_rows(
-                        &["Key File", "Type", "Size (bytes)", "Modified"],
-                        &rows,
-                        output,
-                    );
-                }
+                azlin_cli::table::render_rows(
+                    &["VM", "Type", "Fingerprint", "Comment"],
+                    &crate::keys_list::build_rows(&vms),
+                    output,
+                );
             }
             azlin_cli::KeysAction::Rotate {
                 resource_group,

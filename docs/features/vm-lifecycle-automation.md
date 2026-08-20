@@ -454,10 +454,21 @@ azlin connect my-vm
 azlin status my-vm  # Check VM is running
 ```
 
-Verify SSH key in Azure Key Vault:
+See which VMs carry which SSH key:
 ```bash
-azlin keys list
+azlin keys list                      # VMs named azlin*, with each key's fingerprint
+azlin keys list --all-vms            # every VM in the resource group
+azlin keys list --vm-prefix web      # only VMs whose name starts with "web"
 ```
+
+The fingerprints are the same strings `ssh-keygen -lf ~/.ssh/id_ed25519.pub`
+prints, so a key that is missing from a VM is visible by comparing the two.
+
+> **This used to list local files.** Until the three flags above were wired,
+> `azlin keys list` printed the contents of your `~/.ssh` directory and ignored
+> the resource group, the prefix, and `--all-vms` entirely — the one thing its
+> help promised, *"List VMs and their SSH public keys"*, was the one thing it
+> could not do. `ls -l ~/.ssh` still gives the old output.
 
 ### Hooks Not Executing
 
