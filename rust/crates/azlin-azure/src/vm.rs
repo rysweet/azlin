@@ -798,6 +798,43 @@ fn tolerate_missing(result: Result<String>) -> Result<()> {
     }
 }
 
+/// Does the named resource group exist?
+///
+/// Three outcomes, deliberately kept apart: `Ok(true)`, `Ok(false)`, and
+/// `Err` when `az` could not answer at all (not logged in, no permission,
+/// network down). Callers that collapse the error into "does not exist" —
+/// or worse, into "exists and is empty" — turn an authorisation failure into
+/// a confident statement about someone's infrastructure.
+///
+/// This exists because `az advisor recommendation list --resource-group X`
+/// returns `[]` for a resource group that does not exist, and
+/// `azlin costs recommend` reported that as "no cost recommendations found
+/// for X" — a report about a resource group it had never reached.
+pub fn resource_group_exists(rg: &str, timeout_secs: u64) -> Result<bool> {
+    let (code, stdout, stderr) =
+        crate::subprocess::run_with_timeout("az", &["group", "exists", "--name", rg], timeout_secs)
+            .context("Failed to execute 'az' CLI. Is Azure CLI installed?")?;
+    if code != 0 {
+        let sanitized = azlin_core::sanitizer::sanitize(stderr.trim());
+        anyhow::bail!(
+            "Could not determine whether resource group '{}' exists: {}",
+            rg,
+            sanitized
+        );
+    }
+    match stdout.trim() {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        // `az group exists` answers with a bare boolean. Anything else means
+        // the contract changed, which is not the same as "no".
+        other => anyhow::bail!(
+            "Unexpected answer from `az group exists` for '{}': {:?}",
+            rg,
+            other
+        ),
+    }
+}
+
 /// Run an `az` CLI command with an explicit timeout in seconds.
 pub fn az_cli_with_timeout(args: &[&str], timeout_secs: u64) -> Result<String> {
     debug!(args = ?args, "Running az CLI command");

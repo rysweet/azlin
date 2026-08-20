@@ -171,9 +171,11 @@ fn test_health_metrics_non_running_vm() {
     let m = crate::collect_health_metrics("test-vm", "10.0.0.1", "azureuser", "deallocated", None);
     assert_eq!(m.vm_name, "test-vm");
     assert_eq!(m.power_state, "deallocated");
-    assert_eq!(m.cpu_percent, 0.0);
-    assert_eq!(m.mem_percent, 0.0);
-    assert_eq!(m.disk_percent, 0.0);
+    // Not `Some(0.0)`: a deallocated VM has no reading, and reporting 0%
+    // rendered it as a healthy idle machine.
+    assert_eq!(m.cpu_percent, None);
+    assert_eq!(m.mem_percent, None);
+    assert_eq!(m.disk_percent, None);
 }
 
 #[test]
@@ -219,28 +221,28 @@ fn test_render_health_table_does_not_panic() {
             vm_name: "vm1".to_string(),
             power_state: "running".to_string(),
             agent_status: "OK".to_string(),
-            error_count: 0,
-            cpu_percent: 25.5,
-            mem_percent: 60.0,
-            disk_percent: 45.0,
+            error_count: Some(0),
+            cpu_percent: Some(25.5),
+            mem_percent: Some(60.0),
+            disk_percent: Some(45.0),
         },
         crate::HealthMetrics {
             vm_name: "vm2".to_string(),
             power_state: "stopped".to_string(),
             agent_status: "OK".to_string(),
-            error_count: 0,
-            cpu_percent: 0.0,
-            mem_percent: 0.0,
-            disk_percent: 0.0,
+            error_count: Some(0),
+            cpu_percent: Some(0.0),
+            mem_percent: Some(0.0),
+            disk_percent: Some(0.0),
         },
         crate::HealthMetrics {
             vm_name: "vm3".to_string(),
             power_state: "running".to_string(),
             agent_status: "OK".to_string(),
-            error_count: 0,
-            cpu_percent: 95.0,
-            mem_percent: 85.0,
-            disk_percent: 92.0,
+            error_count: Some(0),
+            cpu_percent: Some(95.0),
+            mem_percent: Some(85.0),
+            disk_percent: Some(92.0),
         },
     ];
     // Should not panic; just renders to stdout

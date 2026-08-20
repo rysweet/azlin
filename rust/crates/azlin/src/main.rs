@@ -41,14 +41,21 @@ const DEFAULT_ADMIN_USERNAME: &str = "azureuser";
 
 /// Health metrics collected from a VM via SSH.
 #[derive(Debug)]
+/// One VM's health reading.
+///
+/// The percentages are `Option` because a reading can fail, and a failed
+/// reading is not zero. Substituting `0.0` made an unreachable VM render as a
+/// healthy idle one — green cells, no warning, exit 0 — which is the whole
+/// bug this type now prevents at the type level.
+#[derive(Clone)]
 struct HealthMetrics {
     vm_name: String,
     power_state: String,
     agent_status: String,
-    error_count: u32,
-    cpu_percent: f32,
-    mem_percent: f32,
-    disk_percent: f32,
+    error_count: Option<u32>,
+    cpu_percent: Option<f32>,
+    mem_percent: Option<f32>,
+    disk_percent: Option<f32>,
 }
 
 /// Run an SSH command on a remote host and return (exit_code, stdout, stderr).
@@ -405,22 +412,21 @@ fn collect_health_metrics(
     };
 
     // CPU usage from top (extract idle% before "id" regardless of field position)
+    // Each metric stays `None` when the command failed or the output did not
+    // parse. `unwrap_or(0.0)` here is what made an unreachable VM look idle.
     let cpu = exec("top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{print 100 - $1}'")
         .ok()
-        .and_then(|(code, out, _)| health_parse_helpers::parse_cpu_stdout(code, &out))
-        .unwrap_or(0.0);
+        .and_then(|(code, out, _)| health_parse_helpers::parse_cpu_stdout(code, &out));
 
     // Memory usage from free
     let mem = exec("free | awk '/Mem:/{printf \"%.1f\", $3/$2 * 100}'")
         .ok()
-        .and_then(|(code, out, _)| health_parse_helpers::parse_mem_stdout(code, &out))
-        .unwrap_or(0.0);
+        .and_then(|(code, out, _)| health_parse_helpers::parse_mem_stdout(code, &out));
 
     // Disk usage from df
     let disk = exec("df / --output=pcent | tail -1 | tr -d ' %'")
         .ok()
-        .and_then(|(code, out, _)| health_parse_helpers::parse_disk_stdout(code, &out))
-        .unwrap_or(0.0);
+        .and_then(|(code, out, _)| health_parse_helpers::parse_disk_stdout(code, &out));
 
     // Agent status from walinuxagent service
     let agent = exec("systemctl is-active walinuxagent 2>/dev/null || echo \"N/A\"")
@@ -431,8 +437,7 @@ fn collect_health_metrics(
     // Error count from journalctl (last hour)
     let errors = exec("journalctl -p err --since '1 hour ago' --no-pager -q 2>/dev/null | wc -l")
         .ok()
-        .and_then(|(_, out, _)| out.trim().parse::<u32>().ok())
-        .unwrap_or(0);
+        .and_then(|(_, out, _)| out.trim().parse::<u32>().ok());
 
     HealthMetrics {
         vm_name: vm_name.to_string(),
@@ -442,6 +447,18 @@ fn collect_health_metrics(
         cpu_percent: cpu,
         mem_percent: mem,
         disk_percent: disk,
+    }
+}
+
+/// Apply ANSI colour for a level that may be absent.
+///
+/// No level means no reading, and an unread metric must not be painted green:
+/// green is the claim that the machine is fine, which is exactly what could
+/// not be checked.
+fn optional_threshold_ansi(level: Option<error_helpers::ThresholdLevel>, s: &str) -> String {
+    match level {
+        Some(l) => threshold_ansi(l, s),
+        None => s.to_string(),
     }
 }
 
@@ -492,27 +509,42 @@ fn render_health_table(metrics: &[HealthMetrics]) {
                 error_helpers::classify_agent_level(&m.agent_status),
                 &trunc(&m.agent_status, widths[2]),
             ),
-            threshold_ansi(
-                error_helpers::classify_error_count(m.error_count),
-                &trunc_right(&m.error_count.to_string(), widths[3]),
+            optional_threshold_ansi(
+                health_render::error_count_level(m.error_count),
+                &trunc_right(&health_render::error_count_cell(m.error_count), widths[3]),
             ),
-            threshold_ansi(
-                error_helpers::classify_metric_70_90(m.cpu_percent),
-                &trunc_right(&format!("{:.1}", m.cpu_percent), widths[4]),
+            optional_threshold_ansi(
+                health_render::metric_level(m.cpu_percent),
+                &trunc_right(&health_render::metric_cell(m.cpu_percent), widths[4]),
             ),
-            threshold_ansi(
-                error_helpers::classify_metric_70_90(m.mem_percent),
-                &trunc_right(&format!("{:.1}", m.mem_percent), widths[5]),
+            optional_threshold_ansi(
+                health_render::metric_level(m.mem_percent),
+                &trunc_right(&health_render::metric_cell(m.mem_percent), widths[5]),
             ),
-            threshold_ansi(
-                error_helpers::classify_metric_70_90(m.disk_percent),
-                &trunc_right(&format!("{:.1}", m.disk_percent), widths[6]),
+            optional_threshold_ansi(
+                health_render::metric_level(m.disk_percent),
+                &trunc_right(&health_render::metric_cell(m.disk_percent), widths[6]),
             ),
         ];
         println!("{}", table_render::render_row(&cells, &widths));
     }
     println!("{bot}");
     println!();
+    // Name the VMs that produced no reading. A `--` in a table is easy to skim
+    // past; a summary line is not, and the point of this change is that a
+    // failed measurement is visible rather than green.
+    let unmeasured: Vec<String> = metrics
+        .iter()
+        .filter(|m| {
+            health_render::is_fully_unknown(m.cpu_percent, m.mem_percent, m.disk_percent)
+                && m.power_state.eq_ignore_ascii_case("running")
+        })
+        .map(|m| m.vm_name.clone())
+        .collect();
+    if let Some(footer) = health_render::unavailable_footer(&unmeasured) {
+        eprintln!("{footer}");
+        println!();
+    }
     println!(
         "Signals: Latency=Agent | Traffic=State | Errors=Agent fails | Saturation=CPU/Mem/Disk"
     );
@@ -565,38 +597,25 @@ fn run_health_tui(metrics: &[HealthMetrics]) -> Result<()> {
                             "stopped" | "deallocated" => RatColor::Red,
                             _ => RatColor::Yellow,
                         };
-                        let cpu_color = if m.cpu_percent > 80.0 {
-                            RatColor::Red
-                        } else if m.cpu_percent > 50.0 {
-                            RatColor::Yellow
-                        } else {
-                            RatColor::Green
-                        };
-                        let mem_color = if m.mem_percent > 80.0 {
-                            RatColor::Red
-                        } else if m.mem_percent > 50.0 {
-                            RatColor::Yellow
-                        } else {
-                            RatColor::Green
-                        };
-                        let disk_color = if m.disk_percent > 80.0 {
-                            RatColor::Red
-                        } else if m.disk_percent > 50.0 {
-                            RatColor::Yellow
-                        } else {
-                            RatColor::Green
+                        // A metric with no reading is grey, never green:
+                        // green claims the VM is fine, which is exactly what
+                        // could not be checked.
+                        let metric_color = |v: Option<f32>| match v {
+                            None => RatColor::DarkGray,
+                            Some(p) if p > 80.0 => RatColor::Red,
+                            Some(p) if p > 50.0 => RatColor::Yellow,
+                            Some(_) => RatColor::Green,
                         };
                         let agent_color = match m.agent_status.as_str() {
                             "OK" => RatColor::Green,
                             "Down" => RatColor::Red,
                             _ => RatColor::Yellow,
                         };
-                        let error_color = if m.error_count > 10 {
-                            RatColor::Red
-                        } else if m.error_count > 0 {
-                            RatColor::Yellow
-                        } else {
-                            RatColor::Green
+                        let error_color = match m.error_count {
+                            None => RatColor::DarkGray,
+                            Some(c) if c > 10 => RatColor::Red,
+                            Some(c) if c > 0 => RatColor::Yellow,
+                            Some(_) => RatColor::Green,
                         };
                         Row::new(vec![
                             RatCell::from(m.vm_name.as_str()),
@@ -604,14 +623,14 @@ fn run_health_tui(metrics: &[HealthMetrics]) -> Result<()> {
                                 .style(RatStyle::default().fg(state_color)),
                             RatCell::from(m.agent_status.as_str())
                                 .style(RatStyle::default().fg(agent_color)),
-                            RatCell::from(format!("{}", m.error_count))
+                            RatCell::from(health_render::error_count_cell(m.error_count))
                                 .style(RatStyle::default().fg(error_color)),
-                            RatCell::from(format!("{:.1}", m.cpu_percent))
-                                .style(RatStyle::default().fg(cpu_color)),
-                            RatCell::from(format!("{:.1}", m.mem_percent))
-                                .style(RatStyle::default().fg(mem_color)),
-                            RatCell::from(format!("{:.1}", m.disk_percent))
-                                .style(RatStyle::default().fg(disk_color)),
+                            RatCell::from(health_render::metric_cell(m.cpu_percent))
+                                .style(RatStyle::default().fg(metric_color(m.cpu_percent))),
+                            RatCell::from(health_render::metric_cell(m.mem_percent))
+                                .style(RatStyle::default().fg(metric_color(m.mem_percent))),
+                            RatCell::from(health_render::metric_cell(m.disk_percent))
+                                .style(RatStyle::default().fg(metric_color(m.disk_percent))),
                         ])
                     })
                     .collect();
@@ -1124,6 +1143,9 @@ mod fleet_helpers;
 
 /// Pure helpers for the `fleet run` selection, gating and reporting flags.
 mod fleet_select;
+
+/// Rendering rules for health metrics that may have no reading at all.
+mod health_render;
 
 /// Pure helpers for filtering VMs in the list handler.
 mod list_helpers;

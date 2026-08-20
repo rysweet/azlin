@@ -2,12 +2,36 @@
 use super::*;
 use anyhow::Result;
 
+/// Fail unless the resource group exists.
+///
+/// Azure Advisor answers `[]` for a resource group that does not exist, so
+/// `azlin costs recommend --rg typo` reported "no cost recommendations found
+/// for 'typo'" — a confident statement about infrastructure it had never
+/// reached. An unanswerable check (not logged in, no permission) is an error
+/// too: assuming "exists" or "does not exist" from a failed lookup is the same
+/// mistake one step further out.
+fn require_resource_group(resource_group: &str) -> Result<()> {
+    let timeout = azlin_core::AzlinConfig::load()
+        .map(|c| c.az_cli_timeout)
+        .unwrap_or(120);
+    if !azlin_azure::resource_group_exists(resource_group, timeout)? {
+        anyhow::bail!(
+            "Resource group '{}' does not exist. \
+             Check the name, or `az account set --subscription <id>` if it \
+             lives in another subscription.",
+            resource_group
+        );
+    }
+    Ok(())
+}
+
 pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<()> {
     match action {
         azlin_cli::CostsAction::Recommend {
             resource_group,
             priority,
         } => {
+            require_resource_group(&resource_group)?;
             let cmd_args =
                 crate::handlers::build_advisor_args(&resource_group, priority.as_deref());
             let output = std::process::Command::new("az").args(&cmd_args).output()?;
@@ -60,6 +84,7 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
             dry_run,
             ..
         } => {
+            require_resource_group(&resource_group)?;
             let output = std::process::Command::new("az")
                 .args([
                     "advisor",

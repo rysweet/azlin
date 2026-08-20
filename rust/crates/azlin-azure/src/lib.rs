@@ -22,4 +22,5 @@ pub use ops::AzureOps;
 pub use subprocess::run_with_timeout;
 pub use vm::az_cli_with_timeout;
 pub use vm::is_resource_not_found;
+pub use vm::resource_group_exists;
 pub use vm::VmManager;

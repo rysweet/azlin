@@ -128,9 +128,9 @@ fn test_cli_sessions_list_json_format() {
 fn test_health_metrics_deallocated_vm() {
     let m = crate::collect_health_metrics("vm-dealloc", "10.0.0.1", "user", "VM deallocated", None);
     assert_eq!(m.vm_name, "vm-dealloc");
-    assert_eq!(m.cpu_percent, 0.0);
-    assert_eq!(m.mem_percent, 0.0);
-    assert_eq!(m.disk_percent, 0.0);
+    assert_eq!(m.cpu_percent, None);
+    assert_eq!(m.mem_percent, None);
+    assert_eq!(m.disk_percent, None);
 }
 
 #[test]
@@ -148,10 +148,10 @@ fn test_render_health_table_many_entries() {
             vm_name: format!("vm-{}", i),
             power_state: "VM running".to_string(),
             agent_status: "OK".to_string(),
-            error_count: 0,
-            cpu_percent: i as f32 * 5.0,
-            mem_percent: i as f32 * 3.0,
-            disk_percent: i as f32 * 2.0,
+            error_count: Some(0),
+            cpu_percent: Some(i as f32 * 5.0),
+            mem_percent: Some(i as f32 * 3.0),
+            disk_percent: Some(i as f32 * 2.0),
         })
         .collect();
     // Should not panic with many entries
@@ -164,10 +164,10 @@ fn test_render_health_table_100_percent() {
         vm_name: "vm-full".to_string(),
         power_state: "VM running".to_string(),
         agent_status: "OK".to_string(),
-        error_count: 0,
-        cpu_percent: 100.0,
-        mem_percent: 100.0,
-        disk_percent: 100.0,
+        error_count: Some(0),
+        cpu_percent: Some(100.0),
+        mem_percent: Some(100.0),
+        disk_percent: Some(100.0),
     }];
     // Should not panic
     crate::render_health_table(&metrics);

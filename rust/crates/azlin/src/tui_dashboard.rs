@@ -33,10 +33,13 @@ pub struct VmDashboardEntry {
     pub vm_name: String,
     pub power_state: String,
     pub agent_status: String,
-    pub error_count: u32,
-    pub cpu_percent: f32,
-    pub mem_percent: f32,
-    pub disk_percent: f32,
+    /// `None` means no reading was taken, not a reading of zero. A VM the
+    /// dashboard could not reach used to render as `0.0` in green — the exact
+    /// appearance of a healthy idle machine.
+    pub error_count: Option<u32>,
+    pub cpu_percent: Option<f32>,
+    pub mem_percent: Option<f32>,
+    pub disk_percent: Option<f32>,
     pub ip: String,
     pub region: String,
     pub sessions: u32,
@@ -52,10 +55,10 @@ impl VmDashboardEntry {
             vm_name,
             power_state: String::new(),
             agent_status: String::new(),
-            error_count: 0,
-            cpu_percent: 0.0,
-            mem_percent: 0.0,
-            disk_percent: 0.0,
+            error_count: None,
+            cpu_percent: None,
+            mem_percent: None,
+            disk_percent: None,
             ip: String::new(),
             region: String::new(),
             sessions: 0,
@@ -65,15 +68,23 @@ impl VmDashboardEntry {
     }
 
     /// Push a new sample, evicting the oldest if at capacity.
-    pub fn push_sample(&mut self, cpu: f32, mem: f32) {
-        if self.cpu_history.len() >= HISTORY_CAPACITY {
-            self.cpu_history.pop_front();
+    ///
+    /// A sample with no reading is not pushed. Pushing zero would draw a
+    /// trough in the sparkline that reads as "the VM went quiet" when what
+    /// happened is "we stopped being able to ask".
+    pub fn push_sample(&mut self, cpu: Option<f32>, mem: Option<f32>) {
+        if let Some(cpu) = cpu {
+            if self.cpu_history.len() >= HISTORY_CAPACITY {
+                self.cpu_history.pop_front();
+            }
+            self.cpu_history.push_back(cpu.clamp(0.0, 100.0) as u64);
         }
-        if self.mem_history.len() >= HISTORY_CAPACITY {
-            self.mem_history.pop_front();
+        if let Some(mem) = mem {
+            if self.mem_history.len() >= HISTORY_CAPACITY {
+                self.mem_history.pop_front();
+            }
+            self.mem_history.push_back(mem.clamp(0.0, 100.0) as u64);
         }
-        self.cpu_history.push_back(cpu.clamp(0.0, 100.0) as u64);
-        self.mem_history.push_back(mem.clamp(0.0, 100.0) as u64);
     }
 }
 
@@ -248,13 +259,16 @@ impl DashboardApp {
 // ── Rendering ────────────────────────────────────────────────────────────
 
 /// Color for a utilisation metric (green/yellow/red thresholds at 50/80).
-fn metric_color(pct: f32) -> Color {
-    if pct > 80.0 {
-        Color::Red
-    } else if pct > 50.0 {
-        Color::Yellow
-    } else {
-        Color::Green
+/// Colour for a metric that may have no reading.
+///
+/// An absent reading is grey, never green: green is the claim that the VM is
+/// fine, and that is precisely what could not be checked.
+fn metric_color(pct: Option<f32>) -> Color {
+    match pct {
+        None => Color::DarkGray,
+        Some(p) if p > 80.0 => Color::Red,
+        Some(p) if p > 50.0 => Color::Yellow,
+        Some(_) => Color::Green,
     }
 }
 
@@ -336,20 +350,19 @@ fn render_vm_table(f: &mut Frame, area: Rect, app: &mut DashboardApp) {
                 Cell::from(e.ip.as_str()),
                 Cell::from(e.agent_status.as_str())
                     .style(Style::default().fg(agent_color(&e.agent_status))),
-                Cell::from(format!("{}", e.error_count)).style(Style::default().fg(
-                    if e.error_count > 10 {
-                        Color::Red
-                    } else if e.error_count > 0 {
-                        Color::Yellow
-                    } else {
-                        Color::Green
-                    },
-                )),
-                Cell::from(format!("{:.1}", e.cpu_percent))
+                Cell::from(crate::health_render::error_count_cell(e.error_count)).style(
+                    Style::default().fg(match e.error_count {
+                        None => Color::DarkGray,
+                        Some(c) if c > 10 => Color::Red,
+                        Some(c) if c > 0 => Color::Yellow,
+                        Some(_) => Color::Green,
+                    }),
+                ),
+                Cell::from(crate::health_render::metric_cell(e.cpu_percent))
                     .style(Style::default().fg(metric_color(e.cpu_percent))),
-                Cell::from(format!("{:.1}", e.mem_percent))
+                Cell::from(crate::health_render::metric_cell(e.mem_percent))
                     .style(Style::default().fg(metric_color(e.mem_percent))),
-                Cell::from(format!("{:.1}", e.disk_percent))
+                Cell::from(crate::health_render::metric_cell(e.disk_percent))
                     .style(Style::default().fg(metric_color(e.disk_percent))),
                 Cell::from(format!("{}", e.sessions)),
             ];
@@ -409,7 +422,10 @@ fn render_sparklines(f: &mut Frame, area: Rect, app: &DashboardApp) {
 
         // CPU sparkline
         let cpu_data: Vec<u64> = entry.cpu_history.iter().copied().collect();
-        let cpu_label = format!("CPU {:.1}%", entry.cpu_percent);
+        let cpu_label = format!(
+            "CPU {}%",
+            crate::health_render::metric_cell(entry.cpu_percent)
+        );
         let cpu_sparkline = Sparkline::default()
             .block(Block::default().title(cpu_label))
             .data(&cpu_data)
@@ -419,7 +435,10 @@ fn render_sparklines(f: &mut Frame, area: Rect, app: &DashboardApp) {
 
         // Memory sparkline
         let mem_data: Vec<u64> = entry.mem_history.iter().copied().collect();
-        let mem_label = format!("Mem {:.1}%", entry.mem_percent);
+        let mem_label = format!(
+            "Mem {}%",
+            crate::health_render::metric_cell(entry.mem_percent)
+        );
         let mem_sparkline = Sparkline::default()
             .block(Block::default().title(mem_label))
             .data(&mem_data)
@@ -554,7 +573,7 @@ mod tests {
         assert!(entry.cpu_history.is_empty());
         assert!(entry.mem_history.is_empty());
 
-        entry.push_sample(45.0, 60.0);
+        entry.push_sample(Some(45.0), Some(60.0));
         assert_eq!(entry.cpu_history.len(), 1);
         assert_eq!(entry.cpu_history[0], 45);
         assert_eq!(entry.mem_history[0], 60);
@@ -563,7 +582,7 @@ mod tests {
     #[test]
     fn test_vm_dashboard_entry_push_sample_clamps() {
         let mut entry = VmDashboardEntry::new("test-vm".to_string());
-        entry.push_sample(-5.0, 150.0);
+        entry.push_sample(Some(-5.0), Some(150.0));
         assert_eq!(entry.cpu_history[0], 0);
         assert_eq!(entry.mem_history[0], 100);
     }
@@ -572,7 +591,7 @@ mod tests {
     fn test_vm_dashboard_entry_history_capacity() {
         let mut entry = VmDashboardEntry::new("test-vm".to_string());
         for i in 0..HISTORY_CAPACITY + 10 {
-            entry.push_sample(i as f32, i as f32);
+            entry.push_sample(Some(i as f32), Some(i as f32));
         }
         assert_eq!(entry.cpu_history.len(), HISTORY_CAPACITY);
         assert_eq!(entry.mem_history.len(), HISTORY_CAPACITY);
@@ -716,9 +735,30 @@ mod tests {
 
     #[test]
     fn test_metric_color_thresholds() {
-        assert_eq!(metric_color(30.0), Color::Green);
-        assert_eq!(metric_color(60.0), Color::Yellow);
-        assert_eq!(metric_color(90.0), Color::Red);
+        assert_eq!(metric_color(Some(30.0)), Color::Green);
+        assert_eq!(metric_color(Some(60.0)), Color::Yellow);
+        assert_eq!(metric_color(Some(90.0)), Color::Red);
+    }
+
+    /// A VM with no reading must not be painted green. Green is the claim
+    /// that the machine is fine, and that is exactly what was not measured.
+    #[test]
+    fn unmeasured_metric_is_not_green() {
+        assert_eq!(metric_color(None), Color::DarkGray);
+        assert_ne!(metric_color(None), Color::Green);
+    }
+
+    /// A sample that has no reading must not enter the sparkline. A zero
+    /// there draws a trough that reads as "the VM went quiet" when what
+    /// happened is "we stopped being able to ask".
+    #[test]
+    fn a_missing_sample_is_not_charted_as_zero() {
+        let mut entry = VmDashboardEntry::new("test-vm".to_string());
+        entry.push_sample(Some(50.0), Some(50.0));
+        entry.push_sample(None, None);
+        assert_eq!(entry.cpu_history.len(), 1);
+        assert_eq!(entry.mem_history.len(), 1);
+        assert_eq!(entry.cpu_history[0], 50);
     }
 
     #[test]

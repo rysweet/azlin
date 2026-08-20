@@ -9,6 +9,12 @@ pub(crate) fn dispatch_costs(action: azlin_cli::CostsAction) -> Result<()> {
             let cost_timeout = azlin_core::AzlinConfig::load()
                 .map(|c| c.az_cli_timeout)
                 .unwrap_or(120);
+            // Every fetch below can fail, and every failure used to be
+            // swallowed into an empty vector. The dashboard then summed
+            // nothing and printed `$-0.00` with exit 0 — a spend report
+            // produced entirely from data it never obtained. Failures are
+            // collected here and reported alongside whatever did arrive.
+            let mut unavailable: Vec<String> = Vec::new();
             // Fetch cost summary for budget info
             let budget_info =
                 match azlin_azure::get_cost_summary(&auth, &resource_group, cost_timeout) {
@@ -17,7 +23,13 @@ pub(crate) fn dispatch_costs(action: azlin_cli::CostsAction) -> Result<()> {
                         current_spend: summary.total_cost,
                         currency: summary.currency.clone(),
                     }),
-                    Err(_) => None,
+                    Err(e) => {
+                        unavailable.push(format!(
+                            "Cost summary unavailable: {}",
+                            azlin_core::sanitizer::sanitize(&e.to_string())
+                        ));
+                        None
+                    }
                 };
             let end_date = chrono::Utc::now();
             let start_date = end_date - chrono::Duration::days(30);
@@ -35,15 +47,26 @@ pub(crate) fn dispatch_costs(action: azlin_cli::CostsAction) -> Result<()> {
                 ],
                 cost_timeout,
             ) {
-                Ok(json) => {
-                    let entries: Vec<serde_json::Value> =
-                        serde_json::from_str(&json).unwrap_or_default();
-                    (
-                        crate::cost_dashboard::parse_daily_costs(&entries),
-                        crate::cost_dashboard::parse_vm_costs(&entries),
-                    )
+                Ok(json) => match serde_json::from_str::<Vec<serde_json::Value>>(&json) {
+                    Ok(entries) => (
+                        Some(crate::cost_dashboard::parse_daily_costs(&entries)),
+                        Some(crate::cost_dashboard::parse_vm_costs(&entries)),
+                    ),
+                    Err(e) => {
+                        // A parse failure is not "no usage". Before this, a
+                        // schema change in `az consumption` would have read
+                        // as a month that cost nothing.
+                        unavailable.push(format!("Usage data could not be parsed: {}", e));
+                        (None, None)
+                    }
+                },
+                Err(e) => {
+                    unavailable.push(format!(
+                        "Usage data unavailable: {}",
+                        azlin_core::sanitizer::sanitize(&e.to_string())
+                    ));
+                    (None, None)
                 }
-                Err(_) => (Vec::new(), Vec::new()),
             };
             let budget = {
                 let budget_name = crate::handlers::build_budget_name(&resource_group);
@@ -80,7 +103,23 @@ pub(crate) fn dispatch_costs(action: azlin_cli::CostsAction) -> Result<()> {
                 vm_costs,
                 budget,
                 period_label: "Last 30 days".to_string(),
+                unavailable,
             };
+            // Nothing arrived at all: there is no dashboard to draw, and
+            // drawing an empty one that reports a total of zero is the
+            // failure this change exists to remove.
+            if data.is_empty_of_data() {
+                anyhow::bail!(
+                    "No cost data could be retrieved for '{}':\n  {}\n\
+                     Hint: cost queries need the Cost Management Reader role \
+                     on the subscription; check with \
+                     `az consumption usage list --start-date {} --end-date {}`.",
+                    resource_group,
+                    data.unavailable.join("\n  "),
+                    start_str,
+                    end_str
+                );
+            }
             crate::cost_dashboard::run_cost_dashboard(&data)?;
         }
         azlin_cli::CostsAction::History {
