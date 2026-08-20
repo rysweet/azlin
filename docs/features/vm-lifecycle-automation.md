@@ -454,10 +454,36 @@ azlin connect my-vm
 azlin status my-vm  # Check VM is running
 ```
 
-Verify SSH key in Azure Key Vault:
+See which VMs carry which SSH key:
 ```bash
-azlin keys list
+azlin keys list                      # VMs named azlin*, with each key's fingerprint
+azlin keys list --all-vms            # every VM in the resource group
+azlin keys list --vm-prefix web      # only VMs whose name starts with "web"
 ```
+
+The fingerprints are the same strings `ssh-keygen -lf ~/.ssh/id_ed25519.pub`
+prints, so a key that is missing from a VM is visible by comparing the two.
+
+The table's **User** column is the account each key authorises — read from the
+path Azure records, e.g. `/home/azureuser/.ssh/authorized_keys` — so a key
+granted to a second account is visible rather than merged into the VM's row.
+
+> **This used to list local files, and it now needs a resource group.** Until
+> the three flags above were wired, `azlin keys list` printed the contents of
+> your `~/.ssh` directory and ignored the resource group, the prefix, and
+> `--all-vms` entirely — the one thing its help promised, *"List VMs and their
+> SSH public keys"*, was the one thing it could not do.
+>
+> Two things change for anyone calling it today. The output is VMs, not files.
+> And it talks to Azure, so with no resource group configured it now fails
+> where it used to print a table.
+>
+> There is deliberately no `--local` flag to bring the old output back. The
+> local listing was never something azlin added to what the system already
+> offers — `ls -l ~/.ssh` lists the files and `ssh-keygen -lf <key>.pub` prints
+> the fingerprint to compare against this table — and keeping it behind a flag
+> would keep alive exactly the confusion that made the command misleading. If
+> you were relying on it, those two commands are the replacement.
 
 ### Hooks Not Executing
 

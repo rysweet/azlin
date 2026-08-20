@@ -21,7 +21,7 @@
 #
 # Generated from the checker's report against commit fdfb27a2 (v2.6.105).
 
-# ── Other flags accepted and discarded (25) ──────────────────────────
+# ── Other flags accepted and discarded (19) ──────────────────────────
 #
 # Each of these is an independent per-flag fix: bind the field in the handler
 # and act on it, or delete the flag. They are listed individually so that
@@ -56,9 +56,6 @@ Commands::Cleanup::include_named = #1089 — see Commands::Cleanup::idle_days ab
 Commands::Code::user = #1089 — `azlin code --user` accepted, then discarded; help promises "SSH username for remote connection"
 Commands::Code::no_extensions = #1089 — `azlin code --no-extensions` accepted, then discarded; help promises "Skip installing VS Code extensions on remote"
 GuiAction::Install::yes = #1089 — `azlin gui install --yes` accepted, then discarded; help promises "Compatibility flag; the install is already non-interactive"
-KeysAction::List::resource_group = #1089 — `azlin keys list --resource-group` accepted, then discarded
-KeysAction::List::all_vms = #1089 — `azlin keys list --all-vms` accepted, then discarded; help promises "List all VMs (not just azlin prefix)"
-KeysAction::List::vm_prefix = #1089 — `azlin keys list --vm-prefix` accepted, then discarded; help promises "Only list VMs with this prefix"
 GithubRunnerAction::Enable::auto_scale = #1089 — `azlin github-runner enable --auto-scale` accepted, then discarded; help promises "Auto-scale based on queue depth"
 CostsAction::Dashboard::refresh = #1089 — `azlin costs dashboard --refresh` accepted, then discarded; help promises "Force refresh (ignore cache)"
 CostsAction::Actions::priority = #1089 — `azlin costs actions --priority` accepted, then discarded; help promises "Filter by priority"

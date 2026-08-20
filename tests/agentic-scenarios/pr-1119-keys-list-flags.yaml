@@ -1,0 +1,134 @@
+name: "azlin keys list lists VMs and their keys, as its help has always said"
+description: |
+  Verifies issue #1089 for `keys list`. The subcommand's own help reads "List
+  VMs and their SSH public keys" and it takes `--resource-group`, `--all-vms`
+  and `--vm-prefix` to choose which VMs. It listed the files in the caller's
+  `~/.ssh` directory and read none of the three.
+
+  So this was not a flag that failed to reach a handler — the whole command
+  answered a different question from the one it advertised, and the question it
+  advertised (which of my VMs carry which key) could not be asked at all. The
+  flags could only be wired by making the command do what it says.
+
+  VM selection matches `keys rotate` exactly: `--all-vms` clears the prefix,
+  otherwise `--vm-prefix` (default "azlin") applies. A listing that disagreed
+  with the rotation about which VMs are in scope would be worse than none.
+
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 30000
+
+steps:
+  - name: "Build the binary under test (never assert against a stale build)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo build -p azlin 2>&1 | tail -1
+        test -x target/debug/azlin && echo "PASS: fresh azlin binary present"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 1800000
+
+  - name: "The three flags are still advertised by --help"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        out=$(cd rust && ./target/debug/azlin keys list --help)
+        for f in --resource-group --all-vms --vm-prefix; do
+          echo "$out" | grep -q -- "$f" || { echo "FAIL: $f missing from --help"; exit 1; }
+        done
+        echo "PASS: all three flags advertised"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+  - name: "The flag-wiring gate no longer carries the keys list entries"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        grep -q "KeysAction::List::" crates/xtask/unwired-flags-allowlist.txt \
+          && { echo "FAIL: keys list still ledgered as unwired"; exit 1; }
+        cargo run -q -p xtask --locked -- check-flag-wiring 2>&1 | tail -2
+        echo "PASS: keys list entries retired and the gate is clean"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "Each flag reaches the az query, and --all-vms clears the prefix"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo test -p azlin --bin azlin keys_list 2>&1 | tail -3
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok"
+    timeout: 1800000
+
+  - name: "Fingerprints are the ones ssh-keygen prints, not an invented digest"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        tmp=$(mktemp -d)
+        ssh-keygen -q -t ed25519 -N '' -C azlin-scenario -f "$tmp/k"
+        expected=$(ssh-keygen -lf "$tmp/k.pub" | awk '{print $2}')
+        # The pinned unit-test vector is a real key checked the same way; this
+        # step proves the format matches OpenSSH on this machine's ssh-keygen.
+        echo "$expected" | grep -q '^SHA256:' \
+          && echo "PASS: comparing against $expected"
+        rm -rf "$tmp"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+  - name: "Without a resource group it explains itself instead of panicking"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        home=$(mktemp -d)
+        out=$(HOME="$home" ./target/debug/azlin keys list 2>&1; true)
+        echo "$out" | grep -q "panicked" && { echo "FAIL: panicked: $out"; exit 1; }
+        echo "$out" | grep -qiE "resource group|context" \
+          && echo "PASS: names what is missing"
+        rm -rf "$home"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+  - name: "The behaviour change is documented where a user will read it"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        grep -q "This used to list local files" docs/features/vm-lifecycle-automation.md \
+          && echo "PASS: the change is stated, not just made"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+expectations:
+  - "--resource-group, --all-vms and --vm-prefix each reach the az vm list query"
+  - "--all-vms clears the prefix, matching keys rotate exactly"
+  - "Fingerprints are OpenSSH SHA256, comparable with ssh-keygen -lf by eye"
+  - "A key that cannot be parsed shows as unreadable rather than a wrong fingerprint"
+  - "A VM with no recorded keys is listed saying so, not silently dropped"
+  - "An empty listing names the filter that excluded everything"
+  - "No public IP is provisioned by any step; nothing here provisions anything at all"

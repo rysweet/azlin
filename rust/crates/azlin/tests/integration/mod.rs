@@ -1,8 +1,19 @@
 use std::process::Command;
 
 /// Build a Command targeting the azlin binary from this workspace.
+///
+/// Pointed at an empty config directory, not the developer's. These tests
+/// assert what azlin does with no Azure configured; on a workstation with a
+/// real `~/.azlin` they would instead read that config, find a resource group
+/// and make live Azure calls — passing here, failing in CI, and touching the
+/// developer's own subscription on the way (#1079). The directory is created
+/// once per test process and left empty.
 pub fn azlin_cmd() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_azlin"))
+    static CONFIG_DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    let dir = CONFIG_DIR.get_or_init(|| tempfile::TempDir::new().expect("temp config dir"));
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_azlin"));
+    cmd.env("AZLIN_CONFIG_DIR", dir.path());
+    cmd
 }
 
 /// Run azlin with the given arguments and return (stdout, stderr, exit_code).

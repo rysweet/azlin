@@ -118,35 +118,12 @@ fn test_keys_rotate_graceful_error_no_auth() {
 }
 
 #[test]
-fn test_keys_list_no_ssh_dir_graceful() {
-    let dir = TempDir::new().unwrap();
-    let out = assert_cmd::Command::cargo_bin("azlin")
-        .unwrap()
-        .args(["keys", "list"])
-        .env("HOME", dir.path())
-        .env_remove("AZURE_SUBSCRIPTION_ID")
-        .timeout(std::time::Duration::from_secs(15))
-        .output()
-        .unwrap();
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert!(
-        !combined.contains("thread 'main' panicked"),
-        "keys list panicked: {}",
-        combined
-    );
-    // keys list without Azure checks local SSH dir — succeeds or mentions no keys
-    assert!(
-        out.status.success()
-            || combined.contains("SSH")
-            || combined.contains("key")
-            || combined.contains("error"),
-        "Unexpected output: {}",
-        combined
-    );
+fn test_keys_list_without_a_resource_group_fails_gracefully() {
+    // `keys list` used to read the caller's `~/.ssh` and needed nothing from
+    // Azure, so this asserted it succeeded against an empty HOME. It lists
+    // VMs now (#1089), which means it needs a resource group like its sibling
+    // `keys rotate` — and must still say so instead of panicking.
+    assert_graceful_auth_error(&["keys", "list"]);
 }
 
 #[test]

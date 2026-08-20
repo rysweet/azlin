@@ -1174,6 +1174,10 @@ mod storage_helpers;
 #[allow(dead_code)]
 mod key_helpers;
 
+/// VM-side SSH key inventory for `azlin keys list`.
+#[allow(dead_code)]
+mod keys_list;
+
 /// Helpers for auth profile display — masking secrets.
 #[allow(dead_code)]
 mod auth_helpers;

@@ -54,27 +54,35 @@ fn test_output_flag_rejects_invalid() {
     );
 }
 
+/// `keys list` used to read the caller's `~/.ssh` and needed nothing from
+/// Azure, so these two asserted it exited 0 and printed a `Key File,` header.
+/// It lists VMs now (#1089), which means it needs a resource group — so with
+/// none configured the assertion that survives is the one these tests were
+/// really for: the format reaches the parser and is not what fails.
 #[test]
 fn test_keys_list_json_output() {
-    let (stdout, _, code) = run_azlin(&["--output", "json", "keys", "list"]);
-    assert_eq!(code, 0);
-    // JSON output should be valid JSON (array) or "No SSH" message.
-    let trimmed = stdout.trim();
+    let (_, stderr, code) = run_azlin(&["--output", "json", "keys", "list"]);
+    assert_ne!(code, 0, "no resource group is configured: {}", stderr);
     assert!(
-        trimmed.starts_with('[') || trimmed.contains("No SSH"),
-        "keys list --output json should produce JSON array or empty message"
+        !stderr.contains("invalid value"),
+        "--output json must be accepted by keys list: {}",
+        stderr
+    );
+    assert!(
+        stderr.contains("resource group") || stderr.contains("context"),
+        "the failure must name what is missing: {}",
+        stderr
     );
 }
 
 #[test]
 fn test_keys_list_csv_output() {
-    let (stdout, _, code) = run_azlin(&["--output", "csv", "keys", "list"]);
-    assert_eq!(code, 0);
-    let trimmed = stdout.trim();
-    // Should have CSV header or "No SSH" message.
+    let (_, stderr, code) = run_azlin(&["--output", "csv", "keys", "list"]);
+    assert_ne!(code, 0, "no resource group is configured: {}", stderr);
     assert!(
-        trimmed.starts_with("Key File,") || trimmed.contains("No SSH"),
-        "keys list --output csv should produce CSV header or empty message"
+        !stderr.contains("invalid value"),
+        "--output csv must be accepted by keys list: {}",
+        stderr
     );
 }
 
