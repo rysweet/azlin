@@ -32,13 +32,30 @@ pub(crate) async fn dispatch(
             resource_group,
             vm,
             ip,
-            ..
+            grouped,
         } => {
             let targets = resolve_vm_targets(vm.as_deref(), ip.as_deref(), resource_group).await?;
+            // `--grouped` said "Group output by VM instead of prefixing" and
+            // was discarded, while every run printed the grouped layout and
+            // the prefixed one it names did not exist (#1089).
+            let names: Vec<String> = targets.iter().map(|t| t.vm_name.clone()).collect();
+            let width = crate::ps_output::name_width(&names);
             for target in &targets {
-                println!("── {} ──", target.vm_name);
+                if grouped {
+                    println!("{}", crate::ps_output::group_header(&target.vm_name));
+                }
                 match target.exec_checked("ps aux --sort=-%mem | head -20") {
-                    Ok(output) => print!("{}", output),
+                    Ok(output) if output.trim().is_empty() => {
+                        print!(
+                            "{}",
+                            crate::ps_output::empty_note(&target.vm_name, grouped, width)
+                        );
+                    }
+                    Ok(output) if grouped => print!("{}", output),
+                    Ok(output) => print!(
+                        "{}",
+                        crate::ps_output::prefix_lines(&target.vm_name, &output, width)
+                    ),
                     Err(e) => eprintln!("  Error: {}", e),
                 }
             }

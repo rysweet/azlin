@@ -105,16 +105,39 @@ azlin ps
 
 # Works with any resource group
 azlin ps --resource-group my-rg
+
+# One block per VM instead of a prefix on every line
+azlin ps --grouped
 ```
 
-**Output** (showing custom-named VMs):
+**Output** — every line carries the VM it came from, padded so the columns
+still line up:
 ```
-=== VM: ml-trainer:experiment-1 (10.0.1.7) ===
+ml-trainer  azureuser 1234 95.2 12.5 2048000 512000 pts/0  R+   10:30   2:15 python train.py
+ml-trainer  azureuser 5678  0.5  0.1   12345   6789 pts/1  S    08:00   0:05 tmux
+web-1       root      9012  0.0  0.0   56789   1234 ?      S    06:00   0:00 /usr/sbin/sshd
+```
+
+so `azlin ps | grep python` answers *which VM is running python*, which is the
+question a fleet-wide `ps` is asked. A run that targets **one** VM —
+`azlin ps --vm web-1` — carries no prefix: the name is one the caller just
+typed, and stamping it onto every line is noise.
+
+**`--grouped`** prints what every run printed before — a header and a block per
+VM:
+```
+── ml-trainer ──
 USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
 azureuser 1234 95.2 12.5 2048000 512000 pts/0  R+   10:30   2:15 python train.py
-azureuser 5678  0.5  0.1  12345  6789 pts/1  S    08:00   0:05 tmux
-root      9012  0.0  0.0  56789  1234 ?      S    06:00   0:00 /usr/sbin/sshd
+── web-1 ──
+...
 ```
+
+> **The default output changed.** `--grouped` reads *"Group output by VM instead
+> of prefixing"*, and until it was wired the flag did nothing: every run printed
+> the grouped layout, and the prefixed layout it names as the alternative did
+> not exist. The help has always said the non-grouped default is prefixed, and
+> now it is. Pass `--grouped` for the old output, character for character.
 
 **Use cases:**
 - Find runaway processes across fleet

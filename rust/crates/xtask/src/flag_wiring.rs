@@ -504,11 +504,43 @@ pub fn parse_allowlist(src: &str) -> Result<Vec<AllowEntry>, Vec<String>> {
         entries.push(AllowEntry { key, reason });
     }
 
+    if let Some(err) = header_count_mismatch(src, entries.len()) {
+        errors.push(err);
+    }
+
     if errors.is_empty() {
         Ok(entries)
     } else {
         Err(errors)
     }
+}
+
+/// The ledger's own header states how many entries it holds. Nothing enforced
+/// it, so it drifted: the file said 25 while holding 22, which is the same
+/// class of bug the whole check exists for — a stated number that stopped
+/// being true and nothing noticed. A header with no count is fine; a header
+/// with a wrong one is not.
+fn header_count_mismatch(src: &str, actual: usize) -> Option<String> {
+    for (i, raw) in src.lines().enumerate() {
+        let line = raw.trim();
+        if !line.starts_with('#') || !line.contains("accepted and discarded") {
+            continue;
+        }
+        let stated = line
+            .split_once('(')
+            .and_then(|(_, rest)| rest.split_once(')'))
+            .and_then(|(n, _)| n.trim().parse::<usize>().ok())?;
+        if stated != actual {
+            return Some(format!(
+                "allowlist line {}: the header says {stated} entries and the file has {actual}. \
+                 The count is derived, not authored — read it off the file with \
+                 `grep -cE '^[A-Za-z].*::.* = ' crates/xtask/unwired-flags-allowlist.txt`.",
+                i + 1
+            ));
+        }
+        return None;
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -904,6 +936,19 @@ mod tests {
         );
         assert!(bound.is_bound(&decl("Commands", "Stop", "name")));
         assert!(!bound.is_bound(&decl("BatchAction", "Stop", "name")));
+    }
+
+    #[test]
+    fn a_header_that_miscounts_the_entries_is_an_error() {
+        let src = "# ── Other flags accepted and discarded (2) ──\nA::B::c = one\n";
+        let err = parse_allowlist(src).unwrap_err().join("\n");
+        assert!(err.contains("says 2 entries and the file has 1"), "{err}");
+
+        let right = "# ── Other flags accepted and discarded (1) ──\nA::B::c = one\n";
+        assert!(parse_allowlist(right).is_ok());
+
+        // A ledger with no count in its header is not required to grow one.
+        assert!(parse_allowlist("# just a comment\nA::B::c = one\n").is_ok());
     }
 
     #[test]
