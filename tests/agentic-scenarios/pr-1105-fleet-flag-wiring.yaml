@@ -1,0 +1,170 @@
+name: "azlin fleet run honours the flags it advertises"
+description: |
+  Verifies PR #1105 (issue #1089): `azlin fleet run` and `azlin fleet workflow`
+  declared seventeen flags between them that the handlers destructured away
+  with `..`, so clap accepted them, `--help` advertised them, and the command
+  ran unfiltered while reporting success.
+
+  This scenario exercises the CLI surface only: selection flags are rejected
+  during argument validation and `--dry-run` prints the resolved plan, both of
+  which happen before any Azure call. No credentials or network are needed.
+
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 20000
+
+steps:
+  - name: "Build the binary under test (never assert against a stale build)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo build -p azlin 2>&1 | tail -1
+        test -x target/debug/azlin && echo "PASS: fresh azlin binary present"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 600000
+
+  - name: "--all cannot be silently combined with --tag"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        D=$(mktemp -d); echo 'default_resource_group = "rg-scenario"' > "$D/config.toml"
+        OUT=$(AZLIN_CONFIG_DIR="$D" rust/target/debug/azlin fleet run uptime --all --tag env=dev 2>&1) && {
+          echo "FAIL: --all + --tag was accepted"; exit 1; }
+        echo "$OUT" | grep -q -- "--all cannot be combined" || { echo "FAIL: wrong error: $OUT"; exit 1; }
+        echo "PASS: ambiguous selection rejected"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 15000
+
+  - name: "An empty --pattern is rejected rather than matching nothing"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        D=$(mktemp -d); echo 'default_resource_group = "rg-scenario"' > "$D/config.toml"
+        OUT=$(AZLIN_CONFIG_DIR="$D" rust/target/debug/azlin fleet run uptime --pattern "  " 2>&1) && {
+          echo "FAIL: empty --pattern was accepted"; exit 1; }
+        echo "$OUT" | grep -q -- "--pattern must not be empty" || { echo "FAIL: wrong error: $OUT"; exit 1; }
+        echo "PASS: empty pattern rejected"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 15000
+
+  - name: "A malformed --tag is rejected, not discarded into a fleet-wide run"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        D=$(mktemp -d); echo 'default_resource_group = "rg-scenario"' > "$D/config.toml"
+        OUT=$(AZLIN_CONFIG_DIR="$D" rust/target/debug/azlin fleet run uptime --tag env 2>&1) && {
+          echo "FAIL: malformed --tag was accepted"; exit 1; }
+        echo "$OUT" | grep -q "key=value" || { echo "FAIL: wrong error: $OUT"; exit 1; }
+        echo "PASS: malformed tag rejected"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 15000
+
+  - name: "--dry-run names the filter, the timeout and the worker count"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        D=$(mktemp -d); echo 'default_resource_group = "rg-scenario"' > "$D/config.toml"
+        OUT=$(AZLIN_CONFIG_DIR="$D" rust/target/debug/azlin fleet run uptime \
+              --dry-run --tag env=dev --timeout 45 --parallel 7 2>&1)
+        echo "$OUT" | grep -q "env=dev"     || { echo "FAIL: tag not in plan: $OUT"; exit 1; }
+        echo "$OUT" | grep -q "45s"         || { echo "FAIL: timeout not in plan: $OUT"; exit 1; }
+        echo "$OUT" | grep -q "7 parallel"  || { echo "FAIL: parallelism not in plan: $OUT"; exit 1; }
+        echo "$OUT" | grep -q "  "          && { echo "FAIL: banner has stray whitespace: $OUT"; exit 1; }
+        echo "PASS: plan reflects every flag passed"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 15000
+
+  - name: "With no filter the plan says so, rather than reading like a narrow one"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        D=$(mktemp -d); echo 'default_resource_group = "rg-scenario"' > "$D/config.toml"
+        OUT=$(AZLIN_CONFIG_DIR="$D" rust/target/debug/azlin fleet run uptime --dry-run 2>&1)
+        echo "$OUT" | grep -q "no filter"   || { echo "FAIL: unfiltered run not admitted: $OUT"; exit 1; }
+        echo "$OUT" | grep -q "300s"        || { echo "FAIL: declared default timeout missing: $OUT"; exit 1; }
+        echo "$OUT" | grep -q "10 parallel" || { echo "FAIL: declared default parallelism missing: $OUT"; exit 1; }
+        echo "PASS: unfiltered plan is explicit and uses the declared defaults"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 15000
+
+  - name: "fleet workflow enforces the same selection rules"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        D=$(mktemp -d); echo 'default_resource_group = "rg-scenario"' > "$D/config.toml"
+        printf 'steps:\n  - run: uptime\n' > "$D/wf.yaml"
+        OUT=$(AZLIN_CONFIG_DIR="$D" rust/target/debug/azlin fleet workflow "$D/wf.yaml" --all --pattern 'web-*' 2>&1) && {
+          echo "FAIL: --all + --pattern accepted on workflow"; exit 1; }
+        echo "$OUT" | grep -q -- "--all cannot be combined" || { echo "FAIL: wrong error: $OUT"; exit 1; }
+        PLAN=$(AZLIN_CONFIG_DIR="$D" rust/target/debug/azlin fleet workflow "$D/wf.yaml" \
+               --dry-run --pattern 'web-*' --parallel 3 2>&1)
+        echo "$PLAN" | grep -q "web-\*"    || { echo "FAIL: pattern not in plan: $PLAN"; exit 1; }
+        echo "$PLAN" | grep -q "3 parallel" || { echo "FAIL: parallelism not in plan: $PLAN"; exit 1; }
+        echo "PASS: workflow honours selection and parallelism flags"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 15000
+
+  - name: "The load probe takes a real interval sample and limits itself"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        # `top -bn1` reports CPU averaged since boot, which would let --if-idle
+        # schedule work onto the busiest host in the fleet.
+        grep -q "top -bn2" rust/crates/azlin/src/fleet_select.rs \
+          || { echo "FAIL: probe still uses a single top iteration"; exit 1; }
+        grep -q "wrap_with_timeout(inner, PROBE_TIMEOUT_SECS)" rust/crates/azlin/src/fleet_select.rs \
+          || { echo "FAIL: probe is not self-limiting"; exit 1; }
+        echo "PASS: probe samples an interval and cannot hang the run"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 10000
+
+  - name: "The flag-wiring gate is green and the allowlist shrank"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        cargo run -p xtask --locked -- check-flag-wiring > /tmp/wiring.txt 2>&1 || {
+          cat /tmp/wiring.txt; echo "FAIL: flag-wiring gate is red"; exit 1; }
+        grep -q "50 allowlisted" /tmp/wiring.txt || {
+          cat /tmp/wiring.txt; echo "FAIL: allowlist is not at 50 entries"; exit 1; }
+        grep -c "^FleetAction::" crates/xtask/unwired-flags-allowlist.txt | grep -q '^0$' || {
+          echo "FAIL: FleetAction entries still allowlisted"; exit 1; }
+        echo "PASS: gate green, 17 fleet entries removed from the ledger"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 300000

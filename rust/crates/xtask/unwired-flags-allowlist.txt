@@ -21,7 +21,7 @@
 #
 # Generated from the checker's report against commit fdfb27a2 (v2.6.105).
 
-# ── Other flags accepted and discarded (67) ──────────────────────────
+# ── Other flags accepted and discarded (50) ──────────────────────────
 #
 # Each of these is an independent per-flag fix: bind the field in the handler
 # and act on it, or delete the flag. They are listed individually so that
@@ -68,23 +68,6 @@ BatchAction::Command::max_workers = #1089 — `azlin batch command --max-workers
 BatchAction::Command::timeout = #1089 — `azlin batch command --timeout` accepted, then discarded; help promises "Command timeout in seconds"
 BatchAction::Sync::tag = #1089 — `azlin batch sync --tag` accepted, then discarded
 BatchAction::Sync::max_workers = #1089 — `azlin batch sync --max-workers` accepted, then discarded
-FleetAction::Run::tag = #1089 — `azlin fleet run --tag` accepted, then discarded; help promises "Filter VMs by tag (format: key=value)"
-FleetAction::Run::pattern = #1089 — `azlin fleet run --pattern` accepted, then discarded; help promises "Filter VMs by name pattern (glob)"
-FleetAction::Run::all = #1089 — `azlin fleet run --all` accepted, then discarded; help promises "Run on all VMs"
-FleetAction::Run::parallel = #1089 — `azlin fleet run --parallel` accepted, then discarded; help promises "Max parallel workers"
-FleetAction::Run::if_idle = #1089 — `azlin fleet run --if-idle` accepted, then discarded; help promises "Only run on idle VMs"
-FleetAction::Run::if_cpu_below = #1089 — `azlin fleet run --if-cpu-below` accepted, then discarded; help promises "Only run if CPU below threshold"
-FleetAction::Run::if_mem_below = #1089 — `azlin fleet run --if-mem-below` accepted, then discarded; help promises "Only run if memory usage below threshold (percentage)"
-FleetAction::Run::smart_route = #1089 — `azlin fleet run --smart-route` accepted, then discarded; help promises "Route to least-loaded VMs first"
-FleetAction::Run::count = #1089 — `azlin fleet run --count` accepted, then discarded; help promises "Limit execution to N VMs"
-FleetAction::Run::retry_failed = #1089 — `azlin fleet run --retry-failed` accepted, then discarded; help promises "Retry failed VMs once"
-FleetAction::Run::show_diff = #1089 — `azlin fleet run --show-diff` accepted, then discarded; help promises "Show diff of command outputs"
-FleetAction::Run::timeout = #1089 — `azlin fleet run --timeout` accepted, then discarded; help promises "Command timeout in seconds"
-FleetAction::Workflow::tag = #1089 — `azlin fleet workflow --tag` accepted, then discarded
-FleetAction::Workflow::pattern = #1089 — `azlin fleet workflow --pattern` accepted, then discarded
-FleetAction::Workflow::all = #1089 — `azlin fleet workflow --all` accepted, then discarded
-FleetAction::Workflow::parallel = #1089 — `azlin fleet workflow --parallel` accepted, then discarded
-FleetAction::Workflow::show_diff = #1089 — `azlin fleet workflow --show-diff` accepted, then discarded
 GithubRunnerAction::Enable::auto_scale = #1089 — `azlin github-runner enable --auto-scale` accepted, then discarded; help promises "Auto-scale based on queue depth"
 DiskAction::Add::mount = #1089 — `azlin disk add --mount` accepted, then discarded; help promises "Mount point for the disk"
 IpAction::Check::all = #1089 — `azlin ip check --all` accepted, then discarded; help promises "Check all VMs in resource group"

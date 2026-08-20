@@ -1,6 +1,7 @@
 mod common;
 mod test_config_flag;
 mod test_context_switch;
+mod test_fleet_flags;
 mod test_group_00;
 mod test_group_01;
 mod test_group_02;

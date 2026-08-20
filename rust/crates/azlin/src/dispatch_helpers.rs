@@ -298,6 +298,48 @@ pub(crate) async fn resolve_vm_ssh_target(
     Ok(target)
 }
 
+/// Resolve the running VMs a `fleet` command should act on, applying the
+/// `--tag` and `--pattern` filters.
+///
+/// [`resolve_vm_targets`] cannot do this: it builds `VmSshTarget`s, which carry
+/// no tags, so the filter has to run against `VmInfo` before the targets are
+/// built. `fleet run --tag`/`--pattern` were accepted and discarded (#1089),
+/// which meant a filtered fleet run touched every VM in the resource group.
+///
+/// Returns an empty vector when nothing matched; the caller reports which
+/// filter emptied the list, so "no matches" is never mistaken for "empty
+/// resource group".
+pub(crate) async fn resolve_fleet_targets(
+    rg: &str,
+    tag: Option<&str>,
+    pattern: Option<&str>,
+) -> Result<Vec<VmSshTarget>> {
+    let auth = create_auth()?;
+    let vm_manager = azlin_azure::VmManager::new(&auth);
+    let bastion_map: std::collections::HashMap<String, String> =
+        list_helpers::detect_bastion_hosts(rg)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(name, location, _)| (location, name))
+            .collect();
+    let sub_id = vm_manager.subscription_id().to_string();
+    let ssh_key = resolve_ssh_key();
+    let mut targets = Vec::new();
+    for vm in vm_manager.list_vms(rg)? {
+        if vm.power_state != azlin_core::models::PowerState::Running {
+            continue;
+        }
+        if vm.public_ip.is_none() && vm.private_ip.is_none() {
+            continue;
+        }
+        if !crate::fleet_select::matches_filters(&vm.name, &vm.tags, tag, pattern) {
+            continue;
+        }
+        targets.push(build_ssh_target(&vm, &sub_id, &bastion_map, &ssh_key));
+    }
+    Ok(targets)
+}
+
 /// Resolve targets for W/Ps/Top: single VM (--vm/--ip) or all VMs via Azure.
 /// Returns `Vec<VmSshTarget>` with bastion routing for private-IP-only VMs.
 pub(crate) async fn resolve_vm_targets(
