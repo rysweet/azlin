@@ -62,6 +62,8 @@ pub(crate) fn handle_cleanup(
                     resource_type: ResourceType::NetworkInterface,
                     resource_group: nic_rg.to_string(),
                     estimated_monthly_cost: 0.0,
+                    // Azure's list output for this type reports no creation time.
+                    created_time: None,
                 });
             }
         }
@@ -87,6 +89,8 @@ pub(crate) fn handle_cleanup(
                     resource_type: ResourceType::PublicIp,
                     resource_group: ip_rg.to_string(),
                     estimated_monthly_cost: ORPHANED_PUBLIC_IP_MONTHLY_COST,
+                    // Azure's list output for this type reports no creation time.
+                    created_time: None,
                 });
             }
         }
@@ -111,9 +115,27 @@ pub(crate) fn handle_cleanup(
                     resource_type: ResourceType::NetworkSecurityGroup,
                     resource_group: nsg_rg.to_string(),
                     estimated_monthly_cost: 0.0,
+                    // Azure's list output for this type reports no creation time.
+                    created_time: None,
                 });
             }
         }
+    }
+
+    // `--age-days` reached the header and nothing else, so the scan announced a
+    // filter it had not applied and then deleted every orphan regardless of age
+    // (#1089). A resource with no creation time is kept rather than dropped:
+    // only disks report one, and excluding the rest for having an unknown age
+    // would silently stop cleaning up most of what this command exists for.
+    let undated = azlin_azure::orphan_detector::undated_count(&all_orphans);
+    let (all_orphans, held_back) =
+        azlin_azure::orphan_detector::partition_by_age(all_orphans, age_days, chrono::Utc::now());
+    if let Some(note) = crate::handlers::format_age_filter_note(
+        age_days,
+        held_back.len(),
+        undated.min(all_orphans.len()),
+    ) {
+        println!("{}", note);
     }
 
     if all_orphans.is_empty() {
@@ -319,6 +341,8 @@ fn recheck_freed_resources(rg: &str) -> Result<Vec<OrphanedResource>> {
                             .unwrap_or(rg)
                             .to_string(),
                         estimated_monthly_cost: 0.0,
+                        // Azure's list output for this type reports no creation time.
+                        created_time: None,
                     });
                 }
             }
@@ -341,6 +365,8 @@ fn recheck_freed_resources(rg: &str) -> Result<Vec<OrphanedResource>> {
                             .unwrap_or(rg)
                             .to_string(),
                         estimated_monthly_cost: ORPHANED_PUBLIC_IP_MONTHLY_COST,
+                        // Azure's list output for this type reports no creation time.
+                        created_time: None,
                     });
                 }
             }
