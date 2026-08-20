@@ -460,6 +460,12 @@ Specifically:
 - `azlin costs recommend` and `azlin costs actions` verify the resource group
   exists first. Azure Advisor answers `[]` for a resource group that is not
   there, which used to be reported as "no cost recommendations found".
+- `azlin costs actions apply` now **asks before it deallocates anything**,
+  naming the count and the impact level (`Apply 2 High cost recommendation(s)
+  in 'rg'? This deallocates the VMs listed above.`). It never asked before,
+  which was tolerable only while `--priority` was broken and few people trusted
+  the command enough to run `apply`. Non-interactive callers need `--yes`;
+  without a terminal and without the flag it refuses rather than proceeding.
 - `--priority` filters both commands by Azure Advisor's `impact` — `High`,
   `Medium` or `Low`, in any capitalisation. `azlin costs actions` **discarded
   it** until #1089: every recommendation was listed *and applied* whatever the

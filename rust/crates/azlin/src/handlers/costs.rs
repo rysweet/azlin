@@ -175,6 +175,26 @@ pub fn validate_priority(priority: Option<&str>) -> Result<(), String> {
     ))
 }
 
+/// What to ask before `costs actions apply` deallocates anything.
+///
+/// Names the count and the filter, because "apply 12 recommendations" and
+/// "apply the 2 High-impact ones" are different decisions and the user has
+/// only the prompt to tell them apart.
+pub fn confirm_apply_prompt(count: usize, priority: Option<&str>, resource_group: &str) -> String {
+    match priority {
+        Some(pri) => format!(
+            "Apply {} {} cost recommendation(s) in '{}'? This deallocates the VMs listed above.",
+            count,
+            canonical_priority(pri).unwrap_or(pri),
+            resource_group
+        ),
+        None => format!(
+            "Apply {} cost recommendation(s) in '{}'? This deallocates the VMs listed above.",
+            count, resource_group
+        ),
+    }
+}
+
 /// What to say when a valid priority matched nothing.
 ///
 /// Distinct from "this resource group has no cost recommendations", because
@@ -397,6 +417,18 @@ mod priority_tests {
         // known levels may get through.
         assert!(build_advisor_args("rg", Some("high' || 'x")).is_err());
         assert_eq!(canonical_priority("high' || 'x"), None);
+    }
+
+    #[test]
+    fn the_apply_prompt_names_the_count_and_the_filter() {
+        let filtered = confirm_apply_prompt(2, Some("high"), "rg");
+        assert!(filtered.contains("2 High"), "{}", filtered);
+        assert!(filtered.contains("deallocates"), "{}", filtered);
+
+        // "apply 12" and "apply the 2 High ones" are different decisions.
+        let all = confirm_apply_prompt(12, None, "rg");
+        assert!(all.contains("12 cost recommendation"), "{}", all);
+        assert!(!all.contains("High"), "{}", all);
     }
 
     #[test]

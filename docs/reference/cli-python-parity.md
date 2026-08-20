@@ -556,6 +556,10 @@ subscription**, while `--help` advertised a limit of 50.
   rejected.
 - `--max-iterations 0` means no limit, the same reading every other azlin
   numeric limit gives zero.
+- The flag says "iterations" and counts **commands**. They are the same number
+  because each command in a plan runs exactly once — no retries, no loops, no
+  second pass. If that ever changes, the name and the behaviour part company,
+  so it is written down here and at the check itself.
 - `--output-dir` writes `plan.txt` (before anything runs) and `transcript.txt`
   (one line per command, recording how each ended). A command killed by a
   signal is recorded as a failure, not as a success with no exit code. The

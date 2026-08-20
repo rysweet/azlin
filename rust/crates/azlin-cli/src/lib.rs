@@ -2252,16 +2252,19 @@ pub enum CostsAction {
     },
     /// Execute cost-saving actions
     Actions {
-        /// Action: list or execute
+        /// Action: list or apply
         action: String,
         #[arg(long, alias = "rg")]
         resource_group: String,
-        /// Filter by priority
+        /// Filter by Azure Advisor impact: High, Medium or Low
         #[arg(long)]
         priority: Option<String>,
         /// Show what would be done without executing
         #[arg(long)]
         dry_run: bool,
+        /// Skip the confirmation prompt before applying
+        #[arg(short, long)]
+        yes: bool,
     },
 }
 
@@ -2276,7 +2279,7 @@ pub enum DoitAction {
         /// Output directory for generated artifacts
         #[arg(long)]
         output_dir: Option<PathBuf>,
-        /// Maximum execution iterations
+        /// Maximum commands a generated plan may contain (0 = no limit)
         #[arg(short, long, default_value = "50")]
         max_iterations: u32,
         /// Show what would be deployed without actually deploying

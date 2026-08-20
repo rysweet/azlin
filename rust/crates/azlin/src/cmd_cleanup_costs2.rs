@@ -111,6 +111,7 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
             resource_group,
             dry_run,
             priority,
+            yes,
         } => {
             crate::handlers::validate_priority(priority.as_deref())
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -183,6 +184,23 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
                                 println!("{table}");
                                 // Apply actions if not dry-run
                                 if !dry_run && action == "apply" {
+                                    // This deallocates VMs and never asked.
+                                    // Wiring --priority makes the command
+                                    // trustworthy enough to actually run, so
+                                    // the missing prompt stops being theory.
+                                    // Same shape as `azlin kill --force`.
+                                    if !crate::dispatch_helpers::safe_confirm_with_flag(
+                                        &crate::handlers::confirm_apply_prompt(
+                                            recs.len(),
+                                            priority.as_deref(),
+                                            &resource_group,
+                                        ),
+                                        yes,
+                                        "--yes",
+                                    )? {
+                                        println!("Cancelled.");
+                                        return Ok(());
+                                    }
                                     println!("\nApplying cost recommendations...");
                                     for rec in recs {
                                         let resource_id = rec

@@ -24,6 +24,12 @@ pub fn plan_commands(plan: &str) -> Vec<&str> {
 
 /// Whether a plan asks for more commands than `--max-iterations` allows.
 ///
+/// The flag says "iterations" and this counts *commands*. They are the same
+/// number only because the executor runs each command from the plan exactly
+/// once — no retries, no loops, no second pass. If that ever changes, the
+/// flag's name and its behaviour part company silently, so the help now says
+/// "commands" and this note says why the two words are interchangeable today.
+///
 /// Returns the message to show, or `None` if the plan fits. A plan that
 /// overruns is refused rather than truncated: running the first 50 of 80
 /// commands leaves the subscription in a state neither the user nor the model
@@ -68,6 +74,15 @@ pub fn transcript_line(command: &str, exit_code: Option<i32>) -> String {
         // success is how a failed deployment looks like a clean one.
         None => format!("fail(signal) {}\n", command),
     }
+}
+
+/// One line of transcript for a command that could not be started at all.
+///
+/// A missing binary aborts the run, and the transcript is what says how far it
+/// got — so the line describing the abort has to be in it, not lost with the
+/// return.
+pub fn transcript_unspawnable_line(command: &str, error: &str) -> String {
+    format!("unspawnable {} ({})\n", command, error)
 }
 
 /// What `--quiet` suppresses.
@@ -156,6 +171,14 @@ mod tests {
             "fail(signal) az vm list\n",
             "a command killed by a signal is not a success"
         );
+    }
+
+    #[test]
+    fn a_command_that_cannot_start_is_recorded_before_the_run_aborts() {
+        let line = transcript_unspawnable_line("az vm list", "No such file or directory");
+        assert!(line.contains("az vm list"), "{}", line);
+        assert!(line.contains("No such file or directory"), "{}", line);
+        assert!(line.starts_with("unspawnable"), "{}", line);
     }
 
     #[test]

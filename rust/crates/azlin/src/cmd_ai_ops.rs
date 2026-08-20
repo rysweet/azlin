@@ -306,6 +306,12 @@ pub(crate) async fn handle_doit_deploy(
         return Ok(());
     }
 
+    // Written after every command, not once at the end: a run that stops
+    // halfway is exactly the run whose transcript matters, and a command that
+    // cannot be spawned returns before any end-of-loop write.
+    let transcript_file = output_dir
+        .as_ref()
+        .map(|dir| crate::doit_deploy::transcript_path(dir));
     let mut transcript = String::new();
     for trimmed in planned {
         let parts = match shlex::split(trimmed) {
@@ -321,18 +327,24 @@ pub(crate) async fn handle_doit_deploy(
         }
         let status = std::process::Command::new(&parts[0])
             .args(&parts[1..])
-            .status()?;
-        transcript.push_str(&crate::doit_deploy::transcript_line(trimmed, status.code()));
+            .status();
+        transcript.push_str(&match &status {
+            Ok(s) => crate::doit_deploy::transcript_line(trimmed, s.code()),
+            Err(e) => crate::doit_deploy::transcript_unspawnable_line(trimmed, &e.to_string()),
+        });
+        if let Some(ref path) = transcript_file {
+            std::fs::write(path, &transcript)
+                .with_context(|| format!("Could not write the transcript to {}", path.display()))?;
+        }
+        // Propagated only after the transcript has recorded it.
+        let status = status?;
         if !status.success() {
             // Never gated on --quiet.
             eprintln!("Command failed with exit code: {:?}", status.code());
         }
     }
 
-    if let Some(ref dir) = output_dir {
-        let path = crate::doit_deploy::transcript_path(dir);
-        std::fs::write(&path, &transcript)
-            .with_context(|| format!("Could not write the transcript to {}", path.display()))?;
+    if let Some(ref path) = transcript_file {
         if verbosity.shows_progress() {
             println!("Transcript written to {}", path.display());
         }

@@ -435,6 +435,17 @@ pub(crate) async fn dispatch(
 
 #[cfg(test)]
 mod tests {
+
+    /// An address that goes nowhere, for tests that must not reach a host.
+    ///
+    /// RFC 5737 reserves 192.0.2.0/24 for documentation and it is not routed.
+    /// These tests used `10.0.0.1`, which is real and routable, and on a
+    /// machine inside a VNet is somebody's gateway — two of them were leaving
+    /// real `ssh` processes attempting to reach it for 30 seconds after the
+    /// test passed. Those two now sleep instead of collecting; this constant
+    /// is for the rest, so passing "Running" by accident cannot reintroduce it.
+    const UNROUTABLE_TEST_IP: &str = "192.0.2.1";
+
     use super::*;
 
     /// Verify that parallel collection produces correct results for non-running
@@ -451,7 +462,7 @@ mod tests {
                 tokio::time::timeout(
                     std::time::Duration::from_secs(5),
                     tokio::task::spawn_blocking(move || {
-                        collect_health_metrics(&name, "10.0.0.1", "user", &state, None)
+                        collect_health_metrics(&name, UNROUTABLE_TEST_IP, "user", &state, None)
                     }),
                 )
                 .await
@@ -512,7 +523,13 @@ mod tests {
             tokio::time::timeout(
                 std::time::Duration::from_millis(500),
                 tokio::task::spawn_blocking(|| {
-                    collect_health_metrics("fast-vm", "10.0.0.1", "user", "Deallocated", None)
+                    collect_health_metrics(
+                        "fast-vm",
+                        UNROUTABLE_TEST_IP,
+                        "user",
+                        "Deallocated",
+                        None,
+                    )
                 }),
             )
             .await
@@ -527,7 +544,13 @@ mod tests {
                 tokio::task::spawn_blocking(|| {
                     std::thread::sleep(std::time::Duration::from_secs(5));
                     // Same shape as the fast arm, for a VM that never answers.
-                    collect_health_metrics("slow-vm", "10.0.0.1", "user", "Deallocated", None)
+                    collect_health_metrics(
+                        "slow-vm",
+                        UNROUTABLE_TEST_IP,
+                        "user",
+                        "Deallocated",
+                        None,
+                    )
                 }),
             )
             .await
@@ -560,7 +583,13 @@ mod tests {
                 tokio::time::timeout(
                     std::time::Duration::from_secs(5),
                     tokio::task::spawn_blocking(move || {
-                        collect_health_metrics(&name, "10.0.0.1", "user", "Deallocated", None)
+                        collect_health_metrics(
+                            &name,
+                            UNROUTABLE_TEST_IP,
+                            "user",
+                            "Deallocated",
+                            None,
+                        )
                     }),
                 )
                 .await

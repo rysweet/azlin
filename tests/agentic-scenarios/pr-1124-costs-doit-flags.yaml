@@ -139,8 +139,25 @@ steps:
       exit_code: 0
       stdout_contains: "PASS"
 
+  - name: "Applying cost recommendations asks first, naming the count and level"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        ./target/debug/azlin costs actions --help | grep -q -- "--yes" \
+          || { echo "FAIL: apply has no way to skip the prompt"; exit 1; }
+        cargo test -p azlin --bin azlin the_apply_prompt_names 2>&1 | tail -3
+        echo "PASS: apply confirms before deallocating"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 1800000
+
 expectations:
   - "costs actions --priority high lists and applies only High-impact recommendations"
+  - "costs actions apply confirms before deallocating, and --yes skips the prompt"
+  - "A transcript survives a run that aborts on a command that cannot be started"
   - "The category=='Cost' filter survives a priority, on both costs subcommands"
   - "An unrecognised priority is an error naming the three Advisor reports"
   - "A valid priority matching nothing says which level was empty"
