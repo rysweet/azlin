@@ -105,7 +105,23 @@ check("exit code is non-zero", r.returncode != 0, r.stdout + r.stderr)
 check("the reason is stated", "names no Rust symbols" in r.stderr, r.stderr)
 print()
 
-print("6. The real document")
+print("6. Every exemption carries a reason")
+# An append-only allowlist with no reason field is where a dangling citation
+# goes to hide.
+r = subprocess.run(
+    [sys.executable, "-c",
+     "import importlib.util, sys;"
+     "spec = importlib.util.spec_from_file_location('c', sys.argv[1]);"
+     "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m);"
+     "print(all(v.strip() for v in m.NOT_SYMBOLS.values()))",
+     str(CHECKER)],
+    capture_output=True,
+    text=True,
+)
+check("NOT_SYMBOLS has no blank reasons", r.stdout.strip() == "True", r.stdout + r.stderr)
+print()
+
+print("7. The real document")
 r = subprocess.run([sys.executable, str(CHECKER)], capture_output=True, text=True)
 check(
     "every reference in nat-gateway-provisioning.md resolves",

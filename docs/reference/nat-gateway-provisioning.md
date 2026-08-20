@@ -22,6 +22,18 @@ them are named instead.
 To read the current argv or message text, read the test. `cargo test -p azlin
 --bin azlin nat_helpers` runs all of them offline.
 
+Two things *are* reproduced below: the `NatStatus` enum and the module's
+function signatures. Those are the API contract rather than a copy of an
+implementation detail, and a reference that omits them is not a reference.
+
+`scripts/check_doc_code_references.py` fails CI when a symbol named here no
+longer exists under `rust/crates/`. It catches a rename or a deletion, which is
+how a citation usually rots. It does **not** catch a citation that resolves to
+the wrong symbol — two test names swapped past each other would leave every
+reference resolving and every one of them wrong. Proving that a named test
+asserts a named thing means parsing the test, which is a larger tool than this
+file justifies.
+
 ## Resource Naming
 
 All names derive from the target region, lowercased. Nothing else varies, which

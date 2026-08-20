@@ -11,6 +11,13 @@ What replaced the copies is a set of pointers: "the argv is asserted by
 is worse than a stale copy: it reads as a citation and leads nowhere. This is
 the mechanism.
 
+What it catches, precisely: a citation to a symbol that no longer exists,
+whether renamed or deleted. What it does NOT catch: a citation to a symbol that
+exists but is the wrong one — swap two test names past each other and every
+reference still resolves while every one of them lies. Proving that a named
+test asserts a named thing means parsing the test, which is a different and
+much larger tool. "Renamed or deleted" is the common failure; "swapped" is not.
+
 Only backticked identifiers that look like Rust items are checked, and only
 when they carry an underscore — English words in backticks (`--yes`, `region`,
 `Absent`) are not symbols and are skipped. A symbol counts as existing if it
@@ -35,16 +42,31 @@ DEFAULT_DOCS = ["docs/reference/nat-gateway-provisioning.md"]
 # `--no-bastion`, `Key=Value` and `Absent` are all correctly excluded.
 SYMBOL = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$")
 
-# Words that match the shape but are prose, config keys or file names rather
-# than Rust items. Kept explicit so the list is reviewable.
+# Tokens that match the Rust-item shape but are not Rust items: Azure field
+# names, resource-tag keys, prose.
+#
+# The reason is mandatory and is enforced below. An append-only allowlist is
+# how a gate stops being a gate: the cheapest way to make this script green is
+# to add a line, and without a reason nothing distinguishes "this is an Azure
+# JSON field" from "this used to exist and somebody silenced the alarm". The
+# flag-wiring ledger in `rust/crates/xtask/unwired-flags-allowlist.txt` made
+# the same rule for the same reason.
 NOT_SYMBOLS = {
-    "azlin_session",
-    "ip_tagged",
-    "public_ip",
-    "nat_gateway",
-    "natgateway_id",
-    "cargo_test",
+    "azlin_session": "an Azure resource-tag key, not a Rust item",
+    "ip_tagged": "part of the NAT public IP name suffix",
+    "public_ip": "an Azure API field name",
+    "nat_gateway": "an Azure API field name and an `az` flag",
+    "natgateway_id": "an Azure API field name",
+    "cargo_test": "prose about the `cargo test` command",
 }
+
+_unexplained = [t for t, reason in NOT_SYMBOLS.items() if not reason.strip()]
+if _unexplained:
+    raise SystemExit(
+        f"error: NOT_SYMBOLS entries {_unexplained} have no reason. Every "
+        "exemption needs one, or this list becomes the place a dangling "
+        "citation goes to hide."
+    )
 
 
 def backticked(text: str) -> list[str]:
