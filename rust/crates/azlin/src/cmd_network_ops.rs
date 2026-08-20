@@ -120,6 +120,11 @@ pub(crate) fn handle_ip_check(
     if vms.is_empty() {
         anyhow::bail!("No VMs found in resource group '{}'", rg);
     }
+    // Sequential, one five-second connect timeout at a time.
+    // `docs/specs/ip-check-command-spec.md` describes a parallel `--all`; that
+    // part is not implemented here, and saying so beats implying the spec is
+    // satisfied. Wiring the flag at all is the fix; making it fast is a
+    // separate change.
     println!(
         "Checking {} VM(s) in '{}' on port {}...",
         vms.len(),
