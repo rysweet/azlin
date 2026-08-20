@@ -49,10 +49,24 @@ pub(crate) fn dispatch_costs(action: azlin_cli::CostsAction) -> Result<()> {
                 cost_timeout,
             ) {
                 Ok(json) => match serde_json::from_str::<Vec<serde_json::Value>>(&json) {
-                    Ok(entries) => (
-                        Some(crate::cost_dashboard::parse_daily_costs(&entries)),
-                        Some(crate::cost_dashboard::parse_vm_costs(&entries)),
-                    ),
+                    Ok(entries) => {
+                        let unreadable = crate::cost_dashboard::count_unreadable_costs(&entries);
+                        if unreadable > 0 {
+                            // Folded in as 0.0 by the parsers below, which
+                            // would show up as a cheaper month rather than as
+                            // a problem.
+                            unavailable.push(format!(
+                                "{} of {} usage rows had no readable cost and are missing \
+                                 from the figures below.",
+                                unreadable,
+                                entries.len()
+                            ));
+                        }
+                        (
+                            Some(crate::cost_dashboard::parse_daily_costs(&entries)),
+                            Some(crate::cost_dashboard::parse_vm_costs(&entries)),
+                        )
+                    }
                     Err(e) => {
                         // A parse failure is not "no usage". Before this, a
                         // schema change in `az consumption` would have read

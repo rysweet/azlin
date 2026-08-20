@@ -40,7 +40,22 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
                 let json_str = String::from_utf8_lossy(&output.stdout);
                 match serde_json::from_str::<serde_json::Value>(&json_str) {
                     Ok(data) => {
-                        if let Some(recs) = data.as_array() {
+                        // A non-array answer used to fall out of the `if let`
+                        // and exit 0 having printed nothing — indistinguishable
+                        // from a resource group with no recommendations.
+                        let recs = data.as_array().ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Azure Advisor returned {} rather than a list of \
+                                 recommendations for '{}'",
+                                if data.is_object() {
+                                    "an object"
+                                } else {
+                                    "a scalar"
+                                },
+                                resource_group
+                            )
+                        })?;
+                        {
                             if recs.is_empty() {
                                 let pri = priority.unwrap_or_else(|| "all".to_string());
                                 println!(
@@ -68,7 +83,14 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
                             }
                         }
                     }
-                    Err(e) => eprintln!("Failed to parse advisor data: {}", e),
+                    // Not `eprintln!` and carry on: a parse failure that
+                    // exits 0 reports "nothing to do" for data that was
+                    // never read.
+                    Err(e) => anyhow::bail!(
+                        "Could not parse Azure Advisor data for '{}': {}",
+                        resource_group,
+                        e
+                    ),
                 }
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
@@ -103,7 +125,21 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
                 let json_str = String::from_utf8_lossy(&output.stdout);
                 match serde_json::from_str::<serde_json::Value>(&json_str) {
                     Ok(data) => {
-                        if let Some(recs) = data.as_array() {
+                        // Same as above: a non-array answer printed nothing and
+                        // exited 0.
+                        let recs = data.as_array().ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Azure Advisor returned {} rather than a list of \
+                                 recommendations for '{}'",
+                                if data.is_object() {
+                                    "an object"
+                                } else {
+                                    "a scalar"
+                                },
+                                resource_group
+                            )
+                        })?;
+                        {
                             if recs.is_empty() {
                                 println!(
                                     "{}",
@@ -172,7 +208,14 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
                             }
                         }
                     }
-                    Err(e) => eprintln!("Failed to parse advisor data: {}", e),
+                    // Not `eprintln!` and carry on: a parse failure that
+                    // exits 0 reports "nothing to do" for data that was
+                    // never read.
+                    Err(e) => anyhow::bail!(
+                        "Could not parse Azure Advisor data for '{}': {}",
+                        resource_group,
+                        e
+                    ),
                 }
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);

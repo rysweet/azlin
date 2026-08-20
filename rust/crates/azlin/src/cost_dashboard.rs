@@ -429,6 +429,19 @@ pub fn format_plain_dashboard(data: &CostDashboardData) -> String {
     out
 }
 
+/// How many usage rows carry no readable `pretaxCost`.
+///
+/// [`parse_daily_costs`] and [`parse_vm_costs`] fold an unreadable row in as
+/// `0.0`, so a schema change or a malformed row would show up as a cheaper
+/// period rather than as a problem. The dashboard reports this count instead
+/// of letting the charts quietly understate spend.
+pub fn count_unreadable_costs(entries: &[serde_json::Value]) -> usize {
+    entries
+        .iter()
+        .filter(|e| e.get("pretaxCost").and_then(|v| v.as_f64()).is_none())
+        .count()
+}
+
 pub fn parse_daily_costs(entries: &[serde_json::Value]) -> Vec<DailyCost> {
     let mut m: std::collections::BTreeMap<String, f64> = std::collections::BTreeMap::new();
     for e in entries {
@@ -601,6 +614,23 @@ mod tests {
         assert!(text.contains("$0.00"), "{text}");
         assert!(text.contains("no usage recorded"), "{text}");
         assert!(!text.contains(UNAVAILABLE_TOTAL), "{text}");
+    }
+
+    /// A row Azure sent in an unexpected shape must be counted, not folded
+    /// into the charts as free usage.
+    #[test]
+    fn unreadable_usage_rows_are_counted() {
+        let entries = vec![
+            serde_json::json!({"pretaxCost": 1.0, "usageStart": "2026-01-01T00:00:00"}),
+            serde_json::json!({"usageStart": "2026-01-02T00:00:00"}),
+            serde_json::json!({"pretaxCost": "not a number"}),
+        ];
+        assert_eq!(count_unreadable_costs(&entries), 2);
+        // A genuine zero is readable.
+        assert_eq!(
+            count_unreadable_costs(&[serde_json::json!({"pretaxCost": 0.0})]),
+            0
+        );
     }
 
     /// The caller uses this to decide whether to fail instead of drawing an

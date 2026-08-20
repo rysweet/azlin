@@ -1,0 +1,160 @@
+name: "azlin health and costs report absence as absence, not as zero"
+description: |
+  Verifies PR #1106: `azlin health` rendered unreachable VMs as `0.0` in
+  green, `azlin costs dashboard` printed `Total: $-0.00` and exited 0 from
+  data it never fetched, `azlin costs history` printed a warning and exited
+  0, and `azlin costs recommend` reported "none found" for resource groups
+  it had never reached.
+
+  The costs steps need an authenticated `az` whose principal lacks Cost
+  Management Reader — the condition that produced the original bug — and are
+  skipped with a PASS(skipped) marker when that is not the case, rather than
+  silently passing. The health and rendering steps need neither Azure nor
+  the network.
+
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 30000
+
+steps:
+  - name: "Build the binary under test (never assert against a stale build)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo build -p azlin 2>&1 | tail -1
+        test -x target/debug/azlin && echo "PASS: fresh azlin binary present"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 600000
+
+  - name: "A metric with no reading never renders as a number"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        cargo test -p azlin --bin azlin health_render:: 2>&1 | tail -3 | tee /tmp/hr.txt
+        grep -q "0 failed" /tmp/hr.txt || { echo "FAIL: health_render tests failed"; exit 1; }
+        # The type itself is what prevents the bug: a metric that cannot be
+        # measured must not be expressible as a number.
+        grep -q "cpu_percent: Option<f32>" crates/azlin/src/main.rs \
+          || { echo "FAIL: health metrics are not optional"; exit 1; }
+        grep -nE "^\s*\.unwrap_or\(0\.0\)" crates/azlin/src/main.rs \
+          && { echo "FAIL: a metric is still defaulted to zero"; exit 1; }
+        echo "PASS: unmeasured metrics are not numbers"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 600000
+
+  - name: "A VM whose health collection dies still gets a row"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        # Dropping the VM made the table silently short, and short in exactly
+        # the rows that mattered.
+        grep -q "results.push(unmeasured(" rust/crates/azlin/src/cmd_monitoring.rs \
+          || { echo "FAIL: a dead collection task still drops its VM"; exit 1; }
+        echo "PASS: timed-out and panicked VMs keep their row"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 10000
+
+  - name: "costs dashboard fails instead of printing a total it does not have"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        az account show >/dev/null 2>&1 || { echo "PASS(skipped): no authenticated az"; exit 0; }
+        if az consumption usage list --start-date 2026-01-01 --end-date 2026-01-02 >/dev/null 2>&1; then
+          echo "PASS(skipped): this principal can read consumption data"; exit 0
+        fi
+        OUT=$(rust/target/debug/azlin costs dashboard --resource-group test-rg 2>&1) && {
+          echo "FAIL: dashboard succeeded with no data: $OUT"; exit 1; }
+        echo "$OUT" | grep -q -- "-0.00" && { echo "FAIL: still prints a negative-zero total"; exit 1; }
+        echo "$OUT" | grep -q "No cost data could be retrieved" || { echo "FAIL: wrong error: $OUT"; exit 1; }
+        echo "$OUT" | grep -q "Cost Management Reader" || { echo "FAIL: no actionable hint: $OUT"; exit 1; }
+        echo "PASS: dashboard fails and names the reason"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 300000
+
+  - name: "costs history fails instead of warning and exiting 0"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        az account show >/dev/null 2>&1 || { echo "PASS(skipped): no authenticated az"; exit 0; }
+        if az consumption usage list --start-date 2026-01-01 --end-date 2026-01-02 >/dev/null 2>&1; then
+          echo "PASS(skipped): this principal can read consumption data"; exit 0
+        fi
+        OUT=$(rust/target/debug/azlin costs history --resource-group test-rg 2>&1) && {
+          echo "FAIL: history exited 0 with no data: $OUT"; exit 1; }
+        echo "$OUT" | grep -q "Cost history unavailable" || { echo "FAIL: wrong error: $OUT"; exit 1; }
+        echo "PASS: history fails and names the reason"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 300000
+
+  - name: "costs recommend does not report on a resource group it never reached"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        az account show >/dev/null 2>&1 || { echo "PASS(skipped): no authenticated az"; exit 0; }
+        OUT=$(rust/target/debug/azlin costs recommend --resource-group azlin-definitely-not-a-real-rg 2>&1) && {
+          echo "FAIL: reported on a nonexistent resource group: $OUT"; exit 1; }
+        echo "$OUT" | grep -qi "does not exist\|Could not determine whether resource group" \
+          || { echo "FAIL: wrong error: $OUT"; exit 1; }
+        echo "$OUT" | grep -qi "No cost recommendations found" \
+          && { echo "FAIL: still claims it looked: $OUT"; exit 1; }
+        echo "PASS: advisor commands verify the resource group first"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 300000
+
+  - name: "The budget gauge does not report a ceiling it never fetched"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        grep -q "pub limit: Option<f64>" crates/azlin/src/cost_dashboard.rs \
+          || { echo "FAIL: budget limit is still a bare f64"; exit 1; }
+        cargo test -p azlin --bin azlin an_unknown_budget_limit_is_not_zero_percent_used 2>&1 \
+          | tail -3 | grep -q "1 passed" || { echo "FAIL: budget test did not pass"; exit 1; }
+        echo "PASS: an unfetched budget limit is not 0% used"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 600000
+
+  - name: "The regression tests that reproduced the bug now pass"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        cargo test -p azlin --bin azlin costs_ 2>&1 | tail -3 | tee /tmp/costs.txt
+        grep -q "0 failed" /tmp/costs.txt || { echo "FAIL: costs tests still failing"; exit 1; }
+        echo "PASS: costs graceful-error tests pass"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 600000

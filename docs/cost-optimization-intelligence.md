@@ -430,3 +430,33 @@ Recommendations based on 30-day rolling average. For newly created VMs, wait 7-1
 ---
 
 **Note**: Cost data updates every 24 hours in Azure. Real-time dashboard reflects latest available data with 5-minute caching.
+
+## Unavailable data is reported, never shown as zero
+
+Cost queries need the **Cost Management Reader** role on the subscription. When
+a query fails, `azlin` says so and exits non-zero rather than rendering a
+report from data it never obtained:
+
+```
+$ azlin costs dashboard --resource-group my-rg
+Error: No cost data could be retrieved for 'my-rg':
+  Cost summary unavailable: Azure error [RBACAccessDenied]: ...
+  Usage data unavailable: Azure error [RBACAccessDenied]: ...
+Hint: cost queries need the Cost Management Reader role on the subscription.
+```
+
+Specifically:
+
+- A period whose usage query failed shows `Total: unavailable` and a trend of
+  `?`. A period that genuinely cost nothing shows `$0.00` and says "no usage
+  recorded in this period". The two are different facts and are reported
+  differently.
+- When only some sources fail, the dashboard renders what arrived and names
+  each source that did not.
+- Usage rows with no readable cost are counted and reported, not folded into
+  the total as free usage — a schema change must not look like a cheaper month.
+- The budget gauge needs a configured budget. Without one it shows the spend
+  and says the limit is unavailable, rather than `$0.00 (0%) [OK]`.
+- `azlin costs recommend` and `azlin costs actions` verify the resource group
+  exists first. Azure Advisor answers `[]` for a resource group that is not
+  there, which used to be reported as "no cost recommendations found".
