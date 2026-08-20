@@ -57,18 +57,32 @@ pub(super) fn run_isolated(dir: &TempDir, args: &[&str]) -> std::process::Output
 /// tests "failing" against behaviour that was correct in the tree and absent
 /// from the binary. A confusing red is worse than a slow red, so this says
 /// which it is.
+///
+/// Modification times, not content hashes. A fresh clone or a branch switch
+/// stamps every source with the checkout time, so the first run afterwards
+/// demands a rebuild — which is genuinely needed. The reverse case, a source
+/// dated in the future by clock skew or a bad archive, wedges this until
+/// somebody touches the file; that is not fixable with mtime and is not worth
+/// a content hash of the whole tree to avoid.
 fn assert_binary_is_not_stale() {
-    let Some(binary) = binary_mtime() else { return };
-    let Some((newest_source, path)) = newest_source_mtime() else {
-        return;
-    };
-    assert!(
-        binary >= newest_source,
-        "target/debug/azlin is older than {}. These tests run the binary, not \
-         the compiled-in code, so every assertion below would be made against a \
-         stale build. Run `cargo build -p azlin` and try again.",
-        path.display()
-    );
+    // Computed once: `run_isolated` has around a hundred call sites in this
+    // suite, the answer cannot change during a test process, and the walk stats
+    // every `.rs` file under `crates/`.
+    static VERDICT: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    let stale = VERDICT.get_or_init(|| {
+        let binary = binary_mtime()?;
+        let (newest_source, path) = newest_source_mtime()?;
+        if binary >= newest_source {
+            return None;
+        }
+        Some(format!(
+            "target/debug/azlin is older than {}. These tests run the binary, not \
+             the compiled-in code, so every assertion below would be made against a \
+             stale build. Run `cargo build -p azlin` and try again.",
+            path.display()
+        ))
+    });
+    assert!(stale.is_none(), "{}", stale.as_deref().unwrap_or_default());
 }
 
 fn binary_mtime() -> Option<std::time::SystemTime> {

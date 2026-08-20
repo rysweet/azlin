@@ -112,6 +112,26 @@ pub(crate) async fn handle_do(
         .iter()
         .map(|c| shlex::split(c.trim()).unwrap_or_default())
         .collect();
+
+    // The check above only sees commands that name a group. One that names
+    // none inherits whatever `az` currently defaults to, which is the failure
+    // `--resource-group` exists to prevent and the one most likely to occur:
+    // a model told the group will often omit it on read-only commands.
+    // Injecting `-g` is not the answer — not every `az` command accepts one,
+    // and guessing which do is worse than not guessing — but the user approves
+    // this plan before it runs, so the plan is where the residual risk belongs.
+    let ungrouped = parsed
+        .iter()
+        .filter(|argv| !argv.is_empty() && command_resource_group(argv).is_none())
+        .count();
+    if ungrouped > 0 {
+        println!(
+            "  ({} command(s) name no resource group and will use whatever `az` \
+             currently defaults to.)",
+            ungrouped
+        );
+    }
+
     let conflicts = conflicting_resource_groups(&parsed, &rg);
     if !conflicts.is_empty() {
         let detail = conflicts
@@ -289,6 +309,24 @@ mod tests {
     fn case_does_not_make_a_different_group() {
         let commands = vec![argv("az vm list -g RG-Mine")];
         assert!(conflicting_resource_groups(&commands, "rg-mine").is_empty());
+    }
+
+    /// The conflict check is blind to commands with no group of their own, so
+    /// they are counted for the plan the user approves. `az account show` is
+    /// legitimately group-less; the point is that the count is visible, not
+    /// that it is zero.
+    #[test]
+    fn group_less_commands_are_countable_for_the_plan() {
+        let commands = vec![
+            argv("az account show"),
+            argv("az vm list -g rg-mine"),
+            argv("az group list"),
+        ];
+        let ungrouped = commands
+            .iter()
+            .filter(|a| command_resource_group(a).is_none())
+            .count();
+        assert_eq!(ungrouped, 2);
     }
 
     #[test]
