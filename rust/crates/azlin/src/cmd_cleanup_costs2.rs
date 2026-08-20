@@ -33,7 +33,8 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
         } => {
             require_resource_group(&resource_group)?;
             let cmd_args =
-                crate::handlers::build_advisor_args(&resource_group, priority.as_deref());
+                crate::handlers::build_advisor_args(&resource_group, priority.as_deref())
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
             let output = std::process::Command::new("az").args(&cmd_args).output()?;
 
             if output.status.success() {
@@ -104,22 +105,18 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
             action,
             resource_group,
             dry_run,
-            ..
+            priority,
         } => {
             require_resource_group(&resource_group)?;
-            let output = std::process::Command::new("az")
-                .args([
-                    "advisor",
-                    "recommendation",
-                    "list",
-                    "--resource-group",
-                    &resource_group,
-                    "--query",
-                    "[?category=='Cost']",
-                    "-o",
-                    "json",
-                ])
-                .output()?;
+            // `--priority` was accepted and discarded (#1089), so every
+            // recommendation was listed *and applied* whatever the user asked
+            // for — `--priority high apply` deallocated the Low-impact VMs the
+            // filter existed to exclude. Filtered in the fetch, so the table
+            // and the apply loop below cannot disagree about what is in scope.
+            let cmd_args =
+                crate::handlers::build_advisor_args(&resource_group, priority.as_deref())
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
+            let output = std::process::Command::new("az").args(&cmd_args).output()?;
 
             if output.status.success() {
                 let json_str = String::from_utf8_lossy(&output.stdout);
@@ -141,10 +138,23 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
                         })?;
                         {
                             if recs.is_empty() {
-                                println!(
-                                    "{}",
-                                    crate::handlers::format_no_cost_actions(&resource_group)
-                                );
+                                // "No High recommendations" and "no cost
+                                // recommendations at all" send the user to
+                                // different places, so they say different
+                                // things.
+                                match priority.as_deref() {
+                                    Some(pri) => println!(
+                                        "{}",
+                                        crate::handlers::no_actions_at_priority(
+                                            &resource_group,
+                                            pri
+                                        )
+                                    ),
+                                    None => println!(
+                                        "{}",
+                                        crate::handlers::format_no_cost_actions(&resource_group)
+                                    ),
+                                }
                             } else {
                                 let mut table = crate::table_render::SimpleTable::new(
                                     &["Resource", "Impact", "Recommendation"],

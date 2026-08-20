@@ -478,6 +478,14 @@ mod tests {
     }
 
     /// Verify that per-VM timeout fires for slow tasks.
+    ///
+    /// The slow task is a sleep, not a health collection. It used to call
+    /// `collect_health_metrics` for a *Running* VM at 10.0.0.1 — which is a
+    /// real, routable private address, and on a developer machine inside a
+    /// VNet it is somebody's gateway. The tokio timeout fired at 50ms and the
+    /// blocking thread carried on regardless, leaving real `ssh` processes
+    /// attempting to reach a stranger for 30 seconds after the test "passed".
+    /// Nothing about what this test asserts needs a network.
     #[tokio::test]
     async fn test_per_vm_timeout() {
         let handle = tokio::spawn(async {
@@ -485,7 +493,6 @@ mod tests {
                 std::time::Duration::from_millis(50),
                 tokio::task::spawn_blocking(|| {
                     std::thread::sleep(std::time::Duration::from_secs(5));
-                    collect_health_metrics("slow-vm", "10.0.0.1", "user", "Running", None)
                 }),
             )
             .await
@@ -511,13 +518,16 @@ mod tests {
             .await
         }));
 
-        // Slow VM (will timeout)
+        // Slow VM (will timeout). A sleep, not a health collection: see
+        // `test_per_vm_timeout` for why a Running VM at 10.0.0.1 leaves real
+        // `ssh` processes behind after the timeout fires.
         handles.push(tokio::spawn(async {
             tokio::time::timeout(
                 std::time::Duration::from_millis(50),
                 tokio::task::spawn_blocking(|| {
                     std::thread::sleep(std::time::Duration::from_secs(5));
-                    collect_health_metrics("slow-vm", "10.0.0.1", "user", "Running", None)
+                    // Same shape as the fast arm, for a VM that never answers.
+                    collect_health_metrics("slow-vm", "10.0.0.1", "user", "Deallocated", None)
                 }),
             )
             .await

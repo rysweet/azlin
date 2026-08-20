@@ -133,6 +133,40 @@ pub fn parse_recommendation_rows(data: &serde_json::Value) -> Vec<(String, Strin
 }
 
 /// Parse cost action entries from JSON array.
+/// The impact levels Azure Advisor actually returns.
+///
+/// `azlin costs actions --priority` promised "Filter by priority" and was
+/// discarded (#1089), so every recommendation was listed *and applied*
+/// whatever the user asked for — `--priority high apply` deallocated VMs the
+/// filter existed to exclude. Advisor calls the field `impact`; the flag calls
+/// it priority. They are the same thing.
+pub const KNOWN_PRIORITIES: [&str; 3] = ["High", "Medium", "Low"];
+
+/// The spelling Advisor uses, from whatever the user typed, or `None` if it is
+/// not a level Advisor reports.
+///
+/// JMESPath's `==` is case-sensitive, so `--priority high` passed through
+/// unchanged would match nothing and report "no recommendations" — a filter
+/// that silently excludes everything is the failure this issue is about.
+pub fn canonical_priority(priority: &str) -> Option<&'static str> {
+    KNOWN_PRIORITIES
+        .iter()
+        .find(|k| k.eq_ignore_ascii_case(priority.trim()))
+        .copied()
+}
+
+/// What to say when a valid priority matched nothing.
+///
+/// Distinct from "this resource group has no cost recommendations", because
+/// the two send the user to different places.
+pub fn no_actions_at_priority(resource_group: &str, priority: &str) -> String {
+    format!(
+        "No {} cost recommendations for '{}'. Drop --priority to see the other levels.",
+        canonical_priority(priority).unwrap_or(priority),
+        resource_group
+    )
+}
+
 pub fn parse_cost_action_rows(data: &serde_json::Value) -> Vec<(String, String, String)> {
     let mut result = Vec::new();
     if let Some(recs) = data.as_array() {
@@ -256,20 +290,104 @@ pub fn format_cost_actions_header(action: &str, resource_group: &str, dry_run: b
     }
 }
 
-/// Build advisor recommendation query args with optional priority filter.
-pub fn build_advisor_args(resource_group: &str, priority: Option<&str>) -> Vec<String> {
-    let mut args = vec![
+/// Build advisor recommendation query args, optionally for one impact level.
+///
+/// The category filter is not optional: `azlin costs actions` is about cost,
+/// and this builder previously *replaced* the whole query when a priority was
+/// given — so wiring `--priority` through it unchanged would have widened the
+/// command from cost recommendations to every recommendation Advisor has,
+/// security ones included, and then offered to apply them.
+///
+/// Filtering server-side means the table and the apply loop read the same
+/// list. A client-side filter over the table alone would have left
+/// `--priority high apply` deallocating Low-impact VMs while showing only the
+/// High ones — the worst of both.
+///
+/// An unrecognised priority is an error rather than an empty table: Advisor
+/// would match nothing and the command would exit 0 saying there was nothing
+/// to do. Validating here rather than at the call site also means the value
+/// interpolated into JMESPath is always one of [`KNOWN_PRIORITIES`].
+pub fn build_advisor_args(
+    resource_group: &str,
+    priority: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let query = match priority {
+        Some(pri) => {
+            let canonical = canonical_priority(pri).ok_or_else(|| {
+                format!(
+                    "Unknown --priority '{}'. Azure Advisor reports impact as one of: {}.",
+                    pri,
+                    KNOWN_PRIORITIES.join(", ")
+                )
+            })?;
+            format!("[?category=='Cost' && impact=='{}']", canonical)
+        }
+        None => "[?category=='Cost']".to_string(),
+    };
+    Ok(vec![
         "advisor".to_string(),
         "recommendation".to_string(),
         "list".to_string(),
         "--resource-group".to_string(),
         resource_group.to_string(),
+        "--query".to_string(),
+        query,
         "-o".to_string(),
         "json".to_string(),
-    ];
-    if let Some(pri) = priority {
-        args.push("--query".to_string());
-        args.push(format!("[?impact=='{}']", pri));
+    ])
+}
+
+#[cfg(test)]
+mod priority_tests {
+    use super::*;
+
+    #[test]
+    fn the_category_filter_survives_a_priority() {
+        let args = build_advisor_args("rg", Some("high")).unwrap();
+        let query = args.iter().find(|a| a.contains("category")).unwrap();
+        assert!(query.contains("category=='Cost'"), "{}", query);
+        assert!(query.contains("impact=='High'"), "{}", query);
     }
-    args
+
+    #[test]
+    fn without_a_priority_the_query_is_still_scoped_to_cost() {
+        let args = build_advisor_args("rg", None).unwrap();
+        let query = args.iter().find(|a| a.contains("category")).unwrap();
+        assert_eq!(query, "[?category=='Cost']");
+    }
+
+    #[test]
+    fn the_users_spelling_is_translated_to_advisors() {
+        // JMESPath `==` is case-sensitive; a passthrough matches nothing.
+        for typed in ["high", "HIGH", "  High  "] {
+            let args = build_advisor_args("rg", Some(typed)).unwrap();
+            assert!(
+                args.iter().any(|a| a.contains("impact=='High'")),
+                "{} did not reach Advisor's spelling",
+                typed
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_priority_is_an_error_not_an_empty_table() {
+        let err = build_advisor_args("rg", Some("urgent")).unwrap_err();
+        assert!(err.contains("urgent"), "{}", err);
+        assert!(err.contains("High, Medium, Low"), "{}", err);
+    }
+
+    #[test]
+    fn a_quote_cannot_reach_the_query() {
+        // The value is interpolated into JMESPath, so nothing but the three
+        // known levels may get through.
+        assert!(build_advisor_args("rg", Some("high' || 'x")).is_err());
+        assert_eq!(canonical_priority("high' || 'x"), None);
+    }
+
+    #[test]
+    fn an_empty_result_at_a_priority_says_which_one() {
+        let msg = no_actions_at_priority("rg", "high");
+        assert!(msg.contains("No High"), "{}", msg);
+        assert!(msg.contains("Drop --priority"), "{}", msg);
+    }
 }

@@ -245,7 +245,25 @@ pub(crate) async fn handle_do(
     Ok(())
 }
 
-pub(crate) async fn handle_doit_deploy(request: &str, dry_run: bool, yes: bool) -> Result<()> {
+pub(crate) async fn handle_doit_deploy(
+    request: &str,
+    dry_run: bool,
+    yes: bool,
+    output_dir: Option<std::path::PathBuf>,
+    max_iterations: u32,
+    quiet: bool,
+) -> Result<()> {
+    // Three flags accepted and discarded (#1089). `--max-iterations` is the
+    // one that mattered: nothing bounded how many commands a model could hand
+    // back to be executed against a live subscription, while `--help` said 50.
+    let verbosity = crate::doit_deploy::Verbosity::new(quiet);
+    if let Some(ref dir) = output_dir {
+        // Before the API call, so a directory that cannot be created is a
+        // failure the user can fix rather than one that arrives after paying
+        // for a plan.
+        crate::doit_deploy::prepare_output_dir(dir)?;
+    }
+
     let client = azlin_ai::AnthropicClient::new()?;
 
     let system_context = "You are azlin, an Azure VM fleet management tool. \
@@ -258,35 +276,65 @@ pub(crate) async fn handle_doit_deploy(request: &str, dry_run: bool, yes: bool) 
     let commands = client.ask(request, system_context).await?;
     pb.finish_and_clear();
 
-    println!("Plan:\n{}\n", commands);
+    if let Some(ref dir) = output_dir {
+        let path = crate::doit_deploy::plan_path(dir);
+        std::fs::write(&path, &commands)
+            .with_context(|| format!("Could not write the plan to {}", path.display()))?;
+        if verbosity.shows_progress() {
+            println!("Plan written to {}", path.display());
+        }
+    }
+
+    if verbosity.shows_progress() {
+        println!("Plan:\n{}\n", commands);
+    }
 
     if dry_run {
         return Ok(());
     }
 
+    // Counted before the prompt: being asked to confirm a plan that will then
+    // be refused wastes the one decision the user gets to make.
+    let planned = crate::doit_deploy::plan_commands(&commands);
+    if let Some(refusal) = crate::doit_deploy::over_iteration_limit(planned.len(), max_iterations) {
+        anyhow::bail!("{}", refusal);
+    }
+
+    // Not gated on --quiet: a prompt nobody sees is a prompt nobody can answer.
     if !safe_confirm_with_flag("Execute this plan?", yes, "--yes")? {
         println!("Cancelled.");
         return Ok(());
     }
 
-    for line in commands.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || !trimmed.starts_with("az ") {
-            continue;
-        }
+    let mut transcript = String::new();
+    for trimmed in planned {
         let parts = match shlex::split(trimmed) {
             Some(p) if !p.is_empty() => p,
             _ => {
                 eprintln!("Failed to parse command: {}", trimmed);
+                transcript.push_str(&format!("unparsed {}\n", trimmed));
                 continue;
             }
         };
-        println!("-> {}", trimmed);
+        if verbosity.shows_progress() {
+            println!("-> {}", trimmed);
+        }
         let status = std::process::Command::new(&parts[0])
             .args(&parts[1..])
             .status()?;
+        transcript.push_str(&crate::doit_deploy::transcript_line(trimmed, status.code()));
         if !status.success() {
+            // Never gated on --quiet.
             eprintln!("Command failed with exit code: {:?}", status.code());
+        }
+    }
+
+    if let Some(ref dir) = output_dir {
+        let path = crate::doit_deploy::transcript_path(dir);
+        std::fs::write(&path, &transcript)
+            .with_context(|| format!("Could not write the transcript to {}", path.display()))?;
+        if verbosity.shows_progress() {
+            println!("Transcript written to {}", path.display());
         }
     }
     Ok(())
