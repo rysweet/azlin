@@ -65,7 +65,7 @@ steps:
           grep -q "$e" crates/xtask/unwired-flags-allowlist.txt \
             && { echo "FAIL: $e still ledgered as unwired"; exit 1; }
         done
-        cargo xtask check-flag-wiring 2>&1 | tail -2
+        cargo run -q -p xtask --locked -- check-flag-wiring 2>&1 | tail -2
         echo "PASS: clone entries retired and the gate is clean"
     expect:
       exit_code: 0
@@ -89,7 +89,7 @@ steps:
     params:
       command: |
         cd rust
-        cargo test -p azlin --bin azlin snapshot_args 2>&1 | tail -3
+        cargo test -p azlin --bin azlin incremental_is_asked_for 2>&1 | tail -3
         echo "PASS: --incremental is scoped to cross-region clones"
     expect:
       exit_code: 0
@@ -102,7 +102,7 @@ steps:
     params:
       command: |
         cd rust
-        cargo test -p azlin --bin azlin clone_failure_message 2>&1 | tail -3
+        cargo test -p azlin --bin azlin failed_clones_name_the_snapshot 2>&1 | tail -3
         echo "PASS: failures surface the leftover snapshot"
     expect:
       exit_code: 0
