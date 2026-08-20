@@ -56,6 +56,29 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+  # CLI wiring gate: fail CI on any flag that reaches `--help` and is then
+  # discarded by the handler (issue #1089). Its own job for the same reason
+  # `fmt` is: it reports in under a minute instead of behind the ~6 minute
+  # build, and a wiring failure does not hide build or test results.
+  flag-wiring:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: rust
+          key: xtask
+      - name: Check CLI flag wiring
+        run: cargo run -p xtask --locked -- check-flag-wiring
+
   # Supply-chain gate: fail CI on any RustSec advisory not explicitly
   # acknowledged in rust/.cargo/audit.toml. Reads the committed Cargo.lock.
   cargo-audit:

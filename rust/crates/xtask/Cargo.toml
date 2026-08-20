@@ -1,0 +1,18 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Repository maintenance checks for azlin (see `cargo run -p xtask -- --help`)"
+publish = false
+
+[dependencies]
+# syn only. The check reads Rust source and must understand Rust syntax: a
+# regex over `#[arg(...)]` cannot distinguish a real binding from the
+# `field: _field` shape this codebase uses to silence unused-variable
+# warnings, and cannot see through nested `match` patterns. syn 2 is already
+# in the workspace lockfile as a transitive dependency of the derive macros,
+# so this adds no new package to the dependency graph.
+syn = { version = "2", features = ["full", "visit", "extra-traits"] }

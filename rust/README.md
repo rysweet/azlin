@@ -174,3 +174,32 @@ Rust CI runs on every push to `rust/**` paths:
 - Build (release)
 - Test (all workspace crates)
 - Clippy (deny warnings)
+- Formatting (`cargo fmt --all -- --check`)
+- CLI flag wiring (`cargo run -p xtask -- check-flag-wiring`)
+- Supply chain (`cargo audit`)
+
+### CLI flag wiring check
+
+A flag can be declared in `azlin-cli/src/lib.rs`, accepted by clap, printed by
+`--help`, and then dropped on the floor by a handler that destructures with
+`..` — with no compiler error and no runtime warning. That is how
+`restore --dry-run` came to perform the restore and `env list --show-values`
+came to print secrets in full (issue #1089).
+
+`crates/xtask` parses the clap enums with `syn`, parses every handler under
+`crates/azlin/src`, and fails if a declared field is never bound to a usable
+name. Fields swallowed by `..`, bound to `_`, or bound to `_name` do not count
+as wired.
+
+```bash
+cd rust
+cargo run -p xtask -- check-flag-wiring            # the gate
+cargo run -p xtask -- check-flag-wiring --verbose  # also list the backlog
+```
+
+The known-unwired backlog lives in
+`crates/xtask/unwired-flags-allowlist.txt`, one annotated line per flag.
+Fixing a flag means deleting its line; the check fails on an entry that no
+longer describes an unwired flag, so the ledger cannot drift. Adding a line is
+a review-visible admission that a flag lies to the user — prefer wiring it,
+deleting it, or hiding it from `--help`.
