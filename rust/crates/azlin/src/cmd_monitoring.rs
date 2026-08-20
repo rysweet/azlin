@@ -47,13 +47,23 @@ pub(crate) async fn dispatch(
             resource_group,
             vm,
             ip,
+            timeout,
             ..
         } => {
             let targets = resolve_vm_targets(vm.as_deref(), ip.as_deref(), resource_group).await?;
             for target in &targets {
                 println!("── {} ──", target.vm_name);
-                match target.exec_checked("top -b -n 1 | head -30") {
-                    Ok(output) => print!("{}", output),
+                // One unreachable VM used to hang the whole sweep: `--timeout`
+                // promised "SSH timeout per VM" and enforced nothing (#1089).
+                // Per VM, so a slow host costs its own budget and not the run.
+                match crate::exec_under_timeout(target, "top -b -n 1 | head -30", timeout) {
+                    Ok(Ok((0, stdout, _))) => print!("{}", stdout),
+                    Ok(Ok((code, _, stderr))) => eprintln!(
+                        "  Error: exit {}: {}",
+                        code,
+                        azlin_core::sanitizer::sanitize(stderr.trim())
+                    ),
+                    Ok(Err(note)) => eprintln!("  {}", note),
                     Err(e) => eprintln!("  Error: {}", e),
                 }
             }

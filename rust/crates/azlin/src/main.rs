@@ -831,6 +831,31 @@ fn print_fleet_table(
     println!("{table}");
 }
 
+/// Run `cmd` on one VM under a user-supplied `--timeout`.
+///
+/// Three commands declare a `--timeout` and enforced none of it: `os-update`,
+/// `vm update-tools` and `top` all handed the command to SSH and waited
+/// (#1089). This puts `timeout(1)` around it *on the VM*, so a runaway `apt`
+/// dies there rather than being orphaned when the session is torn down, and
+/// gives the transport a matching budget so the remote limit is the one that
+/// fires.
+///
+/// Returns the timeout note in place of the triple when the limit fired, so
+/// each caller decides whether one slow VM ends the command or just that VM.
+fn exec_under_timeout(
+    target: &VmSshTarget,
+    cmd: &str,
+    timeout: u32,
+) -> Result<std::result::Result<(i32, String, String), String>> {
+    let wrapped = fleet_select::wrap_with_timeout(cmd, timeout);
+    let result =
+        target.exec_with_local_timeout(&wrapped, fleet_select::local_timeout_secs(timeout))?;
+    match fleet_select::timeout_note(result.0, timeout) {
+        Some(note) => Ok(Err(note)),
+        None => Ok(Ok(result)),
+    }
+}
+
 /// Execute a command on all running VMs with MultiProgress bars, then print a
 /// summary table. Each VM gets its own spinner showing live status.
 /// Uses VmSshTarget for proper bastion routing on private VMs.

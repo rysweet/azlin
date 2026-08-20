@@ -6,6 +6,7 @@ pub(crate) async fn handle_ask(
     query: Option<String>,
     resource_group: Option<String>,
     dry_run: bool,
+    timeout: u32,
 ) -> Result<()> {
     let query_text = query.ok_or_else(|| anyhow::anyhow!("No query provided."))?;
 
@@ -22,9 +23,24 @@ pub(crate) async fn handle_ask(
 
     let context = format!("Resource group: {}", rg);
     let pb = penguin_spinner("Querying Claude...");
-    let answer = client.ask(&query_text, &context).await?;
+    // `--timeout` was accepted and discarded, so an API call that never came
+    // back left the spinner turning until the user gave up (#1089). The bound
+    // is on the whole request rather than on connect, because a stalled
+    // response body is the shape that actually happens.
+    let answer = tokio::time::timeout(
+        std::time::Duration::from_secs(timeout as u64),
+        client.ask(&query_text, &context),
+    )
+    .await;
     pb.finish_and_clear();
-    println!("{}", answer);
+    match answer {
+        Ok(result) => println!("{}", result?),
+        Err(_) => anyhow::bail!(
+            "The Claude API did not answer within {}s (--timeout). Raise --timeout, \
+             or re-run with --dry-run to see the query without sending it.",
+            timeout
+        ),
+    }
     Ok(())
 }
 

@@ -23,9 +23,9 @@ pub(crate) async fn dispatch(
             vm_name,
             resource_group,
             ssh_user,
-            ..
+            timeout,
         } => {
-            crate::cmd_sync_ops::handle_sync_keys(&vm_name, resource_group, &ssh_user)?;
+            crate::cmd_sync_ops::handle_sync_keys(&vm_name, resource_group, &ssh_user, timeout)?;
         }
 
         azlin_cli::Commands::Cp {

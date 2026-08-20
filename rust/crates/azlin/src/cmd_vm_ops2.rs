@@ -5,14 +5,23 @@ use console::Style;
 pub(crate) async fn handle_vm_update(
     vm_identifier: &str,
     resource_group: Option<String>,
+    timeout: u32,
 ) -> Result<()> {
     let pb = penguin_spinner(&format!("Looking up {}...", vm_identifier));
     let target = resolve_vm_ssh_target(vm_identifier, None, resource_group).await?;
     pb.finish_and_clear();
 
-    println!("Updating development tools on '{}'...", vm_identifier);
+    println!(
+        "Updating development tools on '{}' (timeout {}s)...",
+        vm_identifier, timeout
+    );
     let update_script = crate::update_helpers::build_dev_update_script();
-    let (code, stdout, stderr) = target.exec(update_script)?;
+    // The script installs several toolchains in sequence; one stuck download
+    // used to hold the command open forever while `--timeout` was discarded.
+    let (code, stdout, stderr) = match crate::exec_under_timeout(&target, update_script, timeout)? {
+        Ok(result) => result,
+        Err(note) => anyhow::bail!("Tool update on '{}' {}", vm_identifier, note),
+    };
     if code == 0 {
         let green = Style::new().green();
         println!(
