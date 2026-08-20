@@ -115,10 +115,18 @@ pub(crate) fn handle_vm_clone(
         );
     }
     // The resource id, not the name: `az disk create --source` accepts a bare
-    // snapshot name only within one region, so falling back to the name would
-    // work in-region and fail across one — the harder failure to diagnose.
-    let snapshot_source = crate::clone_helpers::snapshot_id_from_create(&snap_out.stdout)
-        .unwrap_or_else(|| snapshot_name.clone());
+    // snapshot name only within one region. Falling back to the name would
+    // therefore work in-region and fail across one, with an Azure error that
+    // names neither the fallback nor the reason — so in-region it falls back
+    // and cross-region it stops, saying which snapshot is now billing.
+    let snapshot_source = match crate::clone_helpers::snapshot_id_from_create(&snap_out.stdout) {
+        Some(id) => id,
+        None if cross_region => anyhow::bail!(
+            "{}",
+            crate::clone_helpers::missing_snapshot_id_message(&snapshot_name, &rg, &location)
+        ),
+        None => snapshot_name.clone(),
+    };
     println!("Created snapshot '{}'", snapshot_name);
 
     // Every clone that did not come up. The loop used to report each failure

@@ -211,6 +211,26 @@ pub fn snapshot_id_from_create(stdout: &[u8]) -> Option<String> {
 /// created a snapshot that bills. Naming the snapshot matters: it is the
 /// resource left behind, and nothing else in the output says it is still
 /// there.
+/// What to say when Azure created a snapshot but did not report its resource
+/// id, on a clone that needs that id.
+///
+/// A same-region clone can carry on with the snapshot's bare name, so this is
+/// reached only when the name is guaranteed not to work. The snapshot exists
+/// and is billing by this point, so the message names it and how to remove it
+/// rather than leaving a resource nobody knows about.
+pub fn missing_snapshot_id_message(
+    snapshot_name: &str,
+    resource_group: &str,
+    target_region: &str,
+) -> String {
+    format!(
+        "Azure created snapshot '{}' but did not report its resource id, which a clone into \
+         '{}' requires — a cross-region copy cannot reference a snapshot by name. The snapshot \
+         exists and is billing; remove it with:\n  az snapshot delete --resource-group {} --name {}",
+        snapshot_name, target_region, resource_group, snapshot_name
+    )
+}
+
 pub fn clone_failure_message(
     failed: &[String],
     total: u32,
@@ -454,6 +474,22 @@ mod tests {
 
     /// The loop used to report each failure and return success, so three
     /// failed clones exited 0 having created a snapshot that bills.
+    #[test]
+    fn a_missing_snapshot_id_stops_a_cross_region_clone_and_names_the_leftover() {
+        let msg = missing_snapshot_id_message("snap-1", "rg", "eastus");
+        assert!(msg.contains("snap-1"), "{}", msg);
+        assert!(msg.contains("eastus"), "{}", msg);
+        assert!(
+            msg.contains("az snapshot delete --resource-group rg --name snap-1"),
+            "the leftover must be removable from the message: {}",
+            msg
+        );
+        // The indent before the `az` command is deliberate; the prose above it
+        // is what a `\`-continuation would garble (#1115).
+        let prose = msg.split('\n').next().unwrap();
+        assert!(!prose.contains("  "), "garbled continuation: {}", prose);
+    }
+
     #[test]
     fn failed_clones_name_the_snapshot_left_behind() {
         let msg = clone_failure_message(
