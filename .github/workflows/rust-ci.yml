@@ -5,9 +5,19 @@ on:
   # exercised by Rust CI. Without it, editing this file skips every job here
   # and a broken or weakened gate lands with a fully green PR.
   push:
-    paths: ['rust/**', '.github/workflows/rust-ci.yml']
+    paths:
+      - 'rust/**'
+      - '.github/workflows/rust-ci.yml'
+      # The lock-sync gate below runs this script, so a change to it must be
+      # exercised by the job that depends on it.
+      - 'scripts/sync-cargo-lock-versions.sh'
+      - 'scripts/test_sync_cargo_lock_versions.sh'
   pull_request:
-    paths: ['rust/**', '.github/workflows/rust-ci.yml']
+    paths:
+      - 'rust/**'
+      - '.github/workflows/rust-ci.yml'
+      - 'scripts/sync-cargo-lock-versions.sh'
+      - 'scripts/test_sync_cargo_lock_versions.sh'
 
 permissions: {}
 
@@ -55,6 +65,38 @@ jobs:
           components: rustfmt
       - name: Check formatting
         run: cargo fmt --all -- --check
+
+  # Lock-sync gate (issue #1100). Every crate here declares
+  # `version.workspace = true`, so its Cargo.lock entry must equal the
+  # workspace version; when it does not, `cargo build --locked` refuses with a
+  # message about the lock file that names neither the crate nor the cause.
+  #
+  # This is the first job to go red in that situation and it names the crate,
+  # because the failure is otherwise invisible until it is someone else's
+  # problem: a PR that adds a workspace member is authored against whatever
+  # version main had at the time, stays internally consistent on its branch,
+  # and only breaks once it is combined with a main that has since been
+  # bumped. That is exactly how main broke on 2026-08-19 (xtask 2.6.105 onto a
+  # 2.6.106 main).
+  #
+  # On a pull request `actions/checkout` checks out the *merge* commit, so this
+  # job sees the combined tree — the new crate's lock entry from the branch
+  # alongside the base's bumped entries — and catches the breakage before the
+  # merge rather than after it. Branch CI could not, which is the whole reason
+  # #1100 exists.
+  #
+  # Pure bash, no toolchain, no cache — it reports in seconds rather than
+  # behind the ~6 minute build.
+  lock-sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Test the lock-sync checker
+        run: ./scripts/test_sync_cargo_lock_versions.sh
+      - name: Check Cargo.lock against the workspace version
+        run: ./scripts/sync-cargo-lock-versions.sh --check
 
   # CLI wiring gate: fail CI on any flag that reaches `--help` and is then
   # discarded by the handler (issue #1089). Its own job for the same reason
