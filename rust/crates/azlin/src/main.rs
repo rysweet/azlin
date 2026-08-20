@@ -1178,6 +1178,10 @@ mod key_helpers;
 #[allow(dead_code)]
 mod doit_deploy;
 
+/// Provisioning for `azlin github-runner enable` — private VMs, NAT egress.
+#[allow(dead_code)]
+mod runner_provision;
+
 /// VM-side SSH key inventory for `azlin keys list`.
 #[allow(dead_code)]
 mod keys_list;
