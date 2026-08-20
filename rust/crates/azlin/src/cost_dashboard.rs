@@ -29,27 +29,60 @@ pub struct VmCost {
 
 #[derive(Debug, Clone)]
 pub struct BudgetInfo {
-    pub limit: f64,
+    /// The configured budget ceiling, or `None` when no budget exists or the
+    /// lookup failed.
+    ///
+    /// This was an `f64` defaulting to `0.0`, which made `usage_pct()` return
+    /// `0.0` and painted the gauge green: "0% of budget used [OK]" for a
+    /// budget that had never been read. A resource group with no budget at
+    /// all got the same reassuring line.
+    pub limit: Option<f64>,
     pub current_spend: f64,
     pub currency: String,
 }
 
 impl BudgetInfo {
-    pub fn usage_pct(&self) -> f64 {
-        if self.limit <= 0.0 {
-            0.0
-        } else {
-            (self.current_spend / self.limit * 100.0).min(100.0)
+    /// Spend as a percentage of the ceiling, or `None` when there is no
+    /// ceiling to measure against.
+    pub fn usage_pct(&self) -> Option<f64> {
+        match self.limit {
+            Some(limit) if limit > 0.0 => Some((self.current_spend / limit * 100.0).min(100.0)),
+            _ => None,
         }
     }
+
+    /// Colour for the budget gauge. Grey when there is no budget to be
+    /// under: green would claim the spend is within a limit nobody set.
     pub fn alert_color(&self) -> Color {
-        let p = self.usage_pct();
-        if p >= 90.0 {
-            Color::Red
-        } else if p >= 70.0 {
-            Color::Yellow
-        } else {
-            Color::Green
+        match self.usage_pct() {
+            None => Color::DarkGray,
+            Some(p) if p >= 90.0 => Color::Red,
+            Some(p) if p >= 70.0 => Color::Yellow,
+            Some(_) => Color::Green,
+        }
+    }
+
+    /// The budget line for the plain dashboard.
+    pub fn label(&self) -> String {
+        match (self.limit, self.usage_pct()) {
+            (Some(limit), Some(pct)) => {
+                let state = if pct >= 90.0 {
+                    "CRITICAL"
+                } else if pct >= 70.0 {
+                    "WARNING"
+                } else {
+                    "OK"
+                };
+                format!(
+                    "${:.2} / ${:.2} ({:.0}%) [{}]",
+                    self.current_spend, limit, pct, state
+                )
+            }
+            _ => format!(
+                "${:.2} spent; no budget limit available (none configured, or the \
+                 lookup failed)",
+                self.current_spend
+            ),
         }
     }
 }
@@ -271,13 +304,14 @@ fn render_bar_chart(f: &mut ratatui::Frame, area: Rect, data: &CostDashboardData
 }
 
 fn render_budget_gauge(f: &mut ratatui::Frame, area: Rect, data: &CostDashboardData) {
-    if let Some(ref budget) = data.budget {
-        let pct = budget.usage_pct();
+    // A gauge needs a ceiling. Without one there is nothing to be a
+    // percentage of, and drawing an empty green bar claimed the spend was
+    // within a limit nobody had set.
+    if let (Some(budget), Some(pct)) = (
+        data.budget.as_ref(),
+        data.budget.as_ref().and_then(|b| b.usage_pct()),
+    ) {
         let color = budget.alert_color();
-        let label = format!(
-            "${:.2} / ${:.2} ({:.0}%)",
-            budget.current_spend, budget.limit, pct
-        );
         let gauge = Gauge::default()
             .block(
                 Block::default()
@@ -287,8 +321,16 @@ fn render_budget_gauge(f: &mut ratatui::Frame, area: Rect, data: &CostDashboardD
             )
             .gauge_style(Style::default().fg(color).add_modifier(Modifier::BOLD))
             .ratio(pct / 100.0)
-            .label(label);
+            .label(budget.label());
         f.render_widget(gauge, area);
+    } else if let Some(budget) = data.budget.as_ref() {
+        f.render_widget(
+            Block::default()
+                .title(format!(" Budget: {} ", budget.label()))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+            area,
+        );
     } else {
         f.render_widget(
             Block::default()
@@ -354,19 +396,7 @@ pub fn format_plain_dashboard(data: &CostDashboardData) -> String {
         let _ = writeln!(out, "!! {}", reason);
     }
     if let Some(ref b) = data.budget {
-        let p = b.usage_pct();
-        let s = if p >= 90.0 {
-            "CRITICAL"
-        } else if p >= 70.0 {
-            "WARNING"
-        } else {
-            "OK"
-        };
-        let _ = writeln!(
-            out,
-            "Budget: ${:.2} / ${:.2} ({:.0}%) [{}]",
-            b.current_spend, b.limit, p, s
-        );
+        let _ = writeln!(out, "Budget: {}", b.label());
     }
     let _ = writeln!(out, "\nDaily costs:");
     match data.daily_costs.as_ref() {
@@ -479,7 +509,7 @@ mod tests {
                 },
             ]),
             budget: Some(BudgetInfo {
-                limit: 100.0,
+                limit: Some(100.0),
                 current_spend: 57.0,
                 currency: "USD".into(),
             }),
@@ -647,21 +677,41 @@ mod tests {
     fn test_budget_pct() {
         assert!(
             (BudgetInfo {
-                limit: 100.0,
+                limit: Some(100.0),
                 current_spend: 75.0,
                 currency: "USD".into()
             }
             .usage_pct()
+            .unwrap()
                 - 75.0)
                 .abs()
                 < 0.01
         );
     }
+
+    /// No budget ceiling means no percentage. The old code answered `0.0`
+    /// and painted the gauge green — "0% of budget used [OK]" for a budget
+    /// that had never been read, and for a resource group that had none.
+    #[test]
+    fn an_unknown_budget_limit_is_not_zero_percent_used() {
+        let unknown = BudgetInfo {
+            limit: None,
+            current_spend: 4200.0,
+            currency: "USD".into(),
+        };
+        assert_eq!(unknown.usage_pct(), None);
+        assert_eq!(unknown.alert_color(), Color::DarkGray);
+        assert_ne!(unknown.alert_color(), Color::Green);
+        let label = unknown.label();
+        assert!(label.contains("no budget limit available"), "{label}");
+        assert!(!label.contains("[OK]"), "{label}");
+        assert!(!label.contains("0%"), "{label}");
+    }
     #[test]
     fn test_budget_alert_green() {
         assert_eq!(
             BudgetInfo {
-                limit: 100.0,
+                limit: Some(100.0),
                 current_spend: 50.0,
                 currency: "USD".into()
             }
@@ -673,7 +723,7 @@ mod tests {
     fn test_budget_alert_yellow() {
         assert_eq!(
             BudgetInfo {
-                limit: 100.0,
+                limit: Some(100.0),
                 current_spend: 75.0,
                 currency: "USD".into()
             }
@@ -685,7 +735,7 @@ mod tests {
     fn test_budget_alert_red() {
         assert_eq!(
             BudgetInfo {
-                limit: 100.0,
+                limit: Some(100.0),
                 current_spend: 95.0,
                 currency: "USD".into()
             }

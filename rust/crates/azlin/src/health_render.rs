@@ -61,12 +61,13 @@ pub fn error_count_level(value: Option<u32>) -> Option<ThresholdLevel> {
     value.map(crate::error_helpers::classify_error_count)
 }
 
-/// True when a VM produced no usable reading at all.
+/// True when a VM is missing any of its three saturation readings.
 ///
-/// Used to decide whether the run needs the "some VMs could not be measured"
-/// footer; a VM missing one metric out of three is worth naming too.
-pub fn is_fully_unknown(cpu: Option<f32>, mem: Option<f32>, disk: Option<f32>) -> bool {
-    cpu.is_none() && mem.is_none() && disk.is_none()
+/// Any, not all: a VM that answered for CPU and then stopped answering is
+/// exactly as unmeasured in the column that matters, and the footer names it
+/// so a partial collection is not read as a complete one.
+pub fn has_missing_metric(cpu: Option<f32>, mem: Option<f32>, disk: Option<f32>) -> bool {
+    cpu.is_none() || mem.is_none() || disk.is_none()
 }
 
 /// The footer that names the VMs whose metrics are missing.
@@ -149,9 +150,12 @@ mod tests {
         assert!(footer.contains("not a reading of zero"), "{footer}");
     }
 
+    /// A partial collection is still a failed one for the metric that went
+    /// missing, so any absent reading has to reach the footer.
     #[test]
-    fn fully_unknown_needs_all_three_missing() {
-        assert!(is_fully_unknown(None, None, None));
-        assert!(!is_fully_unknown(Some(1.0), None, None));
+    fn any_missing_metric_is_reported() {
+        assert!(has_missing_metric(None, None, None));
+        assert!(has_missing_metric(Some(1.0), None, Some(3.0)));
+        assert!(!has_missing_metric(Some(1.0), Some(2.0), Some(3.0)));
     }
 }

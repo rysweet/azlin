@@ -536,7 +536,7 @@ fn render_health_table(metrics: &[HealthMetrics]) {
     let unmeasured: Vec<String> = metrics
         .iter()
         .filter(|m| {
-            health_render::is_fully_unknown(m.cpu_percent, m.mem_percent, m.disk_percent)
+            health_render::has_missing_metric(m.cpu_percent, m.mem_percent, m.disk_percent)
                 && m.power_state.eq_ignore_ascii_case("running")
         })
         .map(|m| m.vm_name.clone())
