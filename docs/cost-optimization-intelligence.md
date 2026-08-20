@@ -460,3 +460,17 @@ Specifically:
 - `azlin costs recommend` and `azlin costs actions` verify the resource group
   exists first. Azure Advisor answers `[]` for a resource group that is not
   there, which used to be reported as "no cost recommendations found".
+- `--priority` filters both commands by Azure Advisor's `impact` — `High`,
+  `Medium` or `Low`, in any capitalisation. `azlin costs actions` **discarded
+  it** until #1089: every recommendation was listed *and applied* whatever the
+  user asked for, so `azlin costs actions apply --priority high` deallocated
+  the Low-impact VMs the filter existed to exclude. The filter is applied in
+  the fetch, so the table and the apply step cannot disagree about what is in
+  scope.
+- A `--priority` Azure Advisor does not report is an error naming the three it
+  does, checked before the resource-group lookup so a typo costs no round trip.
+  A *valid* priority that matches nothing says which level was empty, rather
+  than reusing the "no cost recommendations at all" message.
+- `azlin costs dashboard --refresh` is **not implemented**: the dashboard
+  fetches every figure from Azure on every run and stores nothing between runs,
+  so there is no cache for it to bypass. Tracked under #1089.

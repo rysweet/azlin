@@ -524,6 +524,50 @@ azlin logs my-vm --type all
 
 ---
 
+## doit deploy
+
+Ask the model for a plan of `az` commands and run them.
+
+```
+azlin doit deploy <REQUEST> [OPTIONS]
+```
+
+### Options
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--output-dir` | `PATH` | — | Write the plan and a transcript of the run here |
+| `--max-iterations` | `INT` | `50` | Most commands a plan may contain (`0` = no limit) |
+| `--dry-run` | flag | `false` | Show the plan without running it |
+| `--quiet` | flag | `false` | Suppress progress; failures are still reported |
+| `--yes` | flag | `false` | Skip the confirmation prompt |
+
+### Behaviour notes
+
+All three of `--output-dir`, `--max-iterations` and `--quiet` were accepted and
+discarded until #1089. The middle one is the one that mattered: **nothing
+bounded how many commands a model could hand back to be executed against a live
+subscription**, while `--help` advertised a limit of 50.
+
+- A plan over the limit is **refused whole, not truncated**. Running the first
+  50 of 80 commands leaves the subscription in a state neither the user nor the
+  model intended, and half a deployment is worse than none. The refusal comes
+  before the confirmation prompt, so nobody approves a plan that will then be
+  rejected.
+- `--max-iterations 0` means no limit, the same reading every other azlin
+  numeric limit gives zero.
+- `--output-dir` writes `plan.txt` (before anything runs) and `transcript.txt`
+  (one line per command, recording how each ended). A command killed by a
+  signal is recorded as a failure, not as a success with no exit code. The
+  directory is created before the model is called, so a path that cannot be
+  written is an error you can fix rather than one that arrives after paying for
+  a plan.
+- `--quiet` suppresses progress only. Failures, the over-limit refusal, and the
+  confirmation prompt are not progress — a quiet flag that hides why a
+  deployment stopped is worse than a loud one.
+
+---
+
 Autonomous cleanup of previously deployed infrastructure. Both `destroy` and `delete` are aliases that perform identical cleanup operations.
 
 ```

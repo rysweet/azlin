@@ -4,6 +4,7 @@ mod test_batch_flags;
 mod test_config_flag;
 mod test_connect_flags;
 mod test_context_switch;
+mod test_costs_doit_flags;
 mod test_display_flags;
 mod test_fleet_flags;
 mod test_group_00;

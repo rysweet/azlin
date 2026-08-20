@@ -31,6 +31,11 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
             resource_group,
             priority,
         } => {
+            // Before the resource-group check, which is a network call: a typo
+            // in --priority should not cost a round-trip, nor arrive disguised
+            // as somebody else's authorisation error.
+            crate::handlers::validate_priority(priority.as_deref())
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
             require_resource_group(&resource_group)?;
             let cmd_args =
                 crate::handlers::build_advisor_args(&resource_group, priority.as_deref())
@@ -107,6 +112,8 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
             dry_run,
             priority,
         } => {
+            crate::handlers::validate_priority(priority.as_deref())
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
             require_resource_group(&resource_group)?;
             // `--priority` was accepted and discarded (#1089), so every
             // recommendation was listed *and applied* whatever the user asked

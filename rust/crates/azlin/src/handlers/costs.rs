@@ -155,6 +155,26 @@ pub fn canonical_priority(priority: &str) -> Option<&'static str> {
         .copied()
 }
 
+/// Reject a priority Azure Advisor will never report.
+///
+/// Called by [`build_advisor_args`], and again by the handlers *before* they
+/// check the resource group — because that check is a network call, and a
+/// typo in `--priority` should not cost a round-trip or arrive disguised as
+/// somebody else's authorisation error.
+pub fn validate_priority(priority: Option<&str>) -> Result<(), String> {
+    let Some(value) = priority else {
+        return Ok(());
+    };
+    if canonical_priority(value).is_some() {
+        return Ok(());
+    }
+    Err(format!(
+        "Unknown --priority '{}'. Azure Advisor reports impact as one of: {}.",
+        value,
+        KNOWN_PRIORITIES.join(", ")
+    ))
+}
+
 /// What to say when a valid priority matched nothing.
 ///
 /// Distinct from "this resource group has no cost recommendations", because
@@ -311,17 +331,12 @@ pub fn build_advisor_args(
     resource_group: &str,
     priority: Option<&str>,
 ) -> Result<Vec<String>, String> {
+    validate_priority(priority)?;
     let query = match priority {
-        Some(pri) => {
-            let canonical = canonical_priority(pri).ok_or_else(|| {
-                format!(
-                    "Unknown --priority '{}'. Azure Advisor reports impact as one of: {}.",
-                    pri,
-                    KNOWN_PRIORITIES.join(", ")
-                )
-            })?;
-            format!("[?category=='Cost' && impact=='{}']", canonical)
-        }
+        Some(pri) => format!(
+            "[?category=='Cost' && impact=='{}']",
+            canonical_priority(pri).unwrap_or_default()
+        ),
         None => "[?category=='Cost']".to_string(),
     };
     Ok(vec![
