@@ -256,7 +256,8 @@ pub(crate) async fn dispatch(
                 let selection = fs::describe_selection(tag.as_deref(), pattern.as_deref());
                 if dry_run {
                     println!(
-                        "Would run '{}' across fleet in '{}' on {}                          (timeout {}s, {} parallel worker(s))",
+                        "Would run '{}' across fleet in '{}' on {} \
+                         (timeout {}s, {} parallel worker(s))",
                         command, rg, selection, timeout, workers
                     );
                     return Ok(());
@@ -266,11 +267,14 @@ pub(crate) async fn dispatch(
                     resolve_fleet_targets(&rg, tag.as_deref(), pattern.as_deref()).await?;
                 pb.finish_and_clear();
                 if vms.is_empty() {
-                    println!(
-                        "{}",
-                        fs::format_no_match_message(&rg, tag.as_deref(), pattern.as_deref())
-                    );
-                    return Ok(());
+                    // Not a quiet success: a selector that matches nothing
+                    // means the pattern is wrong or the VMs are down, and a
+                    // CI job must not go green having run on no host at all.
+                    anyhow::bail!(fs::format_no_match_message(
+                        &rg,
+                        tag.as_deref(),
+                        pattern.as_deref()
+                    ));
                 }
 
                 // --if-idle / --if-cpu-below / --if-mem-below / --smart-route
@@ -337,10 +341,8 @@ pub(crate) async fn dispatch(
                             "Retrying {} failed VM(s) once (--retry-failed)...",
                             failed.len()
                         );
-                        let retry_targets: Vec<&VmSshTarget> =
-                            failed.iter().map(|i| &vms[*i]).collect();
                         let retry_targets: Vec<VmSshTarget> =
-                            retry_targets.into_iter().cloned().collect();
+                            failed.iter().map(|i| vms[*i].clone()).collect();
                         let mut retried =
                             collect_fleet_outputs(&retry_targets, &wrapped, workers, local_timeout);
                         annotate_fleet_timeouts(&mut retried, timeout);
@@ -355,11 +357,15 @@ pub(crate) async fn dispatch(
                 }
 
                 if show_diff {
-                    let pairs: Vec<(String, String)> = outputs
+                    let entries: Vec<fs::DiffEntry> = outputs
                         .iter()
-                        .map(|o| (o.vm_name.clone(), o.combined_output()))
+                        .map(|o| fs::DiffEntry {
+                            vm_name: o.vm_name.clone(),
+                            exit_code: o.exit_code,
+                            output: o.combined_output(),
+                        })
                         .collect();
-                    println!("{}", fs::format_output_diff(&pairs));
+                    println!("{}", fs::format_output_diff(&entries));
                 } else {
                     crate::fleet_tabs::run_fleet_tabs(outputs, false)?;
                 }
@@ -408,11 +414,11 @@ pub(crate) async fn dispatch(
                     let vms =
                         resolve_fleet_targets(&rg, tag.as_deref(), pattern.as_deref()).await?;
                     if vms.is_empty() {
-                        println!(
-                            "{}",
-                            fs::format_no_match_message(&rg, tag.as_deref(), pattern.as_deref())
-                        );
-                        return Ok(());
+                        anyhow::bail!(fs::format_no_match_message(
+                            &rg,
+                            tag.as_deref(),
+                            pattern.as_deref()
+                        ));
                     }
                     println!(
                         "Executing workflow '{}' on {} VM(s)...",
@@ -428,14 +434,16 @@ pub(crate) async fn dispatch(
                             );
                             let results = run_on_fleet_with_workers(&vms, cmd, true, workers);
                             if show_diff {
-                                let pairs: Vec<(String, String)> = vms
+                                let entries: Vec<fs::DiffEntry> = vms
                                     .iter()
                                     .zip(&results)
-                                    .map(|(t, (_, stdout, stderr))| {
-                                        (t.vm_name.clone(), format!("{}{}", stdout, stderr))
+                                    .map(|(t, (code, stdout, stderr))| fs::DiffEntry {
+                                        vm_name: t.vm_name.clone(),
+                                        exit_code: *code,
+                                        output: format!("{}{}", stdout, stderr),
                                     })
                                     .collect();
-                                println!("{}", fs::format_output_diff(&pairs));
+                                println!("{}", fs::format_output_diff(&entries));
                             }
                         } else {
                             eprintln!(
@@ -454,11 +462,6 @@ pub(crate) async fn dispatch(
     Ok(())
 }
 
-/// Wall-clock cap on one load probe. The probe is two shell pipelines, so a
-/// VM that has not answered in half a minute is unmeasurable by any useful
-/// definition — and the gates say so rather than assuming it is idle.
-const PROBE_TIMEOUT_SECS: u64 = 30;
-
 /// Sample CPU and memory on every target so the `--if-*` gates and
 /// `--smart-route` have a reading to work from.
 ///
@@ -469,10 +472,10 @@ fn probe_fleet_load(targets: &[VmSshTarget], workers: usize) -> Vec<crate::fleet
     let bars = crate::fleet_progress_bars(targets);
     crate::exec_fleet(
         targets,
-        crate::fleet_select::probe_command(),
+        &crate::fleet_select::probe_command(),
         workers,
         &bars,
-        PROBE_TIMEOUT_SECS,
+        crate::fleet_select::local_timeout_secs(crate::fleet_select::PROBE_TIMEOUT_SECS),
     )
     .into_iter()
     .map(|(code, stdout, _)| crate::fleet_select::parse_probe(code, &stdout))

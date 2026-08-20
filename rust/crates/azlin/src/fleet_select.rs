@@ -41,14 +41,34 @@ impl VmLoad {
 /// CPU percentage at or below which a VM counts as idle for `--if-idle`.
 pub const IDLE_CPU_PERCENT: f32 = 5.0;
 
+/// Seconds the load probe may take on the VM before it is killed.
+///
+/// Two `top` iterations plus a `free` is a second or so of work; a VM that has
+/// not answered in fifteen is unmeasurable by any definition the `--if-*`
+/// gates care about, and they say so rather than assuming it is idle.
+pub const PROBE_TIMEOUT_SECS: u32 = 15;
+
 /// One shell command that prints `<cpu-percent> <mem-percent>` on one line.
 ///
-/// Reuses the same two expressions `azlin health` samples, so `--if-cpu-below`
-/// and `azlin health` cannot disagree about what a VM's CPU load is.
-pub fn probe_command() -> &'static str {
-    "cpu=$(top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{print 100 - $1}'); \
-     mem=$(free | awk '/Mem:/{printf \"%.1f\", $3/$2 * 100}'); \
-     echo \"$cpu $mem\""
+/// **Two** `top` iterations, not one. `top -bn1` reports CPU averaged since
+/// boot, so a VM that has been up for a week and is pinned right now reads as
+/// near-idle — and `--if-idle` would schedule work onto the busiest host in
+/// the fleet and report success. The second iteration is a real one-second
+/// interval sample, which costs a second per VM and is the only reading a
+/// scheduling decision can be made from.
+///
+/// (`azlin health` still uses the single-iteration form. That is a display, not
+/// a scheduling decision; changing it is a separate change against separate
+/// tests.)
+///
+/// The command limits itself, because the direct-SSH path has no local
+/// timeout: a VM where `top` wedges would otherwise hang the whole run.
+pub fn probe_command() -> String {
+    let inner = "cpu=$(top -bn2 -d 1 | grep 'Cpu(s)' | tail -1 | \
+                 sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{print 100 - $1}'); \
+                 mem=$(free | awk '/Mem:/{printf \"%.1f\", $3/$2 * 100}'); \
+                 echo \"$cpu $mem\"";
+    wrap_with_timeout(inner, PROBE_TIMEOUT_SECS)
 }
 
 /// Parse the output of [`probe_command`].
@@ -312,44 +332,72 @@ pub fn timeout_note(exit_code: i32, secs: u32) -> Option<String> {
     }
 }
 
-/// Render `--show-diff`: group VMs by identical output and name the outliers.
+/// One VM's contribution to `--show-diff`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffEntry {
+    pub vm_name: String,
+    pub exit_code: i32,
+    pub output: String,
+}
+
+/// Render `--show-diff`: group VMs by identical result and name the outliers.
 ///
-/// The interesting question a fleet run answers is "which host disagrees",
-/// and the per-VM tab view buries it. Groups are ordered largest first, so the
+/// The interesting question a fleet run answers is "which host disagrees", and
+/// the per-VM tab view buries it. Groups are ordered largest first, so the
 /// majority answer is on top and the divergent hosts are named right after it.
-pub fn format_output_diff(results: &[(String, String)]) -> String {
+///
+/// The grouping key is `(exit_code, output)`, not output alone. Two VMs that
+/// printed nothing — one because the command succeeded silently, one because
+/// it was killed — are not the same result, and reporting them as agreeing is
+/// the failure this flag was meant to expose.
+pub fn format_output_diff(results: &[DiffEntry]) -> String {
     if results.is_empty() {
         return "No output to compare.".to_string();
     }
-    let mut groups: Vec<(String, Vec<String>)> = Vec::new();
-    for (name, out) in results {
-        let normalised = out.trim_end().to_string();
-        match groups.iter_mut().find(|(o, _)| *o == normalised) {
-            Some((_, names)) => names.push(name.clone()),
-            None => groups.push((normalised, vec![name.clone()])),
+    let mut groups: Vec<((i32, String), Vec<String>)> = Vec::new();
+    for entry in results {
+        let key = (entry.exit_code, entry.output.trim_end().to_string());
+        match groups.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, names)) => names.push(entry.vm_name.clone()),
+            None => groups.push((key, vec![entry.vm_name.clone()])),
         }
     }
     // Largest group first; ties keep discovery order so output is stable.
     groups.sort_by_key(|g| std::cmp::Reverse(g.1.len()));
 
     if groups.len() == 1 {
-        return format!("All {} VM(s) produced identical output.", results.len());
+        return format!(
+            "All {} VM(s) produced an identical result ({}).",
+            results.len(),
+            exit_label(groups[0].0 .0)
+        );
     }
     let mut out = format!(
-        "Output differs across {} VM(s): {} distinct result(s).\n",
+        "Results differ across {} VM(s): {} distinct result(s).\n",
         results.len(),
         groups.len()
     );
-    for (i, (body, names)) in groups.iter().enumerate() {
+    for (i, ((code, body), names)) in groups.iter().enumerate() {
         out.push_str(&format!(
-            "\n── Group {} ({} VM(s): {}) ──\n{}\n",
+            "\n── Group {} — {} — {} VM(s): {} ──\n{}\n",
             i + 1,
+            exit_label(*code),
             names.len(),
             names.join(", "),
             if body.is_empty() { "(no output)" } else { body }
         ));
     }
     out
+}
+
+/// Human-readable form of an exit status for the `--show-diff` group header.
+fn exit_label(code: i32) -> String {
+    match code {
+        0 => "exit 0".to_string(),
+        TIMEOUT_EXIT_CODE => format!("exit {} (timed out)", TIMEOUT_EXIT_CODE),
+        -1 => "no result (transport error)".to_string(),
+        other => format!("exit {}", other),
+    }
 }
 
 /// Summarise a retry pass so `--retry-failed` reports what it changed.
@@ -606,21 +654,26 @@ mod tests {
         assert_eq!(timeout_note(124, 0), None);
     }
 
+    fn entry(name: &str, code: i32, out: &str) -> DiffEntry {
+        DiffEntry {
+            vm_name: name.to_string(),
+            exit_code: code,
+            output: out.to_string(),
+        }
+    }
+
     #[test]
     fn diff_reports_identical_output_as_identical() {
-        let results = vec![
-            ("a".to_string(), "same\n".to_string()),
-            ("b".to_string(), "same".to_string()),
-        ];
+        let results = vec![entry("a", 0, "same\n"), entry("b", 0, "same")];
         assert!(format_output_diff(&results).contains("identical"));
     }
 
     #[test]
     fn diff_names_the_outlier_vm() {
         let results = vec![
-            ("a".to_string(), "6.8.0".to_string()),
-            ("b".to_string(), "6.8.0".to_string()),
-            ("odd".to_string(), "5.15.0".to_string()),
+            entry("a", 0, "6.8.0"),
+            entry("b", 0, "6.8.0"),
+            entry("odd", 0, "5.15.0"),
         ];
         let out = format_output_diff(&results);
         assert!(out.contains("2 distinct result(s)"), "{out}");
@@ -629,6 +682,34 @@ mod tests {
         let outlier = out.find("5.15.0").unwrap();
         assert!(majority < outlier, "{out}");
         assert!(out.contains("odd"), "{out}");
+    }
+
+    /// Silence from a successful command and silence from a killed one are
+    /// not the same result, however identical the bytes are.
+    #[test]
+    fn diff_does_not_call_a_timeout_agreement() {
+        let results = vec![entry("ok", 0, ""), entry("killed", TIMEOUT_EXIT_CODE, "")];
+        let out = format_output_diff(&results);
+        assert!(out.contains("2 distinct result(s)"), "{out}");
+        assert!(out.contains("timed out"), "{out}");
+    }
+
+    #[test]
+    fn probe_limits_itself_because_direct_ssh_has_no_local_timeout() {
+        let cmd = probe_command();
+        assert!(
+            cmd.starts_with(&format!("timeout {} ", PROBE_TIMEOUT_SECS)),
+            "{cmd}"
+        );
+    }
+
+    /// `top -bn1` averages CPU since boot, which is not a load reading. The
+    /// probe must take a second iteration and use that one.
+    #[test]
+    fn probe_takes_a_real_interval_sample() {
+        let cmd = probe_command();
+        assert!(cmd.contains("top -bn2"), "{cmd}");
+        assert!(cmd.contains("tail -1"), "{cmd}");
     }
 
     #[test]

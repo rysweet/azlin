@@ -218,3 +218,31 @@ fn fleet_workflow_dry_run_names_the_filter_and_parallelism() {
     assert!(text.contains("web-*"), "{text}");
     assert!(text.contains("3 parallel"), "{text}");
 }
+
+// ── load probe ───────────────────────────────────────────────────────────
+
+/// The probe is a shell string assembled in Rust and run on a VM, so a quoting
+/// slip in it fails at a distance: `--if-idle` would see an unparsable reading,
+/// skip every VM, and look like a working filter. Run it here and parse the
+/// result with the same function the handler uses.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_load_probe_command_actually_produces_a_reading() {
+    let cmd = crate::fleet_select::probe_command();
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(&cmd)
+        .output()
+        .expect("sh is available");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let load = crate::fleet_select::parse_probe(out.status.code().unwrap_or(-1), &stdout);
+    assert!(
+        load.is_complete(),
+        "probe produced no usable reading.\ncommand: {cmd}\nstdout: {stdout:?}\nstderr: {:?}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let cpu = load.cpu_percent.unwrap();
+    let mem = load.mem_percent.unwrap();
+    assert!((0.0..=100.0).contains(&cpu), "cpu out of range: {cpu}");
+    assert!((0.0..=100.0).contains(&mem), "mem out of range: {mem}");
+}
