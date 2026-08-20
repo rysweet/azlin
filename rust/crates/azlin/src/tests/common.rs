@@ -34,6 +34,7 @@ pub(super) async fn run_dispatch(args: &[&str]) -> Result<()> {
 /// running concurrently in other threads. This mirrors the isolation already
 /// used by `tests/config_integration.rs`.
 pub(super) fn run_isolated(dir: &TempDir, args: &[&str]) -> std::process::Output {
+    assert_binary_is_not_stale();
     assert_cmd::Command::cargo_bin("azlin")
         .unwrap()
         .args(args)
@@ -41,6 +42,89 @@ pub(super) fn run_isolated(dir: &TempDir, args: &[&str]) -> std::process::Output
         .timeout(std::time::Duration::from_secs(30))
         .output()
         .unwrap()
+}
+
+/// Fail loudly when `target/debug/azlin` predates the sources under test.
+///
+/// These tests run the *binary*, not the code they were compiled alongside.
+/// `cargo test -p azlin --bin azlin` builds the bin's test harness; whether it
+/// also refreshes the plain `target/debug/azlin` that `assert_cmd` invokes
+/// depends on what else has been built and when. Switch branches, run
+/// `cargo build` on one and `cargo test` on the other, and every assertion
+/// here is made against yesterday's binary.
+///
+/// That has already produced a run of phantom failures in this work — three
+/// tests "failing" against behaviour that was correct in the tree and absent
+/// from the binary. A confusing red is worse than a slow red, so this says
+/// which it is.
+fn assert_binary_is_not_stale() {
+    let Some(binary) = binary_mtime() else { return };
+    let Some((newest_source, path)) = newest_source_mtime() else {
+        return;
+    };
+    assert!(
+        binary >= newest_source,
+        "target/debug/azlin is older than {}. These tests run the binary, not \
+         the compiled-in code, so every assertion below would be made against a \
+         stale build. Run `cargo build -p azlin` and try again.",
+        path.display()
+    );
+}
+
+fn binary_mtime() -> Option<std::time::SystemTime> {
+    let path = assert_cmd::cargo::cargo_bin("azlin");
+    std::fs::metadata(path).ok()?.modified().ok()
+}
+
+/// The most recently modified `.rs` file that the binary is built from, and
+/// its path.
+///
+/// Test-only files are excluded, and the exclusion is the difference between a
+/// useful guard and one everybody turns off. `src/tests/` is behind
+/// `#[cfg(test)]`, so it is not an input to the non-test build at all: cargo
+/// correctly declines to relink the binary when one changes, and a guard that
+/// counted it would demand a rebuild that cargo would refuse to perform. Files
+/// that mix production code with an inline `#[cfg(test)] mod tests` are
+/// deliberately *not* excluded — cargo recompiles the whole file either way, so
+/// the binary's mtime moves with them.
+fn newest_source_mtime() -> Option<(std::time::SystemTime, std::path::PathBuf)> {
+    // CARGO_MANIFEST_DIR is `<repo>/rust/crates/azlin`; the workspace sources
+    // are its grandparent.
+    let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent()?;
+    let mut newest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+    let mut stack = vec![crates.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(meta) = entry.metadata() else { continue };
+            if meta.is_dir() {
+                // `target` can live inside the workspace and is not a source;
+                // `tests` directories are test-only.
+                if path
+                    .file_name()
+                    .is_some_and(|n| n == "target" || n == "tests")
+                {
+                    continue;
+                }
+                stack.push(path);
+            } else if path.extension().is_some_and(|e| e == "rs")
+                && !path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.ends_with("_tests.rs"))
+            {
+                if let Ok(modified) = meta.modified() {
+                    if newest.as_ref().is_none_or(|(t, _)| modified > *t) {
+                        newest = Some((modified, path));
+                    }
+                }
+            }
+        }
+    }
+    newest
 }
 
 /// Assert an isolated azlin invocation succeeded, showing output when it did not.
