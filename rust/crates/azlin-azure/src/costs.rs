@@ -49,7 +49,18 @@ pub fn get_cost_summary(
     let entries: Vec<serde_json::Value> =
         serde_json::from_str(&json).context("Failed to parse cost data JSON")?;
 
-    let (total_cost, currency, vm_costs) = aggregate_costs(&entries, resource_group);
+    let (total_cost, currency, vm_costs, unreadable) = aggregate_costs(&entries, resource_group);
+    if unreadable > 0 {
+        // Publishing a total that silently omits rows understates spend, which
+        // is the dangerous direction to be wrong in.
+        return Err(anyhow::anyhow!(
+            "Cost data unavailable: {} of {} usage rows for '{}' had no readable \
+             'pretaxCost', so the total would understate spend",
+            unreadable,
+            entries.len(),
+            resource_group
+        ));
+    }
 
     Ok(CostSummary {
         total_cost,
@@ -73,20 +84,30 @@ fn extract_rg_from_instance_id(instance_id: &str) -> Option<&str> {
     }
 }
 
-/// Aggregate cost entries by resource group, returning (total_cost, currency, per-vm costs).
+/// Aggregate cost entries by resource group, returning
+/// `(total_cost, currency, per-vm costs, unreadable in-scope rows)`.
+///
+/// The last figure exists because `pretaxCost` used to be read with
+/// `.unwrap_or(0.0)`: a row Azure sent in a shape we did not expect
+/// contributed nothing to the total, so a schema change or a malformed row
+/// showed up as a cheaper month rather than as a problem. Under-reporting
+/// spend is the dangerous direction to be wrong in, so the count is returned
+/// and the caller refuses to publish a total built on it.
 ///
 /// This is the pure logic extracted from `get_cost_summary` so it can be tested
 /// without calling the az CLI.
 fn aggregate_costs(
     entries: &[serde_json::Value],
     resource_group: &str,
-) -> (f64, String, Vec<azlin_core::models::VmCost>) {
+) -> (f64, String, Vec<azlin_core::models::VmCost>, usize) {
     let mut total_cost = 0.0;
     let mut currency = "USD".to_string();
     let mut by_vm: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    let mut unreadable = 0usize;
 
     for entry in entries {
-        let cost = entry["pretaxCost"].as_f64().unwrap_or(0.0);
+        let parsed_cost = entry["pretaxCost"].as_f64();
+        let cost = parsed_cost.unwrap_or(0.0);
         if let Some(c) = entry["currency"].as_str() {
             currency = c.to_string();
         }
@@ -109,6 +130,12 @@ fn aggregate_costs(
             }
         }
 
+        // Counted only after the resource-group filter: a malformed row for
+        // some other resource group is not this report's problem.
+        if parsed_cost.is_none() {
+            unreadable += 1;
+        }
+
         total_cost += cost;
 
         if let Some(instance_name) = entry["instanceName"].as_str() {
@@ -125,7 +152,7 @@ fn aggregate_costs(
         })
         .collect();
 
-    (total_cost, currency, vm_costs)
+    (total_cost, currency, vm_costs, unreadable)
 }
 
 #[cfg(test)]
@@ -206,7 +233,7 @@ mod tests {
     #[test]
     fn test_aggregate_costs_empty_entries() {
         let entries: Vec<serde_json::Value> = vec![];
-        let (total, currency, by_vm) = aggregate_costs(&entries, "my-rg");
+        let (total, currency, by_vm, _unreadable) = aggregate_costs(&entries, "my-rg");
         assert_eq!(total, 0.0);
         assert_eq!(currency, "USD"); // default
         assert!(by_vm.is_empty());
@@ -229,7 +256,7 @@ mod tests {
             }),
         ];
 
-        let (total, currency, by_vm) = aggregate_costs(&entries, "my-rg");
+        let (total, currency, by_vm, _unreadable) = aggregate_costs(&entries, "my-rg");
         assert!((total - 15.75).abs() < 0.001);
         assert_eq!(currency, "USD");
         assert_eq!(by_vm.len(), 2);
@@ -244,7 +271,7 @@ mod tests {
             "instanceName": "vm1"
         })];
 
-        let (total, _currency, by_vm) = aggregate_costs(&entries, "my-rg");
+        let (total, _currency, by_vm, _unreadable) = aggregate_costs(&entries, "my-rg");
         assert_eq!(total, 0.0);
         assert!(by_vm.is_empty());
     }
@@ -258,7 +285,7 @@ mod tests {
             "instanceName": "vm1"
         })];
 
-        let (total, currency, by_vm) = aggregate_costs(&entries, "my-rg");
+        let (total, currency, by_vm, _unreadable) = aggregate_costs(&entries, "my-rg");
         assert!((total - 7.0).abs() < 0.001);
         assert_eq!(currency, "EUR");
         assert_eq!(by_vm.len(), 1);
@@ -272,7 +299,7 @@ mod tests {
             "currency": "GBP",
         })];
 
-        let (total, _currency, by_vm) = aggregate_costs(&entries, "my-rg");
+        let (total, _currency, by_vm, _unreadable) = aggregate_costs(&entries, "my-rg");
         assert_eq!(total, 0.0);
         assert!(by_vm.is_empty());
     }
@@ -285,7 +312,7 @@ mod tests {
             "instanceId": "/short/path"
         })];
 
-        let (total, _currency, by_vm) = aggregate_costs(&entries, "my-rg");
+        let (total, _currency, by_vm, _unreadable) = aggregate_costs(&entries, "my-rg");
         assert_eq!(total, 0.0);
         assert!(by_vm.is_empty());
     }
@@ -307,7 +334,7 @@ mod tests {
             }),
         ];
 
-        let (_total, currency, _by_vm) = aggregate_costs(&entries, "rg");
+        let (_total, currency, _by_vm, _unreadable) = aggregate_costs(&entries, "rg");
         // Last currency wins
         assert_eq!(currency, "GBP");
     }
@@ -321,25 +348,56 @@ mod tests {
             "instanceName": "vm-free"
         })];
 
-        let (total, _currency, by_vm) = aggregate_costs(&entries, "rg");
+        let (total, _currency, by_vm, _unreadable) = aggregate_costs(&entries, "rg");
         assert_eq!(total, 0.0);
         assert_eq!(by_vm.len(), 1);
         assert_eq!(by_vm[0].vm_name, "vm-free");
         assert_eq!(by_vm[0].cost, 0.0);
     }
 
+    /// A row with no readable `pretaxCost` is counted, not quietly treated as
+    /// free. The total it would produce understates spend, so the caller
+    /// refuses to publish it — see `get_cost_summary`.
     #[test]
-    fn test_aggregate_costs_missing_pretax_cost_defaults_zero() {
+    fn test_aggregate_costs_missing_pretax_cost_is_counted_not_zeroed() {
         let entries = vec![serde_json::json!({
             "currency": "USD",
             "instanceId": "/subscriptions/s/resourceGroups/rg/providers/p",
             "instanceName": "vm1"
         })];
 
-        let (total, _currency, by_vm) = aggregate_costs(&entries, "rg");
+        let (total, _currency, by_vm, unreadable) = aggregate_costs(&entries, "rg");
+        assert_eq!(unreadable, 1);
         assert_eq!(total, 0.0);
         assert_eq!(by_vm.len(), 1);
-        assert_eq!(by_vm[0].cost, 0.0);
+    }
+
+    /// A malformed row for a different resource group is not this report's
+    /// problem and must not block it.
+    #[test]
+    fn test_aggregate_costs_unreadable_row_in_other_rg_is_not_counted() {
+        let entries = vec![serde_json::json!({
+            "currency": "USD",
+            "instanceId": "/subscriptions/s/resourceGroups/other-rg/providers/p",
+            "instanceName": "vm1"
+        })];
+
+        let (_total, _currency, _by_vm, unreadable) = aggregate_costs(&entries, "rg");
+        assert_eq!(unreadable, 0);
+    }
+
+    /// A genuinely free row is readable and must not be counted as unreadable.
+    #[test]
+    fn test_aggregate_costs_zero_cost_row_is_readable() {
+        let entries = vec![serde_json::json!({
+            "pretaxCost": 0.0,
+            "currency": "USD",
+            "instanceId": "/subscriptions/s/resourceGroups/rg/providers/p",
+            "instanceName": "vm1"
+        })];
+
+        let (_total, _currency, _by_vm, unreadable) = aggregate_costs(&entries, "rg");
+        assert_eq!(unreadable, 0);
     }
 
     #[test]
@@ -350,7 +408,7 @@ mod tests {
             "instanceId": "/subscriptions/s/resourceGroups/rg/providers/p"
         })];
 
-        let (total, _currency, by_vm) = aggregate_costs(&entries, "rg");
+        let (total, _currency, by_vm, _unreadable) = aggregate_costs(&entries, "rg");
         assert!((total - 50.0).abs() < 0.001);
         // Cost is counted in total but not attributed to any VM
         assert!(by_vm.is_empty());
@@ -373,7 +431,7 @@ mod tests {
             }),
         ];
 
-        let (total, _currency, by_vm) = aggregate_costs(&entries, "rg");
+        let (total, _currency, by_vm, _unreadable) = aggregate_costs(&entries, "rg");
         assert!((total - 30.0).abs() < 0.001);
         assert_eq!(by_vm.len(), 1);
         assert!((by_vm[0].cost - 30.0).abs() < 0.001);
@@ -402,7 +460,7 @@ mod tests {
             }),
         ];
 
-        let (total, _currency, by_vm) = aggregate_costs(&entries, "target-rg");
+        let (total, _currency, by_vm, _unreadable) = aggregate_costs(&entries, "target-rg");
         assert!((total - 15.0).abs() < 0.001);
         assert_eq!(by_vm.len(), 2);
         // vm-other should not be present
@@ -417,7 +475,7 @@ mod tests {
             "instanceName": "vm1"
         })];
 
-        let (_total, currency, _by_vm) = aggregate_costs(&entries, "rg");
+        let (_total, currency, _by_vm, _unreadable) = aggregate_costs(&entries, "rg");
         assert_eq!(currency, "USD");
     }
 }

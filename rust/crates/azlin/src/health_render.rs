@@ -1,0 +1,161 @@
+//! Rendering rules for health metrics that may be unknown.
+//!
+//! `azlin health` used to substitute `0.0` for every metric it could not
+//! collect. A VM that was unreachable — wrong key, SSH down, bastion
+//! misconfigured — rendered as `CPU 0.0 | Mem 0.0 | Disk 0.0` in green: the
+//! exact appearance of a healthy idle machine. The measurement failed and the
+//! report said everything was fine.
+//!
+//! Metrics are `Option` now, and this module is the single place that decides
+//! how "no reading" is shown. Nothing here formats an absent value as a
+//! number.
+
+use crate::error_helpers::ThresholdLevel;
+
+/// What a metric with no reading looks like in a table cell.
+pub const UNKNOWN_CELL: &str = "--";
+
+/// Format a percentage metric for the health table.
+pub fn metric_cell(value: Option<f32>) -> String {
+    match value {
+        Some(v) => format!("{:.1}", v),
+        None => UNKNOWN_CELL.to_string(),
+    }
+}
+
+/// Format a percentage metric for the narrower `azlin list --health` columns.
+pub fn metric_cell_rounded(value: Option<f32>) -> String {
+    match value {
+        Some(v) => format!("{:.0}", v),
+        None => UNKNOWN_CELL.to_string(),
+    }
+}
+
+/// Format a metric for CSV, where an empty field is the conventional "no
+/// value" and `0` would be read as a measurement.
+pub fn metric_csv(value: Option<f32>) -> String {
+    match value {
+        Some(v) => format!("{:.0}", v),
+        None => String::new(),
+    }
+}
+
+/// Format an error count, which is absent for the same reasons a metric is.
+pub fn error_count_cell(value: Option<u32>) -> String {
+    match value {
+        Some(v) => v.to_string(),
+        None => UNKNOWN_CELL.to_string(),
+    }
+}
+
+/// Colour band for a metric, or `None` when there is no reading to band.
+///
+/// An absent value must not be coloured green: green is the report that the
+/// machine is fine, which is the claim that could not be checked.
+pub fn metric_level(value: Option<f32>) -> Option<ThresholdLevel> {
+    value.map(crate::error_helpers::classify_metric_70_90)
+}
+
+/// Colour band for an error count, or `None` when the count is unknown.
+pub fn error_count_level(value: Option<u32>) -> Option<ThresholdLevel> {
+    value.map(crate::error_helpers::classify_error_count)
+}
+
+/// True when a VM is missing any of its three saturation readings.
+///
+/// Any, not all: a VM that answered for CPU and then stopped answering is
+/// exactly as unmeasured in the column that matters, and the footer names it
+/// so a partial collection is not read as a complete one.
+pub fn has_missing_metric(cpu: Option<f32>, mem: Option<f32>, disk: Option<f32>) -> bool {
+    cpu.is_none() || mem.is_none() || disk.is_none()
+}
+
+/// The footer that names the VMs whose metrics are missing.
+///
+/// Returns `None` when everything was measured, so the healthy case stays
+/// quiet. This is the loud half of the fix: a `--` in a table is easy to skim
+/// past, and a summary line is not.
+pub fn unavailable_footer(unmeasured: &[String]) -> Option<String> {
+    if unmeasured.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "{} of the VMs above could not be measured: {}. \
+         `{}` means no reading was taken, not a reading of zero.",
+        unmeasured.len(),
+        unmeasured.join(", "),
+        UNKNOWN_CELL
+    ))
+}
+
+/// Placeholder row for a VM whose health collection timed out or panicked.
+///
+/// Dropping the VM from the results — which is what used to happen — makes a
+/// table that is silently short, and short in exactly the rows that matter.
+pub fn unreachable_reason(vm_name: &str, detail: &str) -> String {
+    format!("{}: {}", vm_name, detail)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_metric_never_renders_as_a_number() {
+        assert_eq!(metric_cell(None), UNKNOWN_CELL);
+        assert_eq!(metric_cell_rounded(None), UNKNOWN_CELL);
+        assert_ne!(metric_cell(None), "0.0");
+        assert_ne!(metric_cell_rounded(None), "0");
+    }
+
+    #[test]
+    fn a_real_zero_still_renders_as_zero() {
+        // A genuinely idle VM is not the same as an unmeasured one, and the
+        // table has to keep them apart in both directions.
+        assert_eq!(metric_cell(Some(0.0)), "0.0");
+        assert_eq!(metric_cell_rounded(Some(0.0)), "0");
+        assert_eq!(metric_csv(Some(0.0)), "0");
+    }
+
+    #[test]
+    fn csv_leaves_an_unknown_field_empty_rather_than_zero() {
+        assert_eq!(metric_csv(None), "");
+    }
+
+    #[test]
+    fn error_count_distinguishes_none_from_zero() {
+        assert_eq!(error_count_cell(Some(0)), "0");
+        assert_eq!(error_count_cell(None), UNKNOWN_CELL);
+    }
+
+    #[test]
+    fn an_unknown_metric_is_not_coloured_green() {
+        assert_eq!(metric_level(None), None);
+        assert_eq!(metric_level(Some(10.0)), Some(ThresholdLevel::Normal));
+        assert_eq!(metric_level(Some(95.0)), Some(ThresholdLevel::Critical));
+        assert_eq!(error_count_level(None), None);
+        assert_eq!(error_count_level(Some(0)), Some(ThresholdLevel::Normal));
+    }
+
+    #[test]
+    fn footer_is_silent_when_everything_was_measured() {
+        assert_eq!(unavailable_footer(&[]), None);
+    }
+
+    #[test]
+    fn footer_names_every_unmeasured_vm() {
+        let footer = unavailable_footer(&["vm-a".to_string(), "vm-b".to_string()]).unwrap();
+        assert!(footer.contains("vm-a"), "{footer}");
+        assert!(footer.contains("vm-b"), "{footer}");
+        assert!(footer.contains("not a reading of zero"), "{footer}");
+    }
+
+    /// A partial collection is still a failed one for the metric that went
+    /// missing, so any absent reading has to reach the footer.
+    #[test]
+    fn any_missing_metric_is_reported() {
+        assert!(has_missing_metric(None, None, None));
+        assert!(has_missing_metric(Some(1.0), None, Some(3.0)));
+        assert!(!has_missing_metric(Some(1.0), Some(2.0), Some(3.0)));
+    }
+}

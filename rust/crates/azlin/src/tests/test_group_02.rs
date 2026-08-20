@@ -85,23 +85,23 @@ fn test_health_metrics_stopped_vm() {
     let m = crate::collect_health_metrics("vm-stop", "10.0.0.1", "user", "stopped", None);
     assert_eq!(m.vm_name, "vm-stop");
     assert_eq!(m.power_state, "stopped");
-    assert_eq!(m.cpu_percent, 0.0);
-    assert_eq!(m.mem_percent, 0.0);
-    assert_eq!(m.disk_percent, 0.0);
+    assert_eq!(m.cpu_percent, None);
+    assert_eq!(m.mem_percent, None);
+    assert_eq!(m.disk_percent, None);
 }
 
 #[test]
 fn test_health_metrics_starting_vm() {
     let m = crate::collect_health_metrics("vm-start", "10.0.0.1", "user", "starting", None);
     assert_eq!(m.power_state, "starting");
-    assert_eq!(m.cpu_percent, 0.0);
+    assert_eq!(m.cpu_percent, None);
 }
 
 #[test]
 fn test_health_metrics_unknown_state() {
     let m = crate::collect_health_metrics("vm-x", "10.0.0.1", "user", "unknown", None);
     assert_eq!(m.power_state, "unknown");
-    assert_eq!(m.cpu_percent, 0.0);
+    assert_eq!(m.cpu_percent, None);
 }
 
 // ── render_health_table tests ────────────────────────────────
@@ -119,10 +119,10 @@ fn test_render_health_table_single_entry() {
         vm_name: "solo-vm".to_string(),
         power_state: "running".to_string(),
         agent_status: "OK".to_string(),
-        error_count: 0,
-        cpu_percent: 50.0,
-        mem_percent: 40.0,
-        disk_percent: 30.0,
+        error_count: Some(0),
+        cpu_percent: Some(50.0),
+        mem_percent: Some(40.0),
+        disk_percent: Some(30.0),
     }];
     crate::render_health_table(&metrics);
 }
@@ -133,10 +133,10 @@ fn test_render_health_table_high_usage_values() {
         vm_name: "hot-vm".to_string(),
         power_state: "running".to_string(),
         agent_status: "OK".to_string(),
-        error_count: 0,
-        cpu_percent: 99.9,
-        mem_percent: 95.0,
-        disk_percent: 98.0,
+        error_count: Some(0),
+        cpu_percent: Some(99.9),
+        mem_percent: Some(95.0),
+        disk_percent: Some(98.0),
     }];
     crate::render_health_table(&metrics);
 }
@@ -147,10 +147,10 @@ fn test_render_health_table_zero_usage() {
         vm_name: "idle-vm".to_string(),
         power_state: "running".to_string(),
         agent_status: "OK".to_string(),
-        error_count: 0,
-        cpu_percent: 0.0,
-        mem_percent: 0.0,
-        disk_percent: 0.0,
+        error_count: Some(0),
+        cpu_percent: Some(0.0),
+        mem_percent: Some(0.0),
+        disk_percent: Some(0.0),
     }];
     crate::render_health_table(&metrics);
 }
@@ -162,28 +162,28 @@ fn test_render_health_table_mixed_states() {
             vm_name: "vm-a".to_string(),
             power_state: "running".to_string(),
             agent_status: "OK".to_string(),
-            error_count: 0,
-            cpu_percent: 10.0,
-            mem_percent: 20.0,
-            disk_percent: 30.0,
+            error_count: Some(0),
+            cpu_percent: Some(10.0),
+            mem_percent: Some(20.0),
+            disk_percent: Some(30.0),
         },
         crate::HealthMetrics {
             vm_name: "vm-b".to_string(),
             power_state: "deallocated".to_string(),
             agent_status: "OK".to_string(),
-            error_count: 0,
-            cpu_percent: 0.0,
-            mem_percent: 0.0,
-            disk_percent: 0.0,
+            error_count: Some(0),
+            cpu_percent: Some(0.0),
+            mem_percent: Some(0.0),
+            disk_percent: Some(0.0),
         },
         crate::HealthMetrics {
             vm_name: "vm-c".to_string(),
             power_state: "stopping".to_string(),
             agent_status: "OK".to_string(),
-            error_count: 0,
-            cpu_percent: 0.0,
-            mem_percent: 0.0,
-            disk_percent: 0.0,
+            error_count: Some(0),
+            cpu_percent: Some(0.0),
+            mem_percent: Some(0.0),
+            disk_percent: Some(0.0),
         },
     ];
     crate::render_health_table(&metrics);

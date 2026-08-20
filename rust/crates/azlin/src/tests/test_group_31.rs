@@ -83,14 +83,14 @@ fn test_health_metrics_struct() {
         vm_name: "test-vm".to_string(),
         power_state: "running".to_string(),
         agent_status: "OK".to_string(),
-        error_count: 0,
-        cpu_percent: 45.0,
-        mem_percent: 60.0,
-        disk_percent: 30.0,
+        error_count: Some(0),
+        cpu_percent: Some(45.0),
+        mem_percent: Some(60.0),
+        disk_percent: Some(30.0),
     };
     assert_eq!(m.vm_name, "test-vm");
     assert_eq!(m.power_state, "running");
-    assert!(m.cpu_percent > 0.0);
+    assert!(m.cpu_percent.is_some_and(|c| c > 0.0));
 }
 
 // ── health_parse_helpers tests ──────────────────────────────
@@ -185,9 +185,9 @@ fn test_default_metrics() {
     let m = crate::health_parse_helpers::default_metrics("my-vm", "deallocated");
     assert_eq!(m.vm_name, "my-vm");
     assert_eq!(m.power_state, "deallocated");
-    assert_eq!(m.cpu_percent, 0.0);
-    assert_eq!(m.mem_percent, 0.0);
-    assert_eq!(m.disk_percent, 0.0);
+    assert_eq!(m.cpu_percent, None);
+    assert_eq!(m.mem_percent, None);
+    assert_eq!(m.disk_percent, None);
 }
 
 // ── fleet_helpers tests ─────────────────────────────────────

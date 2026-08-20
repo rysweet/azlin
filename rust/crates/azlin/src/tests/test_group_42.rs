@@ -173,9 +173,9 @@ fn test_default_metrics_values() {
     let m = crate::health_parse_helpers::default_metrics("vm1", "stopped");
     assert_eq!(m.vm_name, "vm1");
     assert_eq!(m.power_state, "stopped");
-    assert_eq!(m.cpu_percent, 0.0);
-    assert_eq!(m.mem_percent, 0.0);
-    assert_eq!(m.disk_percent, 0.0);
+    assert_eq!(m.cpu_percent, None);
+    assert_eq!(m.mem_percent, None);
+    assert_eq!(m.disk_percent, None);
 }
 
 // ── tag_helpers edge cases ──────────────────────────────────────

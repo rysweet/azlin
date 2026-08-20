@@ -2,12 +2,36 @@
 use super::*;
 use anyhow::Result;
 
+/// Fail unless the resource group exists.
+///
+/// Azure Advisor answers `[]` for a resource group that does not exist, so
+/// `azlin costs recommend --rg typo` reported "no cost recommendations found
+/// for 'typo'" — a confident statement about infrastructure it had never
+/// reached. An unanswerable check (not logged in, no permission) is an error
+/// too: assuming "exists" or "does not exist" from a failed lookup is the same
+/// mistake one step further out.
+fn require_resource_group(resource_group: &str) -> Result<()> {
+    let timeout = azlin_core::AzlinConfig::load()
+        .map(|c| c.az_cli_timeout)
+        .unwrap_or(120);
+    if !azlin_azure::resource_group_exists(resource_group, timeout)? {
+        anyhow::bail!(
+            "Resource group '{}' does not exist. \
+             Check the name, or `az account set --subscription <id>` if it \
+             lives in another subscription.",
+            resource_group
+        );
+    }
+    Ok(())
+}
+
 pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<()> {
     match action {
         azlin_cli::CostsAction::Recommend {
             resource_group,
             priority,
         } => {
+            require_resource_group(&resource_group)?;
             let cmd_args =
                 crate::handlers::build_advisor_args(&resource_group, priority.as_deref());
             let output = std::process::Command::new("az").args(&cmd_args).output()?;
@@ -16,7 +40,22 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
                 let json_str = String::from_utf8_lossy(&output.stdout);
                 match serde_json::from_str::<serde_json::Value>(&json_str) {
                     Ok(data) => {
-                        if let Some(recs) = data.as_array() {
+                        // A non-array answer used to fall out of the `if let`
+                        // and exit 0 having printed nothing — indistinguishable
+                        // from a resource group with no recommendations.
+                        let recs = data.as_array().ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Azure Advisor returned {} rather than a list of \
+                                 recommendations for '{}'",
+                                if data.is_object() {
+                                    "an object"
+                                } else {
+                                    "a scalar"
+                                },
+                                resource_group
+                            )
+                        })?;
+                        {
                             if recs.is_empty() {
                                 let pri = priority.unwrap_or_else(|| "all".to_string());
                                 println!(
@@ -44,7 +83,14 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
                             }
                         }
                     }
-                    Err(e) => eprintln!("Failed to parse advisor data: {}", e),
+                    // Not `eprintln!` and carry on: a parse failure that
+                    // exits 0 reports "nothing to do" for data that was
+                    // never read.
+                    Err(e) => anyhow::bail!(
+                        "Could not parse Azure Advisor data for '{}': {}",
+                        resource_group,
+                        e
+                    ),
                 }
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
@@ -60,6 +106,7 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
             dry_run,
             ..
         } => {
+            require_resource_group(&resource_group)?;
             let output = std::process::Command::new("az")
                 .args([
                     "advisor",
@@ -78,7 +125,21 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
                 let json_str = String::from_utf8_lossy(&output.stdout);
                 match serde_json::from_str::<serde_json::Value>(&json_str) {
                     Ok(data) => {
-                        if let Some(recs) = data.as_array() {
+                        // Same as above: a non-array answer printed nothing and
+                        // exited 0.
+                        let recs = data.as_array().ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Azure Advisor returned {} rather than a list of \
+                                 recommendations for '{}'",
+                                if data.is_object() {
+                                    "an object"
+                                } else {
+                                    "a scalar"
+                                },
+                                resource_group
+                            )
+                        })?;
+                        {
                             if recs.is_empty() {
                                 println!(
                                     "{}",
@@ -147,7 +208,14 @@ pub(crate) fn dispatch_costs_extended(action: azlin_cli::CostsAction) -> Result<
                             }
                         }
                     }
-                    Err(e) => eprintln!("Failed to parse advisor data: {}", e),
+                    // Not `eprintln!` and carry on: a parse failure that
+                    // exits 0 reports "nothing to do" for data that was
+                    // never read.
+                    Err(e) => anyhow::bail!(
+                        "Could not parse Azure Advisor data for '{}': {}",
+                        resource_group,
+                        e
+                    ),
                 }
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);

@@ -158,9 +158,14 @@ pub(crate) async fn dispatch(
                     })
                     .collect();
 
-                // Spawn all health checks concurrently
+                // Spawn all health checks concurrently. The VM name and power
+                // state are kept alongside each handle so a task that dies
+                // still produces a row: dropping it made the table silently
+                // short, and short in exactly the rows that mattered.
                 let mut handles = Vec::with_capacity(tasks.len());
                 for (name, ip, user, state, bastion_owned) in tasks {
+                    let row_name = name.clone();
+                    let row_state = state.clone();
                     let handle = tokio::spawn(async move {
                         tokio::time::timeout(
                             std::time::Duration::from_secs(HEALTH_TIMEOUT_SECS),
@@ -174,28 +179,40 @@ pub(crate) async fn dispatch(
                         )
                         .await
                     });
-                    handles.push(handle);
+                    handles.push((row_name, row_state, handle));
                 }
 
-                // Collect results; substitute error placeholders for failures
+                // Collect results, substituting an all-unknown row for any VM
+                // whose collection died. The row says "no reading", which is
+                // true; omitting the VM said nothing at all.
                 let mut results = Vec::with_capacity(handles.len());
-                for handle in handles {
+                for (name, state, handle) in handles {
+                    let unmeasured = |detail: &str| {
+                        eprintln!(
+                            "{}",
+                            crate::health_render::unreachable_reason(&name, detail)
+                        );
+                        crate::health_parse_helpers::default_metrics(&name, &state)
+                    };
                     match handle.await {
                         Ok(Ok(Ok(m))) => results.push(m),
                         Ok(Ok(Err(join_err))) => {
                             // spawn_blocking panicked
-                            eprintln!("Health collection task panicked: {}", join_err);
+                            results.push(unmeasured(&format!(
+                                "health collection panicked ({join_err})"
+                            )));
                         }
                         Ok(Err(_elapsed)) => {
                             // Per-VM timeout exceeded
-                            eprintln!(
-                                "Health collection timed out after {}s for a VM",
-                                HEALTH_TIMEOUT_SECS
-                            );
+                            results.push(unmeasured(&format!(
+                                "health collection timed out after {HEALTH_TIMEOUT_SECS}s"
+                            )));
                         }
                         Err(join_err) => {
                             // tokio::spawn join error
-                            eprintln!("Health collection task failed: {}", join_err);
+                            results.push(unmeasured(&format!(
+                                "health collection task failed ({join_err})"
+                            )));
                         }
                     }
                 }
@@ -408,9 +425,10 @@ mod tests {
         assert_eq!(results.len(), 10);
         for m in &results {
             assert_eq!(m.power_state, "Deallocated");
-            assert_eq!(m.cpu_percent, 0.0);
-            assert_eq!(m.mem_percent, 0.0);
-            assert_eq!(m.disk_percent, 0.0);
+            // A deallocated VM has no CPU reading, not a reading of 0%.
+            assert_eq!(m.cpu_percent, None);
+            assert_eq!(m.mem_percent, None);
+            assert_eq!(m.disk_percent, None);
         }
     }
 

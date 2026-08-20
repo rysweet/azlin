@@ -29,16 +29,21 @@ pub fn parse_disk_stdout(exit_code: i32, stdout: &str) -> Option<f32> {
     }
 }
 
-/// Build a complete set of default (zero) metrics for a non-running VM.
+/// Build the metric set for a VM that has no metrics to report.
+///
+/// Used for a VM that is not running, and for one whose collection timed out.
+/// Every figure is `None`, not zero: a deallocated VM does not have 0% CPU,
+/// it has no CPU reading at all, and rendering `0.0` in green said the
+/// opposite of what was true.
 pub fn default_metrics(vm_name: &str, power_state: &str) -> super::HealthMetrics {
     super::HealthMetrics {
         vm_name: vm_name.to_string(),
         power_state: power_state.to_string(),
         agent_status: "-".to_string(),
-        error_count: 0,
-        cpu_percent: 0.0,
-        mem_percent: 0.0,
-        disk_percent: 0.0,
+        error_count: None,
+        cpu_percent: None,
+        mem_percent: None,
+        disk_percent: None,
     }
 }
 
@@ -91,15 +96,17 @@ mod tests {
         assert_eq!(parse_disk_stdout(0, "full"), None);
     }
 
+    /// A VM with nothing to report reports nothing — not zeros. Zeros here
+    /// rendered a stopped or unreachable VM as a healthy idle one.
     #[test]
     fn test_default_metrics_fields() {
         let m = default_metrics("test-vm", "Stopped");
         assert_eq!(m.vm_name, "test-vm");
         assert_eq!(m.power_state, "Stopped");
         assert_eq!(m.agent_status, "-");
-        assert_eq!(m.error_count, 0);
-        assert_eq!(m.cpu_percent, 0.0);
-        assert_eq!(m.mem_percent, 0.0);
-        assert_eq!(m.disk_percent, 0.0);
+        assert_eq!(m.error_count, None);
+        assert_eq!(m.cpu_percent, None);
+        assert_eq!(m.mem_percent, None);
+        assert_eq!(m.disk_percent, None);
     }
 }

@@ -488,30 +488,18 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
                     &agent_padded,
                 ));
                 col_i += 1;
-                // CPU%
-                let cpu_s = format!("{:.0}", m.cpu_percent);
-                let cpu_padded = trunc_right(&cpu_s, cols[col_i].width);
-                cells.push(threshold_ansi(
-                    crate::error_helpers::classify_metric_70_90(m.cpu_percent),
-                    &cpu_padded,
-                ));
-                col_i += 1;
-                // Mem%
-                let mem_s = format!("{:.0}", m.mem_percent);
-                let mem_padded = trunc_right(&mem_s, cols[col_i].width);
-                cells.push(threshold_ansi(
-                    crate::error_helpers::classify_metric_70_90(m.mem_percent),
-                    &mem_padded,
-                ));
-                col_i += 1;
-                // Disk%
-                let disk_s = format!("{:.0}", m.disk_percent);
-                let disk_padded = trunc_right(&disk_s, cols[col_i].width);
-                cells.push(threshold_ansi(
-                    crate::error_helpers::classify_metric_70_90(m.disk_percent),
-                    &disk_padded,
-                ));
-                col_i += 1;
+                // CPU% / Mem% / Disk%. A metric with no reading renders as
+                // `--` and is left uncoloured — a green `0` here reported an
+                // unreachable VM as a healthy idle one.
+                for value in [m.cpu_percent, m.mem_percent, m.disk_percent] {
+                    let text = crate::health_render::metric_cell_rounded(value);
+                    let padded = trunc_right(&text, cols[col_i].width);
+                    cells.push(match crate::health_render::metric_level(value) {
+                        Some(level) => threshold_ansi(level, &padded),
+                        None => padded,
+                    });
+                    col_i += 1;
+                }
             } else {
                 // No health data — show "-" in all 4 columns
                 for _ in 0..4 {
@@ -609,6 +597,8 @@ fn render_json(cfg: &ListRenderConfig, data: &ListRenderData) -> Result<()> {
             if cfg.with_health {
                 if let Some(m) = data.health_data.get(&vm.name) {
                     obj["health_agent"] = serde_json::json!(m.agent_status);
+                    // `Option` serialises to `null`, which is the JSON way
+                    // of saying "no reading" — `0` would be a measurement.
                     obj["health_cpu_percent"] = serde_json::json!(m.cpu_percent);
                     obj["health_mem_percent"] = serde_json::json!(m.mem_percent);
                     obj["health_disk_percent"] = serde_json::json!(m.disk_percent);
@@ -695,8 +685,11 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
         if cfg.with_health {
             if let Some(m) = data.health_data.get(&vm.name) {
                 row.push_str(&format!(
-                    ",{},{:.0},{:.0},{:.0}",
-                    m.agent_status, m.cpu_percent, m.mem_percent, m.disk_percent
+                    ",{},{},{},{}",
+                    m.agent_status,
+                    crate::health_render::metric_csv(m.cpu_percent),
+                    crate::health_render::metric_csv(m.mem_percent),
+                    crate::health_render::metric_csv(m.disk_percent)
                 ));
             } else {
                 row.push_str(",,,,");

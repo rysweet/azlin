@@ -39,7 +39,7 @@ azlin health --tui --vm my-vm
 +-- Fleet Status ----------------------------------------------|
 | >> vm-1    Running   eastus   10.0.0.1   OK    0   45.2 ... |
 |    vm-2    Running   westus   10.0.0.2   OK    0   12.1 ... |
-|    vm-3    Stopped   eastus   -          -     0    0.0 ... |
+|    vm-3    Stopped   eastus   -          -     --   --   ... |
 +--------------------------------------------------------------|
 +-- Trends: vm-1 ---------------------------------------------|
 |  CPU 45.2%              |  Mem 67.3%                         |
@@ -61,6 +61,21 @@ azlin health --tui --vm my-vm
 - **Green**: Metric below 50% / VM running / Agent OK
 - **Yellow**: Metric 50-80% / VM transitioning
 - **Red**: Metric above 80% / VM stopped / Agent down
+- **Grey `--`**: No reading was taken
+
+## Missing readings are not zero
+
+A metric shows `--` when azlin could not measure it: the VM is not running, it
+could not be reached over SSH, or the collection timed out. This is
+deliberately distinct from a reading of `0`, which means the VM answered and is
+idle.
+
+`--` is never coloured green. Green is the claim that the machine is fine, and
+that is exactly what could not be checked. In `--output json` a missing metric
+is `null`; in CSV it is an empty field.
+
+A VM whose collection times out keeps its row, with every metric `--` and the
+reason printed on stderr. It is not dropped from the table.
 
 ## Columns
 
@@ -82,6 +97,10 @@ azlin health --tui --vm my-vm
 The bottom panel shows rolling CPU and memory sparkline graphs for the currently
 selected VM. Each refresh cycle adds a new data point (up to 60 samples). The
 sparkline color matches the current metric threshold.
+
+A refresh that produced no reading adds **no** data point rather than a zero: a
+trough that reads as "the VM went quiet" when what happened is "we stopped being
+able to ask" is the same mistake in chart form.
 
 ## VM Actions
 
