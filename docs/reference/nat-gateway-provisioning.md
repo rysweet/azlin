@@ -252,8 +252,13 @@ pub(crate) fn decide_nat_action(yes: bool, stdin_is_tty: bool) -> Option<NatMiss
 /// Maps a `dialoguer::Select` index to an action.
 pub(crate) fn map_nat_selection(index: usize) -> NatMissingAction;
 
-/// The abort/failure text. Names both resources and the three manual commands.
-pub(crate) fn nat_abort_message(region: &str) -> String;
+/// The declined-by-user text. Names both resources and the three manual
+/// commands, with the resolved resource group interpolated into each.
+pub(crate) fn nat_abort_message(resource_group: &str, region: &str) -> String;
+
+/// The provisioning-failed text. Distinct from the abort text because a
+/// failure mid-sequence can leave billing resources behind.
+pub(crate) fn nat_provisioning_failed_message(resource_group: &str, region: &str) -> String;
 ```
 
 The prompt is preceded by a single stderr line:
@@ -315,8 +320,8 @@ identical to one created with `--public`.
 | Failure | Behavior |
 |---------|----------|
 | `az network vnet subnet show` errors, times out, or returns unparseable JSON | Retry the read once. If the retry also fails, abort non-zero **before** creating anything. Never treated as `Absent` — see below. |
-| Any create or attach command fails | Abort with a non-zero exit before any VM is created. `nat_abort_message(region)` is attached as context above the underlying `az` error. |
-| User selects `Abort` | `nat_abort_message(region)` alone. No VM and no network resources are created. |
+| Any create or attach command fails | Abort with a non-zero exit before any VM is created. `nat_provisioning_failed_message` is attached as context above the underlying `az` error. It does **not** say "Aborted": provisioning runs in three steps, so a failure at step two or three can leave a Standard public IP and a gateway behind, both billing. |
+| User selects `Abort` | `nat_abort_message` alone. No VM and no network resources are created. |
 | `AuthorizationFailed` / `does not have authorization` on the read or on any write | The same abort, with the permissions hint appended — see [Authorization Failures](#authorization-failures). azlin never degrades to assuming egress exists. |
 
 On a double read failure the error is:
@@ -333,18 +338,36 @@ and the caller wraps it with:
 Could not determine whether the VM subnet in <region> has outbound internet. Refusing to create a private VM that may silently have no egress. Re-run with --public to give this VM its own public IP instead.
 ```
 
-`nat_abort_message(region)` reads:
+Both messages end with the same manual remediation steps, produced by a single
+shared `nat_remediation_text` helper so the two paths cannot drift apart. Only
+the framing differs. The resource group shown below is the group azlin resolved
+for the run, interpolated into every command — the messages never print a `<rg>`
+placeholder the user would have to hand-edit before running.
+
+`nat_abort_message(resource_group, region)` reads:
 
 ```
 Aborted: the VM subnet in <region> has no NAT gateway, so a private VM created there would have no outbound internet.
 Azure Bastion is inbound-only: it lets you reach the VM, but it does not provide egress. Without a NAT gateway every apt/curl/wget on the VM fails and the cloud-init toolchain install collapses.
 
 To provision egress manually:
-  az network public-ip create --resource-group <rg> --name azlin-natgw-<region>-ip-tagged --location <region> --sku Standard --allocation-method Static --zone 1 2 3
-  az network nat gateway create --resource-group <rg> --name azlin-natgw-<region> --location <region> --sku Standard --idle-timeout 10 --public-ip-addresses azlin-natgw-<region>-ip-tagged
-  az network vnet subnet update --resource-group <rg> --vnet-name azlin-bastion-<region>-vnet --name default --nat-gateway azlin-natgw-<region>
+  az network public-ip create --resource-group azlin-rg --name azlin-natgw-<region>-ip-tagged --location <region> --sku Standard --allocation-method Static --zone 1 2 3
+  az network nat gateway create --resource-group azlin-rg --name azlin-natgw-<region> --location <region> --sku Standard --idle-timeout 10 --public-ip-addresses azlin-natgw-<region>-ip-tagged
+  az network vnet subnet update --resource-group azlin-rg --vnet-name azlin-bastion-<region>-vnet --name default --nat-gateway azlin-natgw-<region>
 
 Or re-run with --public to give this VM its own public IP instead.
+```
+
+`nat_provisioning_failed_message(resource_group, region)` opens differently,
+then repeats the same steps:
+
+```
+NAT gateway provisioning FAILED for <region>, so no VM was created.
+Provisioning runs in three steps, so partial resources may already exist and may already be billing. Check resource group 'azlin-rg' for public IP 'azlin-natgw-<region>-ip-tagged' and NAT gateway 'azlin-natgw-<region>' before retrying:
+  az network nat gateway list --resource-group azlin-rg -o table
+  az network public-ip list --resource-group azlin-rg -o table
+
+Re-running `azlin new` is safe: provisioning is idempotent and reuses whatever already exists.
 ```
 
 Every `az` stderr on these paths is passed through
@@ -416,7 +439,7 @@ pub(crate) fn egress_probe_command() -> &'static str;
 pub(crate) fn parse_egress_probe(output: &str) -> EgressStatus;
 
 /// The stderr banner printed for a degraded VM.
-pub(crate) fn egress_failure_message(vm_name: &str, region: &str) -> String;
+pub(crate) fn egress_failure_message(vm_name: &str, resource_group: &str, region: &str) -> String;
 
 /// Runs the probe over the SSH path already established for post-create work,
 /// taking the same target parameters as the other `auth_forward` helpers
@@ -454,12 +477,12 @@ validation would report success against a hostile intercepting proxy.
 | VM created, probe returns `Failed` | `VM '<name>' created — DEGRADED: no outbound internet access.`, preceded on **stderr** by the `egress_failure_message` banner | non-zero |
 | VM created, probe returns `Unknown` | `VM '<name>' created successfully!`, preceded on **stderr** by `Warning: could not verify outbound internet on '<name>'. ...` | 0 |
 
-`egress_failure_message(vm_name, region)` is:
+`egress_failure_message(vm_name, resource_group, region)` is:
 
 ```
 VM '<name>' has NO outbound internet. It is reachable, but every apt/curl/wget on it will fail and the cloud-init toolchain install (az, gh, node, go, rust) is incomplete.
   Azure Bastion is inbound-only and does not provide egress. Check that a NAT gateway is attached to the 'default' subnet of 'azlin-bastion-<region>-vnet':
-    az network vnet subnet show --resource-group <rg> --vnet-name azlin-bastion-<region>-vnet --name default --query natGateway
+    az network vnet subnet show --resource-group azlin-rg --vnet-name azlin-bastion-<region>-vnet --name default --query natGateway
   Then re-run `azlin new` (NAT provisioning is idempotent), or delete and recreate this VM once egress is in place.
 ```
 

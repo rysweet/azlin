@@ -304,7 +304,9 @@ pub(crate) fn parse_egress_probe(output: &str) -> EgressStatus {
 /// The banner shown for a VM that came up without outbound internet.
 ///
 /// Never echoes raw remote stdout: it can carry ANSI and control sequences.
-pub(crate) fn egress_failure_message(vm_name: &str, region: &str) -> String {
+/// `resource_group` is interpolated so the printed `az` command is runnable
+/// as-is rather than needing a hand-edit.
+pub(crate) fn egress_failure_message(vm_name: &str, resource_group: &str, region: &str) -> String {
     let region = region.to_lowercase();
     format!(
         "VM '{vm_name}' has NO outbound internet. It is reachable, but every \
@@ -313,8 +315,8 @@ pub(crate) fn egress_failure_message(vm_name: &str, region: &str) -> String {
          Azure Bastion is inbound-only and does not provide egress. Check that a \
          NAT gateway is attached to the 'default' subnet of \
          '{vnet}':\n    \
-         az network vnet subnet show --resource-group <rg> --vnet-name {vnet} \
-         --name default --query natGateway\n  \
+         az network vnet subnet show --resource-group {resource_group} \
+         --vnet-name {vnet} --name default --query natGateway\n  \
          Then re-run `azlin new` (NAT provisioning is idempotent), or delete and \
          recreate this VM once egress is in place.",
         vnet = crate::bastion_helpers::bastion_vnet_name(&region),
@@ -1638,7 +1640,7 @@ mod tests {
 
     #[test]
     fn test_egress_failure_message_is_actionable() {
-        let msg = egress_failure_message("azlin-vm-1", "centralus");
+        let msg = egress_failure_message("azlin-vm-1", "prod-rg", "centralus");
         assert!(msg.contains("azlin-vm-1"));
         assert!(msg.contains("centralus"));
         assert!(
@@ -1648,6 +1650,17 @@ mod tests {
         assert!(
             msg.contains("nat gateway") || msg.contains("NAT gateway"),
             "message must point at the NAT gateway: {msg}"
+        );
+        // The diagnostic command is the whole point of the banner. Printing it
+        // with a literal `<rg>` makes the user hand-edit it first, which is
+        // exactly the friction this message exists to remove.
+        assert!(
+            !msg.contains("<rg>"),
+            "must not print a placeholder resource group: {msg}"
+        );
+        assert!(
+            msg.contains("--resource-group prod-rg"),
+            "must name the real resource group: {msg}"
         );
     }
 }

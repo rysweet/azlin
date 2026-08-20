@@ -20,7 +20,7 @@ stderr, then the verdict on stdout:
 ```
 ⚠ VM 'my-vm' has NO outbound internet. It is reachable, but every apt/curl/wget on it will fail and the cloud-init toolchain install (az, gh, node, go, rust) is incomplete.
   Azure Bastion is inbound-only and does not provide egress. Check that a NAT gateway is attached to the 'default' subnet of 'azlin-bastion-centralus-vnet':
-    az network vnet subnet show --resource-group <rg> --vnet-name azlin-bastion-centralus-vnet --name default --query natGateway
+    az network vnet subnet show --resource-group azlin-rg --vnet-name azlin-bastion-centralus-vnet --name default --query natGateway
   Then re-run `azlin new` (NAT provisioning is idempotent), or delete and recreate this VM once egress is in place.
 VM 'my-vm' created — DEGRADED: no outbound internet access.
 ```
