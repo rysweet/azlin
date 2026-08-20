@@ -69,6 +69,50 @@ pub(crate) fn create_auth() -> Result<azlin_azure::AzureAuth> {
     }
 }
 
+/// [`create_auth`] with an explicit `--auth-profile` taking precedence.
+///
+/// `--auth-profile` was declared on `ask`, `code` and `show` and discarded by
+/// all three (#1089), so a command told which identity to run under ran under
+/// whatever `az` and the active context happened to select.
+///
+/// **A profile beats the active context.** An explicit flag on this
+/// invocation is a stronger statement of intent than ambient state selected
+/// at some point in the past, and silently letting the context win would be
+/// the same bug in a new place. Both pin a subscription through the same
+/// verified switch, so the only question was which one wins, and the answer is
+/// stated here rather than left to whichever branch ran first.
+///
+/// What a profile pins is the subscription and tenant. It carries no secret,
+/// so azlin cannot log in *as* the profile's service principal; the caller is
+/// expected to already hold a session in that tenant.
+pub(crate) fn create_auth_with_profile(profile: Option<&str>) -> Result<azlin_azure::AzureAuth> {
+    let Some(name) = profile else {
+        return create_auth();
+    };
+    let azlin_dir = home_dir()?.join(".azlin");
+    let profile = crate::auth_profile::load(&azlin_dir, name)?;
+    let subscription_id = crate::auth_profile::require_subscription(&profile)?;
+    let auth = azlin_azure::AzureAuth::for_subscription(subscription_id).map_err(|e| {
+        anyhow::anyhow!(
+            "Cannot run under auth profile '{name}' (subscription {subscription_id}): {e}\n\
+             Run 'az login' for the tenant that owns it, or 'azlin auth show {name}' to \
+             inspect the profile."
+        )
+    })?;
+    // Same check the context path makes: a matching subscription id in a
+    // different tenant should be impossible, and the failure it guards is
+    // destructive.
+    if let (Some(want), Some(have)) = (profile.tenant_id.as_deref(), auth.tenant_id()) {
+        if want != have {
+            anyhow::bail!(
+                "Auth profile '{name}' pins tenant {want} but the Azure CLI is signed in \
+                 to {have}.\nRun 'az login --tenant {want}' before using this profile."
+            );
+        }
+    }
+    Ok(auth)
+}
+
 /// Fail when the context pins a tenant the CLI is not signed in to.
 ///
 /// A matching subscription id in a different tenant should be impossible, but

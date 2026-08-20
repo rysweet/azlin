@@ -46,6 +46,43 @@ pub fn format_show_table(vm: &VmInfo) -> String {
     out
 }
 
+/// The extra lines `azlin show --verbose` adds.
+///
+/// `--verbose` was declared on `show` and discarded, so it printed exactly the
+/// same table with or without it (#1089). Note this is the *per-subcommand*
+/// `--verbose`, which shadows the global one — the checker calls that out
+/// specifically, because a shadowing flag reads as working when the global one
+/// happens to do something.
+///
+/// What it adds is the detail the terse table drops: the fields that are
+/// absent, named as absent rather than silently omitted, and the identity the
+/// lookup ran under. A row that is missing because the VM has no public IP is
+/// a different fact from a row missing because nothing looked.
+pub fn format_show_verbose(vm: &VmInfo, subscription_id: &str) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("Subscription:       {}\n", subscription_id));
+    out.push_str(&format!(
+        "OS Offer:           {}\n",
+        vm.os_offer.as_deref().unwrap_or("(not reported)")
+    ));
+    if vm.public_ip.is_none() {
+        out.push_str("Public IP:          (none — private VM, reachable via bastion)\n");
+    }
+    if vm.private_ip.is_none() {
+        out.push_str("Private IP:         (none reported)\n");
+    }
+    if vm.admin_username.is_none() {
+        out.push_str("Admin User:         (not reported)\n");
+    }
+    if vm.tags.is_empty() {
+        out.push_str("Tags:               (none)\n");
+    }
+    if vm.created_time.is_none() {
+        out.push_str("Created:            (not reported)\n");
+    }
+    out
+}
+
 /// Format a VmInfo as JSON.
 pub fn format_show_json(vm: &VmInfo) -> Result<String> {
     let json = serde_json::json!({

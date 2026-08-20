@@ -1076,8 +1076,8 @@ Startup time ({:.1}ms) exceeds the <15ms target.",
 
 // Re-export common utilities from dispatch_helpers for cmd_* modules via `use super::*`.
 pub(crate) use dispatch_helpers::{
-    create_auth, home_dir, resolve_fleet_targets, resolve_resource_group, resolve_vm_ssh_target,
-    resolve_vm_targets, safe_confirm, safe_confirm_with_flag, shell_escape,
+    create_auth, create_auth_with_profile, home_dir, resolve_fleet_targets, resolve_resource_group,
+    resolve_vm_ssh_target, resolve_vm_targets, safe_confirm, safe_confirm_with_flag, shell_escape,
 };
 
 mod handlers;
@@ -1216,6 +1216,9 @@ pub(crate) mod tui_dashboard;
 
 /// Pure helpers for the `run_on_fleet` result classification and formatting.
 mod fleet_helpers;
+
+/// Reading and writing `~/.azlin/profiles/`, and what a profile can pin.
+mod auth_profile;
 
 /// The `azlin new` egress requirements (R4 and R5 of issue #1092).
 mod egress_gate;

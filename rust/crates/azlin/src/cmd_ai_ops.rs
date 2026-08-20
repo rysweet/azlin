@@ -7,6 +7,7 @@ pub(crate) async fn handle_ask(
     resource_group: Option<String>,
     dry_run: bool,
     timeout: u32,
+    auth_profile: Option<String>,
 ) -> Result<()> {
     let query_text = query.ok_or_else(|| anyhow::anyhow!("No query provided."))?;
 
@@ -15,13 +16,35 @@ pub(crate) async fn handle_ask(
         return Ok(());
     }
 
+    // `--auth-profile` was accepted and discarded (#1089). `ask` describes the
+    // environment to the model rather than acting on it, so what the flag
+    // changes is which subscription gets described — and an answer about
+    // somebody else's infrastructure is the failure it prevents.
+    //
+    // Resolved before the API client is built, so a profile that does not
+    // exist is reported as such instead of being shadowed by an unrelated
+    // missing `ANTHROPIC_API_KEY`. Resolving costs an `az` round-trip, so it
+    // happens only when the flag was actually passed: `azlin ask` without one
+    // makes no Azure call, exactly as before.
+    let subscription = match auth_profile.as_deref() {
+        Some(name) => Some(
+            crate::dispatch_helpers::create_auth_with_profile(Some(name))?
+                .subscription_id()
+                .to_string(),
+        ),
+        None => None,
+    };
+
     let client = azlin_ai::AnthropicClient::new()?;
     // Full precedence: --resource-group, then the active context, then the
     // config default. Reading the config default directly here skipped the
     // context entirely (#1090).
     let rg = crate::dispatch_helpers::resolve_resource_group(resource_group)?;
 
-    let context = format!("Resource group: {}", rg);
+    let context = match &subscription {
+        Some(sub) => format!("Resource group: {}\nSubscription: {}", rg, sub),
+        None => format!("Resource group: {}", rg),
+    };
     let pb = penguin_spinner("Querying Claude...");
     // `--timeout` was accepted and discarded, so an API call that never came
     // back left the spinner turning until the user gave up (#1089). The bound
