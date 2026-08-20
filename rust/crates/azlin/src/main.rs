@@ -80,6 +80,15 @@ fn try_native_ssh(ip: &str, user: &str, cmd: &str) -> Result<(i32, String, Strin
     tokio::task::block_in_place(|| handle.block_on(native_ssh::native_exec(ip, user, cmd)))
 }
 
+/// Local wall-clock cap on a single bastion exec, in seconds.
+///
+/// The bastion path shells out to `az network bastion ssh`, which needs a
+/// bound or a hung session wedges the caller forever. Commands that declare
+/// their own budget (`fleet run --timeout`) pass a larger cap instead, or the
+/// flag would promise more time than the transport allows and the command
+/// would die at 60s reporting a transport failure.
+const BASTION_EXEC_TIMEOUT_SECS: u64 = 60;
+
 /// Run a command on a VM through Azure Bastion and return (exit_code, stdout, stderr).
 fn bastion_ssh_exec(
     bastion_name: &str,
@@ -88,6 +97,7 @@ fn bastion_ssh_exec(
     user: &str,
     ssh_key: Option<&std::path::Path>,
     cmd: &str,
+    local_timeout_secs: u64,
 ) -> Result<(i32, String, String)> {
     let key_str = ssh_key.map(|k| k.to_string_lossy().to_string());
     let args = ssh_arg_helpers::build_bastion_ssh_args(
@@ -99,10 +109,11 @@ fn bastion_ssh_exec(
         cmd,
     );
     let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    azlin_azure::run_with_timeout("az", &arg_refs, 60)
+    azlin_azure::run_with_timeout("az", &arg_refs, local_timeout_secs)
 }
 
 /// Named bastion routing info, replacing the opaque 4-tuple.
+#[derive(Clone)]
 struct BastionRoute {
     bastion_name: String,
     resource_group: String,
@@ -163,6 +174,10 @@ fn wait_for_local_port_listener(port: u16, pid: u32, timeout: std::time::Duratio
 }
 
 /// Encapsulates SSH connection info for a VM, supporting both direct and bastion routes.
+///
+/// `Clone` so `fleet run --retry-failed` can build a second target list from
+/// the subset that failed without re-resolving them against Azure.
+#[derive(Clone)]
 struct VmSshTarget {
     vm_name: String,
     ip: String,
@@ -174,7 +189,18 @@ struct VmSshTarget {
 
 impl VmSshTarget {
     fn exec(&self, cmd: &str) -> Result<(i32, String, String)> {
-        let result = self.exec_inner(cmd)?;
+        self.exec_with_local_timeout(cmd, BASTION_EXEC_TIMEOUT_SECS)
+    }
+
+    /// [`Self::exec`] with an explicit cap on how long the bastion transport
+    /// may take, so a command with its own `--timeout` is not cut short at the
+    /// default 60 seconds and reported as a transport error.
+    fn exec_with_local_timeout(
+        &self,
+        cmd: &str,
+        local_timeout_secs: u64,
+    ) -> Result<(i32, String, String)> {
+        let result = self.exec_inner(cmd, local_timeout_secs)?;
 
         // Auto-sync SSH key on "Permission denied" — retry once after key push
         if result.0 == 255 && result.2.contains("Permission denied") {
@@ -222,7 +248,7 @@ impl VmSshTarget {
 
                         if status.is_ok_and(|s| s.success()) {
                             eprintln!("Key synced, retrying SSH...");
-                            return self.exec_inner(cmd);
+                            return self.exec_inner(cmd, local_timeout_secs);
                         } else {
                             eprintln!(
                                 "Warning: az vm user update failed, returning original error"
@@ -236,7 +262,7 @@ impl VmSshTarget {
         Ok(result)
     }
 
-    fn exec_inner(&self, cmd: &str) -> Result<(i32, String, String)> {
+    fn exec_inner(&self, cmd: &str, local_timeout_secs: u64) -> Result<(i32, String, String)> {
         if let Some(ref b) = self.bastion {
             bastion_ssh_exec(
                 &b.bastion_name,
@@ -245,6 +271,7 @@ impl VmSshTarget {
                 &self.user,
                 b.ssh_key_path.as_deref(),
                 cmd,
+                local_timeout_secs,
             )
         } else {
             if self.ssh_key_path.is_none() && self.allow_preferred_key_fallback {
@@ -363,7 +390,15 @@ fn collect_health_metrics(
     // otherwise use direct SSH.
     let exec = |cmd: &str| -> Result<(i32, String, String)> {
         if let Some((bastion_name, rg, vm_rid, ssh_key)) = bastion_info {
-            bastion_ssh_exec(bastion_name, rg, vm_rid, user, ssh_key, cmd)
+            bastion_ssh_exec(
+                bastion_name,
+                rg,
+                vm_rid,
+                user,
+                ssh_key,
+                cmd,
+                BASTION_EXEC_TIMEOUT_SECS,
+            )
         } else {
             ssh_exec(ip, user, cmd, None, true)
         }
@@ -669,14 +704,11 @@ fn fleet_spinner_style() -> ProgressStyle {
         .expect("valid spinner template")
 }
 
-/// Execute a command on all running VMs with MultiProgress bars, then print a
-/// summary table. Each VM gets its own spinner showing live status.
-/// Uses VmSshTarget for proper bastion routing on private VMs.
-fn run_on_fleet(targets: &[VmSshTarget], command: &str, show_output: bool) {
+/// One spinner per target, sharing a `MultiProgress` so they render as a block.
+fn fleet_progress_bars(targets: &[VmSshTarget]) -> Vec<ProgressBar> {
     let mp = MultiProgress::new();
     let style = fleet_spinner_style();
-
-    let bars: Vec<_> = targets
+    targets
         .iter()
         .map(|t| {
             let pb = mp.add(ProgressBar::new_spinner());
@@ -686,29 +718,111 @@ fn run_on_fleet(targets: &[VmSshTarget], command: &str, show_output: bool) {
             pb.enable_steady_tick(std::time::Duration::from_millis(120));
             pb
         })
-        .collect();
+        .collect()
+}
 
-    let mut table = new_table(&["VM", "Status", "Output"], &[20, 8, 60]);
-
-    for (i, target) in targets.iter().enumerate() {
+/// Run `command` on every target, at most `workers` at a time, and return the
+/// `(exit_code, stdout, stderr)` triples **in target order**.
+///
+/// Ordering is deliberate: `--parallel` changes how long a fleet run takes,
+/// never what it reports, so the summary table and the `--show-diff` grouping
+/// are reproducible whatever order the hosts happen to answer in.
+///
+/// `workers <= 1` keeps the original in-line loop rather than spawning a single
+/// thread. That is not only an optimisation: the native-SSH fast path in
+/// `VmSshTarget::exec_inner` needs the ambient tokio runtime, which a plain
+/// `std::thread` does not carry, and would silently fall back to subprocess ssh
+/// for everyone who never asked for parallelism.
+fn exec_fleet(
+    targets: &[VmSshTarget],
+    command: &str,
+    workers: usize,
+    bars: &[ProgressBar],
+    local_timeout_secs: u64,
+) -> Vec<(i32, String, String)> {
+    let run_one = |i: usize| -> (i32, String, String) {
         bars[i].set_message(format!("running: {}", command));
-        let (code, stdout, stderr) = match target.exec(command) {
+        let result = match targets[i].exec_with_local_timeout(command, local_timeout_secs) {
             Ok(r) => r,
             Err(e) => (-1, String::new(), e.to_string()),
         };
+        bars[i].finish_with_message(fleet_helpers::finish_message(
+            result.0, &result.1, &result.2,
+        ));
+        result
+    };
 
-        bars[i].finish_with_message(fleet_helpers::finish_message(code, &stdout, &stderr));
+    if workers <= 1 || targets.len() <= 1 {
+        return (0..targets.len()).map(run_one).collect();
+    }
 
-        let (status, ok) = fleet_helpers::classify_result(code);
+    let slots: Vec<std::sync::Mutex<Option<(i32, String, String)>>> = (0..targets.len())
+        .map(|_| std::sync::Mutex::new(None))
+        .collect();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let run_one = &run_one;
+    let slots_ref = &slots;
+    let next_ref = &next;
+    std::thread::scope(|scope| {
+        for _ in 0..workers.min(targets.len()) {
+            scope.spawn(move || loop {
+                let i = next_ref.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if i >= slots_ref.len() {
+                    break;
+                }
+                let result = run_one(i);
+                *slots_ref[i].lock().expect("fleet result slot poisoned") = Some(result);
+            });
+        }
+    });
+    slots
+        .into_iter()
+        .map(|slot| {
+            slot.into_inner()
+                .expect("fleet result slot poisoned")
+                .expect("every fleet slot is filled before the scope ends")
+        })
+        .collect()
+}
+
+/// Print the fleet summary table for a set of results.
+fn print_fleet_table(
+    targets: &[VmSshTarget],
+    results: &[(i32, String, String)],
+    show_output: bool,
+) {
+    let mut table = new_table(&["VM", "Status", "Output"], &[20, 8, 60]);
+    for (target, (code, stdout, stderr)) in targets.iter().zip(results) {
+        let (status, ok) = fleet_helpers::classify_result(*code);
         let status_str = if ok {
             format!("\x1b[32m{}\x1b[0m", status)
         } else {
             format!("\x1b[31m{}\x1b[0m", status)
         };
-        let output_text = fleet_helpers::format_output_text(code, &stdout, &stderr, show_output);
+        let output_text = fleet_helpers::format_output_text(*code, stdout, stderr, show_output);
         table.add_row(vec![target.vm_name.clone(), status_str, output_text]);
     }
     println!("{table}");
+}
+
+/// Execute a command on all running VMs with MultiProgress bars, then print a
+/// summary table. Each VM gets its own spinner showing live status.
+/// Uses VmSshTarget for proper bastion routing on private VMs.
+fn run_on_fleet(targets: &[VmSshTarget], command: &str, show_output: bool) {
+    run_on_fleet_with_workers(targets, command, show_output, 1);
+}
+
+/// [`run_on_fleet`] with an explicit `--parallel` worker count.
+fn run_on_fleet_with_workers(
+    targets: &[VmSshTarget],
+    command: &str,
+    show_output: bool,
+    workers: usize,
+) -> Vec<(i32, String, String)> {
+    let bars = fleet_progress_bars(targets);
+    let results = exec_fleet(targets, command, workers, &bars, BASTION_EXEC_TIMEOUT_SECS);
+    print_fleet_table(targets, &results, show_output);
+    results
 }
 
 fn main() {
@@ -853,8 +967,8 @@ Startup time ({:.1}ms) exceeds the <15ms target.",
 
 // Re-export common utilities from dispatch_helpers for cmd_* modules via `use super::*`.
 pub(crate) use dispatch_helpers::{
-    create_auth, home_dir, resolve_resource_group, resolve_vm_ssh_target, resolve_vm_targets,
-    safe_confirm, safe_confirm_with_flag, shell_escape,
+    create_auth, home_dir, resolve_fleet_targets, resolve_resource_group, resolve_vm_ssh_target,
+    resolve_vm_targets, safe_confirm, safe_confirm_with_flag, shell_escape,
 };
 
 mod handlers;
@@ -993,6 +1107,9 @@ pub(crate) mod tui_dashboard;
 
 /// Pure helpers for the `run_on_fleet` result classification and formatting.
 mod fleet_helpers;
+
+/// Pure helpers for the `fleet run` selection, gating and reporting flags.
+mod fleet_select;
 
 /// Pure helpers for filtering VMs in the list handler.
 mod list_helpers;

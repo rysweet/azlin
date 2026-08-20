@@ -291,6 +291,16 @@ azlin fleet run <COMMAND> [OPTIONS]
 
 The `--if-mem-below` flag accepts a float value representing a memory usage percentage. VMs with memory usage at or above this threshold are skipped.
 
+### Selection semantics
+
+- `--tag` and `--pattern` both narrow the selection; passing both requires a VM to match both.
+- `--all` means "every running VM" and cannot be combined with `--tag` or `--pattern`; the combination is rejected rather than silently resolved in favour of one of them.
+- With no selector at all, `fleet run` targets every running VM in the resource group and says so in its banner.
+- `--if-idle`, `--if-cpu-below` and `--if-mem-below` need a load reading. A VM whose load cannot be sampled is **skipped and named**, not assumed idle.
+- `--smart-route` orders targets least-loaded first; a VM with no usable reading sorts last. Combined with `--count N` this picks the N least-loaded VMs.
+- `--timeout` is enforced on the VM (`timeout(1)`), so a runaway process is killed rather than orphaned, and the transport is given a longer budget so the remote limit is the one that fires.
+- `--show-diff` groups VMs by identical output, largest group first, instead of opening the per-VM tab view.
+
 ### Examples
 
 ```bash

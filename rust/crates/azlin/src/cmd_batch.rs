@@ -234,43 +234,160 @@ pub(crate) async fn dispatch(
             azlin_cli::FleetAction::Run {
                 command,
                 resource_group,
+                tag,
+                pattern,
+                all,
+                parallel,
+                if_idle,
+                if_cpu_below,
+                if_mem_below,
+                smart_route,
+                count,
+                retry_failed,
+                show_diff,
+                timeout,
                 dry_run,
-                ..
             } => {
+                use crate::fleet_select as fs;
+                fs::validate_selection(all, tag.as_deref(), pattern.as_deref())
+                    .map_err(|e| anyhow::anyhow!(e))?;
                 let rg = resolve_resource_group(resource_group)?;
+                let workers = fs::worker_count(parallel);
+                let selection = fs::describe_selection(tag.as_deref(), pattern.as_deref());
                 if dry_run {
-                    println!("Would run '{}' across fleet in '{}'", command, rg);
-                } else {
-                    let pb = penguin_spinner(&format!("Gathering fleet VMs in '{}'...", rg));
-                    let vms = get_running_vm_targets(Some(rg.clone())).await?;
+                    println!(
+                        "Would run '{}' across fleet in '{}' on {}                          (timeout {}s, {} parallel worker(s))",
+                        command, rg, selection, timeout, workers
+                    );
+                    return Ok(());
+                }
+                let pb = penguin_spinner(&format!("Gathering fleet VMs in '{}'...", rg));
+                let mut vms =
+                    resolve_fleet_targets(&rg, tag.as_deref(), pattern.as_deref()).await?;
+                pb.finish_and_clear();
+                if vms.is_empty() {
+                    println!(
+                        "{}",
+                        fs::format_no_match_message(&rg, tag.as_deref(), pattern.as_deref())
+                    );
+                    return Ok(());
+                }
+
+                // --if-idle / --if-cpu-below / --if-mem-below / --smart-route
+                // all need a load reading, so the probe is paid for once and
+                // only when one of them was actually asked for.
+                if fs::needs_load_probe(if_idle, if_cpu_below, if_mem_below, smart_route) {
+                    let pb = penguin_spinner("Sampling fleet load...");
+                    let loads = probe_fleet_load(&vms, workers);
                     pb.finish_and_clear();
-                    if vms.is_empty() {
-                        println!(
-                            "{}",
-                            crate::batch_helpers::format_no_running_vms_message(&rg)
-                        );
-                    } else {
-                        println!(
-                            "{}",
-                            crate::batch_helpers::format_fleet_across_message(&command, vms.len())
-                        );
-                        let outputs = collect_fleet_outputs(&vms, &command);
-                        crate::fleet_tabs::run_fleet_tabs(outputs, false)?;
+                    let mut kept = Vec::new();
+                    let mut kept_loads = Vec::new();
+                    for (target, load) in vms.into_iter().zip(loads) {
+                        match fs::load_gate(&load, if_idle, if_cpu_below, if_mem_below) {
+                            Ok(()) => {
+                                kept.push(target);
+                                kept_loads.push(load);
+                            }
+                            Err(skipped) => {
+                                println!("Skipping {}: {}", target.vm_name, skipped.reason());
+                            }
+                        }
                     }
+                    if smart_route {
+                        let order = fs::smart_route_order(&kept_loads);
+                        let mut slots: Vec<Option<VmSshTarget>> =
+                            kept.into_iter().map(Some).collect();
+                        kept = order
+                            .into_iter()
+                            .map(|i| slots[i].take().expect("each index appears once"))
+                            .collect();
+                    }
+                    vms = kept;
+                    if vms.is_empty() {
+                        println!("No VM passed the --if-* load gates; nothing to run.");
+                        return Ok(());
+                    }
+                }
+
+                vms = fs::apply_count(vms, count);
+                if vms.is_empty() {
+                    println!("--count 0 selected no VMs; nothing to run.");
+                    return Ok(());
+                }
+
+                println!(
+                    "{}",
+                    crate::batch_helpers::format_fleet_across_message(&command, vms.len())
+                );
+                let wrapped = fs::wrap_with_timeout(&command, timeout);
+                let local_timeout = fs::local_timeout_secs(timeout);
+                let mut outputs = collect_fleet_outputs(&vms, &wrapped, workers, local_timeout);
+                annotate_fleet_timeouts(&mut outputs, timeout);
+
+                if retry_failed {
+                    let failed: Vec<usize> = outputs
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, o)| !o.succeeded())
+                        .map(|(i, _)| i)
+                        .collect();
+                    let mut recovered = 0;
+                    if !failed.is_empty() {
+                        println!(
+                            "Retrying {} failed VM(s) once (--retry-failed)...",
+                            failed.len()
+                        );
+                        let retry_targets: Vec<&VmSshTarget> =
+                            failed.iter().map(|i| &vms[*i]).collect();
+                        let retry_targets: Vec<VmSshTarget> =
+                            retry_targets.into_iter().cloned().collect();
+                        let mut retried =
+                            collect_fleet_outputs(&retry_targets, &wrapped, workers, local_timeout);
+                        annotate_fleet_timeouts(&mut retried, timeout);
+                        for (slot, result) in failed.iter().zip(retried) {
+                            if result.succeeded() {
+                                recovered += 1;
+                            }
+                            outputs[*slot] = result;
+                        }
+                    }
+                    println!("{}", fs::format_retry_summary(failed.len(), recovered));
+                }
+
+                if show_diff {
+                    let pairs: Vec<(String, String)> = outputs
+                        .iter()
+                        .map(|o| (o.vm_name.clone(), o.combined_output()))
+                        .collect();
+                    println!("{}", fs::format_output_diff(&pairs));
+                } else {
+                    crate::fleet_tabs::run_fleet_tabs(outputs, false)?;
                 }
             }
             azlin_cli::FleetAction::Workflow {
                 workflow_file,
                 resource_group,
+                tag,
+                pattern,
+                all,
+                parallel,
+                show_diff,
                 dry_run,
-                ..
             } => {
+                use crate::fleet_select as fs;
+                fs::validate_selection(all, tag.as_deref(), pattern.as_deref())
+                    .map_err(|e| anyhow::anyhow!(e))?;
                 let rg = resolve_resource_group(resource_group)?;
+                let workers = fs::worker_count(parallel);
+                let selection = fs::describe_selection(tag.as_deref(), pattern.as_deref());
                 if dry_run {
                     println!(
-                        "Would execute workflow '{}' on fleet in '{}'",
+                        "Would execute workflow '{}' on fleet in '{}' on {} \
+                         ({} parallel worker(s))",
                         workflow_file.display(),
-                        rg
+                        rg,
+                        selection,
+                        workers
                     );
                 } else {
                     let content = std::fs::read_to_string(&workflow_file).map_err(|e| {
@@ -288,11 +405,12 @@ pub(crate) async fn dispatch(
                         .ok_or_else(|| {
                             anyhow::anyhow!("Workflow YAML must contain a 'steps' array")
                         })?;
-                    let vms = get_running_vm_targets(Some(rg.clone())).await?;
+                    let vms =
+                        resolve_fleet_targets(&rg, tag.as_deref(), pattern.as_deref()).await?;
                     if vms.is_empty() {
                         println!(
                             "{}",
-                            crate::batch_helpers::format_no_running_vms_message(&rg)
+                            fs::format_no_match_message(&rg, tag.as_deref(), pattern.as_deref())
                         );
                         return Ok(());
                     }
@@ -308,7 +426,17 @@ pub(crate) async fn dispatch(
                                 "{}",
                                 crate::batch_helpers::format_step_header(i + 1, &step.name)
                             );
-                            run_on_fleet(&vms, cmd, true);
+                            let results = run_on_fleet_with_workers(&vms, cmd, true, workers);
+                            if show_diff {
+                                let pairs: Vec<(String, String)> = vms
+                                    .iter()
+                                    .zip(&results)
+                                    .map(|(t, (_, stdout, stderr))| {
+                                        (t.vm_name.clone(), format!("{}{}", stdout, stderr))
+                                    })
+                                    .collect();
+                                println!("{}", fs::format_output_diff(&pairs));
+                            }
                         } else {
                             eprintln!(
                                 "Step {} ('{}') has no 'command' or 'run' field, skipping",
@@ -326,37 +454,66 @@ pub(crate) async fn dispatch(
     Ok(())
 }
 
+/// Wall-clock cap on one load probe. The probe is two shell pipelines, so a
+/// VM that has not answered in half a minute is unmeasurable by any useful
+/// definition — and the gates say so rather than assuming it is idle.
+const PROBE_TIMEOUT_SECS: u64 = 30;
+
+/// Sample CPU and memory on every target so the `--if-*` gates and
+/// `--smart-route` have a reading to work from.
+///
+/// A probe that fails yields an incomplete [`crate::fleet_select::VmLoad`]
+/// rather than zeros, so an unreachable VM is reported as unmeasurable instead
+/// of being silently ranked as the least-loaded host in the fleet.
+fn probe_fleet_load(targets: &[VmSshTarget], workers: usize) -> Vec<crate::fleet_select::VmLoad> {
+    let bars = crate::fleet_progress_bars(targets);
+    crate::exec_fleet(
+        targets,
+        crate::fleet_select::probe_command(),
+        workers,
+        &bars,
+        PROBE_TIMEOUT_SECS,
+    )
+    .into_iter()
+    .map(|(code, stdout, _)| crate::fleet_select::parse_probe(code, &stdout))
+    .collect()
+}
+
+/// Say so when `--timeout` is what killed a command.
+///
+/// Otherwise the user sees a bare `exit 124` with nothing tying it to the flag
+/// they passed.
+fn annotate_fleet_timeouts(outputs: &mut [crate::fleet_tabs::VmOutput], timeout: u32) {
+    for out in outputs.iter_mut() {
+        if let Some(note) = crate::fleet_select::timeout_note(out.exit_code, timeout) {
+            if !out.stderr.is_empty() && !out.stderr.ends_with('\n') {
+                out.stderr.push('\n');
+            }
+            out.stderr.push_str(&note);
+            out.stderr.push('\n');
+        }
+    }
+}
+
+/// Run `command` across `targets` with at most `workers` concurrent SSH
+/// sessions, returning one `VmOutput` per target in target order.
 fn collect_fleet_outputs(
     targets: &[VmSshTarget],
     command: &str,
+    workers: usize,
+    local_timeout_secs: u64,
 ) -> Vec<crate::fleet_tabs::VmOutput> {
-    let mp = indicatif::MultiProgress::new();
-    let style = fleet_spinner_style();
-    let bars: Vec<_> = targets
-        .iter()
-        .map(|t| {
-            let pb = mp.add(indicatif::ProgressBar::new_spinner());
-            pb.set_style(style.clone());
-            pb.set_prefix(format!("{:>20}", t.vm_name));
-            pb.set_message("connecting...");
-            pb.enable_steady_tick(std::time::Duration::from_millis(120));
-            pb
-        })
-        .collect();
-    let mut outputs = Vec::with_capacity(targets.len());
-    for (i, target) in targets.iter().enumerate() {
-        bars[i].set_message(format!("running: {}", command));
-        let (code, stdout, stderr) = match target.exec(command) {
-            Ok(r) => r,
-            Err(e) => (-1, String::new(), e.to_string()),
-        };
-        bars[i].finish_with_message(fleet_helpers::finish_message(code, &stdout, &stderr));
-        outputs.push(crate::fleet_tabs::VmOutput {
-            vm_name: target.vm_name.clone(),
-            exit_code: code,
-            stdout,
-            stderr,
-        });
-    }
-    outputs
+    let bars = crate::fleet_progress_bars(targets);
+    crate::exec_fleet(targets, command, workers, &bars, local_timeout_secs)
+        .into_iter()
+        .zip(targets)
+        .map(
+            |((exit_code, stdout, stderr), target)| crate::fleet_tabs::VmOutput {
+                vm_name: target.vm_name.clone(),
+                exit_code,
+                stdout,
+                stderr,
+            },
+        )
+        .collect()
 }
