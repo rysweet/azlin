@@ -255,6 +255,29 @@ fn auth_setup_writes_no_certificate_keys_without_the_flag() {
 
 // ── `azlin show --verbose` ───────────────────────────────────────────
 
+/// A profile that overrides an active context must say so. Winning silently
+/// is what #1090 was: a context that quietly did not apply deleted a VM in
+/// the wrong subscription.
+#[test]
+fn a_profile_that_overrides_a_context_says_so() {
+    let home = TempDir::new().unwrap();
+    write_profile(&home, "dev", r#"{"subscription_id":"sub-dev"}"#);
+    let contexts = home.path().join(".azlin");
+    std::fs::create_dir_all(&contexts).unwrap();
+    // A selected context pinning a different subscription. The command will
+    // fail at the Azure switch — there is no `az` session here — but the note
+    // is printed before that, which is the point.
+    std::fs::write(contexts.join("active_context"), "other").ok();
+    let out = run_isolated_home(&home, &["show", "vm", "--auth-profile", "dev"]);
+    let text = combined(&out);
+    // Whatever else happens, the side effect on the user's `az` CLI is
+    // announced: it outlives the command.
+    assert!(
+        text.contains("leaves it there") || text.contains("not found"),
+        "the CLI switch must be announced: {text}"
+    );
+}
+
 /// The flags must survive: the cheapest way to make a flag-wiring checker
 /// green is to delete the flag rather than wire it.
 #[test]

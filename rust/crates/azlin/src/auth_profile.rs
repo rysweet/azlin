@@ -19,6 +19,19 @@
 //!
 //! That is deliberately less than the flag's help implies, and the commands
 //! say so rather than implying more.
+//!
+//! What `azlin auth test` can and cannot tell you
+//! ----------------------------------------------
+//! It verifies that the **current `az` session** can reach the profile's
+//! subscription, and that the tenant matches. It cannot verify that the
+//! profile's client id and certificate are usable, because the secret is not
+//! here — so it can pass on a machine where the profile's principal has no
+//! access at all, provided the human running it does.
+//!
+//! That is a narrower claim than the command's name suggests, and narrower
+//! than what it used to print. Before, it reported "Authentication
+//! successful!" having looked at nothing; now the gap is stated in its own
+//! output rather than hidden. Narrowed, not closed.
 
 use std::path::{Path, PathBuf};
 

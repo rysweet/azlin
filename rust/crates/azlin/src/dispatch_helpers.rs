@@ -92,6 +92,33 @@ pub(crate) fn create_auth_with_profile(profile: Option<&str>) -> Result<azlin_az
     let azlin_dir = home_dir()?.join(".azlin");
     let profile = crate::auth_profile::load(&azlin_dir, name)?;
     let subscription_id = crate::auth_profile::require_subscription(&profile)?;
+
+    // Say when the profile overrides a context that pinned something else.
+    // Winning silently is what #1090 was: a context that quietly did not apply
+    // deleted a VM in the wrong subscription. The flag still wins — it is the
+    // more recent, more explicit statement — but the user is told which of
+    // their two answers azlin took.
+    let active = crate::active_context::load_active()?;
+    if let Some(context_subscription) = crate::active_context::target_subscription(active.as_ref())
+    {
+        if context_subscription != subscription_id {
+            eprintln!(
+                "Note: --auth-profile {name} (subscription {subscription_id}) overrides \
+                 the active context '{}' (subscription {context_subscription}).",
+                active.as_ref().map(|c| c.name.as_str()).unwrap_or("?")
+            );
+        }
+    }
+
+    // `az account set` is process-global on the user's machine and outlives
+    // this command: after `azlin show vm --auth-profile dev`, the CLI stays
+    // pointed at dev. The context path behaves the same way, but a context is
+    // something the user opted into and can inspect with `azlin context show`,
+    // so a one-off flag doing it silently is the bigger surprise.
+    eprintln!(
+        "Note: this switches the Azure CLI to subscription {subscription_id} and \
+         leaves it there. `az account show` will report it after this command."
+    );
     let auth = azlin_azure::AzureAuth::for_subscription(subscription_id).map_err(|e| {
         anyhow::anyhow!(
             "Cannot run under auth profile '{name}' (subscription {subscription_id}): {e}\n\
