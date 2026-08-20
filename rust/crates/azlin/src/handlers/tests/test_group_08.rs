@@ -149,7 +149,7 @@ fn test_format_cleanup_scan_header_dry_run() {
     let out = format_cleanup_scan_header("rg1", 30, true);
     assert!(out.contains("Dry run"));
     assert!(out.contains("rg1"));
-    assert!(out.contains("30 days"));
+    assert!(out.contains("30 day(s)"));
 }
 
 #[test]

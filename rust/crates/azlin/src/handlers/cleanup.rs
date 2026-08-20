@@ -253,10 +253,63 @@ pub fn format_cleanup_complete(deleted: usize, total: usize) -> String {
 
 /// Format the scan header for cleanup.
 pub fn format_cleanup_scan_header(resource_group: &str, age_days: u32, dry_run: bool) -> String {
+    let age = if age_days == 0 {
+        "any age".to_string()
+    } else {
+        format!("older than {} day(s)", age_days)
+    };
     format!(
-        "{}Scanning for orphaned resources in '{}' (older than {} days)...",
+        "{}Scanning for orphaned resources in '{}' ({})...",
         if dry_run { "Dry run — " } else { "" },
         resource_group,
-        age_days
+        age
     )
+}
+
+/// Report what `--age-days` actually excluded, and what it could not.
+///
+/// The header used to say "older than 1 days" and then list and delete every
+/// orphan regardless of age: the flag reached the header and nothing else,
+/// which is worse than the flags dropped outright because the output said it
+/// had been applied (#1089).
+///
+/// Only `az disk list` reports a creation time. NICs, public IPs and NSGs do
+/// not, so they cannot be aged out — and that has to be said, or "we did not
+/// filter these" reads as "these are old enough".
+pub fn format_age_filter_note(
+    age_days: u32,
+    held_back: usize,
+    undated: &[(azlin_azure::orphan_detector::ResourceType, usize)],
+) -> Option<String> {
+    if age_days == 0 {
+        return None;
+    }
+    let mut parts = Vec::new();
+    if held_back > 0 {
+        parts.push(format!(
+            "{} resource(s) newer than {} day(s) were left alone",
+            held_back, age_days
+        ));
+    }
+    if !undated.is_empty() {
+        // The types come from the data rather than a fixed list. Naming them
+        // as an assertion about Azure would become a lie the moment `az`
+        // started reporting a creation time for one of them — which is the
+        // same shape as the bug this whole change fixes.
+        let total: usize = undated.iter().map(|(_, n)| n).sum();
+        let types = undated
+            .iter()
+            .map(|(t, n)| format!("{} × {}", n, t))
+            .collect::<Vec<_>>()
+            .join(", ");
+        parts.push(format!(
+            "{} could not be aged because Azure reported no creation time for them \
+             ({}) and are included",
+            total, types
+        ));
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    Some(format!("  --age-days {}: {}.", age_days, parts.join("; ")))
 }

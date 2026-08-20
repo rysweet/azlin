@@ -7,6 +7,14 @@ pub struct OrphanedResource {
     pub resource_type: ResourceType,
     pub resource_group: String,
     pub estimated_monthly_cost: f64,
+    /// When Azure says the resource was created, when it says at all.
+    ///
+    /// `None` is not "new": most of these types report no creation time in
+    /// their list output at all, and a caller filtering by age has to keep
+    /// "created recently" apart from "we do not know when". Treating unknown
+    /// as new would hide resources that are billing; treating it as old would
+    /// delete resources that are not.
+    pub created_time: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -54,14 +62,74 @@ pub fn find_orphaned_disks(disk_json: &str) -> anyhow::Result<Vec<OrphanedResour
             let size_gb = d.get("diskSizeGb").and_then(|s| s.as_f64()).unwrap_or(0.0);
             // Estimate: ~$0.04/GB/month for standard SSD
             let cost = size_gb * 0.04;
+            // `az disk list` is the one orphan source that reports a creation
+            // time, which is what makes `azlin cleanup --age-days` mean
+            // anything at all.
+            let created_time = d
+                .get("timeCreated")
+                .and_then(|t| t.as_str())
+                .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                .map(|t| t.with_timezone(&chrono::Utc));
             Some(OrphanedResource {
                 name,
                 resource_type: ResourceType::Disk,
                 resource_group: rg,
                 estimated_monthly_cost: cost,
+                created_time,
             })
         })
         .collect())
+}
+
+/// Split orphans into those older than `age_days` and those held back.
+///
+/// `azlin cleanup` printed "Scanning for orphaned resources in 'rg' (older
+/// than 1 days)..." and then listed and deleted every orphan regardless of
+/// age. The flag reached the header and nothing else — which is worse than the
+/// flags that were dropped outright, because the output said it had been
+/// applied (#1089).
+///
+/// A resource with **no** creation time is kept, not filtered out. Only
+/// `az disk list` reports one; NICs, public IPs and NSGs do not, and dropping
+/// them because their age is unknown would silently stop cleaning up the
+/// majority of what this command exists to clean up. The caller says which is
+/// which, so "we did not filter these" is never mistaken for "these are old".
+///
+/// `age_days == 0` keeps everything, which is what "older than zero days"
+/// means.
+pub fn partition_by_age(
+    resources: Vec<OrphanedResource>,
+    age_days: u32,
+    now: chrono::DateTime<chrono::Utc>,
+) -> (Vec<OrphanedResource>, Vec<OrphanedResource>) {
+    if age_days == 0 {
+        return (resources, Vec::new());
+    }
+    let cutoff = now - chrono::Duration::days(age_days as i64);
+    resources.into_iter().partition(|r| match r.created_time {
+        Some(created) => created <= cutoff,
+        None => true,
+    })
+}
+
+/// Which resource types Azure gave no creation time for, and how many.
+///
+/// Returns the *observed* types rather than a fixed list. An earlier version
+/// of the caller's message named "network interfaces, public IPs or NSGs" as
+/// an assertion about Azure — which would have become a lie the moment `az`
+/// started reporting `timeCreated` on one of them, or disk parsing regressed
+/// and disks joined the undated set. That is the same shape as the bug this
+/// change fixes one layer up, where a header asserted a filter that had not
+/// run.
+pub fn undated_types(resources: &[OrphanedResource]) -> Vec<(ResourceType, usize)> {
+    let mut counts: Vec<(ResourceType, usize)> = Vec::new();
+    for r in resources.iter().filter(|r| r.created_time.is_none()) {
+        match counts.iter_mut().find(|(t, _)| *t == r.resource_type) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((r.resource_type.clone(), 1)),
+        }
+    }
+    counts
 }
 
 /// Calculate total estimated savings from cleaning up orphaned resources
@@ -91,6 +159,123 @@ pub fn format_orphan_summary(resources: &[OrphanedResource]) -> String {
 
 #[cfg(test)]
 mod tests {
+    // ── `--age-days` (#1089) ─────────────────────────────────────────
+
+    fn orphan(name: &str, created: Option<&str>) -> OrphanedResource {
+        OrphanedResource {
+            name: name.to_string(),
+            resource_type: ResourceType::Disk,
+            resource_group: "rg".to_string(),
+            estimated_monthly_cost: 1.0,
+            created_time: created.map(|t| {
+                chrono::DateTime::parse_from_rfc3339(t)
+                    .unwrap()
+                    .with_timezone(&chrono::Utc)
+            }),
+        }
+    }
+
+    fn now() -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::parse_from_rfc3339("2026-08-20T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc)
+    }
+
+    #[test]
+    fn a_resource_newer_than_the_threshold_is_held_back() {
+        let (old, held) = partition_by_age(
+            vec![
+                orphan("ancient", Some("2026-01-01T00:00:00Z")),
+                orphan("yesterday", Some("2026-08-19T12:00:00Z")),
+            ],
+            7,
+            now(),
+        );
+        assert_eq!(old.len(), 1);
+        assert_eq!(old[0].name, "ancient");
+        assert_eq!(held.len(), 1);
+        assert_eq!(held[0].name, "yesterday");
+    }
+
+    /// Only `az disk list` reports a creation time. Dropping NICs, public IPs
+    /// and NSGs for having an unknown age would silently stop cleaning up most
+    /// of what this command exists for.
+    #[test]
+    fn a_resource_with_no_creation_time_is_kept_not_dropped() {
+        let (old, held) = partition_by_age(vec![orphan("nic-1", None)], 7, now());
+        assert_eq!(old.len(), 1);
+        assert!(held.is_empty());
+        assert_eq!(undated_types(&old), vec![(ResourceType::Disk, 1)]);
+    }
+
+    /// The types are read from the data, not asserted. A message naming a
+    /// fixed list would become a lie the moment `az` started reporting
+    /// `timeCreated` on one of them — the same shape as the bug this fixes.
+    #[test]
+    fn undated_types_are_observed_not_assumed() {
+        let mut nic = orphan("nic-1", None);
+        nic.resource_type = ResourceType::NetworkInterface;
+        let mut pip = orphan("pip-1", None);
+        pip.resource_type = ResourceType::PublicIp;
+        let dated = orphan("disk-1", Some("2026-01-01T00:00:00Z"));
+        let observed = undated_types(&[nic, pip, dated]);
+        assert_eq!(
+            observed,
+            vec![
+                (ResourceType::NetworkInterface, 1),
+                (ResourceType::PublicIp, 1)
+            ]
+        );
+        assert!(!observed.iter().any(|(t, _)| *t == ResourceType::Disk));
+    }
+
+    /// "Older than zero days" is everything, which is also what the flag's
+    /// default of 1 must not silently become.
+    #[test]
+    fn zero_days_keeps_everything() {
+        let (old, held) =
+            partition_by_age(vec![orphan("new", Some("2026-08-19T23:59:00Z"))], 0, now());
+        assert_eq!(old.len(), 1);
+        assert!(held.is_empty());
+    }
+
+    /// Exactly at the cutoff counts as old enough: a disk created seven days
+    /// ago is seven days old.
+    #[test]
+    fn the_cutoff_is_inclusive() {
+        let (old, _) = partition_by_age(
+            vec![orphan("exact", Some("2026-08-13T00:00:00Z"))],
+            7,
+            now(),
+        );
+        assert_eq!(old.len(), 1);
+    }
+
+    /// The creation time has to survive parsing, or every disk becomes
+    /// undated and `--age-days` quietly does nothing again.
+    #[test]
+    fn disk_creation_time_is_read_from_azure() {
+        let json = r#"[{"name":"d1","diskState":"Unattached","managedBy":null,
+                        "resourceGroup":"rg","diskSizeGb":128,
+                        "timeCreated":"2026-01-02T03:04:05.678901+00:00"}]"#;
+        let found = find_orphaned_disks(json).unwrap();
+        assert_eq!(found.len(), 1);
+        assert!(
+            found[0].created_time.is_some(),
+            "a disk with a timeCreated must not come back undated"
+        );
+    }
+
+    /// And a disk whose timestamp Azure omits or mangles is undated rather
+    /// than dated to now — which would make it look new and spare it forever.
+    #[test]
+    fn an_unparsable_creation_time_is_undated() {
+        let json = r#"[{"name":"d1","diskState":"Unattached","managedBy":null,
+                        "resourceGroup":"rg","timeCreated":"not a date"}]"#;
+        let found = find_orphaned_disks(json).unwrap();
+        assert_eq!(found[0].created_time, None);
+    }
+
     use super::*;
 
     #[test]
@@ -152,12 +337,14 @@ mod tests {
                 resource_type: ResourceType::Disk,
                 resource_group: "rg".into(),
                 estimated_monthly_cost: 5.0,
+                created_time: None,
             },
             OrphanedResource {
                 name: "d2".into(),
                 resource_type: ResourceType::Disk,
                 resource_group: "rg".into(),
                 estimated_monthly_cost: 3.0,
+                created_time: None,
             },
         ];
         assert!((total_estimated_savings(&resources) - 8.0).abs() < 0.01);
@@ -175,6 +362,7 @@ mod tests {
             resource_type: ResourceType::Disk,
             resource_group: "rg1".into(),
             estimated_monthly_cost: 5.12,
+            created_time: None,
         }];
         let summary = format_orphan_summary(&resources);
         assert!(summary.contains("1 orphaned"));

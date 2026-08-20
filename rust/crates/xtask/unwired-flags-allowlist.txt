@@ -42,9 +42,20 @@ Commands::Top::interval = #1089 — `azlin top --interval` accepted, then discar
 #   loop that never returns — a behaviour change that would hang every script calling it.
 #   Either `top` grows a repeating view (as `health --tui` already has) or this flag goes.
 #   Left here deliberately rather than wired the wrong way.
-Commands::Cleanup::idle_days = #1089 — `azlin cleanup --idle-days` accepted, then discarded; help promises "Idle threshold in days"
-Commands::Cleanup::include_running = #1089 — `azlin cleanup --include-running` accepted, then discarded; help promises "Include running VMs"
-Commands::Cleanup::include_named = #1089 — `azlin cleanup --include-named` accepted, then discarded; help promises "Include named sessions"
+Commands::Cleanup::idle_days = #1089 — `azlin cleanup --idle-days` accepted, then discarded.
+#   These three describe a feature that does not exist. `azlin cleanup` deletes orphaned
+#   *resources* — unattached disks, NICs, public IPs and NSGs — and never touches a VM, so
+#   there is no idle VM to threshold, none to include, and no named session to spare. Its
+#   sibling `--age-days` was wired in the same pass because it applies to what the command
+#   actually deletes.
+#
+#   Wiring these means building VM deletion by idleness: a new destructive feature with its
+#   own design (what counts as idle, measured how, over what window) and its own blast
+#   radius. Deleting the flags is the other honest option and is a breaking CLI change.
+#   Both are decisions for the repository owner, so they are recorded here rather than
+#   guessed at.
+Commands::Cleanup::include_running = #1089 — see Commands::Cleanup::idle_days above.
+Commands::Cleanup::include_named = #1089 — see Commands::Cleanup::idle_days above.
 Commands::Code::user = #1089 — `azlin code --user` accepted, then discarded; help promises "SSH username for remote connection"
 Commands::Code::no_extensions = #1089 — `azlin code --no-extensions` accepted, then discarded; help promises "Skip installing VS Code extensions on remote"
 GuiAction::Install::yes = #1089 — `azlin gui install --yes` accepted, then discarded; help promises "Compatibility flag; the install is already non-interactive"
