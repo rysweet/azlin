@@ -50,6 +50,21 @@ repos:
         pass_filenames: false
         files: ^rust/.*\.rs$
 
+  # CLI flag wiring. Mirrors the `flag-wiring` job in
+  # .github/workflows/rust-ci.yml. Catches the shape of bug in issue #1089: a
+  # flag declared in azlin-cli, accepted by clap, printed in --help, and then
+  # dropped by a handler that destructures with `..`. Runs whenever the CLI
+  # definition, a handler, or the allowlist changes; the xtask build is cached
+  # by cargo so the usual cost is the check itself.
+  - repo: local
+    hooks:
+      - id: cli-flag-wiring
+        name: CLI flag wiring (rust)
+        entry: bash -c 'cd rust && cargo run -q -p xtask -- check-flag-wiring'
+        language: system
+        pass_filenames: false
+        files: ^rust/(crates/azlin-cli/src/lib\.rs|crates/azlin/src/.*\.rs|crates/xtask/.*)$
+
   # SSH Key Operations Audit - Ensure append-only behavior (Issue #419)
   - repo: local
     hooks:

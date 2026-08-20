@@ -1,0 +1,165 @@
+# Known-unwired CLI flags — the backlog of issue #1089.
+#
+# Every line here is a flag that clap accepts, `azlin --help` advertises, and
+# no handler ever reads. The user gets no error; the command simply does
+# something other than what they asked for. This file exists so that the
+# check in `crates/xtask` can ship GREEN against the existing backlog and
+# still block the NEXT occurrence on the day it is written. It is a debt
+# ledger, not a permission list.
+#
+# Format (the reason is mandatory):
+#
+#     Enum::Variant::field = why this is temporarily tolerated
+#
+# Rules:
+#   - Shrinking this file is the point. Fixing a flag means deleting its line;
+#     the check FAILS on a stale entry, so the ledger cannot drift.
+#   - Adding a line is a review-visible admission that a flag lies to the user.
+#     Prefer wiring the flag, deleting it, or hiding it from `--help`.
+#   - The reason quotes the flag's own `--help` text, so the gap between what
+#     azlin promises and what it does is readable straight from this file.
+#
+# Generated from the checker's report against commit fdfb27a2 (v2.6.105).
+
+# ── --config (59) ────────────────────────────────────────────────────
+#
+# Declared on almost every subcommand, honoured by exactly one (`azlin new`,
+# via AzlinConfig::load_from at cmd_vm_ops.rs). Everything else calls
+# AzlinConfig::load(), which reads $AZLIN_CONFIG_DIR/config.toml or
+# ~/.azlin/config.toml regardless of what the user passed. Fixing this is one
+# change to config loading plus one line per handler, not 59 separate fixes,
+# so it is tracked as a single follow-up rather than wired here.
+
+Commands::Ask::config = #1089 — `azlin ask --config` accepted, then discarded; help promises "Config file path"
+Commands::Do::config = #1089 — `azlin do --config` accepted, then discarded; help promises "Config file path"
+Commands::Clone::config = #1089 — `azlin clone --config` accepted, then discarded; help promises "Config file path"
+Commands::List::config = #1089 — `azlin list --config` accepted, then discarded; help promises "Config file path"
+Commands::Session::config = #1089 — `azlin session --config` accepted, then discarded; help promises "Config file path"
+Commands::Status::config = #1089 — `azlin status --config` accepted, then discarded; help promises "Config file path"
+Commands::Start::config = #1089 — `azlin start --config` accepted, then discarded; help promises "Config file path"
+Commands::Stop::config = #1089 — `azlin stop --config` accepted, then discarded; help promises "Config file path"
+Commands::Connect::config = #1089 — `azlin connect --config` accepted, then discarded; help promises "Config file path"
+Commands::Health::config = #1089 — `azlin health --config` accepted, then discarded; help promises "Config file path"
+Commands::W::config = #1089 — `azlin w --config` accepted, then discarded; help promises "Config file path"
+Commands::Ps::config = #1089 — `azlin ps --config` accepted, then discarded; help promises "Config file path"
+Commands::Cost::config = #1089 — `azlin cost --config` accepted, then discarded; help promises "Config file path"
+Commands::Logs::config = #1089 — `azlin logs --config` accepted, then discarded; help promises "Config file path"
+Commands::Top::config = #1089 — `azlin top --config` accepted, then discarded; help promises "Config file path"
+Commands::Delete::config = #1089 — `azlin delete --config` accepted, then discarded; help promises "Config file path"
+Commands::Kill::config = #1089 — `azlin kill --config` accepted, then discarded; help promises "Config file path"
+Commands::Destroy::config = #1089 — `azlin destroy --config` accepted, then discarded; help promises "Config file path"
+Commands::Killall::config = #1089 — `azlin killall --config` accepted, then discarded; help promises "Config file path"
+Commands::Cleanup::config = #1089 — `azlin cleanup --config` accepted, then discarded; help promises "Config file path"
+Commands::Cp::config = #1089 — `azlin cp --config` accepted, then discarded; help promises "Config file path"
+Commands::Sync::config = #1089 — `azlin sync --config` accepted, then discarded; help promises "Config file path"
+Commands::SyncKeys::config = #1089 — `azlin sync-keys --config` accepted, then discarded; help promises "Config file path"
+Commands::Code::config = #1089 — `azlin code --config` accepted, then discarded; help promises "Config file path"
+Commands::OsUpdate::config = #1089 — `azlin os-update --config` accepted, then discarded; help promises "Config file path"
+Commands::Restore::config = #1089 — `azlin restore --config` accepted, then discarded; help promises "Config file path"
+Commands::Show::config = #1089 — `azlin show --config` accepted, then discarded; help promises "Config file path"
+VmAction::UpdateTools::config = #1089 — `azlin vm update-tools --config` accepted, then discarded; help promises "Config file path"
+EnvAction::Set::config = #1089 — `azlin env set --config` accepted, then discarded
+EnvAction::List::config = #1089 — `azlin env list --config` accepted, then discarded
+EnvAction::Delete::config = #1089 — `azlin env delete --config` accepted, then discarded
+EnvAction::Export::config = #1089 — `azlin env export --config` accepted, then discarded
+EnvAction::Import::config = #1089 — `azlin env import --config` accepted, then discarded
+EnvAction::Clear::config = #1089 — `azlin env clear --config` accepted, then discarded
+SnapshotAction::Create::config = #1089 — `azlin snapshot create --config` accepted, then discarded
+SnapshotAction::List::config = #1089 — `azlin snapshot list --config` accepted, then discarded
+SnapshotAction::Restore::config = #1089 — `azlin snapshot restore --config` accepted, then discarded
+SnapshotAction::Delete::config = #1089 — `azlin snapshot delete --config` accepted, then discarded
+SnapshotAction::Enable::config = #1089 — `azlin snapshot enable --config` accepted, then discarded
+SnapshotAction::Disable::config = #1089 — `azlin snapshot disable --config` accepted, then discarded
+SnapshotAction::Sync::config = #1089 — `azlin snapshot sync --config` accepted, then discarded
+SnapshotAction::Status::config = #1089 — `azlin snapshot status --config` accepted, then discarded
+KeysAction::Rotate::config = #1089 — `azlin keys rotate --config` accepted, then discarded
+KeysAction::List::config = #1089 — `azlin keys list --config` accepted, then discarded
+BatchAction::Stop::config = #1089 — `azlin batch stop --config` accepted, then discarded
+BatchAction::Start::config = #1089 — `azlin batch start --config` accepted, then discarded
+BatchAction::Command::config = #1089 — `azlin batch command --config` accepted, then discarded
+BatchAction::Sync::config = #1089 — `azlin batch sync --config` accepted, then discarded
+GithubRunnerAction::Enable::config = #1089 — `azlin github-runner enable --config` accepted, then discarded
+ContextAction::List::config = #1089 — `azlin context list --config` accepted, then discarded
+ContextAction::Show::config = #1089 — `azlin context show --config` accepted, then discarded
+ContextAction::Use::config = #1089 — `azlin context use --config` accepted, then discarded
+ContextAction::Create::config = #1089 — `azlin context create --config` accepted, then discarded
+ContextAction::Delete::config = #1089 — `azlin context delete --config` accepted, then discarded
+ContextAction::Rename::config = #1089 — `azlin context rename --config` accepted, then discarded
+ContextAction::Migrate::config = #1089 — `azlin context migrate --config` accepted, then discarded
+DiskAction::Add::config = #1089 — `azlin disk add --config` accepted, then discarded
+IpAction::Check::config = #1089 — `azlin ip check --config` accepted, then discarded
+SessionsAction::Save::config = #1089 — `azlin sessions save --config` accepted, then discarded
+
+# ── Other flags accepted and discarded (67) ──────────────────────────
+#
+# Each of these is an independent per-flag fix: bind the field in the handler
+# and act on it, or delete the flag. They are listed individually so that
+# each fix removes exactly one line.
+
+Commands::Ask::timeout = #1089 — `azlin ask --timeout` accepted, then discarded; help promises "Command timeout in seconds"
+Commands::Ask::max_results = #1089 — `azlin ask --max-results` accepted, then discarded; help promises "Maximum results to display"
+Commands::Ask::auth_profile = #1089 — `azlin ask --auth-profile` accepted, then discarded; help promises "Service principal authentication profile to use"
+Commands::Do::resource_group = #1089 — `azlin do --resource-group` accepted, then discarded; help promises "Resource group"
+Commands::Clone::session_prefix = #1089 — `azlin clone --session-prefix` accepted, then discarded; help promises "Session name prefix for clones"
+Commands::Clone::vm_size = #1089 — `azlin clone --vm-size` accepted, then discarded; help promises "VM size for clones (default: same as source)"
+Commands::Clone::region = #1089 — `azlin clone --region` accepted, then discarded; help promises "Azure region (default: same as source)"
+Commands::List::show_tmux = #1089 — `azlin list --show-tmux` accepted, then discarded; help promises "Show active tmux sessions (default: true, use --no-tmux to disable)"
+Commands::Session::resource_group = #1089 — `azlin session --resource-group` accepted, then discarded; help promises "Resource group"
+Commands::Connect::disable_bastion_pool = #1089 — `azlin connect --disable-bastion-pool` accepted, then discarded; help promises "Disable bastion connection pooling"
+Commands::Gui::yes = #1089 — `azlin gui --yes` accepted, then discarded; help promises "Compatibility flag; GUI dependency setup is already non-interactive"
+Commands::Ps::grouped = #1089 — `azlin ps --grouped` accepted, then discarded; help promises "Group output by VM instead of prefixing"
+Commands::Top::interval = #1089 — `azlin top --interval` accepted, then discarded; help promises "Refresh interval in seconds"
+Commands::Top::timeout = #1089 — `azlin top --timeout` accepted, then discarded; help promises "SSH timeout per VM in seconds"
+Commands::Kill::force = #1089 — `azlin kill --force` accepted, then discarded; help promises "Skip confirmation prompt"
+Commands::Cleanup::idle_days = #1089 — `azlin cleanup --idle-days` accepted, then discarded; help promises "Idle threshold in days"
+Commands::Cleanup::include_running = #1089 — `azlin cleanup --include-running` accepted, then discarded; help promises "Include running VMs"
+Commands::Cleanup::include_named = #1089 — `azlin cleanup --include-named` accepted, then discarded; help promises "Include named sessions"
+Commands::SyncKeys::timeout = #1089 — `azlin sync-keys --timeout` accepted, then discarded; help promises "Timeout in seconds"
+Commands::Code::auth_profile = #1089 — `azlin code --auth-profile` accepted, then discarded; help promises "Service principal authentication profile to use"
+Commands::Code::user = #1089 — `azlin code --user` accepted, then discarded; help promises "SSH username for remote connection"
+Commands::Code::no_extensions = #1089 — `azlin code --no-extensions` accepted, then discarded; help promises "Skip installing VS Code extensions on remote"
+Commands::OsUpdate::timeout = #1089 — `azlin os-update --timeout` accepted, then discarded; help promises "Timeout in seconds"
+Commands::Show::verbose = #1089 — `azlin show --verbose` accepted, then discarded; help promises "Enable verbose output"
+Commands::Show::auth_profile = #1089 — `azlin show --auth-profile` accepted, then discarded; help promises "Service principal authentication profile to use"
+GuiAction::Install::yes = #1089 — `azlin gui install --yes` accepted, then discarded; help promises "Compatibility flag; the install is already non-interactive"
+VmAction::UpdateTools::timeout = #1089 — `azlin vm update-tools --timeout` accepted, then discarded; help promises "Timeout per update in seconds"
+EnvAction::Set::force = #1089 — `azlin env set --force` accepted, then discarded; help promises "Skip secret detection warnings"
+KeysAction::List::resource_group = #1089 — `azlin keys list --resource-group` accepted, then discarded
+KeysAction::List::all_vms = #1089 — `azlin keys list --all-vms` accepted, then discarded; help promises "List all VMs (not just azlin prefix)"
+KeysAction::List::vm_prefix = #1089 — `azlin keys list --vm-prefix` accepted, then discarded; help promises "Only list VMs with this prefix"
+AuthAction::Setup::use_certificate = #1089 — `azlin auth setup --use-certificate` accepted, then discarded; help promises "Use certificate-based auth"
+AuthAction::Setup::certificate_path = #1089 — `azlin auth setup --certificate-path` accepted, then discarded; help promises "Path to certificate file"
+AuthAction::Test::subscription_id = #1089 — `azlin auth test --subscription-id` accepted, then discarded; help promises "Test specific subscription access"
+BatchAction::Stop::max_workers = #1089 — `azlin batch stop --max-workers` accepted, then discarded; help promises "Maximum parallel workers"
+BatchAction::Start::max_workers = #1089 — `azlin batch start --max-workers` accepted, then discarded
+BatchAction::Command::tag = #1089 — `azlin batch command --tag` accepted, then discarded
+BatchAction::Command::max_workers = #1089 — `azlin batch command --max-workers` accepted, then discarded
+BatchAction::Command::timeout = #1089 — `azlin batch command --timeout` accepted, then discarded; help promises "Command timeout in seconds"
+BatchAction::Sync::tag = #1089 — `azlin batch sync --tag` accepted, then discarded
+BatchAction::Sync::max_workers = #1089 — `azlin batch sync --max-workers` accepted, then discarded
+FleetAction::Run::tag = #1089 — `azlin fleet run --tag` accepted, then discarded; help promises "Filter VMs by tag (format: key=value)"
+FleetAction::Run::pattern = #1089 — `azlin fleet run --pattern` accepted, then discarded; help promises "Filter VMs by name pattern (glob)"
+FleetAction::Run::all = #1089 — `azlin fleet run --all` accepted, then discarded; help promises "Run on all VMs"
+FleetAction::Run::parallel = #1089 — `azlin fleet run --parallel` accepted, then discarded; help promises "Max parallel workers"
+FleetAction::Run::if_idle = #1089 — `azlin fleet run --if-idle` accepted, then discarded; help promises "Only run on idle VMs"
+FleetAction::Run::if_cpu_below = #1089 — `azlin fleet run --if-cpu-below` accepted, then discarded; help promises "Only run if CPU below threshold"
+FleetAction::Run::if_mem_below = #1089 — `azlin fleet run --if-mem-below` accepted, then discarded; help promises "Only run if memory usage below threshold (percentage)"
+FleetAction::Run::smart_route = #1089 — `azlin fleet run --smart-route` accepted, then discarded; help promises "Route to least-loaded VMs first"
+FleetAction::Run::count = #1089 — `azlin fleet run --count` accepted, then discarded; help promises "Limit execution to N VMs"
+FleetAction::Run::retry_failed = #1089 — `azlin fleet run --retry-failed` accepted, then discarded; help promises "Retry failed VMs once"
+FleetAction::Run::show_diff = #1089 — `azlin fleet run --show-diff` accepted, then discarded; help promises "Show diff of command outputs"
+FleetAction::Run::timeout = #1089 — `azlin fleet run --timeout` accepted, then discarded; help promises "Command timeout in seconds"
+FleetAction::Workflow::tag = #1089 — `azlin fleet workflow --tag` accepted, then discarded
+FleetAction::Workflow::pattern = #1089 — `azlin fleet workflow --pattern` accepted, then discarded
+FleetAction::Workflow::all = #1089 — `azlin fleet workflow --all` accepted, then discarded
+FleetAction::Workflow::parallel = #1089 — `azlin fleet workflow --parallel` accepted, then discarded
+FleetAction::Workflow::show_diff = #1089 — `azlin fleet workflow --show-diff` accepted, then discarded
+GithubRunnerAction::Enable::auto_scale = #1089 — `azlin github-runner enable --auto-scale` accepted, then discarded; help promises "Auto-scale based on queue depth"
+DiskAction::Add::mount = #1089 — `azlin disk add --mount` accepted, then discarded; help promises "Mount point for the disk"
+IpAction::Check::all = #1089 — `azlin ip check --all` accepted, then discarded; help promises "Check all VMs in resource group"
+CostsAction::Dashboard::refresh = #1089 — `azlin costs dashboard --refresh` accepted, then discarded; help promises "Force refresh (ignore cache)"
+CostsAction::Actions::priority = #1089 — `azlin costs actions --priority` accepted, then discarded; help promises "Filter by priority"
+DoitAction::Deploy::output_dir = #1089 — `azlin doit deploy --output-dir` accepted, then discarded; help promises "Output directory for generated artifacts"
+DoitAction::Deploy::max_iterations = #1089 — `azlin doit deploy --max-iterations` accepted, then discarded; help promises "Maximum execution iterations"
+DoitAction::Deploy::quiet = #1089 — `azlin doit deploy --quiet` accepted, then discarded; help promises "Reduce output verbosity"
+SessionsAction::Save::description = #1089 — `azlin sessions save --description` accepted, then discarded; help promises "Session description"
