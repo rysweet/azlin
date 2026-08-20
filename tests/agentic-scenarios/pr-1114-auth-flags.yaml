@@ -1,0 +1,179 @@
+name: "azlin reads the auth profiles it writes"
+description: |
+  Verifies PR #1114 (issue #1089). Auth profiles were write-only: `auth setup`
+  saved one, `auth list` and `auth show` printed it back, and nothing else in
+  azlin ever read one. `--auth-profile` was declared on `ask`, `code` and
+  `show` and discarded by all three; `auth test --profile prod` ran
+  `az account show` and reported "Authentication successful!" about a profile
+  it never opened; `auth setup --use-certificate` produced a profile
+  indistinguishable from a password-based one.
+
+  Every step runs with `$HOME` redirected to a temp directory, so none reads or
+  writes the developer's real `~/.azlin/profiles` (#1079), and each stops
+  before azlin reaches Azure.
+
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 30000
+
+steps:
+  - name: "Build the binary under test (never assert against a stale build)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo build -p azlin 2>&1 | tail -1
+        test -x target/debug/azlin && echo "PASS: fresh azlin binary present"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "A missing profile is an error on every command that takes one"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        H=$(mktemp -d); mkdir -p "$H/.azlin/profiles"
+        echo '{"subscription_id":"sub-dev"}' > "$H/.azlin/profiles/dev.json"
+        B=rust/target/debug/azlin
+        for cmd in "show some-vm" "ask query" "code some-vm"; do
+          OUT=$(HOME="$H" $B $cmd --auth-profile prod 2>&1) && {
+            echo "FAIL: '$cmd' accepted a profile that does not exist"; exit 1; }
+          echo "$OUT" | grep -q "not found" || { echo "FAIL: $cmd: $OUT"; exit 1; }
+          # A dead-end error is no better than none: name the ones that exist.
+          echo "$OUT" | grep -q "dev" || { echo "FAIL: $cmd did not list available: $OUT"; exit 1; }
+        done
+        echo "PASS: the flag is read by all three, and the error is actionable"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 30000
+
+  - name: "A profile name cannot become a path"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        H=$(mktemp -d)
+        OUT=$(HOME="$H" rust/target/debug/azlin show vm --auth-profile "../../etc/passwd" 2>&1) && {
+          echo "FAIL: a traversal name was accepted"; exit 1; }
+        echo "$OUT" | grep -q "Invalid profile name" || { echo "FAIL: $OUT"; exit 1; }
+        echo "PASS: names are validated before they become paths"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 20000
+
+  - name: "auth test opens the profile instead of reporting on the ambient session"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        H=$(mktemp -d)
+        OUT=$(HOME="$H" rust/target/debug/azlin auth test --profile nope 2>&1) && {
+          echo "FAIL: auth test succeeded for a profile that does not exist"; exit 1; }
+        echo "$OUT" | grep -q "not found" || { echo "FAIL: $OUT"; exit 1; }
+        # The old behaviour: a green tick about whatever `az` was logged into.
+        echo "$OUT" | grep -q "Authentication successful" && {
+          echo "FAIL: still reports success for a profile it never opened"; exit 1; }
+        echo "PASS: no success message for a profile it never opened"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 20000
+
+  - name: "A certificate that is not there is refused, and leaves nothing behind"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        H=$(mktemp -d)
+        OUT=$(HOME="$H" rust/target/debug/azlin auth setup --profile certtest \
+              --tenant-id t --client-id c --subscription-id s \
+              --use-certificate --certificate-path /nonexistent/cert.pem 2>&1) && {
+          echo "FAIL: a missing certificate was accepted"; exit 1; }
+        echo "$OUT" | grep -q "does not exist" || { echo "FAIL: $OUT"; exit 1; }
+        test -f "$H/.azlin/profiles/certtest.json" && {
+          echo "FAIL: a rejected setup left a profile behind"; exit 1; }
+        echo "PASS: refused, and nothing written"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 20000
+
+  - name: "The certificate is recorded, and the profile's limits are stated"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        H=$(mktemp -d); printf 'x' > "$H/cert.pem"
+        OUT=$(HOME="$H" rust/target/debug/azlin auth setup --profile certtest \
+              --tenant-id t --client-id c --subscription-id s \
+              --use-certificate --certificate-path "$H/cert.pem" 2>&1) \
+          || { echo "FAIL: setup failed: $OUT"; exit 1; }
+        grep -q use_certificate "$H/.azlin/profiles/certtest.json" \
+          || { echo "FAIL: the certificate was not recorded"; exit 1; }
+        # A profile stores no secret, so azlin cannot log in as the principal.
+        # Saying less than the flag's help implies beats implying more.
+        echo "$OUT" | grep -q "does not log in as this principal" \
+          || { echo "FAIL: the profile's limits are not stated: $OUT"; exit 1; }
+        # And a password-based profile carries no certificate keys at all.
+        HOME="$H" rust/target/debug/azlin auth setup --profile plain \
+          --tenant-id t --client-id c --subscription-id s >/dev/null 2>&1
+        grep -q certificate "$H/.azlin/profiles/plain.json" && {
+          echo "FAIL: a password profile carries certificate keys"; exit 1; }
+        echo "PASS: recorded when used, absent when not, and honest about both"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 20000
+
+  - name: "The CLI switch and any context override are announced"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # `az account set` outlives the command, and a profile beating an
+        # active context is the shape of #1090 if it happens silently.
+        grep -q "leaves it there" crates/azlin/src/dispatch_helpers.rs \
+          || { echo "FAIL: the CLI switch is not announced"; exit 1; }
+        grep -q "overrides" crates/azlin/src/dispatch_helpers.rs \
+          || { echo "FAIL: a context override is not announced"; exit 1; }
+        echo "PASS: neither side effect is silent"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 10000
+
+  - name: "The seven flags are still advertised, and the ledger shrank"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        B=rust/target/debug/azlin
+        check() { "$B" $1 --help 2>&1 | grep -q -- "$2" || { echo "FAIL: $1 lost $2"; exit 1; }; }
+        check "show" "--auth-profile"; check "show" "--verbose"
+        check "ask" "--auth-profile"; check "code" "--auth-profile"
+        check "auth setup" "--use-certificate"; check "auth setup" "--certificate-path"
+        check "auth test" "--subscription-id"
+        cd rust
+        cargo run -p xtask --locked -- check-flag-wiring > /tmp/wiring.txt 2>&1 || {
+          cat /tmp/wiring.txt; echo "FAIL: gate is red"; exit 1; }
+        grep -q "28 allowlisted" /tmp/wiring.txt || {
+          cat /tmp/wiring.txt; echo "FAIL: allowlist is not at 28 entries"; exit 1; }
+        echo "PASS: wired, not deleted; ledger at 28"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
