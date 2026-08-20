@@ -93,23 +93,17 @@ pub(crate) fn handle_vm_clone(
         eprintln!("{}", note);
     }
 
+    let cross_region = crate::clone_helpers::is_cross_region(&source_location, &location);
     let pb = penguin_spinner(&format!("Snapshotting {}...", source_vm));
 
     let snap_out = std::process::Command::new("az")
-        .args([
-            "snapshot",
-            "create",
-            "--resource-group",
+        .args(crate::clone_helpers::build_snapshot_args(
             &rg,
-            "--source",
-            &disk_id,
-            "--name",
             &snapshot_name,
-            "--location",
+            &disk_id,
             &source_location,
-            "--output",
-            "json",
-        ])
+            cross_region,
+        ))
         .output()?;
     pb.finish_and_clear();
 
@@ -120,7 +114,17 @@ pub(crate) fn handle_vm_clone(
             azlin_core::sanitizer::sanitize(stderr.trim())
         );
     }
+    // The resource id, not the name: `az disk create --source` accepts a bare
+    // snapshot name only within one region, so falling back to the name would
+    // work in-region and fail across one — the harder failure to diagnose.
+    let snapshot_source = crate::clone_helpers::snapshot_id_from_create(&snap_out.stdout)
+        .unwrap_or_else(|| snapshot_name.clone());
     println!("Created snapshot '{}'", snapshot_name);
+
+    // Every clone that did not come up. The loop used to report each failure
+    // and return success, so three failed clones exited 0 having created a
+    // snapshot that bills (#1089-adjacent, same shape as #1105 and #1110).
+    let mut failed: Vec<String> = Vec::new();
 
     for i in 0..num_replicas {
         let clone_name = crate::clone_helpers::clone_name(source_vm, i);
@@ -131,7 +135,7 @@ pub(crate) fn handle_vm_clone(
             .args(crate::clone_helpers::build_clone_disk_args(
                 &rg,
                 &disk_name,
-                &snapshot_name,
+                &snapshot_source,
                 &location,
             ))
             .output()?;
@@ -180,6 +184,7 @@ pub(crate) fn handle_vm_clone(
                     clone_name,
                     azlin_core::sanitizer::sanitize(stderr.trim())
                 );
+                failed.push(clone_name.clone());
             }
         } else {
             let stderr = String::from_utf8_lossy(&disk_out.stderr);
@@ -188,7 +193,16 @@ pub(crate) fn handle_vm_clone(
                 clone_name,
                 azlin_core::sanitizer::sanitize(stderr.trim())
             );
+            failed.push(clone_name.clone());
         }
+    }
+
+    // Every clone's name and error has been printed by now, so it is safe to
+    // exit non-zero — the same ordering `azlin new` uses for degraded VMs.
+    if let Some(message) =
+        crate::clone_helpers::clone_failure_message(&failed, num_replicas, &snapshot_name, &rg)
+    {
+        anyhow::bail!("{}", message);
     }
     Ok(())
 }

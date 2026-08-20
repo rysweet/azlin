@@ -105,13 +105,34 @@ azlin clone <SOURCE_VM> [OPTIONS]
 | `--region` | `TEXT` | same as source | Azure region for clones |
 | `--config` | `PATH` | `~/.azlin/config.toml` | Config file path |
 
+### Behaviour notes
+
+> **Clones now match the source's size.** Until these flags were wired, `--vm-size` was
+> discarded *and* its documented default was not implemented: `azlin clone web` produced a VM at
+> **Azure's** default SKU, not the source's. A clone of a `Standard_D8s_v5` now comes back as a
+> `Standard_D8s_v5` — roughly eight times the machine, and eight times the bill, compared with
+> what the same command produced before. That is what `--help` has always promised; pass
+> `--vm-size` explicitly if you were relying on getting a small clone.
+
+- `--vm-size` defaults to the source VM's own size, read from Azure. A source whose size cannot
+  be read is an error naming `--vm-size` rather than a silent fall back to Azure's default.
+- `--region` sends the clone elsewhere. The snapshot is created **incremental** and referenced by
+  its resource id, which is what Azure requires for a cross-region copy; support still varies by
+  disk type and region pair, and a refusal arrives after the snapshot has been created and is
+  billing. azlin says so before it starts.
+- `--session-prefix` sets the `azlin-session` tag, so clones appear as a session in `azlin list`.
+  With a prefix and more than one replica the group is numbered (`canary-1`, `canary-2`); a single
+  clone takes the prefix unnumbered; without a prefix each clone's own name is its session.
+- A clone that fails exits **non-zero** and names the snapshot left behind, which is still billing.
+  Every clone's error is printed first, so a partial failure never hides the ones that worked.
+
 ### Examples
 
 ```bash
-# Clone a VM (single replica, same size and region)
+# Clone a VM (single replica, same size and region as the source)
 azlin clone my-existing-vm
 
-# Clone 3 replicas with a session prefix
+# Clone 3 replicas as one numbered session group
 azlin clone my-existing-vm --num-replicas 3 --session-prefix test-batch
 
 # Clone to a different VM size and region
