@@ -1074,18 +1074,21 @@ pub(crate) async fn handle_vm_new(
         // Cheap outbound-internet probe. A private VM with no NAT gateway is
         // reachable and reports Running, so without this check a silently
         // broken VM is announced as "created successfully" (issue #1092).
-        // Private VMs only: a public-IP VM has egress via its own instance IP,
-        // so the probe would cost an SSH round-trip to confirm the obvious.
-        let egress = if want_public_ip {
-            crate::auth_forward::EgressStatus::Ok
-        } else {
-            crate::auth_forward::verify_egress(
+        // `egress_probe_shortcut` skips the round-trip in the two cases where
+        // it cannot change the verdict -- a public-IP VM, and a VM whose SSH
+        // readiness timed out.
+        let egress = match crate::auth_forward::egress_probe_shortcut(
+            want_public_ip,
+            readiness.is_ready(),
+        ) {
+            Some(status) => status,
+            None => crate::auth_forward::verify_egress(
                 effective_ip,
                 &admin_user,
                 bastion_port,
                 Some(created_private_key.as_path()),
                 interactive_post_create_ssh,
-            )
+            ),
         };
         match egress {
             crate::auth_forward::EgressStatus::Failed => {

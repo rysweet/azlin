@@ -455,9 +455,20 @@ pub(crate) fn verify_egress(/* … */) -> EgressStatus;
 | Both sentinels present | `Failed` — failure wins | Degraded |
 | Anything else, empty, or SSH failure | `Unknown` | Complete, with a warning |
 | VM has a public IP (probe skipped) | `Ok` | Complete |
+| SSH readiness timed out (probe skipped) | `Unknown` | Complete, with a warning |
 
 An SSH failure yields `Unknown`, never `Failed`: only the VM's own explicit
-`fail` sentinel marks it degraded.
+`fail` sentinel marks it degraded. The cause of the SSH failure is printed to
+stderr before the verdict is downgraded, sanitized first because an SSH error
+can carry remote stderr.
+
+`egress_probe_shortcut(want_public_ip, ssh_ready)` decides whether the probe is
+worth an SSH round-trip at all, returning `Some(status)` when it is not. It
+skips the probe when the VM has a public IP (`Ok` -- its instance IP is the
+egress) and when SSH readiness timed out (`Unknown` -- SSH never authenticated,
+so the probe would spend a full connect timeout per VM, in a sequential creation
+loop, to reach `Unknown` anyway). Skipping never *infers* a verdict: it can
+return `Ok` only for the public-IP case and can never return `Failed`.
 
 The output is remote-controlled and treated as untrusted: it is matched exactly
 against the sentinels and never echoed back. The degraded banner is composed

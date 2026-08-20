@@ -268,6 +268,31 @@ pub(crate) enum EgressStatus {
     Unknown,
 }
 
+/// The verdict reachable without an SSH round-trip, if there is one.
+///
+/// `None` means "run the probe". `Some` covers the two cases where the probe
+/// cannot tell us anything it does not already know:
+///
+/// - the VM has a public IP, so its instance IP already provides egress and a
+///   round-trip would only confirm the obvious — `Ok`;
+/// - SSH readiness timed out, so SSH never authenticated. The probe cannot
+///   reach the guest to read a sentinel, and it would spend a full connect
+///   timeout per VM inside a fully sequential creation loop to arrive at
+///   `Unknown` regardless.
+///
+/// `Unknown` is the honest verdict in the second case; this only declines to
+/// pay for it. It is never used to *infer* failure: a VM is marked degraded
+/// solely by its own explicit `fail` sentinel.
+pub(crate) fn egress_probe_shortcut(want_public_ip: bool, ssh_ready: bool) -> Option<EgressStatus> {
+    if want_public_ip {
+        Some(EgressStatus::Ok)
+    } else if !ssh_ready {
+        Some(EgressStatus::Unknown)
+    } else {
+        None
+    }
+}
+
 /// The remote probe. A fixed literal: no interpolation, so no injection
 /// surface, and time-bounded so a black-holed route cannot hang VM creation.
 ///
@@ -1649,6 +1674,60 @@ mod tests {
             !cmd.contains("-k") && !cmd.contains("--insecure"),
             "probe must validate TLS: never weaken it to make it 'more reliable'"
         );
+    }
+
+    #[test]
+    fn test_egress_probe_is_skipped_for_a_public_ip_vm() {
+        // Its own instance IP is the egress. An SSH round-trip here buys
+        // nothing but latency.
+        assert_eq!(
+            egress_probe_shortcut(true, true),
+            Some(EgressStatus::Ok),
+            "a public-IP VM needs no probe"
+        );
+        assert_eq!(
+            egress_probe_shortcut(true, false),
+            Some(EgressStatus::Ok),
+            "still no probe when SSH never came up"
+        );
+    }
+
+    #[test]
+    fn test_egress_probe_is_skipped_when_ssh_never_authenticated() {
+        // A readiness timeout means SSH never authenticated, so the probe can
+        // only burn its own connect timeout and return Unknown. Creation is
+        // sequential, so that cost is paid once per VM.
+        assert_eq!(
+            egress_probe_shortcut(false, false),
+            Some(EgressStatus::Unknown),
+            "an unreachable guest cannot be probed"
+        );
+    }
+
+    #[test]
+    fn test_skipping_the_probe_never_invents_a_verdict() {
+        // The whole issue is about silent degradation, so the cheap path must
+        // never claim egress it did not observe -- and equally must never call
+        // a VM degraded without its own `fail` sentinel.
+        for (public, ready) in [(true, true), (true, false), (false, false)] {
+            assert_ne!(
+                egress_probe_shortcut(public, ready),
+                Some(EgressStatus::Failed),
+                "degraded is only ever the VM's own verdict ({public}, {ready})"
+            );
+        }
+        assert_ne!(
+            egress_probe_shortcut(false, false),
+            Some(EgressStatus::Ok),
+            "an unprobed private VM must never be reported as having egress"
+        );
+    }
+
+    #[test]
+    fn test_a_reachable_private_vm_is_always_probed() {
+        // The case the feature exists for: private VM, SSH up, egress unknown
+        // until the guest says otherwise.
+        assert_eq!(egress_probe_shortcut(false, true), None);
     }
 
     #[test]
