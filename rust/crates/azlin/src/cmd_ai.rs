@@ -15,9 +15,11 @@ pub(crate) async fn dispatch(
             resource_group,
             dry_run,
             timeout,
+            auth_profile,
             ..
         } => {
-            crate::cmd_ai_ops::handle_ask(query, resource_group, dry_run, timeout).await?;
+            crate::cmd_ai_ops::handle_ask(query, resource_group, dry_run, timeout, auth_profile)
+                .await?;
         }
         azlin_cli::Commands::Do {
             request,

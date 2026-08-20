@@ -21,14 +21,13 @@
 #
 # Generated from the checker's report against commit fdfb27a2 (v2.6.105).
 
-# ── Other flags accepted and discarded (35) ──────────────────────────
+# ── Other flags accepted and discarded (28) ──────────────────────────
 #
 # Each of these is an independent per-flag fix: bind the field in the handler
 # and act on it, or delete the flag. They are listed individually so that
 # each fix removes exactly one line.
 
 Commands::Ask::max_results = #1089 — `azlin ask --max-results` accepted, then discarded; help promises "Maximum results to display"
-Commands::Ask::auth_profile = #1089 — `azlin ask --auth-profile` accepted, then discarded; help promises "Service principal authentication profile to use"
 Commands::Clone::session_prefix = #1089 — `azlin clone --session-prefix` accepted, then discarded; help promises "Session name prefix for clones"
 Commands::Clone::vm_size = #1089 — `azlin clone --vm-size` accepted, then discarded; help promises "VM size for clones (default: same as source)"
 Commands::Clone::region = #1089 — `azlin clone --region` accepted, then discarded; help promises "Azure region (default: same as source)"
@@ -46,19 +45,13 @@ Commands::Top::interval = #1089 — `azlin top --interval` accepted, then discar
 Commands::Cleanup::idle_days = #1089 — `azlin cleanup --idle-days` accepted, then discarded; help promises "Idle threshold in days"
 Commands::Cleanup::include_running = #1089 — `azlin cleanup --include-running` accepted, then discarded; help promises "Include running VMs"
 Commands::Cleanup::include_named = #1089 — `azlin cleanup --include-named` accepted, then discarded; help promises "Include named sessions"
-Commands::Code::auth_profile = #1089 — `azlin code --auth-profile` accepted, then discarded; help promises "Service principal authentication profile to use"
 Commands::Code::user = #1089 — `azlin code --user` accepted, then discarded; help promises "SSH username for remote connection"
 Commands::Code::no_extensions = #1089 — `azlin code --no-extensions` accepted, then discarded; help promises "Skip installing VS Code extensions on remote"
-Commands::Show::verbose = #1089 — `azlin show --verbose` accepted, then discarded; help promises "Enable verbose output"
-Commands::Show::auth_profile = #1089 — `azlin show --auth-profile` accepted, then discarded; help promises "Service principal authentication profile to use"
 GuiAction::Install::yes = #1089 — `azlin gui install --yes` accepted, then discarded; help promises "Compatibility flag; the install is already non-interactive"
 EnvAction::Set::force = #1089 — `azlin env set --force` accepted, then discarded; help promises "Skip secret detection warnings"
 KeysAction::List::resource_group = #1089 — `azlin keys list --resource-group` accepted, then discarded
 KeysAction::List::all_vms = #1089 — `azlin keys list --all-vms` accepted, then discarded; help promises "List all VMs (not just azlin prefix)"
 KeysAction::List::vm_prefix = #1089 — `azlin keys list --vm-prefix` accepted, then discarded; help promises "Only list VMs with this prefix"
-AuthAction::Setup::use_certificate = #1089 — `azlin auth setup --use-certificate` accepted, then discarded; help promises "Use certificate-based auth"
-AuthAction::Setup::certificate_path = #1089 — `azlin auth setup --certificate-path` accepted, then discarded; help promises "Path to certificate file"
-AuthAction::Test::subscription_id = #1089 — `azlin auth test --subscription-id` accepted, then discarded; help promises "Test specific subscription access"
 GithubRunnerAction::Enable::auto_scale = #1089 — `azlin github-runner enable --auto-scale` accepted, then discarded; help promises "Auto-scale based on queue depth"
 DiskAction::Add::mount = #1089 — `azlin disk add --mount` accepted, then discarded; help promises "Mount point for the disk"
 CostsAction::Dashboard::refresh = #1089 — `azlin costs dashboard --refresh` accepted, then discarded; help promises "Force refresh (ignore cache)"

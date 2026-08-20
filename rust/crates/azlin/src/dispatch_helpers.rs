@@ -69,6 +69,77 @@ pub(crate) fn create_auth() -> Result<azlin_azure::AzureAuth> {
     }
 }
 
+/// [`create_auth`] with an explicit `--auth-profile` taking precedence.
+///
+/// `--auth-profile` was declared on `ask`, `code` and `show` and discarded by
+/// all three (#1089), so a command told which identity to run under ran under
+/// whatever `az` and the active context happened to select.
+///
+/// **A profile beats the active context.** An explicit flag on this
+/// invocation is a stronger statement of intent than ambient state selected
+/// at some point in the past, and silently letting the context win would be
+/// the same bug in a new place. Both pin a subscription through the same
+/// verified switch, so the only question was which one wins, and the answer is
+/// stated here rather than left to whichever branch ran first.
+///
+/// What a profile pins is the subscription and tenant. It carries no secret,
+/// so azlin cannot log in *as* the profile's service principal; the caller is
+/// expected to already hold a session in that tenant.
+pub(crate) fn create_auth_with_profile(profile: Option<&str>) -> Result<azlin_azure::AzureAuth> {
+    let Some(name) = profile else {
+        return create_auth();
+    };
+    let azlin_dir = home_dir()?.join(".azlin");
+    let profile = crate::auth_profile::load(&azlin_dir, name)?;
+    let subscription_id = crate::auth_profile::require_subscription(&profile)?;
+
+    // Say when the profile overrides a context that pinned something else.
+    // Winning silently is what #1090 was: a context that quietly did not apply
+    // deleted a VM in the wrong subscription. The flag still wins — it is the
+    // more recent, more explicit statement — but the user is told which of
+    // their two answers azlin took.
+    let active = crate::active_context::load_active()?;
+    if let Some(context_subscription) = crate::active_context::target_subscription(active.as_ref())
+    {
+        if context_subscription != subscription_id {
+            eprintln!(
+                "Note: --auth-profile {name} (subscription {subscription_id}) overrides \
+                 the active context '{}' (subscription {context_subscription}).",
+                active.as_ref().map(|c| c.name.as_str()).unwrap_or("?")
+            );
+        }
+    }
+
+    // `az account set` is process-global on the user's machine and outlives
+    // this command: after `azlin show vm --auth-profile dev`, the CLI stays
+    // pointed at dev. The context path behaves the same way, but a context is
+    // something the user opted into and can inspect with `azlin context show`,
+    // so a one-off flag doing it silently is the bigger surprise.
+    eprintln!(
+        "Note: this switches the Azure CLI to subscription {subscription_id} and \
+         leaves it there. `az account show` will report it after this command."
+    );
+    let auth = azlin_azure::AzureAuth::for_subscription(subscription_id).map_err(|e| {
+        anyhow::anyhow!(
+            "Cannot run under auth profile '{name}' (subscription {subscription_id}): {e}\n\
+             Run 'az login' for the tenant that owns it, or 'azlin auth show {name}' to \
+             inspect the profile."
+        )
+    })?;
+    // Same check the context path makes: a matching subscription id in a
+    // different tenant should be impossible, and the failure it guards is
+    // destructive.
+    if let (Some(want), Some(have)) = (profile.tenant_id.as_deref(), auth.tenant_id()) {
+        if want != have {
+            anyhow::bail!(
+                "Auth profile '{name}' pins tenant {want} but the Azure CLI is signed in \
+                 to {have}.\nRun 'az login --tenant {want}' before using this profile."
+            );
+        }
+    }
+    Ok(auth)
+}
+
 /// Fail when the context pins a tenant the CLI is not signed in to.
 ///
 /// A matching subscription id in a different tenant should be impossible, but

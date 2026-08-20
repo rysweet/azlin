@@ -405,10 +405,13 @@ pub(crate) async fn dispatch(
             name,
             resource_group,
             output,
-            verbose: _,
-            auth_profile: _,
+            verbose: show_verbose,
+            auth_profile,
         } => {
-            let auth = create_auth()?;
+            // `--auth-profile` was accepted and discarded, so a command told
+            // which identity to run under ran under whatever `az` and the
+            // active context selected (#1089).
+            let auth = create_auth_with_profile(auth_profile.as_deref())?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
 
@@ -425,6 +428,16 @@ pub(crate) async fn dispatch(
                 }
                 azlin_cli::OutputFormat::Table => {
                     print!("{}", crate::handlers::format_show_table(&vm));
+                    // `--verbose` was declared on `show` and discarded, so the
+                    // table was identical with or without it (#1089). It
+                    // applies to the table only: JSON and CSV are machine
+                    // formats whose shape is the contract.
+                    if show_verbose {
+                        print!(
+                            "{}",
+                            crate::handlers::format_show_verbose(&vm, auth.subscription_id())
+                        );
+                    }
                 }
             }
         }

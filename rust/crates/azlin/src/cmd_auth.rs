@@ -73,47 +73,99 @@ pub(crate) async fn dispatch(
                         }
                     }
                 }
-                azlin_cli::AuthAction::Test { profile, .. } => {
+                azlin_cli::AuthAction::Test {
+                    profile,
+                    subscription_id,
+                } => {
+                    // `--profile` reached only the spinner text: this ran
+                    // `az account show` and reported "Authentication
+                    // successful!" about whatever the CLI happened to be
+                    // logged into, for a profile it never opened. And
+                    // `--subscription-id` ("Test specific subscription
+                    // access") was discarded outright (#1089).
+                    let stored = crate::auth_profile::load(&azlin_dir, &profile)?;
+
+                    // What to check against: the flag if given, else the
+                    // profile's own subscription. A test with nothing to check
+                    // against is not a test.
+                    let want = match subscription_id.as_deref() {
+                        Some(id) => id,
+                        None => crate::auth_profile::require_subscription(&stored)?,
+                    };
+
                     let pb = penguin_spinner(&format!(
-                        "Testing authentication for profile '{}'...",
-                        profile
+                        "Checking access to subscription {} for profile '{}'...",
+                        want, profile
                     ));
-
-                    let output = std::process::Command::new("az")
-                        .args(["account", "show", "--output", "json"])
-                        .output()?;
-
+                    let result = azlin_azure::AzureAuth::for_subscription(want);
                     pb.finish_and_clear();
-                    if output.status.success() {
-                        let acct: serde_json::Value = serde_json::from_slice(&output.stdout)
-                            .context("Failed to parse 'az account show' JSON")?;
-                        let key_style = Style::new().cyan().bold();
-                        let (subscription, tenant, user) =
-                            crate::auth_test_helpers::extract_account_info(&acct);
-                        println!(
-                            "{}",
-                            Style::new()
-                                .green()
-                                .bold()
-                                .apply_to("Authentication successful!")
-                        );
-                        println!("{}: {}", key_style.apply_to("Subscription"), subscription);
+
+                    let auth = result.map_err(|e| {
+                        anyhow::anyhow!(
+                            "Profile '{}' cannot reach subscription {}: {}\n\
+                             Run 'az login' for the tenant that owns it.",
+                            profile,
+                            want,
+                            e
+                        )
+                    })?;
+
+                    let key_style = Style::new().cyan().bold();
+                    println!(
+                        "{}",
+                        Style::new().green().bold().apply_to("Access confirmed.")
+                    );
+                    println!(
+                        "{}: {}",
+                        key_style.apply_to("Subscription"),
+                        auth.subscription_id()
+                    );
+                    if let Some(tenant) = auth.tenant_id() {
                         println!("{}: {}", key_style.apply_to("Tenant"), tenant);
-                        println!("{}: {}", key_style.apply_to("User"), user);
-                    } else {
-                        anyhow::bail!(
-                            "Authentication test failed. Run 'az login' to authenticate."
-                        );
+                        // A profile pinning a different tenant is a real
+                        // failure, not a note: the subscription id matched but
+                        // the identity behind it is not the one recorded.
+                        if let Some(want_tenant) = stored.tenant_id.as_deref() {
+                            if want_tenant != tenant {
+                                anyhow::bail!(
+                                    "Profile '{}' records tenant {} but the Azure CLI is \
+                                     signed in to {}.",
+                                    profile,
+                                    want_tenant,
+                                    tenant
+                                );
+                            }
+                        }
                     }
+                    // Do not overstate what was checked. No login was
+                    // performed as the profile's principal; a profile stores
+                    // no secret.
+                    println!(
+                        "  Checked with the current `az` session, not by signing in as \
+                         client {}. A profile stores no secret.",
+                        stored.client_id.as_deref().unwrap_or("-")
+                    );
                 }
                 azlin_cli::AuthAction::Setup {
                     profile,
                     tenant_id,
                     client_id,
                     subscription_id,
-                    ..
+                    use_certificate,
+                    certificate_path,
                 } => {
                     use dialoguer::Input;
+
+                    // Both certificate flags were accepted and discarded
+                    // (#1089): `--use-certificate` produced a profile
+                    // indistinguishable from a password-based one, and a
+                    // `--certificate-path` pointing at nothing was recorded as
+                    // success. Validated before anything is prompted for, so a
+                    // typo'd path is not found out after three questions.
+                    crate::auth_profile::validate_certificate_flags(
+                        use_certificate,
+                        certificate_path.as_deref(),
+                    )?;
 
                     let tenant = match tenant_id {
                         Some(t) => t,
@@ -141,15 +193,35 @@ pub(crate) async fn dispatch(
                         anyhow::bail!("Invalid profile name: {}", e);
                     }
 
-                    let profile_data = serde_json::json!({
-                        "tenant_id": tenant,
-                        "client_id": client,
-                        "subscription_id": subscription,
-                    });
+                    let stored = crate::auth_profile::AuthProfile {
+                        name: profile.clone(),
+                        tenant_id: Some(tenant),
+                        client_id: Some(client),
+                        subscription_id: Some(subscription),
+                        use_certificate,
+                        certificate_path: certificate_path.clone(),
+                    };
+                    let profile_data = crate::auth_profile::to_json(&stored);
 
                     let profile_path = profiles_dir.join(format!("{}.json", profile));
                     std::fs::write(&profile_path, serde_json::to_string_pretty(&profile_data)?)?;
                     println!("Saved profile '{}' to {}", profile, profile_path.display());
+                    if use_certificate {
+                        if let Some(path) = &certificate_path {
+                            println!("  Certificate: {}", path.display());
+                        }
+                    }
+                    // Say what the profile can and cannot do. It stores no
+                    // secret, so azlin cannot log in as this principal; what a
+                    // profile pins is the subscription and tenant a command
+                    // runs against.
+                    println!(
+                        "  `--auth-profile {}` will run commands against subscription {}. \
+                         azlin does not log in as this principal — sign in to its tenant \
+                         with `az login` first.",
+                        profile,
+                        stored.subscription_id.as_deref().unwrap_or("-")
+                    );
                 }
                 azlin_cli::AuthAction::Remove { profile, yes } => {
                     if let Err(e) = crate::name_validation::validate_name(&profile) {

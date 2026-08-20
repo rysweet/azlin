@@ -392,7 +392,7 @@ pub(crate) async fn dispatch(
         azlin_cli::Commands::Code {
             vm_identifier,
             resource_group,
-            auth_profile: _,
+            auth_profile,
             user: _user,
             key,
             no_extensions: _no_extensions,
@@ -401,7 +401,8 @@ pub(crate) async fn dispatch(
         } => {
             let name = vm_identifier;
 
-            let auth = create_auth()?;
+            // `--auth-profile` was accepted and discarded (#1089).
+            let auth = create_auth_with_profile(auth_profile.as_deref())?;
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
 
