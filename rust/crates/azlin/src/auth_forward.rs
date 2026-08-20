@@ -327,6 +327,13 @@ pub(crate) fn egress_failure_message(vm_name: &str, resource_group: &str, region
 ///
 /// Best-effort by design: an SSH failure here yields [`EgressStatus::Unknown`],
 /// not `Failed`. Only the VM's own explicit `fail` sentinel marks it degraded.
+///
+/// Downgrading the *verdict* is right; discarding the *diagnostic* is not. The
+/// cause is printed before it is dropped, because "could not verify outbound
+/// internet" alone leaves the user unable to tell an auth failure from a
+/// timeout from a host that never came up. Sanitized on the way out for the
+/// same reason [`egress_failure_message`] never echoes remote stdout: an SSH
+/// error can carry remote stderr, and with it ANSI and control sequences.
 pub(crate) fn verify_egress(
     ip: &str,
     user: &str,
@@ -343,7 +350,13 @@ pub(crate) fn verify_egress(
         interactive_ssh,
     ) {
         Ok(out) => parse_egress_probe(&out),
-        Err(_) => EgressStatus::Unknown,
+        Err(e) => {
+            eprintln!(
+                "  Egress probe could not run: {}",
+                azlin_core::sanitizer::sanitize(&e.to_string())
+            );
+            EgressStatus::Unknown
+        }
     }
 }
 

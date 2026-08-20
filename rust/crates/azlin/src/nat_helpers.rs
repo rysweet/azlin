@@ -386,6 +386,18 @@ fn read_failure_message(region: &str, first: &str, second: Option<&str>) -> Stri
     }
 }
 
+/// Render the context added when the post-conflict subnet re-read also failed.
+///
+/// Pure so the one branch that could lose an error is testable: the caller has
+/// two errors in hand and must surface both, and the re-read is exactly where
+/// an RBAC denial would otherwise go unannotated.
+fn conflict_recheck_failure_message(re_read: &anyhow::Error) -> String {
+    annotate_authz(format!(
+        "The attach conflicted with a concurrent operation, and the follow-up \
+         subnet re-check also failed: {re_read}"
+    ))
+}
+
 /// Ensure the VM subnet in `region` has outbound internet via a NAT gateway.
 ///
 /// Idempotent: an existing gateway — including one azlin did not create — is
@@ -455,7 +467,15 @@ pub fn ensure_nat_gateway(resource_group: &str, region: &str, ip_tags: &str) -> 
                 );
                 return Ok(());
             }
-            _ => return Err(e),
+            // The concurrent run finished without attaching anything, so the
+            // original conflict is still the real failure.
+            Ok(_) => return Err(e),
+            // The re-read itself failed. Reporting only the conflict would
+            // send the user chasing a race that may not exist when the actual
+            // problem is that the subnet is now unreadable — and if that was
+            // an RBAC denial, `annotate_authz` is the one thing that tells
+            // them which role they are missing.
+            Err(re_read) => return Err(e.context(conflict_recheck_failure_message(&re_read))),
         }
     }
     eprintln!("  ✓ Attached to subnet '{VM_SUBNET}' of '{vnet}'");
@@ -1042,6 +1062,44 @@ mod tests {
             );
             assert!(m.contains("southcentralus"), "must name the region: {m}");
         }
+    }
+
+    #[test]
+    fn test_conflict_recheck_failure_message_keeps_the_re_read_error() {
+        // The branch this covers used to be `_ => return Err(e)`, which threw
+        // the re-read error away: the user learned there had been a conflict
+        // but not that the subnet had since become unreadable.
+        let msg = conflict_recheck_failure_message(&anyhow::anyhow!(
+            "`az network vnet subnet show` failed for subnet 'default'"
+        ));
+        assert!(
+            msg.contains("conflicted with a concurrent operation"),
+            "must still report the original conflict: {msg}"
+        );
+        assert!(
+            msg.contains("`az network vnet subnet show` failed"),
+            "must not discard the re-read error: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_conflict_recheck_failure_message_annotates_an_authz_denial() {
+        // annotate_authz exists precisely for this case, and this was the one
+        // path where a denial could reach the user without the role name.
+        let denied = conflict_recheck_failure_message(&anyhow::anyhow!(
+            "AuthorizationFailed: the client does not have authorization"
+        ));
+        assert!(
+            denied.contains("Network Contributor"),
+            "an RBAC denial on the re-read must still name the missing role: {denied}"
+        );
+
+        // And a non-authz failure must not be mislabeled as a permissions problem.
+        let throttled = conflict_recheck_failure_message(&anyhow::anyhow!("429 TooManyRequests"));
+        assert!(
+            !throttled.contains("Network Contributor"),
+            "throttling is not a permissions failure: {throttled}"
+        );
     }
 
     #[test]
