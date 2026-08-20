@@ -1,0 +1,118 @@
+name: "azlin cleanup applies --age-days instead of only announcing it"
+description: |
+  Verifies PR #1116 (issue #1089). `azlin cleanup` printed "Scanning for
+  orphaned resources in 'rg' (older than 1 days)..." and then listed and
+  deleted every orphan regardless of age. `age_days` reached the header and
+  nothing else.
+
+  This is the class the flag-wiring checker explicitly cannot see: the value
+  *is* bound and *is* used, so the gate is satisfied, while the output claims
+  a filter that never ran. It is therefore checked by unit tests over the
+  partition rather than by the gate.
+
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 30000
+
+steps:
+  - name: "Build the binary under test (never assert against a stale build)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo build -p azlin 2>&1 | tail -1
+        test -x target/debug/azlin && echo "PASS: fresh azlin binary present"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "The age partition holds back what is too new and keeps what is undated"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        for t in a_resource_newer_than_the_threshold_is_held_back \
+                 a_resource_with_no_creation_time_is_kept_not_dropped \
+                 zero_days_keeps_everything \
+                 the_cutoff_is_inclusive \
+                 disk_creation_time_is_read_from_azure \
+                 an_unparsable_creation_time_is_undated \
+                 undated_types_are_observed_not_assumed; do
+          cargo test -p azlin-azure "$t" 2>&1 | grep -q "1 passed" \
+            || { echo "FAIL: $t did not pass"; exit 1; }
+        done
+        echo "PASS: seven assertions over the partition"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "The header no longer claims a filter it did not apply"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # It used to read "older than 1 days" whatever happened next.
+        grep -q "partition_by_age" crates/azlin/src/cmd_cleanup_ops.rs \
+          || { echo "FAIL: the scan does not partition by age"; exit 1; }
+        grep -q "any age" crates/azlin/src/handlers/cleanup.rs \
+          || { echo "FAIL: --age-days 0 still reads as 'older than 0 days'"; exit 1; }
+        echo "PASS: the header says what the scan does"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 10000
+
+  - name: "The undated types are read from the data, not asserted"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # A message naming a fixed list of Azure types would become a lie the
+        # moment `az` started reporting timeCreated on one of them — the same
+        # shape as the bug this fixes one layer up.
+        grep -q "undated_types" crates/azlin/src/cmd_cleanup_ops.rs \
+          || { echo "FAIL: the note does not read the observed types"; exit 1; }
+        grep -q "network interfaces, public IPs or NSGs" crates/azlin/src/handlers/cleanup.rs \
+          && { echo "FAIL: the note still hard-codes a claim about Azure"; exit 1; }
+        echo "PASS: the note follows the data"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 10000
+
+  - name: "The three VM-oriented flags stay in the ledger, with their reason"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        L=crates/xtask/unwired-flags-allowlist.txt
+        for f in Commands::Cleanup::idle_days Commands::Cleanup::include_running \
+                 Commands::Cleanup::include_named; do
+          grep -q "^$f" "$L" || { echo "FAIL: $f left the ledger — wired the wrong way?"; exit 1; }
+        done
+        grep -q "describe a feature that does not exist" "$L" \
+          || { echo "FAIL: the recorded reason is gone"; exit 1; }
+        cargo run -p xtask --locked -- check-flag-wiring > /tmp/wiring.txt 2>&1 || {
+          cat /tmp/wiring.txt; echo "FAIL: gate is red"; exit 1; }
+        grep -q "28 allowlisted" /tmp/wiring.txt || {
+          cat /tmp/wiring.txt; echo "FAIL: allowlist is not at 28 entries"; exit 1; }
+        echo "PASS: recorded, not guessed at"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
