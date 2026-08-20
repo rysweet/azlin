@@ -62,11 +62,33 @@ pub(crate) async fn handle_disk_add(
     let lun = lun.unwrap_or(0);
     let target = resolve_vm_ssh_target(vm_name, None, resource_group).await?;
     let pb = penguin_spinner(&format!("Formatting and mounting at {}...", mount_path));
-    let script = crate::mount_helpers::build_disk_mount_script(lun, &mount_path);
+    let script = crate::mount_helpers::build_disk_mount_script(lun, &mount_path)
+        .map_err(|e| anyhow::anyhow!("Invalid --mount path: {}", e))?;
     let result = target.exec(&script);
     pb.finish_and_clear();
     let (code, stdout, stderr) = result?;
     if code != 0 {
+        // How far it got decides what to tell the user, and the three outcomes
+        // are not the same problem. A failure after the mount succeeded means
+        // the disk is usable *now* and will not come back after a reboot —
+        // reporting that as "could not be mounted" would send the user to fix
+        // the wrong thing.
+        let reached_mount = stdout.contains("azlin: step=mounted");
+        let detail = azlin_core::sanitizer::sanitize(stderr.trim()).to_string();
+        if reached_mount {
+            anyhow::bail!(
+                "Disk '{}' is attached to '{}' and mounted at {}, but the /etc/fstab entry \
+                 could not be written: {}\n\
+                 The mount will NOT survive a reboot. Add it by hand, or re-run \
+                 `azlin disk add --lun {} --mount {}` once the cause is fixed.",
+                disk_name,
+                vm_name,
+                mount_path,
+                detail,
+                lun,
+                mount_path
+            );
+        }
         // The disk exists and is billing whether or not the mount worked, so
         // say so rather than leaving the user to discover it.
         anyhow::bail!(
@@ -76,7 +98,7 @@ pub(crate) async fn handle_disk_add(
             disk_name,
             vm_name,
             mount_path,
-            azlin_core::sanitizer::sanitize(stderr.trim()),
+            detail,
             lun,
             mount_path
         );

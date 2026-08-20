@@ -62,6 +62,14 @@ const SECRET_KEY_MARKERS: [&str; 9] = [
 ///
 /// A private key pasted as a value is caught on shape rather than name,
 /// because nobody calls that variable `SECRET`.
+///
+/// **Scope: `env set` only.** `azlin env import` writes the same file in bulk
+/// and does not call this, so a user who hits the warning once and reaches for
+/// `import` gets around the check without meaning to. That is a real gap and
+/// is stated here rather than left for someone to find: covering `import`
+/// means deciding what to do with a file of fifty variables where three look
+/// like credentials, which is a different design question from warning about
+/// one.
 pub fn secret_warning(key: &str, value: &str) -> Option<String> {
     let lower = key.to_ascii_lowercase();
     if let Some(marker) = SECRET_KEY_MARKERS.iter().find(|m| lower.contains(**m)) {

@@ -52,9 +52,14 @@ pub fn azure_lun_device(lun: u32) -> String {
 ///
 /// `nofail` keeps a missing disk from blocking boot: a VM that will not come
 /// up is a worse outcome than a missing mount.
-pub fn build_disk_mount_script(lun: u32, mount_path: &str) -> String {
+pub fn build_disk_mount_script(lun: u32, mount_path: &str) -> Result<String, String> {
+    // Validated here as well as at the call site. The path is interpolated into a
+    // shell script two modules away from where it is checked, so a second caller
+    // would inherit that guarantee by convention rather than by construction — and
+    // shell injection is not a property to hold by convention.
+    validate_mount_path(mount_path)?;
     let device = azure_lun_device(lun);
-    format!(
+    Ok(format!(
         "set -e\n\
          DEV={device}\n\
          for _ in $(seq 1 30); do [ -e \"$DEV\" ] && break; sleep 1; done\n\
@@ -65,12 +70,13 @@ pub fn build_disk_mount_script(lun: u32, mount_path: &str) -> String {
          else echo 'azlin: filesystem already present, not reformatting'; fi\n\
          sudo mkdir -p {mount_path}\n\
          sudo mount \"$DEV\" {mount_path}\n\
+         echo 'azlin: step=mounted'\n\
          UUID=$(sudo blkid -s UUID -o value \"$DEV\")\n\
          if ! grep -q \"$UUID\" /etc/fstab; then\n\
          echo \"UUID=$UUID {mount_path} ext4 defaults,nofail 0 2\" | sudo tee -a /etc/fstab >/dev/null\n\
          fi\n\
-         echo 'azlin: mounted'\n"
-    )
+         echo 'azlin: step=persisted'\n"
+    ))
 }
 
 #[cfg(test)]
@@ -88,7 +94,7 @@ mod mount_script_tests {
     /// first run created.
     #[test]
     fn the_script_never_reformats_unconditionally() {
-        let script = build_disk_mount_script(0, "/data");
+        let script = build_disk_mount_script(0, "/data").unwrap();
         assert!(script.contains("blkid"), "{script}");
         let mkfs_line = script
             .lines()
@@ -109,7 +115,7 @@ mod mount_script_tests {
     /// where this one was.
     #[test]
     fn fstab_uses_the_uuid_and_does_not_block_boot() {
-        let script = build_disk_mount_script(1, "/data");
+        let script = build_disk_mount_script(1, "/data").unwrap();
         assert!(script.contains("blkid -s UUID"), "{script}");
         assert!(script.contains("UUID=$UUID /data ext4"), "{script}");
         assert!(
@@ -122,16 +128,26 @@ mod mount_script_tests {
     /// A second run must not append a duplicate fstab entry.
     #[test]
     fn fstab_is_not_appended_twice() {
-        let script = build_disk_mount_script(1, "/data");
+        let script = build_disk_mount_script(1, "/data").unwrap();
         assert!(script.contains("grep -q \"$UUID\" /etc/fstab"), "{script}");
     }
 
     /// The device symlink appears asynchronously after the attach returns.
     #[test]
     fn the_script_waits_for_the_device() {
-        let script = build_disk_mount_script(2, "/data");
+        let script = build_disk_mount_script(2, "/data").unwrap();
         assert!(script.contains("seq 1 30"), "{script}");
         assert!(script.contains("never appeared"), "{script}");
+    }
+
+    /// The builder refuses a path the validator rejects, so the guarantee is
+    /// local to the function that does the interpolating rather than held by
+    /// convention at the call site.
+    #[test]
+    fn the_builder_refuses_a_path_it_would_have_to_interpolate_unsafely() {
+        assert!(build_disk_mount_script(0, "/data; rm -rf /").is_err());
+        assert!(build_disk_mount_script(0, "relative").is_err());
+        assert!(build_disk_mount_script(0, "/data").is_ok());
     }
 
     #[test]
