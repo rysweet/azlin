@@ -797,6 +797,9 @@ pub(crate) async fn handle_vm_new(
             crate::egress_gate::EgressDecision::NatGateway { name: Some(name) } => {
                 eprintln!("  ✓ NAT gateway '{name}' provides egress for {final_loc}");
             }
+            // Nothing to print: `None` means this run provisioned the
+            // gateway, and `ensure_nat_gateway` has already reported each of
+            // its three steps.
             crate::egress_gate::EgressDecision::NatGateway { name: None } => {}
             crate::egress_gate::EgressDecision::SwitchToPublicIp => {
                 eprintln!(

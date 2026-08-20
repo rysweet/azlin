@@ -290,49 +290,112 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /// The exhaustive statement of R4: over every combination of subnet state
-    /// and user answer, the gate either proves egress, switches to a public
-    /// IP, or fails. Nothing reaches `az vm create` on a private VM without
-    /// one of the first two.
+    /// The exhaustive statement of R4, as a table.
+    ///
+    /// Every combination of subnet state, user answer and provisioning outcome
+    /// is mapped to the outcome it must produce. The compiler already
+    /// guarantees there is no third `EgressDecision` variant; what this checks
+    /// is that no *input* combination reaches the wrong one of the two.
     #[test]
-    fn every_branch_either_proves_egress_or_refuses() {
-        let states: Vec<fn() -> Result<NatStatus>> =
-            vec![|| Ok(NatStatus::Absent), attached, || {
-                Err(anyhow::anyhow!("read failed"))
-            }];
-        let answers = [
-            NatMissingAction::CreateNatGateway,
-            NatMissingAction::SwitchToPublicIp,
-            NatMissingAction::Abort,
+    fn every_combination_maps_to_the_required_outcome() {
+        /// What the gate must produce.
+        #[derive(Debug, PartialEq, Eq)]
+        enum Want {
+            Gateway,
+            PublicIp,
+            Refused,
+        }
+        let read_failed = || Err(anyhow::anyhow!("read failed"));
+        let absent = || Ok(NatStatus::Absent);
+        let cases: [(fn() -> Result<NatStatus>, NatMissingAction, bool, Want); 14] = [
+            // An unreadable subnet refuses whatever the user would have said.
+            (
+                read_failed,
+                NatMissingAction::CreateNatGateway,
+                true,
+                Want::Refused,
+            ),
+            (
+                read_failed,
+                NatMissingAction::CreateNatGateway,
+                false,
+                Want::Refused,
+            ),
+            (
+                read_failed,
+                NatMissingAction::SwitchToPublicIp,
+                true,
+                Want::Refused,
+            ),
+            (read_failed, NatMissingAction::Abort, true, Want::Refused),
+            // An attached gateway short-circuits before the prompt, so the
+            // answer and the provisioning outcome cannot change the verdict.
+            (
+                attached,
+                NatMissingAction::CreateNatGateway,
+                false,
+                Want::Gateway,
+            ),
+            (
+                attached,
+                NatMissingAction::SwitchToPublicIp,
+                false,
+                Want::Gateway,
+            ),
+            (attached, NatMissingAction::Abort, false, Want::Gateway),
+            // No gateway: the answer decides, and provisioning can still fail.
+            (
+                absent,
+                NatMissingAction::CreateNatGateway,
+                true,
+                Want::Gateway,
+            ),
+            (
+                absent,
+                NatMissingAction::CreateNatGateway,
+                false,
+                Want::Refused,
+            ),
+            (
+                absent,
+                NatMissingAction::SwitchToPublicIp,
+                true,
+                Want::PublicIp,
+            ),
+            (
+                absent,
+                NatMissingAction::SwitchToPublicIp,
+                false,
+                Want::PublicIp,
+            ),
+            (absent, NatMissingAction::Abort, true, Want::Refused),
+            (absent, NatMissingAction::Abort, false, Want::Refused),
+            // A gateway that exists is reused even when the user would have
+            // said "abort" — the prompt never happens.
+            (attached, NatMissingAction::Abort, true, Want::Gateway),
         ];
-        let provisioning = [true, false];
-        for state in states {
-            for answer in &answers {
-                for ok in provisioning {
-                    let answer = *answer;
-                    let outcome = resolve_private_vm_egress(
-                        RG,
-                        REGION,
-                        state,
-                        || Ok(answer),
-                        || {
-                            if ok {
-                                Ok(())
-                            } else {
-                                Err(anyhow::anyhow!("provisioning failed"))
-                            }
-                        },
-                    );
-                    match outcome {
-                        Ok(EgressDecision::NatGateway { .. }) => {}
-                        Ok(EgressDecision::SwitchToPublicIp) => {}
-                        Err(_) => {}
+        for (state, answer, provisioning_ok, want) in cases {
+            let got = match resolve_private_vm_egress(
+                RG,
+                REGION,
+                state,
+                || Ok(answer),
+                || {
+                    if provisioning_ok {
+                        Ok(())
+                    } else {
+                        Err(anyhow::anyhow!("provisioning failed"))
                     }
-                    // The real assertion is that `EgressDecision` has no
-                    // third variant: a "proceed without egress" outcome is not
-                    // expressible, so no combination can produce one.
-                }
-            }
+                },
+            ) {
+                Ok(EgressDecision::NatGateway { .. }) => Want::Gateway,
+                Ok(EgressDecision::SwitchToPublicIp) => Want::PublicIp,
+                Err(_) => Want::Refused,
+            };
+            assert_eq!(
+                got, want,
+                "state/answer {answer:?} with provisioning_ok={provisioning_ok}"
+            );
         }
     }
 
