@@ -718,6 +718,43 @@ fn parse_expires_on_to_instant(
     Some(issued_at + std::time::Duration::from_millis(delta_ms as u64))
 }
 
+/// Whether a connection may share the pooled bastion tunnel for a VM.
+///
+/// `azlin connect --disable-bastion-pool` promised "Disable bastion connection
+/// pooling" and was discarded (#1089): the pool is the tunnel registry, and
+/// every connection took from it and wrote to it regardless.
+///
+/// `Private` does both halves: it does not reuse another process's tunnel and
+/// it does not register its own. Skipping only the read would replace the
+/// shared entry with a tunnel that dies when this process exits, breaking
+/// pooling for everyone else — which is not what "disable it for me" means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TunnelSharing {
+    /// Reuse a live tunnel if one exists, and register the one we create.
+    Pooled,
+    /// Neither reuse nor register. Dies with this process.
+    Private,
+}
+
+impl TunnelSharing {
+    /// From the flag as the user typed it.
+    pub fn from_disable_flag(disable_pool: bool) -> Self {
+        if disable_pool {
+            Self::Private
+        } else {
+            Self::Pooled
+        }
+    }
+
+    pub fn reuses(self) -> bool {
+        matches!(self, Self::Pooled)
+    }
+
+    pub fn registers(self) -> bool {
+        matches!(self, Self::Pooled)
+    }
+}
+
 /// Get or create a bastion tunnel for a VM. Reuses existing tunnels from the registry.
 ///
 /// Returns the local port the tunnel is bound to.
@@ -725,6 +762,26 @@ pub async fn get_or_create_tunnel(
     bastion_name: &str,
     resource_group: &str,
     vm_resource_id: &str,
+) -> Result<u16> {
+    get_or_create_tunnel_shared(
+        bastion_name,
+        resource_group,
+        vm_resource_id,
+        TunnelSharing::Pooled,
+    )
+    .await
+}
+
+/// [`get_or_create_tunnel`], with the pool made optional.
+///
+/// See [`TunnelSharing`]. `Private` neither reuses a live tunnel nor registers
+/// the one it opens, so a caller that opted out of pooling neither takes from
+/// the pool nor disturbs it.
+pub async fn get_or_create_tunnel_shared(
+    bastion_name: &str,
+    resource_group: &str,
+    vm_resource_id: &str,
+    sharing: TunnelSharing,
 ) -> Result<u16> {
     ensure_watchdog_running();
 
@@ -744,7 +801,11 @@ pub async fn get_or_create_tunnel(
         .and_then(|d| parse_dns_name(&d).ok());
 
     // Reuse existing tunnel if it is alive, uniquely mapped, and still listening.
-    if let Some(entry) = registry.get(vm_resource_id).cloned() {
+    if let Some(entry) = registry
+        .get(vm_resource_id)
+        .cloned()
+        .filter(|_| sharing.reuses())
+    {
         let duplicate_port = registry.tunnels.iter().any(|(other_id, other)| {
             other_id != vm_resource_id && other.local_port == entry.local_port
         });
@@ -842,17 +903,24 @@ pub async fn get_or_create_tunnel(
         .unwrap_or_default()
         .as_secs();
 
-    registry.insert(TunnelRegistryEntry {
-        vm_resource_id: vm_resource_id.to_string(),
-        bastion_name: bastion_name.to_string(),
-        resource_group: resource_group.to_string(),
-        local_port: port,
-        pid: std::process::id(),
-        created_at: now,
-        tunnel_type: "native".to_string(),
-        dns_name: bastion_endpoint,
-    });
-    registry.save()?;
+    if sharing.registers() {
+        registry.insert(TunnelRegistryEntry {
+            vm_resource_id: vm_resource_id.to_string(),
+            bastion_name: bastion_name.to_string(),
+            resource_group: resource_group.to_string(),
+            local_port: port,
+            pid: std::process::id(),
+            created_at: now,
+            tunnel_type: "native".to_string(),
+            dns_name: bastion_endpoint,
+        });
+        registry.save()?;
+    } else {
+        debug!(
+            "bastion pooling disabled for {}: tunnel on port {} is private to this process",
+            vm_resource_id, port
+        );
+    }
 
     debug!(
         "started new native bastion tunnel for {} on port {}",
@@ -1145,7 +1213,25 @@ impl ScopedBastionTunnel {
         resource_group: &str,
         vm_resource_id: &str,
     ) -> Result<Self> {
-        let local_port = get_or_create_tunnel(bastion_name, resource_group, vm_resource_id).await?;
+        Self::new_shared(
+            bastion_name,
+            resource_group,
+            vm_resource_id,
+            TunnelSharing::Pooled,
+        )
+        .await
+    }
+
+    /// [`ScopedBastionTunnel::new`], honouring `--disable-bastion-pool`.
+    pub async fn new_shared(
+        bastion_name: &str,
+        resource_group: &str,
+        vm_resource_id: &str,
+        sharing: TunnelSharing,
+    ) -> Result<Self> {
+        let local_port =
+            get_or_create_tunnel_shared(bastion_name, resource_group, vm_resource_id, sharing)
+                .await?;
         Ok(Self {
             local_port,
             vm_resource_id: vm_resource_id.to_string(),
@@ -1712,6 +1798,21 @@ mod tests {
             }
         }
         assert!(detected_dead, "released port must report not listening");
+    }
+
+    #[test]
+    fn disabling_the_pool_means_neither_reusing_nor_registering() {
+        let private = TunnelSharing::from_disable_flag(true);
+        assert!(!private.reuses());
+        assert!(
+            !private.registers(),
+            "skipping only the read would replace the shared entry with a tunnel that dies \
+             with this process, breaking pooling for everyone else"
+        );
+
+        let pooled = TunnelSharing::from_disable_flag(false);
+        assert!(pooled.reuses());
+        assert!(pooled.registers());
     }
 
     #[test]

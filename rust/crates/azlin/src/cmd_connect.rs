@@ -83,6 +83,7 @@ pub(crate) async fn dispatch(
             x11,
             no_status,
             remote_command,
+            disable_bastion_pool,
             ..
         } => {
             let auth = create_auth()?;
@@ -305,10 +306,21 @@ pub(crate) async fn dispatch(
                         "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
                         vm_manager.subscription_id(), rg, name
                     );
-                    // Open native bastion tunnel to get a local port
-                    let tunnel =
-                        crate::bastion_tunnel::ScopedBastionTunnel::new(bastion_name, &rg, &vm_rid)
-                            .await?;
+                    // Open native bastion tunnel to get a local port.
+                    // `--disable-bastion-pool` was accepted and discarded, so a
+                    // connection asking not to share a tunnel shared one anyway
+                    // (#1089). Private means neither reusing another process's
+                    // tunnel nor registering this one.
+                    let sharing = crate::bastion_tunnel::TunnelSharing::from_disable_flag(
+                        disable_bastion_pool,
+                    );
+                    let tunnel = crate::bastion_tunnel::ScopedBastionTunnel::new_shared(
+                        bastion_name,
+                        &rg,
+                        &vm_rid,
+                        sharing,
+                    )
+                    .await?;
                     // Ensure an SSH key exists; auto-generate if missing.
                     let ssh_key = resolve_key_and_push(&key, &rg, &name, &username)?;
                     let mut args = vec!["-p".to_string(), tunnel.local_port.to_string()];

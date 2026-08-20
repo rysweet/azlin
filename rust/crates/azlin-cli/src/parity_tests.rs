@@ -20,13 +20,18 @@ mod parity_tests {
     //    Also: vm_identifier must be required (String, not Option<String>)
     // =====================================================================
 
+    /// `--user` used to declare `azureuser` as its default while the handler
+    /// discarded the flag and used the VM's own admin user (#1089), so this
+    /// test passed for years describing something that never happened. The
+    /// property that replaced it: omitting `--user` chooses nothing here, and
+    /// the handler falls back to the VM's admin user.
     #[test]
-    fn test_code_has_user_flag_with_default() {
+    fn test_code_user_has_no_default_so_the_vm_decides() {
         let cli = Cli::parse_from(["azlin", "code", "my-vm"]);
         if let Commands::Code { user, .. } = cli.command {
             assert_eq!(
-                user, "azureuser",
-                "code --user should default to 'azureuser'"
+                user, None,
+                "code --user must not claim a default it never applied"
             );
         } else {
             panic!("Expected Code command");
@@ -37,7 +42,11 @@ mod parity_tests {
     fn test_code_user_flag_override() {
         let cli = Cli::parse_from(["azlin", "code", "my-vm", "--user", "devuser"]);
         if let Commands::Code { user, .. } = cli.command {
-            assert_eq!(user, "devuser", "code --user should accept custom value");
+            assert_eq!(
+                user.as_deref(),
+                Some("devuser"),
+                "code --user should accept custom value"
+            );
         } else {
             panic!("Expected Code command");
         }
@@ -790,7 +799,7 @@ mod parity_tests {
         } = cli.command
         {
             assert_eq!(vm_identifier, "my-vm");
-            assert_eq!(user, "devuser");
+            assert_eq!(user.as_deref(), Some("devuser"));
             assert_eq!(key, Some(std::path::PathBuf::from("/tmp/key")));
             assert!(no_extensions);
             assert_eq!(workspace, "/projects");

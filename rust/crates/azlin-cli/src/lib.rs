@@ -949,9 +949,9 @@ pub enum Commands {
         #[arg(long)]
         auth_profile: Option<String>,
 
-        /// SSH username for remote connection
-        #[arg(long, default_value = "azureuser")]
-        user: String,
+        /// SSH username for remote connection (default: the VM's admin user)
+        #[arg(long)]
+        user: Option<String>,
 
         /// Path to SSH private key
         #[arg(long)]

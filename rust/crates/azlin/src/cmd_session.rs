@@ -420,7 +420,7 @@ pub(crate) async fn dispatch(
             vm_identifier,
             resource_group,
             auth_profile,
-            user: _user,
+            user,
             key,
             no_extensions: _no_extensions,
             workspace,
@@ -437,10 +437,18 @@ pub(crate) async fn dispatch(
             let vm = vm_manager.get_vm(&rg, &name)?;
             pb.finish_and_clear();
 
-            let user = vm
-                .admin_username
-                .clone()
-                .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
+            // `--user` was accepted and discarded, and its declared default
+            // ("azureuser") was not what happened either: the handler always
+            // used the VM's own admin user (#1089). Both halves are fixed by
+            // making the flag an override of the real default rather than a
+            // constant that was never applied — a VM whose admin user is not
+            // `azureuser` keeps working untouched, and a second account on the
+            // VM is now reachable.
+            let user = user.unwrap_or_else(|| {
+                vm.admin_username
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string())
+            });
             let use_bastion = vm.public_ip.is_none();
 
             let (ssh_host, _tunnel) = if use_bastion {

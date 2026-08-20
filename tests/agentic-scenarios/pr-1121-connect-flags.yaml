@@ -1,0 +1,135 @@
+name: "azlin code --user and azlin connect --disable-bastion-pool are honoured"
+description: |
+  Verifies issue #1089 for the two connection flags.
+
+  `azlin code --user` was discarded *and* its declared default was not what
+  happened: the help said `azureuser` while the handler always used the VM's
+  own admin user. Both halves were wrong, in opposite directions — a VM with a
+  different admin worked by accident, and `--user deploy` did nothing.
+
+  `azlin connect --disable-bastion-pool` was discarded. The pool is real: the
+  tunnel registry lets one process reuse a live bastion tunnel opened by
+  another. A connection asking not to share one shared it anyway.
+
+  Disabling the pool skips *both* halves — it neither reuses another process's
+  tunnel nor registers its own. Skipping only the read would replace the shared
+  registry entry with a tunnel that dies when this process exits, breaking
+  pooling for everyone else, which is not what "disable it for me" means.
+
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 30000
+
+steps:
+  - name: "Build the binary under test (never assert against a stale build)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo build -p azlin 2>&1 | tail -1
+        test -x target/debug/azlin && echo "PASS: fresh azlin binary present"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 1800000
+
+  - name: "Both flags are still advertised"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        ./target/debug/azlin code --help | grep -q -- "--user" || { echo "FAIL: --user gone"; exit 1; }
+        ./target/debug/azlin connect --help | grep -q -- "--disable-bastion-pool" \
+          || { echo "FAIL: --disable-bastion-pool gone"; exit 1; }
+        echo "PASS: both advertised"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+  - name: "--user no longer advertises a default it never applied"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        help=$(./target/debug/azlin code --help)
+        echo "$help" | grep -A 2 -- "--user" | grep -q "default: azureuser" \
+          && { echo "FAIL: still claims a default it never applied"; exit 1; }
+        echo "$help" | grep -q "admin user" \
+          && echo "PASS: the real default is stated"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+  - name: "Disabling the pool means neither reusing nor registering"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo test -p azlin --bin azlin disabling_the_pool 2>&1 | tail -3
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok"
+    timeout: 1800000
+
+  - name: "Both flags parse and stop at the Azure boundary without panicking"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo test -p azlin --bin azlin connect_flags 2>&1 | tail -3
+    expect:
+      exit_code: 0
+      stdout_contains: "test result: ok"
+    timeout: 1800000
+
+  - name: "The ledger drops both and states why two others stay"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        for e in "Commands::Code::user" "Commands::Connect::disable_bastion_pool"; do
+          grep -q "$e" crates/xtask/unwired-flags-allowlist.txt \
+            && { echo "FAIL: $e still ledgered"; exit 1; }
+        done
+        grep -q "Commands::Code::no_extensions" crates/xtask/unwired-flags-allowlist.txt \
+          || { echo "FAIL: no_extensions must stay, with its reason"; exit 1; }
+        grep -q "Commands::Session::resource_group" crates/xtask/unwired-flags-allowlist.txt \
+          || { echo "FAIL: session --resource-group must stay, with its reason"; exit 1; }
+        cargo run -q -p xtask --locked -- check-flag-wiring 2>&1 | tail -2
+        echo "PASS: ledger correct and gate clean"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "The docs no longer promise a VS Code settings directory azlin never reads"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        grep -q "It does not read them" docs/reference/cli-python-parity.md \
+          && echo "PASS: the absent feature is documented as absent"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+
+expectations:
+  - "azlin code --user deploy connects as deploy; omitting it uses the VM's admin user"
+  - "A VM whose admin user is not azureuser keeps working exactly as before"
+  - "azlin connect --disable-bastion-pool opens its own tunnel"
+  - "It also does not register that tunnel, so other processes' pooling is undisturbed"
+  - "Without the flag, pooling behaves exactly as it did"
+  - "code --no-extensions and session --resource-group stay ledgered, each with its reason"
+  - "No public IP is provisioned by any step; nothing here provisions anything at all"

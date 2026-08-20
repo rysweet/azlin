@@ -37,10 +37,10 @@ azlin code <VM_IDENTIFIER> [OPTIONS]
 |------|------|---------|-------------|
 | `--resource-group`, `--rg` | `TEXT` | config default | Azure resource group |
 | `--config` | `PATH` | `~/.azlin/config.toml` | Config file path |
-| `--user` | `TEXT` | `azureuser` | SSH username for the connection |
+| `--user` | `TEXT` | the VM's admin user | SSH username for the connection |
 | `--key` | `PATH` | — | SSH private key path |
-| `--no-extensions` | flag | `false` | Skip VS Code extension installation (faster launch) |
-| `--workspace` | `TEXT` | `/home/user` | Remote workspace directory to open |
+| `--no-extensions` | flag | `false` | **Not implemented** — see below |
+| `--workspace` | `TEXT` | `/home/azureuser` | Remote workspace directory to open |
 
 ### Examples
 
@@ -51,8 +51,8 @@ azlin code my-dev-vm
 # Connect as a different user with a specific key
 azlin code my-dev-vm --user ubuntu --key ~/.ssh/custom_key
 
-# Open a specific workspace directory, skip extensions
-azlin code my-dev-vm --workspace /home/azureuser/projects --no-extensions
+# Open a specific workspace directory
+azlin code my-dev-vm --workspace /home/azureuser/projects
 
 # Explicit resource group
 azlin code my-dev-vm --rg my-resource-group
@@ -65,18 +65,31 @@ tunnel that outlives the command. The tunnel is owned by a detached
 `__tunnel-host` helper process (not by `azlin code` itself), so VS Code's
 multiple long-lived Remote-SSH connections keep working after `azlin code`
 returns to the shell. The tunnel is reused across invocations and closed with
-`azlin tunnel close <vm>`. See
+`azlin tunnel close <vm>`. That reuse is the "pool" that
+`azlin connect --disable-bastion-pool` opts out of: a connection with the flag
+neither reuses a live tunnel nor registers the one it opens, so it gets its own
+tunnel and leaves everyone else's alone. See
 [Persistent Bastion Tunnel for `azlin code`](../features/vscode-persistent-bastion-tunnel.md).
 
-### Configuration
+### `--user`
 
-VS Code settings are read from `~/.azlin/vscode/`:
+Defaults to the VM's own admin user, read from Azure — not to the literal
+`azureuser`, which is only the fallback when Azure does not report one. Until
+this flag was wired it was discarded entirely, so a VM with a different admin
+user worked by accident and `--user deploy` did nothing at all.
 
-| File | Purpose |
-|------|---------|
-| `extensions.json` | Extensions to install: `{"extensions": ["ms-python.python", ...]}` |
-| `ports.json` | Port forwarding: `{"forwards": [{"local": 3000, "remote": 3000}]}` |
-| `settings.json` | VS Code workspace settings |
+### `--no-extensions` and `~/.azlin/vscode/` are not implemented
+
+`azlin code` opens a `vscode-remote://` URI and installs nothing. VS Code's own
+Remote-SSH decides which extensions to install on a host, from **its** settings;
+azlin is not part of that conversation, so there is no install for
+`--no-extensions` to skip.
+
+This section used to document `~/.azlin/vscode/extensions.json`, `ports.json`
+and `settings.json` as files azlin reads. It does not read them, and never did
+in the Rust CLI — creating them has no effect. They are documented here as
+absent rather than quietly dropped, because a user who built those files
+deserves to know why nothing happened. Tracked with the flag under #1089.
 
 ---
 
