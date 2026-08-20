@@ -57,7 +57,7 @@ pub(crate) async fn dispatch(
                     "Stop and deallocate"
                 };
                 let prompt = crate::batch_helpers::build_confirmation_prompt(verb, &selection, &rg);
-                if !safe_confirm(&prompt, yes)? {
+                if !safe_confirm_with_flag(&prompt, yes, "--yes")? {
                     println!("Cancelled.");
                     return Ok(());
                 }
@@ -101,7 +101,7 @@ pub(crate) async fn dispatch(
                     crate::batch_helpers::describe_selection(tag.as_deref(), vm_pattern.as_deref());
                 let prompt =
                     crate::batch_helpers::build_confirmation_prompt("Start", &selection, &rg);
-                if !safe_confirm(&prompt, yes)? {
+                if !safe_confirm_with_flag(&prompt, yes, "--yes")? {
                     println!("Cancelled.");
                     return Ok(());
                 }

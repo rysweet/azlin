@@ -3,10 +3,31 @@
 pub fn error_suggestions(error_msg: &str) -> Vec<&'static str> {
     let mut suggestions = Vec::new();
 
-    if error_msg.contains("az login")
-        || error_msg.contains("authentication")
-        || error_msg.contains("Azure")
-    {
+    // Match genuine authentication failures only.
+    //
+    // This used to include a bare `contains("Azure")`. Because azlin prefixes
+    // its Azure failures with "❌ Azure error [...]", that matched essentially
+    // every Azure error and appended "Run 'az login' to authenticate" to all
+    // of them. A disk name collision and a VM-create capacity failure both
+    // told the user to re-authenticate, which is not merely useless — it
+    // points at the wrong subsystem entirely and costs real debugging time.
+    let auth_markers = [
+        "az login",
+        "authentication",
+        "Authentication",
+        "AADSTS",
+        "credentials",
+        "not logged in",
+        // "Azure login failed" and similar: a login failure is an auth failure,
+        // even though it names neither "az login" nor "authentication".
+        "login failed",
+        "Login failed",
+        "ExpiredAuthenticationToken",
+        "InvalidAuthenticationToken",
+        "Unauthorized",
+        "AuthorizationFailed",
+    ];
+    if auth_markers.iter().any(|m| error_msg.contains(m)) {
         suggestions.push("Run 'az login' to authenticate with Azure");
     }
     if error_msg.contains("ANTHROPIC_API_KEY") {
@@ -203,5 +224,41 @@ mod tests {
     #[test]
     fn agent_na() {
         assert_eq!(classify_agent_level("N/A"), ThresholdLevel::Warning);
+    }
+    /// Real errors seen in the field. None of these are auth problems, and
+    /// none of them should tell the user to re-authenticate.
+    #[test]
+    fn non_auth_azure_errors_do_not_suggest_az_login() {
+        let cases = [
+            "❌ Azure error [InvalidResourceLocation]: The resource 'dev_home' already exists in location 'canadacentral' in resource group 'rysweet-linux-vm-pool'.",
+            "❌ Azure error [NoMatchingInventoryForRequestedVipWithFirstPartyTag]: No matching inventory for the requested VIP of address family: IPv4",
+            "Failed to create VM 'dev': az CLI failed: PublicIPAddressCannotBeDeleted",
+        ];
+        for msg in cases {
+            let s = error_suggestions(msg);
+            assert!(
+                !s.contains(&"Run 'az login' to authenticate with Azure"),
+                "must not blame authentication for: {msg}"
+            );
+        }
+    }
+
+    /// The narrowing must not break the case the suggestion exists for.
+    #[test]
+    fn real_auth_errors_still_suggest_az_login() {
+        let cases = [
+            "Please run 'az login' to setup account",
+            "authentication failed for subscription",
+            "AADSTS700082: The refresh token has expired",
+            "ExpiredAuthenticationToken: The access token expiry time has passed",
+            "AuthorizationFailed: The client does not have authorization",
+        ];
+        for msg in cases {
+            let s = error_suggestions(msg);
+            assert!(
+                s.contains(&"Run 'az login' to authenticate with Azure"),
+                "must still catch genuine auth failure: {msg}"
+            );
+        }
     }
 }
