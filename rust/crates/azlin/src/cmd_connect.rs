@@ -83,6 +83,7 @@ pub(crate) async fn dispatch(
             x11,
             no_status,
             remote_command,
+            disable_bastion_pool,
             ..
         } => {
             let auth = create_auth()?;
@@ -230,7 +231,17 @@ pub(crate) async fn dispatch(
                 }
             };
 
-            let username = vm.admin_username.unwrap_or_else(|| user.clone());
+            // `--user` was bound here and could never win: the VM's admin
+            // username was preferred and Azure reports one for every VM azlin
+            // creates, so `--user deploy` was read, kept, and overridden
+            // (#1089). The flag-wiring gate sees a field that is used and is
+            // satisfied — this is the sub-class it cannot detect, and the
+            // reason `azlin code --user` and this one had to be fixed
+            // together despite looking like different bugs.
+            let username = user
+                .clone()
+                .or_else(|| vm.admin_username.clone())
+                .unwrap_or_else(|| DEFAULT_ADMIN_USERNAME.to_string());
             let use_bastion = vm.public_ip.is_none();
 
             // Display SSH status bar unless disabled
@@ -305,10 +316,21 @@ pub(crate) async fn dispatch(
                         "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
                         vm_manager.subscription_id(), rg, name
                     );
-                    // Open native bastion tunnel to get a local port
-                    let tunnel =
-                        crate::bastion_tunnel::ScopedBastionTunnel::new(bastion_name, &rg, &vm_rid)
-                            .await?;
+                    // Open native bastion tunnel to get a local port.
+                    // `--disable-bastion-pool` was accepted and discarded, so a
+                    // connection asking not to share a tunnel shared one anyway
+                    // (#1089). Private means neither reusing another process's
+                    // tunnel nor registering this one.
+                    let sharing = crate::bastion_tunnel::TunnelSharing::from_disable_flag(
+                        disable_bastion_pool,
+                    );
+                    let tunnel = crate::bastion_tunnel::ScopedBastionTunnel::new_shared(
+                        bastion_name,
+                        &rg,
+                        &vm_rid,
+                        sharing,
+                    )
+                    .await?;
                     // Ensure an SSH key exists; auto-generate if missing.
                     let ssh_key = resolve_key_and_push(&key, &rg, &name, &username)?;
                     let mut args = vec!["-p".to_string(), tunnel.local_port.to_string()];

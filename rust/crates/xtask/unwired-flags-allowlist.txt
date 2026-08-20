@@ -21,7 +21,7 @@
 #
 # Generated from the checker's report against commit fdfb27a2 (v2.6.105).
 
-# ── Other flags accepted and discarded (17) ──────────────────────────
+# ── Other flags accepted and discarded (15) ──────────────────────────
 #
 # Each of these is an independent per-flag fix: bind the field in the handler
 # and act on it, or delete the flag. They are listed individually so that
@@ -37,8 +37,17 @@ Commands::Ask::max_results = #1089 — `azlin ask --max-results` accepted, then 
 #   and truncating free-form prose at N "results" has no defensible definition. The other
 #   honest option is deleting the flag, which is a breaking CLI change. Both are decisions for
 #   the repository owner, so this is recorded rather than guessed at.
-Commands::Session::resource_group = #1089 — `azlin session --resource-group` accepted, then discarded; help promises "Resource group"
-Commands::Connect::disable_bastion_pool = #1089 — `azlin connect --disable-bastion-pool` accepted, then discarded; help promises "Disable bastion connection pooling"
+Commands::Session::resource_group = #1089 — `azlin session --resource-group` accepted, then discarded.
+#   `azlin session` reads and writes `session_names` in the local config and never contacts
+#   Azure, so there is nothing for a resource group to scope. It is not a harmless flag,
+#   though: the map is keyed by VM name alone, so two VMs called `dev` in different resource
+#   groups share one session name today, silently — filed as #1122, so the bug is findable
+#   somewhere other than a flag-wiring debt file.
+#
+#   Wiring the flag properly means scoping sessions per resource group — a config schema
+#   change with a migration, and a behaviour change for anyone relying on the current
+#   collision. Deleting the flag leaves that bug in place but stops advertising a fix for it.
+#   Both are decisions for the repository owner, so this is recorded rather than guessed at.
 Commands::Gui::yes = #1089 — `azlin gui --yes` accepted, then discarded; help promises "Compatibility flag; GUI dependency setup is already non-interactive"
 Commands::Top::interval = #1089 — `azlin top --interval` accepted, then discarded. Unlike its
 #   sibling `--timeout` (wired), this one cannot be wired without deciding what `azlin top`
@@ -60,8 +69,15 @@ Commands::Cleanup::idle_days = #1089 — `azlin cleanup --idle-days` accepted, t
 #   guessed at.
 Commands::Cleanup::include_running = #1089 — see Commands::Cleanup::idle_days above.
 Commands::Cleanup::include_named = #1089 — see Commands::Cleanup::idle_days above.
-Commands::Code::user = #1089 — `azlin code --user` accepted, then discarded; help promises "SSH username for remote connection"
-Commands::Code::no_extensions = #1089 — `azlin code --no-extensions` accepted, then discarded; help promises "Skip installing VS Code extensions on remote"
+Commands::Code::no_extensions = #1089 — `azlin code --no-extensions` accepted, then discarded.
+#   Like `ask --max-results`, it names something the command does not do. `azlin code` opens a
+#   `vscode-remote://` URI and installs nothing; VS Code's own Remote-SSH decides which
+#   extensions to install on a host, from the user's settings, and azlin is not in that
+#   conversation. There is no install here to skip.
+#
+#   Wiring it means azlin taking over remote extension management — a feature with its own
+#   design and its own way to be wrong. Deleting the flag is the other honest option and is a
+#   breaking CLI change. Both are decisions for the repository owner.
 GuiAction::Install::yes = #1089 — `azlin gui install --yes` accepted, then discarded; help promises "Compatibility flag; the install is already non-interactive"
 GithubRunnerAction::Enable::auto_scale = #1089 — `azlin github-runner enable --auto-scale` accepted, then discarded; help promises "Auto-scale based on queue depth"
 CostsAction::Dashboard::refresh = #1089 — `azlin costs dashboard --refresh` accepted, then discarded; help promises "Force refresh (ignore cache)"

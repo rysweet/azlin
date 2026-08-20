@@ -475,9 +475,9 @@ pub enum Commands {
         #[arg(long)]
         tmux_session: Option<String>,
 
-        /// SSH username
-        #[arg(long, default_value = "azureuser")]
-        user: String,
+        /// SSH username (default: the VM's admin user)
+        #[arg(long)]
+        user: Option<String>,
 
         /// SSH private key path
         #[arg(long)]
@@ -949,9 +949,9 @@ pub enum Commands {
         #[arg(long)]
         auth_profile: Option<String>,
 
-        /// SSH username for remote connection
-        #[arg(long, default_value = "azureuser")]
-        user: String,
+        /// SSH username for remote connection (default: the VM's admin user)
+        #[arg(long)]
+        user: Option<String>,
 
         /// Path to SSH private key
         #[arg(long)]
@@ -4411,7 +4411,7 @@ mod tests {
         } = cli.command
         {
             assert_eq!(vm_identifier, Some("my-vm".to_string()));
-            assert_eq!(user, "admin");
+            assert_eq!(user.as_deref(), Some("admin"));
             assert_eq!(key, Some(PathBuf::from("/path/to/key")));
         } else {
             panic!("Expected Connect command");
@@ -4431,7 +4431,11 @@ mod tests {
         } = cli.command
         {
             assert!(vm_identifier.is_none());
-            assert_eq!(user, "azureuser");
+            // `--user` used to declare `azureuser` here while the handler
+            // preferred the VM's admin username over it, so the declared
+            // default never applied (#1089). Omitting the flag now chooses
+            // nothing and the VM decides.
+            assert_eq!(user, None);
             assert!(!no_tmux);
             assert!(!no_reconnect);
             assert_eq!(max_retries, 3);
