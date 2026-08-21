@@ -245,8 +245,19 @@ pub(crate) async fn dispatch(
                         }
                         // A failed lookup makes the table incomplete, which is
                         // indistinguishable from "this group has no bastion"
-                        // unless we say so.
-                        Err(_) => failed_rgs.push(rg.clone()),
+                        // unless we say so. The cause travels with the group
+                        // name: "not authorized" and "no such group" call for
+                        // different actions, and a bare group name leaves the
+                        // operator to guess which one they hit.
+                        Err(e) => {
+                            let cause = e.to_string();
+                            let first_line = cause.lines().next().unwrap_or("").trim().to_string();
+                            failed_rgs.push(if first_line.is_empty() {
+                                rg.clone()
+                            } else {
+                                format!("{} ({})", rg, first_line)
+                            });
+                        }
                     }
                 }
                 pb.finish_and_clear();

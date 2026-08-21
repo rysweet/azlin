@@ -256,10 +256,27 @@ will not be listed (Bastion host 'bastion-westus2' not found in resource group '
 ```
 
 The warning carries the first line of the error; use `-v` for the full chain. It
-goes to stderr, so `-o json` and `-o csv` piped to a file are unaffected. This is
-the difference that matters: a `Tmux` column showing `-` *with* a warning means
-the VM could not be probed, and without one means the VM genuinely has no
-sessions.
+goes to stderr, so `-o json` and `-o csv` piped to a file are unaffected.
+
+**A failed tunnel falls back to the private IP.** When the bastion cannot carry
+the command, azlin retries at the VM's private address, which is routable if you
+are on a VPN or a peered network. So a warning does not always mean the columns
+are empty — it means the tunnel failed, and the row that follows may still be
+filled in by the fallback. Only a command that *reached* the VM and failed there
+is reported as-is: retrying that at the private IP could reach a different host
+and print its numbers under this VM's name.
+
+**A `-` in an enrichment column is not always "nothing to report."** A tunnel
+failure is warned about by default, but an ordinary SSH probe that times out or
+is refused is not — a fleet legitimately contains hosts you cannot reach, and a
+warning per host per listing would drown the ones that matter. Run
+`azlin list --verbose` to see, per VM, whether the probe failed or the VM really
+had nothing running.
+
+**Several bastions in one region.** A resource group can hold more than one
+virtual network and so more than one bastion in a region. The first one Azure
+lists is used and the others are named on stderr; the choice does not vary
+between runs. If the wrong one is picked, narrow the listing with `--rg`.
 
 **Tunnel fan-out is capped.** One invocation opens a bounded number of tunnels.
 If a listing has more bastion-only VMs than that, the remainder are skipped and
@@ -272,8 +289,13 @@ under the cap.
 - **Bastion and VM must share a resource group.** Discovery looks for bastions
   in the resource groups of the VMs being listed. A hub-and-spoke topology, where
   the bastion lives in a hub resource group and the VMs in spokes, is not
-  resolved; those VMs' enrichment columns stay empty. Resolving it requires
+  resolved; those VMs' enrichment columns stay empty unless their private IP
+  happens to be routable from your machine. Resolving it properly requires
   VNet-peering discovery, which azlin does not do.
+- **Only one bastion per resource group and region is used.** When a resource
+  group has several bastions in one region, azlin routes through the first one
+  Azure lists and names the rest in a warning. It does not test each bastion to
+  find which one can actually see the VM.
 - **VMs with colliding names lose their enrichment columns.** Azure only
   guarantees VM name uniqueness within a resource group, and `--show-all-vms` and
   `--all-contexts` can list two VMs with the same name. Tmux, health and process

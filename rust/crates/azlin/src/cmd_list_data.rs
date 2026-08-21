@@ -1,5 +1,4 @@
 //! Data collection helpers for the list command (tmux, latency, health, procs).
-#![allow(dead_code)]
 
 use super::*;
 use azlin_core::models::VmInfo;
@@ -240,8 +239,13 @@ pub(crate) fn valid_bastion_coordinates(name: &str, location: &str) -> bool {
 
 /// Discover bastions for every resource group that has a bastion-only VM.
 ///
-/// Blocking `az` calls, so callers on the async path must wrap this in
-/// `spawn_blocking`.
+/// Blocking `az` calls. `collect_tmux_sessions` is `async` and wraps this in
+/// `spawn_blocking`, because it goes on to drive concurrent SSH probes in a
+/// `JoinSet` and blocking the runtime would stall the very probes it spawned.
+/// `collect_health_data` and `collect_procs` are synchronous and sequential:
+/// they call this directly and block their own thread, which is the thread the
+/// work would occupy either way. Any *new* async caller belongs in the first
+/// group.
 ///
 /// Each collector that needs routing calls this itself, so combining
 /// `--with-health` and `--show-procs` repeats the lookup up to three times per
@@ -263,13 +267,57 @@ fn discover_bastions(vms: &[VmInfo]) -> BastionMap {
                 continue;
             }
         };
-        for (name, location, _sku) in found {
-            if valid_bastion_coordinates(&name, &location) {
-                map.insert(bastion_key(&rg, &location), name);
-            }
+        for warning in insert_bastions_for_group(&mut map, &rg, found) {
+            eprintln!("{}", warning);
         }
     }
     map
+}
+
+/// Fold one resource group's `az network bastion list` result into `map`,
+/// returning any warnings the caller should print.
+///
+/// Split out of [`discover_bastions`] so the selection rule is testable
+/// without `az`: the rule is the whole point, and an untested tie-break is how
+/// #1127 shipped in the first place.
+///
+/// A resource group may hold several virtual networks and therefore several
+/// bastions in one region. A plain `insert` lets whichever bastion `az` listed
+/// last win silently, so the route a VM gets depends on Azure's listing order
+/// — and a bastion that cannot see the VM yields an empty row that reads as
+/// "nothing to report". The first entry wins deterministically instead, and
+/// the one that was passed over is named.
+pub(crate) fn insert_bastions_for_group(
+    map: &mut BastionMap,
+    resource_group: &str,
+    found: Vec<(String, String, String)>,
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+    for (name, location, _sku) in found {
+        if !valid_bastion_coordinates(&name, &location) {
+            continue;
+        }
+        match map.entry(bastion_key(resource_group, &location)) {
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                slot.insert(name);
+            }
+            std::collections::hash_map::Entry::Occupied(slot) => {
+                if slot.get() != &name {
+                    warnings.push(format!(
+                        "Warning: resource group {} has more than one bastion in {}; using {} \
+                         and ignoring {}. VMs reachable only through {} will show no tmux, \
+                         health or process data.",
+                        resource_group,
+                        location,
+                        slot.get(),
+                        name,
+                        name
+                    ));
+                }
+            }
+        }
+    }
+    warnings
 }
 
 /// How a VM should be reached for an SSH probe.
@@ -351,7 +399,7 @@ pub(crate) fn direct_fallback_host(fallback_host: Option<&str>) -> Option<&str> 
 /// Deliberately never a tunnel: timing a bastion tunnel measures the tunnel
 /// and the local listener, not the host, which would silently change what the
 /// column means. A VM with no directly routable address is omitted instead.
-pub(crate) fn latency_probe_host(vm: &VmInfo, _bastion_map: &BastionMap) -> Option<String> {
+pub(crate) fn latency_probe_host(vm: &VmInfo) -> Option<String> {
     if vm.power_state != azlin_core::models::PowerState::Running {
         return None;
     }
@@ -500,7 +548,18 @@ pub(crate) async fn collect_tmux_sessions(
 
     // Pre-create bastion tunnels before the concurrent SSH probes, because
     // tunnel creation mutates a shared registry file and must stay sequential.
-    let planned = plan_bastion_tunnels(vms, &bastion_map, subscription_id);
+    //
+    // Colliding VMs are removed *before* planning, not skipped afterwards.
+    // Planning over them would let VMs that are never going to be probed
+    // consume slots under MAX_BASTION_TUNNELS_PER_RUN, pushing real VMs past
+    // the cap, and would count them in the "skipped" total reported to the
+    // operator -- a number they cannot act on.
+    let probe_vms: Vec<VmInfo> = vms
+        .iter()
+        .filter(|vm| !colliding.contains(&vm.name))
+        .cloned()
+        .collect();
+    let planned = plan_bastion_tunnels(&probe_vms, &bastion_map, subscription_id);
     if planned.skipped > 0 {
         eprintln!(
             "Warning: {} bastion-only VM(s) beyond the limit of {} tunnels per run were not probed; \
@@ -514,9 +573,6 @@ pub(crate) async fn collect_tmux_sessions(
     // collides for same-named VMs in two resource groups.
     let mut bastion_ports: HashMap<String, u16> = HashMap::new();
     for plan in &planned.plans {
-        if colliding.contains(&plan.vm_name) {
-            continue;
-        }
         match crate::bastion_tunnel::get_or_create_tunnel(
             &plan.bastion_name,
             &plan.resource_group,
@@ -636,33 +692,67 @@ pub(crate) async fn collect_tmux_sessions(
     // Collect results
     let mut tmux_sessions: HashMap<String, Vec<String>> = HashMap::new();
     while let Some(result) = join_set.join_next().await {
-        if let Ok((vm_name, Ok(out))) = result {
-            if out.status.success() {
-                let all: Vec<String> = String::from_utf8_lossy(&out.stdout)
-                    .lines()
-                    .filter(|l| !l.is_empty() && !l.starts_with('{'))
-                    .map(sanitize_remote_text)
-                    .filter(|l| !l.is_empty())
-                    .collect();
-                // A cap that drops sessions without saying so reads as "this
-                // VM has 20 sessions", which is the same confidently-wrong
-                // answer the tunnel bug gave. The tunnel cap already reports
-                // what it skipped; so does this one.
-                let dropped = all.len().saturating_sub(MAX_SESSIONS_PER_VM);
-                let sessions: Vec<String> = all.into_iter().take(MAX_SESSIONS_PER_VM).collect();
-                if dropped > 0 {
+        // A probe that never answered is not the same as a VM with no
+        // sessions, but both render as a blank cell. The distinction is only
+        // ever interesting when someone is already asking why a row is empty,
+        // so it is reported under --verbose: warning by default would fire for
+        // every VM an operator legitimately cannot SSH to.
+        let (vm_name, out) = match result {
+            Ok((vm_name, Ok(out))) => (vm_name, out),
+            Ok((vm_name, Err(e))) => {
+                if verbose {
                     eprintln!(
-                        "Warning: {} has more than {} tmux sessions; {} are not shown.",
-                        vm_name, MAX_SESSIONS_PER_VM, dropped
+                        "[VERBOSE] {} -> tmux probe could not be run ({}); reporting no sessions",
+                        vm_name, e
                     );
                 }
-                if verbose {
-                    eprintln!("[VERBOSE] {} -> {} sessions", vm_name, sessions.len());
-                }
-                if !sessions.is_empty() {
-                    tmux_sessions.insert(vm_name, sessions);
-                }
+                continue;
             }
+            Err(e) => {
+                if verbose {
+                    eprintln!(
+                        "[VERBOSE] a tmux probe task did not complete ({}); that VM reports no sessions",
+                        e
+                    );
+                }
+                continue;
+            }
+        };
+        if !out.status.success() {
+            if verbose {
+                eprintln!(
+                    "[VERBOSE] {} -> tmux probe exited {} ({}); reporting no sessions",
+                    vm_name,
+                    out.status.code().unwrap_or(-1),
+                    String::from_utf8_lossy(&out.stderr).trim()
+                );
+            }
+            continue;
+        }
+
+        let all: Vec<String> = String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter(|l| !l.is_empty() && !l.starts_with('{'))
+            .map(sanitize_remote_text)
+            .filter(|l| !l.is_empty())
+            .collect();
+        // A cap that drops sessions without saying so reads as "this VM has 20
+        // sessions", which is the same confidently-wrong answer the tunnel bug
+        // gave. The tunnel cap already reports what it skipped; so does this
+        // one.
+        let dropped = all.len().saturating_sub(MAX_SESSIONS_PER_VM);
+        let sessions: Vec<String> = all.into_iter().take(MAX_SESSIONS_PER_VM).collect();
+        if dropped > 0 {
+            eprintln!(
+                "Warning: {} has more than {} tmux sessions; {} are not shown.",
+                vm_name, MAX_SESSIONS_PER_VM, dropped
+            );
+        }
+        if verbose {
+            eprintln!("[VERBOSE] {} -> {} sessions", vm_name, sessions.len());
+        }
+        if !sessions.is_empty() {
+            tmux_sessions.insert(vm_name, sessions);
         }
     }
     tmux_sessions
@@ -673,13 +763,12 @@ pub(crate) async fn collect_tmux_sessions(
 /// Only directly routable addresses are timed — see [`latency_probe_host`].
 pub(crate) fn collect_latencies(vms: &[VmInfo]) -> HashMap<String, u64> {
     let colliding = colliding_vm_names(vms);
-    let bastion_map = BastionMap::new();
     let mut latencies = HashMap::new();
     for vm in vms {
         if colliding.contains(&vm.name) {
             continue;
         }
-        let Some(ip) = latency_probe_host(vm, &bastion_map) else {
+        let Some(ip) = latency_probe_host(vm) else {
             continue;
         };
         // Parsed as an address, not as `"{ip}:22"` text: an IPv6 address needs
@@ -830,8 +919,7 @@ pub(crate) fn collect_procs(
                         // operator on a VPN or peered network. Keeping that as
                         // the fallback makes the new routing strictly more
                         // available than what it replaced, never less.
-                        match direct_fallback_host(fallback_host.as_deref())
-                            .and_then(|host| direct_probe(host))
+                        match direct_fallback_host(fallback_host.as_deref()).and_then(direct_probe)
                         {
                             Some(out) => out,
                             None => {
@@ -1752,6 +1840,97 @@ mod bastion_discovery_tests {
             "a name that would be read as a flag"
         );
     }
+
+    /// Two virtual networks in one resource group means two bastions in one
+    /// region. Whichever `az` happened to list last used to win the map slot,
+    /// so the route a VM got depended on Azure's listing order — and a bastion
+    /// that cannot see the VM produces the same empty row as having no bastion
+    /// at all. First entry wins, deterministically.
+    #[test]
+    fn a_second_bastion_in_one_region_does_not_replace_the_first() {
+        let mut map = BastionMap::new();
+        let warnings = insert_bastions_for_group(
+            &mut map,
+            "rg-a",
+            vec![
+                ("bst-one".into(), "centralus".into(), "Standard".into()),
+                ("bst-two".into(), "centralus".into(), "Standard".into()),
+            ],
+        );
+        assert_eq!(
+            map.get(&bastion_key("rg-a", "centralus")),
+            Some(&"bst-one".to_string()),
+            "the first bastion listed keeps the slot"
+        );
+        assert_eq!(warnings.len(), 1, "the bastion passed over must be named");
+        assert!(
+            warnings[0].contains("bst-two"),
+            "the warning names the bastion that was ignored: {}",
+            warnings[0]
+        );
+    }
+
+    /// The same bastion arriving twice is not a conflict, and must not produce
+    /// a warning an operator would have to investigate.
+    #[test]
+    fn the_same_bastion_listed_twice_is_not_a_conflict() {
+        let mut map = BastionMap::new();
+        let warnings = insert_bastions_for_group(
+            &mut map,
+            "rg-a",
+            vec![
+                ("bst-one".into(), "centralus".into(), "Standard".into()),
+                ("bst-one".into(), "centralus".into(), "Standard".into()),
+            ],
+        );
+        assert_eq!(map.len(), 1);
+        assert!(warnings.is_empty(), "no conflict, so nothing to report");
+    }
+
+    /// Bastions in different regions of one resource group are independent
+    /// slots, not a conflict: each serves the VMs that share its region.
+    #[test]
+    fn bastions_in_different_regions_each_keep_their_own_slot() {
+        let mut map = BastionMap::new();
+        let warnings = insert_bastions_for_group(
+            &mut map,
+            "rg-a",
+            vec![
+                ("bst-central".into(), "centralus".into(), "Standard".into()),
+                ("bst-west".into(), "westus3".into(), "Standard".into()),
+            ],
+        );
+        assert_eq!(
+            map.get(&bastion_key("rg-a", "centralus")),
+            Some(&"bst-central".to_string())
+        );
+        assert_eq!(
+            map.get(&bastion_key("rg-a", "westus3")),
+            Some(&"bst-west".to_string())
+        );
+        assert!(warnings.is_empty());
+    }
+
+    /// An unsafe name is dropped before it can take a slot, so a rejected
+    /// entry must not shadow a valid bastion listed after it.
+    #[test]
+    fn a_rejected_bastion_does_not_take_the_slot() {
+        let mut map = BastionMap::new();
+        let warnings = insert_bastions_for_group(
+            &mut map,
+            "rg-a",
+            vec![
+                ("--query".into(), "centralus".into(), "Standard".into()),
+                ("bst-real".into(), "centralus".into(), "Standard".into()),
+            ],
+        );
+        assert_eq!(
+            map.get(&bastion_key("rg-a", "centralus")),
+            Some(&"bst-real".to_string()),
+            "the valid bastion still gets the slot"
+        );
+        assert!(warnings.is_empty(), "a rejected entry is not a conflict");
+    }
 }
 
 #[cfg(test)]
@@ -1876,19 +2055,17 @@ mod probe_route_tests {
     /// not the host, silently changing what the column means.
     #[test]
     fn latency_is_measured_only_on_a_directly_routable_address() {
-        let bstn = bastion_map(&[("rg-a", "centralus", "bst")]);
         assert_eq!(
-            latency_probe_host(
-                &vm("pub", "centralus", Some("4.4.4.4"), PowerState::Running),
-                &bstn
-            ),
+            latency_probe_host(&vm(
+                "pub",
+                "centralus",
+                Some("4.4.4.4"),
+                PowerState::Running
+            )),
             Some("4.4.4.4".to_string())
         );
         assert_eq!(
-            latency_probe_host(
-                &vm_in_rg("dev", "rg-a", "centralus", PowerState::Running),
-                &bstn
-            ),
+            latency_probe_host(&vm_in_rg("dev", "rg-a", "centralus", PowerState::Running)),
             Some("10.0.0.4".to_string()),
             "a private IP may still be routable over VPN; the tunnel is never timed"
         );
@@ -1900,25 +2077,23 @@ mod probe_route_tests {
     /// against somebody else's host, attributed to a VM that is not running.
     #[test]
     fn latency_is_not_measured_for_a_stopped_vm() {
-        let bstn = bastion_map(&[("rg-a", "centralus", "bst")]);
         assert_eq!(
-            latency_probe_host(
-                &vm(
-                    "stopped-pub",
-                    "centralus",
-                    Some("4.4.4.4"),
-                    PowerState::Stopped
-                ),
-                &bstn
-            ),
+            latency_probe_host(&vm(
+                "stopped-pub",
+                "centralus",
+                Some("4.4.4.4"),
+                PowerState::Stopped
+            )),
             None,
             "a stopped VM's stale public IP must never be timed"
         );
         assert_eq!(
-            latency_probe_host(
-                &vm_in_rg("stopped-priv", "rg-a", "centralus", PowerState::Stopped),
-                &bstn
-            ),
+            latency_probe_host(&vm_in_rg(
+                "stopped-priv",
+                "rg-a",
+                "centralus",
+                PowerState::Stopped
+            )),
             None,
             "a stopped VM's stale private IP must never be timed"
         );

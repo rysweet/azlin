@@ -225,24 +225,53 @@ candidate list can span resource groups.
 | `--show-procs` | `Procs` (table output only) | Supported — `collect_procs` takes the bastion path. Skipped, like tmux and health, when the listing spans more than one subscription |
 | `--with-latency` | `Latency` | Measured only when the VM's address is routable from this machine (a public IP, or a private IP over VPN or peering). Latency is never measured through the tunnel, which would time the tunnel rather than the host |
 
-**How `--show-procs` picks a route.** `proc_route` is a pure function that
+**How every collector picks a route.** `probe_route` is a pure function that
 decides once, before any connection is attempted, and returns one of three
-outcomes:
+outcomes. All four collectors — tmux, health, procs and latency — share it, so
+they cannot drift into disagreeing about how a VM is reached:
 
 | VM state | Route |
 |----------|-------|
 | Has a public IP | `Direct` to the public IP |
-| No public IP, a bastion route exists | `Bastion` |
+| No public IP, a bastion route exists | `Bastion`, carrying the private IP as `fallback_host` |
 | No public IP, no bastion route, has a private IP | `Direct` to the private IP — the VPN / peered-network case |
-| No public IP, no bastion route, no private IP | `Skip` |
+| No public IP, no bastion route, no private IP | `Unreachable` |
 
-There is deliberately no fall back from `Bastion` to `Direct` on failure.
-`collect_procs` runs sequentially, so a fallback would cost a second full
-`ConnectTimeout` for every unreachable host, serially — a listing with ten
-unreachable private VMs would stall for twice as long to produce the same empty
-column. Deciding up front also makes the routing unit-testable without a
-network. Operators on a VPN keep the behaviour they had through the third row of
-the table, not through a retry.
+**A failed bastion falls back to the direct address.** When the bastion never
+carries the command — a tunnel that will not open, an expired token, a
+transport error — the collector retries at the VM's private IP, which is
+routable for an operator on a VPN or a peered network. Without that retry the
+routing would be *less* available than the code it replaced, and the VM's row
+would go blank, which reads as "nothing to report" rather than "could not
+ask". `direct_fallback_host` is the single helper that decides whether a
+fallback address is usable; it rejects empty and whitespace-only strings,
+because the health collector flattens `Option<String>` with
+`unwrap_or_default()` and `ssh user@` is not a probe.
+
+The fallback hangs off the *transport* error only. A command that reached the
+VM and exited non-zero is that VM's own answer and is reported as such: retrying
+it at the private IP could reach a different host and attribute its output to
+this VM — a confidently wrong row, which is worse than an empty one. This is
+the same rule in all three collectors.
+
+Latency is the deliberate exception: it is never measured through a tunnel, and
+never falls back to one, because timing a tunnel measures the tunnel and the
+local listener rather than the host. A VM with no directly routable address is
+omitted from the `Latency` column instead.
+
+**One bastion per resource group and region, chosen deterministically.** A
+resource group can hold several virtual networks and therefore several bastions
+in one region. The first one `az` lists wins the route and the others are named
+in a warning on stderr. Letting the last one win would make the route depend on
+Azure's listing order, and a bastion that cannot see the VM produces exactly the
+same empty row as having no bastion at all.
+
+**Probes that never answer say so under `--verbose`.** An SSH probe that could
+not be spawned, or that exited non-zero, yields the same blank cell as a VM with
+genuinely nothing running. Run `azlin list --verbose` to see which of the two it
+was. It is not a default-level warning because a fleet legitimately contains
+hosts the operator cannot SSH to, and warning for each of them on every listing
+would train people to ignore the warnings that matter.
 
 Using `--show-procs` together with `--with-health` resolves the bastion map
 twice in one run; the extra `az` calls cost a few hundred milliseconds per

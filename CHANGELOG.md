@@ -183,6 +183,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   session with the requested name, and asks for `vm:session` notation. Keying
   tunnels by resource id makes that lookup fail closed rather than resolve
   arbitrarily now that the candidate list can span resource groups
+- **`azlin list --with-health` now falls back to the direct address when the
+  bastion fails** — the health collector was the one collector that computed a
+  fallback address and never used it. `collect_health_data` resolved the VM's
+  private IP into `ip` and passed it to `collect_health_metrics`, but that
+  function ignores `ip` entirely whenever a bastion route is present, so a
+  tunnel outage blanked the `CPU%`, `Mem%` and `Disk%` cells instead of
+  retrying at an address an operator on a VPN or peered network can reach.
+  Empty health cells read as a quiet, idle machine, which is the same
+  confidently-wrong-by-omission failure as the tunnel bug. The bastion exec now
+  retries directly on *transport* failure only: a command that reached the VM
+  and exited non-zero is that VM's own answer and is returned unchanged, because
+  retrying it at the private IP could reach a different host and report its
+  numbers under this VM's name. `direct_fallback_host` is shared with the tmux
+  and process collectors so the three cannot drift (#1127)
+- **`azlin list` no longer lets a second bastion in one region silently take
+  the route** — a resource group can hold several virtual networks and so
+  several bastions in one region, and the discovery map used a plain `insert`.
+  Whichever bastion `az` listed last won the slot, making the route a VM
+  received depend on Azure's listing order; a bastion that cannot see the VM
+  produces exactly the same empty row as having no bastion at all. The first
+  entry now wins deterministically and the bastion that was passed over is named
+  on stderr. The rule lives in `insert_bastions_for_group`, a pure function, so
+  it is unit-tested without `az` — an untested tie-break is how the original
+  keying defect shipped (#1127)
+- **`azlin list --verbose` now says when a tmux probe failed rather than found
+  nothing** — an SSH probe that could not be spawned, whose task did not
+  complete, or that exited non-zero produced no output whatsoever, so a blank
+  `Tmux` cell was indistinguishable from a VM with genuinely no sessions even
+  with `--verbose` on. Each of those three outcomes is now reported per VM under
+  `--verbose`. It is deliberately not a default-level warning: a fleet
+  legitimately contains hosts the operator cannot SSH to, and one warning per
+  such host per listing would train people to ignore the tunnel warnings that do
+  matter (#1127)
+- **The bastion table's failure warning now carries the cause, not just the
+  resource group** — a failed `az network bastion list` in the display path was
+  matched with `Err(_)`, discarding the error. "Not authorized" and "no such
+  resource group" call for different actions, and the operator was left to guess
+  which they had hit. The first line of the error now travels with the group
+  name, matching what the routing path already reported (#1127)
+- **The bastion tunnel cap is no longer spent on VMs that are never probed** —
+  VMs whose names collide across resource groups have their enrichment columns
+  withheld, but they were still fed to `plan_bastion_tunnels`, so they consumed
+  slots under the per-run tunnel cap and were counted in the "skipped" total
+  printed to the operator. A listing with enough colliding names could push
+  genuinely probeable VMs past the cap, and the skip count named a number
+  nobody could act on. Colliding VMs are now filtered out before planning
+  (#1127)
+- **`cmd_list_data` no longer suppresses dead-code warnings for the whole
+  module** — the file carried a blanket `#![allow(dead_code)]`, and this change
+  added roughly twenty functions underneath it. Removing it restores dead-code
+  detection for a 2,300-line module; the module compiles clean without it on
+  every target, since it contains no `#[cfg]`-gated items (#1127)
+
 - **`cargo test` no longer mutates or corrupts the real `~/.azlin/config.toml`**
   — several dispatch tests drove `config set`, `session <vm> <name>` and the
   autopilot lifecycle in-process, so they read and wrote the developer's actual

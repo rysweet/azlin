@@ -393,21 +393,61 @@ fn collect_health_metrics(
         return health_parse_helpers::default_metrics(vm_name, power_state);
     }
 
+    // A bastion that just failed to carry a command will fail again. Five
+    // metrics are collected per VM, sequentially, and `collect_health_data`
+    // walks VMs sequentially too, so retrying a dead tunnel each time would
+    // pay the bastion timeout five times over for every unreachable host --
+    // the cost that argued against having any fallback at all. One failure
+    // condemns the tunnel for the rest of this VM's probes instead.
+    let bastion_failed = std::cell::Cell::new(false);
+
     // Helper closure: route through Bastion when bastion_info is provided,
     // otherwise use direct SSH.
     let exec = |cmd: &str| -> Result<(i32, String, String)> {
-        if let Some((bastion_name, rg, vm_rid, ssh_key)) = bastion_info {
-            bastion_ssh_exec(
-                bastion_name,
-                rg,
-                vm_rid,
-                user,
-                ssh_key,
-                cmd,
-                BASTION_EXEC_TIMEOUT_SECS,
-            )
-        } else {
-            ssh_exec(ip, user, cmd, None, true)
+        let Some((bastion_name, rg, vm_rid, ssh_key)) = bastion_info else {
+            return ssh_exec(ip, user, cmd, None, true);
+        };
+        let direct = cmd_list_data::direct_fallback_host(Some(ip));
+        if bastion_failed.get() {
+            if let Some(host) = direct {
+                return ssh_exec(host, user, cmd, ssh_key, true);
+            }
+            // No address to fall back to, so the tunnel is still the only
+            // route: fall through and try it again rather than inventing a
+            // failure the caller cannot distinguish from a real one.
+        }
+        match bastion_ssh_exec(
+            bastion_name,
+            rg,
+            vm_rid,
+            user,
+            ssh_key,
+            cmd,
+            BASTION_EXEC_TIMEOUT_SECS,
+        ) {
+            // The command reached the VM. Its exit status is that VM's own
+            // answer even when non-zero, so it is returned as-is: retrying at
+            // the private IP could reach a *different* host and report its
+            // numbers under this VM's name.
+            Ok(result) => Ok(result),
+            // Transport failure: the bastion never carried the command. The
+            // private IP is still routable for an operator on a VPN or peered
+            // network, and `cmd_list_data::collect_tmux_sessions` and
+            // `collect_procs` both retry there rather than blanking the VM's
+            // row. Health was the lone exception -- it was handed a fallback
+            // address and never used it, so a tunnel outage turned into empty
+            // CPU/Mem/Disk cells that read exactly like a healthy, idle
+            // machine. No warning is printed here: the tmux collector runs by
+            // default in the same invocation and already reports a failed
+            // tunnel, and an unread metric renders as an uncoloured `-`
+            // rather than a green "fine".
+            Err(e) => {
+                bastion_failed.set(true);
+                match direct {
+                    Some(host) => ssh_exec(host, user, cmd, ssh_key, true),
+                    None => Err(e),
+                }
+            }
         }
     };
 
