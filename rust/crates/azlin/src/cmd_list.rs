@@ -338,8 +338,15 @@ pub(crate) async fn dispatch(
             // spinners spent re-deriving it. Discovery is a pure function of
             // the VM list, so it happens once here — but only when a collector
             // that needs it will actually run.
+            //
+            // Hoisting it above the collectors also hoisted it above their
+            // spinners, so the one `az` sweep the listing still performs ran
+            // against a terminal showing nothing. It carries its own.
             let bastion_map = if enrichment.any() {
-                crate::cmd_list_data::discover_bastions_async(&all_vms).await
+                let pb = penguin_spinner("Locating bastion hosts...");
+                let map = crate::cmd_list_data::discover_bastions_async(&all_vms).await;
+                pb.finish_and_clear();
+                map
             } else {
                 Default::default()
             };

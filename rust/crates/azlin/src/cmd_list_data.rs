@@ -789,6 +789,11 @@ pub(crate) async fn collect_tmux_sessions(
     let tmux_cmd =
         "tmux list-sessions -F '#{session_name}:#{session_attached}' 2>/dev/null || true";
     let mut join_set = tokio::task::JoinSet::new();
+    // Neither the timeout nor the resolved key varies per VM, so the option
+    // list is built once and handed to each probe. Rebuilding it inside the
+    // loop also re-cloned the key path for every VM to feed a function that
+    // only borrows it.
+    let common_opts = probe_ssh_opts(connect_timeout, ssh_key.as_deref());
 
     for vm in vms {
         if colliding.contains(&vm.name) {
@@ -822,9 +827,8 @@ pub(crate) async fn collect_tmux_sessions(
             .unwrap_or(DEFAULT_ADMIN_USERNAME)
             .to_string();
         let vm_name = vm.name.clone();
-        let ssh_key = ssh_key.clone();
         let tmux_cmd = tmux_cmd.to_string();
-        let common_opts = probe_ssh_opts(connect_timeout, ssh_key.as_deref());
+        let common_opts = common_opts.clone();
 
         match route {
             ProbeRoute::Direct { host } => {
@@ -1045,6 +1049,9 @@ pub(crate) fn collect_procs(
 
     let mut proc_data = HashMap::new();
     let ssh_key_path = resolve_ssh_key();
+    // Loop-invariant, same as in `collect_tmux_sessions`: built once rather
+    // than per VM inside the probe closure.
+    let common_opts = probe_ssh_opts(connect_timeout, ssh_key_path.as_deref());
     let colliding = colliding_vm_names(vms);
 
     for vm in vms {
@@ -1062,7 +1069,7 @@ pub(crate) fn collect_procs(
         let direct_probe = |host: &str| -> Option<String> {
             let mut cmd = std::process::Command::new("ssh");
             cmd.args(["-o", "StrictHostKeyChecking=accept-new"]);
-            cmd.args(probe_ssh_opts(connect_timeout, ssh_key_path.as_deref()));
+            cmd.args(&common_opts);
             cmd.arg(format!("{}@{}", user, host)).arg(PROC_CMD);
             match cmd.output() {
                 Ok(out) if out.status.success() => {
