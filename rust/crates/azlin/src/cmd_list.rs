@@ -317,31 +317,25 @@ pub(crate) async fn dispatch(
                 std::collections::HashMap::new()
             };
 
-            let health_data = if with_health && !cross_subscription {
-                let pb = penguin_spinner("Checking VM health...");
-                let result = crate::cmd_list_data::collect_health_data(
+            // Storage is probed only with --with-health, and in the *same*
+            // sweep as the metrics: it is the column that would have made
+            // #1131 visible on the day it happened instead of weeks later at
+            // 98% full, and a second sweep would have rediscovered every
+            // bastion to ask one more question per VM.
+            let (health_data, storage_data) = if with_health && !cross_subscription {
+                let pb = penguin_spinner("Checking VM health and storage...");
+                let result = crate::cmd_list_data::collect_health_and_storage(
                     &all_vms,
                     vm_manager.subscription_id(),
+                    true,
                 );
                 pb.finish_and_clear();
                 result
             } else {
-                std::collections::HashMap::new()
-            };
-
-            // Probed only with --with-health, in the same sweep as the
-            // metrics: this is the column that would have made #1131 visible
-            // on the day it happened instead of weeks later at 98% full.
-            let storage_data = if with_health && !cross_subscription {
-                let pb = penguin_spinner("Checking VM storage...");
-                let result = crate::cmd_list_data::collect_storage_status(
-                    &all_vms,
-                    vm_manager.subscription_id(),
-                );
-                pb.finish_and_clear();
-                result
-            } else {
-                std::collections::HashMap::new()
+                (
+                    std::collections::HashMap::new(),
+                    std::collections::HashMap::new(),
+                )
             };
 
             let proc_data = if show_procs {

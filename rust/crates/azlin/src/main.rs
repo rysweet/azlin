@@ -381,36 +381,45 @@ pub(crate) fn resolve_target_ssh_key_path(
         })
 }
 
-/// Collect health metrics from a single VM via SSH (direct or through Bastion).
-fn collect_health_metrics(
-    vm_name: &str,
-    ip: &str,
-    user: &str,
-    power_state: &str,
-    bastion_info: Option<(&str, &str, &str, Option<&std::path::Path>)>,
-) -> HealthMetrics {
-    if power_state != "Running" {
-        return health_parse_helpers::default_metrics(vm_name, power_state);
+/// An SSH executor bound to one VM's route, reusable across every probe that
+/// invocation makes against that VM.
+///
+/// The bastion-failure memo is the reason this is a value and not a free
+/// function. A bastion that just failed to carry a command will fail again,
+/// and every timeout is [`BASTION_EXEC_TIMEOUT_SECS`] of wall clock paid
+/// serially. Health alone asks five questions per VM; the storage probe added
+/// by #1131 asks a sixth. Condemning the tunnel once per VM — rather than once
+/// per collector — is what keeps an unreachable host from costing minutes.
+pub(crate) struct RoutedExec<'a> {
+    ip: &'a str,
+    user: &'a str,
+    bastion: Option<(&'a str, &'a str, &'a str, Option<&'a std::path::Path>)>,
+    bastion_failed: std::cell::Cell<bool>,
+}
+
+impl<'a> RoutedExec<'a> {
+    pub(crate) fn new(
+        ip: &'a str,
+        user: &'a str,
+        bastion: Option<(&'a str, &'a str, &'a str, Option<&'a std::path::Path>)>,
+    ) -> Self {
+        Self {
+            ip,
+            user,
+            bastion,
+            bastion_failed: std::cell::Cell::new(false),
+        }
     }
 
-    // A bastion that just failed to carry a command will fail again. Five
-    // metrics are collected per VM, sequentially, and `collect_health_data`
-    // walks VMs sequentially too, so retrying a dead tunnel each time would
-    // pay the bastion timeout five times over for every unreachable host --
-    // the cost that argued against having any fallback at all. One failure
-    // condemns the tunnel for the rest of this VM's probes instead.
-    let bastion_failed = std::cell::Cell::new(false);
-
-    // Helper closure: route through Bastion when bastion_info is provided,
-    // otherwise use direct SSH.
-    let exec = |cmd: &str| -> Result<(i32, String, String)> {
-        let Some((bastion_name, rg, vm_rid, ssh_key)) = bastion_info else {
-            return ssh_exec(ip, user, cmd, None, true);
+    /// Run `cmd` on the VM, through the bastion when there is one.
+    pub(crate) fn run(&self, cmd: &str) -> Result<(i32, String, String)> {
+        let Some((bastion_name, rg, vm_rid, ssh_key)) = self.bastion else {
+            return ssh_exec(self.ip, self.user, cmd, None, true);
         };
-        let direct = cmd_list_data::direct_fallback_host(Some(ip));
-        if bastion_failed.get() {
+        let direct = cmd_list_data::direct_fallback_host(Some(self.ip));
+        if self.bastion_failed.get() {
             if let Some(host) = direct {
-                return ssh_exec(host, user, cmd, ssh_key, true);
+                return ssh_exec(host, self.user, cmd, ssh_key, true);
             }
             // No address to fall back to, so the tunnel is still the only
             // route: fall through and try it again rather than inventing a
@@ -420,7 +429,7 @@ fn collect_health_metrics(
             bastion_name,
             rg,
             vm_rid,
-            user,
+            self.user,
             ssh_key,
             cmd,
             BASTION_EXEC_TIMEOUT_SECS,
@@ -442,14 +451,46 @@ fn collect_health_metrics(
             // tunnel, and an unread metric renders as an uncoloured `-`
             // rather than a green "fine".
             Err(e) => {
-                bastion_failed.set(true);
+                self.bastion_failed.set(true);
                 match direct {
-                    Some(host) => ssh_exec(host, user, cmd, ssh_key, true),
+                    Some(host) => ssh_exec(host, self.user, cmd, ssh_key, true),
                     None => Err(e),
                 }
             }
         }
-    };
+    }
+}
+
+/// Collect health metrics from a single VM via SSH (direct or through Bastion).
+///
+/// Callers that also probe the same VM for something else should build one
+/// [`RoutedExec`] and use [`collect_health_metrics_with`] instead, so both
+/// probes share this VM's bastion-failure memo.
+fn collect_health_metrics(
+    vm_name: &str,
+    ip: &str,
+    user: &str,
+    power_state: &str,
+    bastion_info: Option<(&str, &str, &str, Option<&std::path::Path>)>,
+) -> HealthMetrics {
+    collect_health_metrics_with(
+        &RoutedExec::new(ip, user, bastion_info),
+        vm_name,
+        power_state,
+    )
+}
+
+/// [`collect_health_metrics`] against an executor the caller already owns.
+pub(crate) fn collect_health_metrics_with(
+    exec_route: &RoutedExec<'_>,
+    vm_name: &str,
+    power_state: &str,
+) -> HealthMetrics {
+    if power_state != "Running" {
+        return health_parse_helpers::default_metrics(vm_name, power_state);
+    }
+
+    let exec = |cmd: &str| exec_route.run(cmd);
 
     // CPU usage from top (extract idle% before "id" regardless of field position)
     // Each metric stays `None` when the command failed or the output did not

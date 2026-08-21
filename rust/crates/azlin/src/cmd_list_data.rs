@@ -794,55 +794,6 @@ pub(crate) fn collect_latencies(vms: &[VmInfo]) -> HashMap<String, u64> {
     latencies
 }
 
-/// Collect detailed health metrics (CPU, Mem, Disk, Agent) for running VMs via SSH.
-pub(crate) fn collect_health_data(
-    vms: &[VmInfo],
-    subscription_id: &str,
-) -> HashMap<String, crate::HealthMetrics> {
-    let mut health_data = HashMap::new();
-    let bastion_map = discover_bastions(vms);
-    let ssh_key_path = resolve_ssh_key();
-    let colliding = colliding_vm_names(vms);
-
-    for vm in vms {
-        if colliding.contains(&vm.name) {
-            continue;
-        }
-        let state = vm.power_state.to_string();
-        let user = vm
-            .admin_username
-            .as_deref()
-            .unwrap_or(DEFAULT_ADMIN_USERNAME);
-
-        // A bastion-only VM with no recorded private IP is still reachable
-        // through its tunnel; it used to be skipped for having no address.
-        let (ip, bastion_info_owned) = match probe_route(vm, &bastion_map, subscription_id) {
-            ProbeRoute::Direct { host } => (host, None),
-            ProbeRoute::Bastion {
-                target,
-                fallback_host,
-            } => (
-                fallback_host.unwrap_or_default(),
-                Some((
-                    target.bastion_name,
-                    target.resource_group,
-                    target.vm_resource_id,
-                    ssh_key_path.clone(),
-                )),
-            ),
-            ProbeRoute::Unreachable => continue,
-        };
-
-        let bastion_ref = bastion_info_owned
-            .as_ref()
-            .map(|(bn, rg_b, rid, key)| (bn.as_str(), rg_b.as_str(), rid.as_str(), key.as_deref()));
-
-        let metrics = crate::collect_health_metrics(&vm.name, &ip, user, &state, bastion_ref);
-        health_data.insert(vm.name.clone(), metrics);
-    }
-    health_data
-}
-
 /// The data-disk roles each VM was created with, from one `az vm list` per
 /// resource group.
 ///
@@ -895,43 +846,61 @@ pub(crate) fn collect_disk_configs(vms: &[VmInfo]) -> HashMap<String, DiskConfig
     out
 }
 
-/// Run the read-only storage probe against every VM that has data disks.
+/// Collect detailed health metrics and storage status for running VMs, in one
+/// sweep.
 ///
-/// This is the collector behind the `Storage` column. #1131 was invisible
-/// precisely because no list surface asked this question: the VM reported
-/// Running and healthy for weeks while both its data disks sat unformatted.
-///
-/// A VM that cannot be reached, or whose output cannot be parsed, is left out
-/// of the map entirely and renders as `--`. It is never recorded as `ok`.
-pub(crate) fn collect_storage_status(
+/// Health and storage were two separate passes over the same fleet: each
+/// rediscovered the bastions (`az network bastion list` per resource group),
+/// each re-resolved the SSH key, and each opened its own connection per VM.
+/// Worse, they did not share the bastion-failure memo, so a VM behind a dead
+/// tunnel paid `BASTION_EXEC_TIMEOUT_SECS` twice — once per collector — before
+/// either fell back to the private IP. One sweep, one `RoutedExec` per VM, so
+/// the sixth probe costs a round trip and not a rediscovery.
+pub(crate) fn collect_health_and_storage(
     vms: &[VmInfo],
     subscription_id: &str,
-) -> HashMap<String, StorageStatus> {
-    let mut out = HashMap::new();
-    let configs = collect_disk_configs(vms);
+    want_storage: bool,
+) -> (
+    HashMap<String, crate::HealthMetrics>,
+    HashMap<String, StorageStatus>,
+) {
+    let mut health_data = HashMap::new();
+    let mut storage_data = HashMap::new();
     let bastion_map = discover_bastions(vms);
     let ssh_key_path = resolve_ssh_key();
     let colliding = colliding_vm_names(vms);
+    // One `az vm list` per resource group, and only when the column is
+    // wanted: the layout is the same for every VM in the group, so asking
+    // per VM would pay an ARM round trip per row.
+    let configs = if want_storage {
+        collect_disk_configs(vms)
+    } else {
+        HashMap::new()
+    };
 
     for vm in vms {
-        if colliding.contains(&vm.name) || vm.power_state != PowerState::Running {
+        if colliding.contains(&vm.name) {
             continue;
         }
-        let Some(config) = configs.get(&vm.name) else {
-            continue;
-        };
-        if !config.home_disk && !config.tmp_disk {
-            out.insert(vm.name.clone(), StorageStatus::NoDisks);
-            continue;
-        }
+        let state = vm.power_state.to_string();
         let user = vm
             .admin_username
             .as_deref()
             .unwrap_or(DEFAULT_ADMIN_USERNAME);
-        let Ok(script) = build_disk_probe_script(config, user) else {
-            continue;
-        };
 
+        // "This VM has no data disks" is answerable from Azure metadata, so it
+        // is answered before the route is worked out: a VM with no disks and
+        // no address is not an unknown, and reporting it as one would send an
+        // operator to look at storage that does not exist.
+        let disk_config = configs.get(&vm.name);
+        if let Some(config) = disk_config {
+            if !config.home_disk && !config.tmp_disk {
+                storage_data.insert(vm.name.clone(), StorageStatus::NoDisks);
+            }
+        }
+
+        // A bastion-only VM with no recorded private IP is still reachable
+        // through its tunnel; it used to be skipped for having no address.
         let (ip, bastion_info_owned) = match probe_route(vm, &bastion_map, subscription_id) {
             ProbeRoute::Direct { host } => (host, None),
             ProbeRoute::Bastion {
@@ -949,24 +918,49 @@ pub(crate) fn collect_storage_status(
             ProbeRoute::Unreachable => continue,
         };
 
-        let result = match &bastion_info_owned {
-            Some((bastion_name, rg, vm_rid, key)) => crate::bastion_ssh_exec(
-                bastion_name,
-                rg,
-                vm_rid,
-                user,
-                key.as_deref(),
-                &script,
-                crate::BASTION_EXEC_TIMEOUT_SECS,
-            ),
-            None => crate::ssh_exec(&ip, user, &script, None, true),
-        };
-        let Ok((_, stdout, _)) = result else {
-            continue;
-        };
-        out.insert(vm.name.clone(), parse_disk_probe(&stdout, config).status);
+        let bastion_ref = bastion_info_owned
+            .as_ref()
+            .map(|(bn, rg_b, rid, key)| (bn.as_str(), rg_b.as_str(), rid.as_str(), key.as_deref()));
+
+        let exec_route = crate::RoutedExec::new(&ip, user, bastion_ref);
+
+        let metrics = crate::collect_health_metrics_with(&exec_route, &vm.name, &state);
+        health_data.insert(vm.name.clone(), metrics);
+
+        if let Some(status) = probe_storage(vm, user, disk_config, &exec_route) {
+            storage_data.insert(vm.name.clone(), status);
+        }
     }
-    out
+    (health_data, storage_data)
+}
+
+/// Ask one VM the read-only storage question, over a route the caller has
+/// already established.
+///
+/// This is the probe behind the `Storage` column. #1131 was invisible
+/// precisely because no list surface asked it: the VM reported Running and
+/// healthy for weeks while both its data disks sat unformatted.
+///
+/// `None` means the question could not be answered — unreachable, unparseable,
+/// or a LUN layout that disagrees with what the VM was created with. The
+/// column renders `--`. It is never recorded as `ok`.
+fn probe_storage(
+    vm: &VmInfo,
+    user: &str,
+    config: Option<&DiskConfig>,
+    exec_route: &crate::RoutedExec<'_>,
+) -> Option<StorageStatus> {
+    if vm.power_state != PowerState::Running {
+        return None;
+    }
+    let config = config?;
+    // Already recorded from metadata by the caller; there is nothing to ask.
+    if !config.home_disk && !config.tmp_disk {
+        return None;
+    }
+    let script = build_disk_probe_script(config, user).ok()?;
+    let (_, stdout, _) = exec_route.run(&script).ok()?;
+    Some(parse_disk_probe(&stdout, config).status)
 }
 
 /// Collect top process data for running VMs.

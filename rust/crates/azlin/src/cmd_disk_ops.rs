@@ -12,6 +12,7 @@
 
 use super::*;
 use anyhow::{Context, Result};
+use azlin_azure::cloud_init::DiskConfig;
 use azlin_azure::disk_layout::{
     build_disk_probe_script, build_disk_repair_script, config_from_attached_disks,
     parse_disk_probe, DiskFinding, DiskReport, DiskStage, StorageStatus,
@@ -120,18 +121,18 @@ pub(crate) fn disks_from_json(value: Option<&serde_json::Value>) -> Vec<(String,
 pub(crate) async fn probe_vm_storage(
     vm_name: &str,
     resource_group: Option<String>,
-) -> Result<(DiskReport, String, Option<crate::VmSshTarget>)> {
+) -> Result<ProbedVm> {
     let rg = resolve_resource_group(resource_group.clone())?;
     let verdict_only = |status| {
-        Ok((
-            DiskReport {
+        Ok(ProbedVm {
+            report: DiskReport {
                 status,
                 disks: Vec::new(),
                 provisioning: None,
             },
-            rg.clone(),
-            None,
-        ))
+            resource_group: rg.clone(),
+            route: None,
+        })
     };
 
     let attached = attached_disks(&rg, vm_name)?;
@@ -147,7 +148,59 @@ pub(crate) async fn probe_vm_storage(
     }
 
     let target = resolve_vm_ssh_target(vm_name, None, resource_group).await?;
-    let script = build_disk_probe_script(&config, &target.user)
+    let report = run_probe(vm_name, &config, &target)?;
+    Ok(ProbedVm {
+        report,
+        resource_group: rg,
+        route: Some(ProbeRoute { target, config }),
+    })
+}
+
+/// One VM's storage verdict, together with the route and the layout used to
+/// reach it.
+pub(crate) struct ProbedVm {
+    pub(crate) report: DiskReport,
+    pub(crate) resource_group: String,
+    /// `None` when the verdict was reached without SSH — no data disks, or a
+    /// LUN layout that does not match what the VM was created with.
+    pub(crate) route: Option<ProbeRoute>,
+}
+
+/// An open route to a VM and the disk layout to interpret it against.
+pub(crate) struct ProbeRoute {
+    pub(crate) target: crate::VmSshTarget,
+    pub(crate) config: DiskConfig,
+}
+
+impl ProbedVm {
+    /// Ask the same VM the same question again, over the route already open.
+    ///
+    /// A repair does not attach disks, change subscription, or move the
+    /// bastion, so re-running [`probe_vm_storage`] would spend four `az`
+    /// invocations — `az vm show` twice, `az account show`, `az network
+    /// bastion list` — re-deriving answers that cannot have changed, and on a
+    /// context-pinned subscription an `az account set` as well. Only the disk
+    /// state can have changed, and that is exactly what the probe reads.
+    pub(crate) fn reprobe(&self, vm_name: &str) -> Result<DiskReport> {
+        let Some(route) = self.route.as_ref() else {
+            // No route means the verdict never needed one; it still does not.
+            return Ok(DiskReport {
+                status: self.report.status,
+                disks: Vec::new(),
+                provisioning: None,
+            });
+        };
+        run_probe(vm_name, &route.config, &route.target)
+    }
+}
+
+/// Send the read-only probe over an established route and parse the answer.
+fn run_probe(
+    vm_name: &str,
+    config: &DiskConfig,
+    target: &crate::VmSshTarget,
+) -> Result<DiskReport> {
+    let script = build_disk_probe_script(config, &target.user)
         .map_err(|e| anyhow::anyhow!("could not build the storage probe: {}", e))?;
     let (code, stdout, stderr) = target.exec(&script)?;
     if code != 0 && stdout.trim().is_empty() {
@@ -157,7 +210,7 @@ pub(crate) async fn probe_vm_storage(
             azlin_core::sanitizer::sanitize(stderr.trim())
         );
     }
-    Ok((parse_disk_probe(&stdout, &config), rg, Some(target)))
+    Ok(parse_disk_probe(&stdout, config))
 }
 
 // ---------------------------------------------------------------------------
@@ -277,7 +330,7 @@ pub(crate) async fn handle_disk_check(
             std::process::exit(check_exit_code(StorageStatus::Unknown));
         }
     };
-    let (report, rg, _target) = probe;
+    let (report, rg) = (probe.report, probe.resource_group);
 
     if json {
         println!(
@@ -321,7 +374,8 @@ pub(crate) async fn handle_disk_repair(
     dry_run: bool,
     force: bool,
 ) -> Result<()> {
-    let (report, rg, target) = probe_vm_storage(vm_name, resource_group).await?;
+    let probed = probe_vm_storage(vm_name, resource_group).await?;
+    let (report, rg) = (&probed.report, probed.resource_group.clone());
     println!("VM: {}  (rg: {})", vm_name, rg);
 
     match report.status {
@@ -351,7 +405,7 @@ pub(crate) async fn handle_disk_repair(
 
     // Resolved once, by the probe. Re-resolving costs three `az` calls per
     // repair for an answer that cannot have changed.
-    let Some(target) = target else {
+    let Some(target) = probed.route.as_ref().map(|r| &r.target) else {
         anyhow::bail!("could not reach '{}' to repair it", vm_name);
     };
 
@@ -467,7 +521,8 @@ pub(crate) async fn handle_disk_repair(
 
     // Re-probed rather than assumed: the whole point of this command is that
     // "it printed success" is not the same claim as "the disk is mounted".
-    let (after, _rg, _target) = probe_vm_storage(vm_name, Some(rg)).await?;
+    // Over the route already open — see `ProbedVm::reprobe`.
+    let after = probed.reprobe(vm_name)?;
     println!();
     println!("Storage: {}", after.status);
     if failed || after.status != StorageStatus::Ok {

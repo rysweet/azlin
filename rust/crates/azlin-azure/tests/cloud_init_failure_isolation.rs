@@ -850,3 +850,92 @@ mod real_shell {
         assert!(outcome.sentinel_present);
     }
 }
+
+// ---------------------------------------------------------------------------
+// customData budget
+// ---------------------------------------------------------------------------
+
+/// Azure's hard limit on `customData`, applied to the **base64** form.
+///
+/// `az vm create --custom-data @file` base64-encodes the script before ARM
+/// sees it, so the limit that matters is 4/3 of the raw byte count.
+const AZURE_CUSTOM_DATA_LIMIT: usize = 65_536;
+
+/// The raw script size this project refuses to exceed without a deliberate
+/// decision.
+///
+/// Set to half the encodable budget. Exceeding it does not mean the VM breaks
+/// — it means the remaining headroom is no longer comfortable and someone
+/// should look at what grew.
+const RAW_SCRIPT_BUDGET: usize = 24 * 1024;
+
+fn base64_len(raw: usize) -> usize {
+    raw.div_ceil(3) * 4
+}
+
+/// The generated script has to fit in `customData`, with room left over.
+///
+/// Fixing #1131 grew the home+tmp script by about 72%. Nothing failed, because
+/// nothing was watching: the ceiling is enforced by ARM at `azlin new` time,
+/// where breaching it is a 400 on every VM creation and no local test result at
+/// all. This is the test that turns that into a red build instead.
+#[test]
+fn generated_cloud_init_fits_in_the_azure_custom_data_budget() {
+    for (label, config) in [
+        (
+            "no disks",
+            DiskConfig {
+                home_disk: false,
+                tmp_disk: false,
+            },
+        ),
+        (
+            "home only",
+            DiskConfig {
+                home_disk: true,
+                tmp_disk: false,
+            },
+        ),
+        (
+            "tmp only",
+            DiskConfig {
+                home_disk: false,
+                tmp_disk: true,
+            },
+        ),
+        ("home+tmp", both_disks()),
+    ] {
+        let raw = render(&config).len();
+        let encoded = base64_len(raw);
+
+        assert!(
+            encoded < AZURE_CUSTOM_DATA_LIMIT,
+            "{label}: base64 customData is {encoded} bytes, over Azure's \
+             {AZURE_CUSTOM_DATA_LIMIT}-byte limit. Every `azlin new` would fail \
+             with a 400 from ARM."
+        );
+        assert!(
+            raw <= RAW_SCRIPT_BUDGET,
+            "{label}: the generated script is {raw} bytes, over this project's \
+             {RAW_SCRIPT_BUDGET}-byte budget ({encoded} base64, {}% of Azure's \
+             limit). It still fits, but the headroom is going. Either shrink \
+             the script or raise RAW_SCRIPT_BUDGET deliberately.",
+            encoded * 100 / AZURE_CUSTOM_DATA_LIMIT
+        );
+    }
+}
+
+/// The builder's capacity hint should still cover the largest script.
+///
+/// Not a correctness property — `String` grows on its own. It is here so that
+/// the hint in `render_dev_cloud_init_script_with_disks` is updated alongside
+/// the script rather than silently decaying into a guaranteed realloc.
+#[test]
+fn cloud_init_capacity_hint_still_covers_the_largest_script() {
+    let largest = render(&both_disks()).len();
+    assert!(
+        largest <= 24 * 1024,
+        "the script is now {largest} bytes; raise the `String::with_capacity` \
+         hint in `render_dev_cloud_init_script_with_disks` to match."
+    );
+}
