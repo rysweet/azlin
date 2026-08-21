@@ -209,20 +209,38 @@ pub(crate) async fn dispatch(
 
             // Preserve Azure's natural ordering (matches Python behavior)
 
-            // Bastion, tmux and health enrichment are all scoped to one
-            // subscription and one resource group — they use the first VM's
-            // resource group and `vm_manager.subscription_id()`. When
-            // --all-contexts spanned several subscriptions those lookups were
-            // silently attributed to the wrong one, so they are skipped rather
-            // than reported wrongly (#1090).
-            let cross_subscription = queried_subscriptions.len() > 1;
-            if cross_subscription {
-                eprintln!(
-                    "Note: this listing spans {} subscriptions; bastion, tmux and health \
-                     details are subscription-scoped and have been omitted.",
-                    queried_subscriptions.len()
-                );
+            // `--show-tmux` defaults to true and was discarded, so
+            // `--show-tmux false` collected and displayed tmux sessions
+            // anyway; only its sibling `--no-tmux` was ever read (#1089).
+            // Either flag turning it off is the reading that cannot surprise
+            // anyone: both say "off" and neither has ever meant "on".
+            let want_tmux = show_tmux && !no_tmux;
+
+            // Bastion, tmux, health and process enrichment are all scoped to
+            // one subscription and one resource group — they probe by an ARM id
+            // built from `vm_manager.subscription_id()`, and `VmInfo` carries
+            // no subscription of its own. When --all-contexts spanned several
+            // subscriptions those lookups were silently attributed to the wrong
+            // one, so they are skipped rather than reported wrongly (#1090).
+            //
+            // The gate and the note come back from one call because they used
+            // to be written separately and drifted: `--show-procs` never took
+            // the gate, so it ran against the wrong subscription while the note
+            // said enrichment had been omitted.
+            let (enrichment, note) = crate::cmd_list_data::resolve_enrichment(
+                crate::cmd_list_data::Enrichment {
+                    tmux: want_tmux,
+                    health: with_health,
+                    procs: show_procs,
+                },
+                queried_subscriptions.len(),
+            );
+            if let Some(note) = note {
+                eprintln!("{note}");
             }
+            // The "Azure Bastion Hosts" table is withheld on the same grounds,
+            // and the note above accounts for it.
+            let cross_subscription = queried_subscriptions.len() > 1;
 
             if effective_verbose {
                 eprintln!("[VERBOSE] Detecting bastion hosts...");
@@ -313,41 +331,20 @@ pub(crate) async fn dispatch(
                 eprintln!("[VERBOSE] Collecting tmux sessions via bastion SSH...");
             }
             let ssh_timeout = config.ssh_connect_timeout;
-            // `--show-tmux` defaults to true and was discarded, so
-            // `--show-tmux false` collected and displayed tmux sessions
-            // anyway; only its sibling `--no-tmux` was ever read (#1089).
-            // Either flag turning it off is the reading that cannot surprise
-            // anyone: both say "off" and neither has ever meant "on".
-            let want_tmux = show_tmux && !no_tmux;
-
             // The three enrichment collectors below all route through the same
             // bastion map, and each used to discover it for itself: with
             // `--with-health --show-procs` that was three `az network bastion
             // list` calls per resource group computing one answer, and three
             // spinners spent re-deriving it. Discovery is a pure function of
             // the VM list, so it happens once here — but only when a collector
-            // that needs it will actually run, which is why these gates are
-            // named rather than repeated.
-            //
-            // All three are subscription-scoped in exactly the same way -- they
-            // probe by ARM id built from `vm_manager.subscription_id()`, and
-            // `VmInfo` carries no subscription of its own -- so all three take
-            // the same `!cross_subscription` gate. `--show-procs` did not, and
-            // with the IaC-templated dev/prod name pairs this tool is pointed
-            // at, that meant a same-named VM in the *queried* subscription was
-            // probed and its `ps` output rendered under a row read from
-            // another, while the note above told the operator enrichment had
-            // been omitted.
-            let collect_tmux = want_tmux && !cross_subscription;
-            let collect_health = with_health && !cross_subscription;
-            let collect_procs = show_procs && !cross_subscription;
-            let bastion_map = if collect_tmux || collect_health || collect_procs {
+            // that needs it will actually run.
+            let bastion_map = if enrichment.any() {
                 crate::cmd_list_data::discover_bastions_async(&all_vms).await
             } else {
                 Default::default()
             };
 
-            let tmux_sessions = if collect_tmux {
+            let tmux_sessions = if enrichment.tmux {
                 let pb = penguin_spinner("Collecting tmux sessions...");
                 let sessions = crate::cmd_list_data::collect_tmux_sessions(
                     &all_vms,
@@ -372,7 +369,7 @@ pub(crate) async fn dispatch(
                 std::collections::HashMap::new()
             };
 
-            let health_data = if collect_health {
+            let health_data = if enrichment.health {
                 let pb = penguin_spinner("Checking VM health...");
                 let result = crate::cmd_list_data::collect_health_data(
                     &all_vms,
@@ -385,7 +382,7 @@ pub(crate) async fn dispatch(
                 std::collections::HashMap::new()
             };
 
-            let proc_data = if collect_procs {
+            let proc_data = if enrichment.procs {
                 let pb = penguin_spinner("Collecting process data...");
                 let result = crate::cmd_list_data::collect_procs(
                     &all_vms,

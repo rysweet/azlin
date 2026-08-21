@@ -266,6 +266,90 @@ pub(crate) fn valid_bastion_coordinates(name: &str, location: &str) -> bool {
         && location.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
+/// Which enrichment collectors a listing is allowed to run.
+///
+/// tmux, health and process data are collected by probing each VM through an
+/// ARM id built from the *single* subscription the listing queried, and
+/// `VmInfo` carries no subscription of its own. A listing spanning several
+/// subscriptions therefore cannot attribute any of them, so all three are
+/// withheld.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Enrichment {
+    pub tmux: bool,
+    pub health: bool,
+    pub procs: bool,
+}
+
+impl Enrichment {
+    /// True when at least one collector will run, i.e. when bastion routing is
+    /// worth discovering at all.
+    pub(crate) fn any(&self) -> bool {
+        self.tmux || self.health || self.procs
+    }
+}
+
+/// Narrow what the operator asked for to what this listing can answer, and say
+/// what was dropped.
+///
+/// The gate and the note it prints are returned together, from one place, on
+/// purpose. They were separate, and they drifted: `--show-procs` never took the
+/// gate its two siblings took, so process data was collected against the wrong
+/// subscription and rendered under rows read from another -- while the note on
+/// screen told the operator enrichment had been omitted. A note assembled from
+/// the same decision cannot claim something was withheld that in fact ran, or
+/// stay silent about something that in fact did not.
+///
+/// The note names bastion routing unconditionally, because the "Azure Bastion
+/// Hosts" table is withheld on the same grounds whether or not any collector
+/// was asked for, and then each collector the operator actually requested. It
+/// does not name what nobody asked for: a note listing process data to someone
+/// who never passed `--show-procs` trains them to skim it.
+///
+/// `None` only when the listing is single-subscription and nothing was
+/// withheld at all.
+pub(crate) fn resolve_enrichment(
+    requested: Enrichment,
+    subscriptions_queried: usize,
+) -> (Enrichment, Option<String>) {
+    if subscriptions_queried <= 1 {
+        return (requested, None);
+    }
+    let mut withheld = vec!["bastion routing"];
+    withheld.extend(
+        [
+            ("tmux sessions", requested.tmux),
+            ("health data", requested.health),
+            ("process data", requested.procs),
+        ]
+        .into_iter()
+        .filter_map(|(name, asked)| asked.then_some(name)),
+    );
+    let note = format!(
+        "Note: this listing spans {} subscriptions; {} are subscription-scoped and have \
+         been omitted.",
+        subscriptions_queried,
+        join_with_and(&withheld)
+    );
+    (
+        Enrichment {
+            tmux: false,
+            health: false,
+            procs: false,
+        },
+        Some(note),
+    )
+}
+
+/// `["a", "b", "c"] -> "a, b and c"`. Only ever used on the fixed, ASCII
+/// collector names above, so there is nothing to sanitize.
+fn join_with_and(items: &[&str]) -> String {
+    match items {
+        [] => String::new(),
+        [only] => only.to_string(),
+        [rest @ .., last] => format!("{} and {}", rest.join(", "), last),
+    }
+}
+
 /// Discover bastions for every resource group that has a bastion-only VM.
 ///
 /// Blocking `az` calls: one `az network bastion list` per resource group that
@@ -486,7 +570,7 @@ pub(crate) fn latency_probe_host(vm: &VmInfo) -> Option<String> {
 /// stops a fabricated *second* warning; it does nothing about a cursor-movement
 /// sequence rewriting the one line we do print.
 pub(crate) fn bastion_lookup_failure_warning(resource_group: &str, error: &str) -> String {
-    let first_line = error.lines().next().unwrap_or("").trim();
+    let first_line = crate::list_helpers::first_reportable_line(error);
     format!(
         "Warning: could not list bastion hosts in resource group {}: {}. \
          VMs there that are only reachable through a bastion will show no tmux, \
@@ -506,7 +590,7 @@ pub(crate) fn bastion_lookup_failure_warning(resource_group: &str, error: &str) 
 /// first two are Azure resource names an operator (or anyone with write access
 /// to the subscription) chooses, and the third routinely quotes them back.
 pub(crate) fn tunnel_failure_warning(vm_name: &str, bastion_name: &str, error: &str) -> String {
-    let first_line = error.lines().next().unwrap_or("").trim();
+    let first_line = crate::list_helpers::first_reportable_line(error);
     format!(
         "Warning: could not open a bastion tunnel to {} via {} ({}); its sessions will not be listed.",
         sanitize_remote_text(vm_name),
@@ -584,13 +668,22 @@ pub(crate) fn sanitize_remote_text(raw: &str) -> String {
 ///   the word joiners and the tag block hide or fabricate text just as
 ///   effectively while occupying no column.
 ///
-/// The ranges below are the `Cf` block plus the two separators, listed
-/// explicitly rather than pulled from a Unicode-tables dependency: the set is
-/// small, fixed, and cheaper to audit here than to trust to a transitive crate.
+/// The ranges below are every assigned `Cf` code point plus the two separators
+/// (and the handful of unassigned points swept up by contiguous ranges, which
+/// cost nothing to strip), listed explicitly rather than pulled from a
+/// Unicode-tables dependency: the set is small, fixed, and cheaper to audit
+/// here than to trust to a transitive crate. Checked exhaustively against
+/// Unicode 16 -- nothing outside `Cf`/`Zl`/`Zp`/`Cn` is caught, so no
+/// legitimate character is lost.
 fn is_bidi_or_invisible(c: char) -> bool {
     matches!(c,
         '\u{00AD}'                  // soft hyphen
+        | '\u{0600}'..='\u{0605}'   // arabic number/subtending marks
         | '\u{061C}'                // arabic letter mark
+        | '\u{06DD}'                // arabic end of ayah
+        | '\u{070F}'                // syriac abbreviation mark
+        | '\u{0890}'..='\u{0891}'   // arabic pound/piastre marks
+        | '\u{08E2}'                // arabic disputed end of ayah
         | '\u{180E}'                // mongolian vowel separator
         | '\u{200B}'..='\u{200F}'   // zero-width spaces, LRM/RLM
         | '\u{2028}'..='\u{2029}'   // line and paragraph separators (Zl/Zp)
@@ -790,7 +883,8 @@ pub(crate) async fn collect_tmux_sessions(
                 if verbose {
                     eprintln!(
                         "[VERBOSE] {} -> tmux probe could not be run ({}); reporting no sessions",
-                        vm_name, e
+                        sanitize_remote_text(&vm_name),
+                        e
                     );
                 }
                 continue;
@@ -813,7 +907,7 @@ pub(crate) async fn collect_tmux_sessions(
                 // as anything else read off a host.
                 eprintln!(
                     "[VERBOSE] {} -> tmux probe exited {} ({}); reporting no sessions",
-                    vm_name,
+                    sanitize_remote_text(&vm_name),
                     out.status.code().unwrap_or(-1),
                     sanitize_remote_text(String::from_utf8_lossy(&out.stderr).trim())
                 );
@@ -2356,6 +2450,109 @@ mod silent_degradation_tests {
             "legitimate text was lost: {:?}",
             cleaned
         );
+    }
+
+    /// The bug this gate exists to prevent: `--show-procs` ran across
+    /// subscriptions while its two siblings did not. Asserting the whole
+    /// struct, rather than one field, is what makes a fourth collector added
+    /// without a gate fail here instead of shipping.
+    #[test]
+    fn every_requested_collector_is_withheld_across_subscriptions() {
+        let requested = Enrichment {
+            tmux: true,
+            health: true,
+            procs: true,
+        };
+        let (permitted, note) = resolve_enrichment(requested, 2);
+        assert_eq!(
+            permitted,
+            Enrichment {
+                tmux: false,
+                health: false,
+                procs: false
+            },
+            "a collector ran against a subscription the listing cannot attribute"
+        );
+        assert!(!permitted.any(), "bastion discovery ran for nothing");
+        let note = note.expect("withholding every collector must be explained");
+        for named in [
+            "bastion routing",
+            "tmux sessions",
+            "health data",
+            "process data",
+        ] {
+            assert!(
+                note.contains(named),
+                "{named} was withheld but the note does not say so: {note}"
+            );
+        }
+    }
+
+    /// A note is only honest if it accounts for exactly what was withheld. The
+    /// previous note was a fixed string, so it named health data to operators
+    /// who never asked for it and stayed silent about process data, which is
+    /// how the missing `--show-procs` gate survived review.
+    #[test]
+    fn the_note_names_what_was_withheld_and_nothing_else() {
+        let (_, note) = resolve_enrichment(
+            Enrichment {
+                tmux: false,
+                health: false,
+                procs: true,
+            },
+            3,
+        );
+        let note = note.expect("process data was withheld and must be explained");
+        assert!(note.contains("process data"), "{note}");
+        assert!(
+            !note.contains("tmux") && !note.contains("health"),
+            "the note claims to have withheld what was never asked for: {note}"
+        );
+        assert!(
+            note.contains("bastion routing"),
+            "the bastion table is withheld too and must be accounted for: {note}"
+        );
+        assert!(
+            note.contains('3'),
+            "the subscription count is the reason: {note}"
+        );
+    }
+
+    /// A single-subscription listing can attribute every probe, so nothing is
+    /// withheld and there is nothing to explain.
+    #[test]
+    fn a_single_subscription_listing_withholds_nothing() {
+        let requested = Enrichment {
+            tmux: true,
+            health: false,
+            procs: true,
+        };
+        for count in [0, 1] {
+            let (permitted, note) = resolve_enrichment(requested, count);
+            assert_eq!(
+                permitted, requested,
+                "enrichment lost at {count} subscriptions"
+            );
+            assert!(
+                note.is_none(),
+                "nothing was withheld but a note printed: {note:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn enrichment_any_reports_whether_discovery_is_worth_running() {
+        let none = Enrichment {
+            tmux: false,
+            health: false,
+            procs: false,
+        };
+        assert!(!none.any());
+        assert!(Enrichment {
+            procs: true,
+            ..none
+        }
+        .any());
     }
 
     /// The line-break rule the module states must hold for every character a

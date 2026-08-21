@@ -32,7 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pairs this tool is pointed at, the `ps` output of a same-named VM in one
   subscription rendered under a row read from another — while the note on screen
   told the operator enrichment had been omitted. All three collectors now take
-  the same gate.
+  the same gate -- and the gate and the note are returned from one call
+  (`resolve_enrichment`), because they were written separately and that is
+  exactly how they drifted. The note now names what was actually withheld
+  rather than reciting a fixed string, so it can neither claim to have omitted
+  something that in fact ran nor stay silent about something that did not.
 - **A blank first line from `az` no longer suppresses the bastion-lookup
   warning entirely** — the warning took `stderr.lines().next()`, and `az` writes
   a leading blank line often enough that the message came out empty, failed the
@@ -52,7 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   write-ups name (`U+061C`, `U+00AD`, the word joiners and the tag block were
   all getting through). The C1 range needed no change and was verified rather
   than assumed: it is `Cc`, so the 8-bit CSI was already handled, and there is
-  now a test pinning that.
+  now a test pinning that. Coverage was then checked exhaustively against
+  Unicode 16 rather than asserted: every assigned `Cf` code point is stripped,
+  and nothing outside `Cf`/`Zl`/`Zp`/unassigned is caught, so no legitimate
+  name loses a character.
 - **The `azlin list` table and CSV no longer print Azure-supplied names
   unsanitized** — the warnings and the bastion table were fixed above, but the
   table `azlin list` prints on every run was not: the VM name, the region, the

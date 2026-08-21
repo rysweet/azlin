@@ -214,7 +214,7 @@ mod tests {
 /// banners are all there is, so the warning is never silently dropped -- an
 /// imprecise cause still tells the operator the lookup failed, whereas printing
 /// nothing tells them the group has no bastion.
-fn first_reportable_line(stderr: &str) -> &str {
+pub(crate) fn first_reportable_line(stderr: &str) -> &str {
     let mut lines = stderr.lines().map(str::trim).filter(|l| !l.is_empty());
     let Some(first) = lines.next() else {
         return "";
