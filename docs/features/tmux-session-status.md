@@ -121,7 +121,8 @@ contains a running VM with no public IP:
 The counts above are the *routing* sweep only. Table output runs a second,
 independent sweep to render the "Azure Bastion Hosts" table: one
 `az network bastion list` per distinct resource group in the listing, gated on
-table format and a single subscription alone. That sweep is not filtered by
+table format and on the listing being attributable to the subscription probes
+use -- the same identity gate the enrichment collectors take, not a count. That sweep is not filtered by
 public IP, because the table documents the bastions in the scope the operator
 asked about — so a table listing in which every VM has a public IP still
 performs one lookup per resource group. It is, however, driven by the listing

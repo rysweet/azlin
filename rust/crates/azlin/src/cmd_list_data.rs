@@ -334,23 +334,6 @@ impl Enrichment {
     }
 }
 
-/// Narrow what the operator asked for to what this listing can answer, and say
-/// what was dropped.
-///
-/// The gate and the note it prints are returned together, from one place, on
-/// purpose. They were separate, and they drifted: `--show-procs` never took the
-/// gate its two siblings took, so process data was collected against the wrong
-/// subscription and rendered under rows read from another -- while the note on
-/// screen told the operator enrichment had been omitted. A note assembled from
-/// the same decision cannot claim something was withheld that in fact ran, or
-/// stay silent about something that in fact did not.
-///
-/// The note names bastion routing unconditionally, because the "Azure Bastion
-/// Hosts" table is withheld on the same grounds whether or not any collector
-/// was asked for, and then each collector the operator actually requested. It
-/// does not name what nobody asked for: a note listing process data to someone
-/// who never passed `--show-procs` trains them to skim it.
-///
 /// Whether a string is shaped like an Azure subscription id (a GUID).
 ///
 /// Used to tell "these are two different subscriptions" from "these are not
@@ -370,6 +353,23 @@ pub(crate) fn looks_like_subscription_id(s: &str) -> bool {
     parts.next().is_none()
 }
 
+/// Narrow what the operator asked for to what this listing can answer, and say
+/// what was dropped.
+///
+/// The gate and the note it prints are returned together, from one place, on
+/// purpose. They were separate, and they drifted: `--show-procs` never took the
+/// gate its two siblings took, so process data was collected against the wrong
+/// subscription and rendered under rows read from another -- while the note on
+/// screen told the operator enrichment had been omitted. A note assembled from
+/// the same decision cannot claim something was withheld that in fact ran, or
+/// stay silent about something that in fact did not.
+///
+/// The note names bastion routing unconditionally, because the "Azure Bastion
+/// Hosts" table is withheld on the same grounds whether or not any collector
+/// was asked for, and then each collector the operator actually requested. It
+/// does not name what nobody asked for: a note listing process data to someone
+/// who never passed `--show-procs` trains them to skim it.
+///
 /// The gate is on subscription *identity*, not on how many were queried.
 /// Counting was not enough. Probes are built from `probe_subscription` -- the
 /// manager's subscription, fixed at startup from the active context or from
