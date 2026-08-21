@@ -720,11 +720,15 @@ pub(crate) async fn collect_tmux_sessions(
         };
         if !out.status.success() {
             if verbose {
+                // The probe's stderr is remote-controlled -- a listed host's
+                // SSH banner or MOTD lands here -- and this prints straight to
+                // the operator's terminal, so it goes through the same filter
+                // as anything else read off a host.
                 eprintln!(
                     "[VERBOSE] {} -> tmux probe exited {} ({}); reporting no sessions",
                     vm_name,
                     out.status.code().unwrap_or(-1),
-                    String::from_utf8_lossy(&out.stderr).trim()
+                    sanitize_remote_text(String::from_utf8_lossy(&out.stderr).trim())
                 );
             }
             continue;

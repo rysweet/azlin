@@ -230,6 +230,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   genuinely probeable VMs past the cap, and the skip count named a number
   nobody could act on. Colliding VMs are now filtered out before planning
   (#1127)
+- **The new `--verbose` probe diagnostic sanitises the remote host's stderr** —
+  a failed SSH probe's stderr carries whatever the listed host chose to print,
+  including its banner or MOTD, and the diagnostic puts it straight in the
+  operator's terminal. It now passes through `sanitize_remote_text`, the same
+  filter the `Tmux` and `Procs` columns use, so a listed host cannot emit ANSI
+  escapes or bidi overrides into a `--verbose` listing (#1127)
 - **`cmd_list_data` no longer suppresses dead-code warnings for the whole
   module** — the file carried a blanket `#![allow(dead_code)]`, and this change
   added roughly twenty functions underneath it. Removing it restores dead-code
