@@ -149,9 +149,19 @@ If the bind mount fails after `/home/{user}` has been renamed, a shell `trap` au
   grep -q "UUID=$HOME_UUID" /etc/fstab || \
     echo "UUID=$HOME_UUID /mnt/home-data ext4 defaults,nofail 0 2" >> /etc/fstab
   grep -q "/mnt/home-data/{user} /home/{user}" /etc/fstab || \
-    echo "/mnt/home-data/{user} /home/{user} none bind 0 0" >> /etc/fstab
-) || echo "WARN: home disk setup failed, continuing without separate home disk"
+    echo "/mnt/home-data/{user} /home/{user} none bind,nofail 0 0" >> /etc/fstab
+
+  # 7. Only now is the copy on the OS disk expendable
+  rm -rf /home/{user}.old
+)
+rc=$?
+set -e
+azlin_record disk-home "$rc"
 ```
+
+The `set +e` around the group and the `set -e` *inside* it are both required.
+`( … ) || echo WARN`, which this block used to end with, suspends `errexit`
+inside the subshell — the body runs straight past its first failing command.
 
 **Tmp disk script flow** follows the same pattern, mounting at `/tmp` with `chmod 1777` (sticky bit).
 
@@ -161,9 +171,9 @@ The mount is added to `/etc/fstab` idempotently (only if not already present) fo
 
 ```
 UUID=<home-disk-uuid> /mnt/home-data ext4 defaults,nofail 0 2
-/mnt/home-data/{user} /home/{user} none bind 0 0
+/mnt/home-data/{user} /home/{user} none bind,nofail 0 0
 UUID=<tmp-disk-uuid> /mnt/tmp-data ext4 defaults,nofail 0 2
-/mnt/tmp-data/tmp /tmp none bind 0 0
+/mnt/tmp-data/tmp /tmp none bind,nofail 0 0
 ```
 
 ## Configuration Options
@@ -265,11 +275,10 @@ Cleaning up orphaned disks: dev-vm_home, dev-vm_tmp
 Each disk block runs in a subshell. If LUN detection, formatting, or mounting fails, the error is contained:
 
 ```
-WARN: home disk setup failed, continuing without separate home disk
 [AZLIN] section=disk-home status=failed rc=1
 ```
 
-The rest of cloud-init (tool installation, repo clone, etc.) continues normally, and the `nofail` fstab option ensures the system boots even if the disk is absent on reboot. The failure is **not** silent: the section is recorded in the ledger, `/var/lib/azlin/provisioning-status` reads `degraded`, and the VM reports `degraded` in `azlin disk check`, `azlin health`, and the `Storage` column of `azlin list --with-health`.
+The rest of cloud-init (tool installation, repo clone, etc.) continues normally, and the `nofail` fstab option — on the bind entry as well as the ext4 one — ensures the system boots even if the disk is absent on reboot. The failure is **not** silent: the section is recorded in the ledger, `/var/lib/azlin/provisioning-status` reads `degraded`, `azlin new` prints a warning naming the failed sections, and the VM reports `degraded` in `azlin disk check` and in the `Storage` column of `azlin list --with-health`.
 
 ### Diagnosing Failures
 
@@ -523,7 +532,7 @@ The disk setup uses a hardened shell script (not cloud-init YAML disk modules) f
 2. **Subshell isolation**: Each disk block runs in `rc=0; ( ... ) || rc=$?` followed by a ledger record, so a failure is captured and reported rather than aborting the script. The subshell keeps `set -e`, which is what the rollback trap depends on; the `|| rc=$?` is what keeps the failure local
 3. **Mandatory rsync**: Home disk copies existing `/home/{user}` content before bind-mounting (preserves dotfiles, SSH keys)
 4. **Idempotent fstab**: Uses `grep -q` guard before appending to `/etc/fstab` (safe for re-runs)
-5. **Immediate cleanup**: Removes `/home/{user}.old` after verifying bind-mount succeeded
+5. **Late cleanup**: Removes `/home/{user}.old` only after the fstab entries are written. Until they are, the mount does not survive a reboot, so the copy on the OS disk is the only thing that would still hold the data — deleting it as soon as the bind verified was a data-loss window.
 6. **Ownership fix**: `chown -R {user}:{user}` after mount ensures correct permissions
 
 **Execution order** (script level): disk blocks first, then `apt-get update`/`upgrade`/`install`, then toolchain setup, then the ledger and completion sentinel. Each optional section is individually isolated, so no section's failure can prevent a later one from running.

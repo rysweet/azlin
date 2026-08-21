@@ -13,10 +13,9 @@
 #[allow(unused_imports)]
 use super::*;
 use anyhow::{Context, Result};
-use azlin_azure::cloud_init::DiskConfig;
 use azlin_azure::disk_layout::{
-    build_disk_probe_script, build_disk_repair_script, parse_disk_probe, roles, DiskFinding,
-    DiskReport, DiskStage, StorageStatus,
+    build_disk_probe_script, build_disk_repair_script, config_from_attached_disks,
+    parse_disk_probe, DiskFinding, DiskReport, DiskStage, StorageStatus,
 };
 
 /// Process exit status for a completed (or attempted) check.
@@ -33,6 +32,13 @@ pub fn check_exit_code(status: StorageStatus) -> i32 {
     }
 }
 
+/// How long a single disk's repair may take.
+///
+/// A repair formats a disk and copies a home directory across it. Two hours is
+/// not a prediction of how long that takes; it is a bound loose enough that
+/// hitting it means something is wrong rather than merely large.
+const REPAIR_EXEC_TIMEOUT_SECS: u64 = 2 * 60 * 60;
+
 /// The command to print when a surface reports a degraded VM.
 ///
 /// Nothing formats a disk as a side effect of a status query, so the surfaces
@@ -47,13 +53,8 @@ pub fn repair_hint(vm_name: &str) -> String {
 // Which disks a VM is supposed to have
 // ---------------------------------------------------------------------------
 
-/// The disk configuration implied by the data disks Azure has attached.
-///
-/// Derived from the disk *names* `azlin new` gives them, not from LUN order:
-/// the name is what says which role a disk was created for, and a VM whose
-/// disks were attached in an unexpected order should be reported honestly
-/// rather than probed at the wrong LUN.
-fn attached_disk_config(rg: &str, vm_name: &str) -> Result<(DiskConfig, Vec<(String, u32)>)> {
+/// The data disks Azure reports attached to this VM, as `(name, lun)`.
+fn attached_disks(rg: &str, vm_name: &str) -> Result<Vec<(String, u32)>> {
     let out = std::process::Command::new("az")
         .args([
             "vm",
@@ -80,57 +81,24 @@ fn attached_disk_config(rg: &str, vm_name: &str) -> Result<(DiskConfig, Vec<(Str
 
     let parsed: serde_json::Value =
         serde_json::from_slice(&out.stdout).context("`az vm show` returned invalid JSON")?;
-    let mut attached: Vec<(String, u32)> = Vec::new();
-    for entry in parsed.as_array().cloned().unwrap_or_default() {
-        let name = entry
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string();
-        let lun = entry.get("lun").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-        attached.push((name, lun));
-    }
-
-    let has = |suffix: &str| {
-        attached
-            .iter()
-            .any(|(name, _)| name == &format!("{}{}", vm_name, suffix))
-    };
-    Ok((
-        DiskConfig {
-            home_disk: has("_home"),
-            tmp_disk: has("_tmp"),
-        },
-        attached,
-    ))
-}
-
-/// Whether Azure's LUN assignment matches the layout the probe will use.
-///
-/// A mismatch means the probe would look at the wrong LUN and report a healthy
-/// disk as `absent`. That is an unknown, not a verdict — see
-/// `docs-site/storage/data-disk-layout.md`.
-fn lun_assignment_matches(
-    config: &DiskConfig,
-    vm_name: &str,
-    attached: &[(String, u32)],
-) -> Option<String> {
-    for role in roles(config) {
-        let expected_name = format!("{}_{}", vm_name, role.name);
-        let actual = attached
-            .iter()
-            .find(|(name, _)| name == &expected_name)
-            .map(|(_, lun)| *lun);
-        if actual != Some(role.lun) {
-            return Some(format!(
-                "disk '{}' is attached at LUN {:?}, but azlin's layout puts the {} \
-                 disk at LUN {}. Probing it would report the wrong disk, so no \
-                 verdict is given.",
-                expected_name, actual, role.name, role.lun
-            ));
-        }
-    }
-    None
+    Ok(parsed
+        .as_array()
+        .map(|entries| {
+            entries
+                .iter()
+                .map(|entry| {
+                    (
+                        entry
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        entry.get("lun").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default())
 }
 
 /// Run the read-only probe against one VM and turn its output into a verdict.
@@ -140,33 +108,30 @@ fn lun_assignment_matches(
 pub(crate) async fn probe_vm_storage(
     vm_name: &str,
     resource_group: Option<String>,
-) -> Result<(DiskReport, DiskConfig, String)> {
+) -> Result<(DiskReport, String, Option<crate::VmSshTarget>)> {
     let rg = resolve_resource_group(resource_group.clone())?;
-    let (config, attached) = attached_disk_config(&rg, vm_name)?;
+    let verdict_only = |status| {
+        Ok((
+            DiskReport {
+                status,
+                disks: Vec::new(),
+                provisioning: None,
+            },
+            rg.clone(),
+            None,
+        ))
+    };
 
+    let attached = attached_disks(&rg, vm_name)?;
+    let config = match config_from_attached_disks(vm_name, &attached) {
+        Ok(config) => config,
+        Err(reason) => {
+            eprintln!("{}", reason);
+            return verdict_only(StorageStatus::Unknown);
+        }
+    };
     if !config.home_disk && !config.tmp_disk {
-        return Ok((
-            DiskReport {
-                status: StorageStatus::NoDisks,
-                disks: Vec::new(),
-                provisioning: None,
-            },
-            config,
-            rg,
-        ));
-    }
-
-    if let Some(reason) = lun_assignment_matches(&config, vm_name, &attached) {
-        eprintln!("{}", reason);
-        return Ok((
-            DiskReport {
-                status: StorageStatus::Unknown,
-                disks: Vec::new(),
-                provisioning: None,
-            },
-            config,
-            rg,
-        ));
+        return verdict_only(StorageStatus::NoDisks);
     }
 
     let target = resolve_vm_ssh_target(vm_name, None, resource_group).await?;
@@ -180,18 +145,25 @@ pub(crate) async fn probe_vm_storage(
             azlin_core::sanitizer::sanitize(stderr.trim())
         );
     }
-    Ok((parse_disk_probe(&stdout, &config), config, rg))
+    Ok((parse_disk_probe(&stdout, &config), rg, Some(target)))
 }
 
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
 
+/// Bytes in one GiB.
+///
+/// `az disk create --size-gb 100` provisions 100 **GiB**, and `lsblk -bdno
+/// SIZE` reports the byte count, so dividing by 10^9 rendered every disk about
+/// 7% larger than the size the operator asked for: a `--home-disk-size 100`
+/// disk read as `107G`. The point of this column is to be comparable with the
+/// request.
+const BYTES_PER_GIB: u64 = 1024 * 1024 * 1024;
+
 fn size_cell(size_bytes: Option<u64>) -> String {
     match size_bytes {
-        // Azure disks are sold in GB, so that is the unit an operator can
-        // compare against the size they asked for.
-        Some(bytes) => format!("{}G", bytes / 1_000_000_000),
+        Some(bytes) => format!("{}G", bytes / BYTES_PER_GIB),
         None => crate::health_render::UNKNOWN_CELL.to_string(),
     }
 }
@@ -254,7 +226,7 @@ fn report_json(vm_name: &str, rg: &str, report: &DiskReport) -> serde_json::Valu
             "device": d.device,
             // `null`, not `0`: a disk with no device has no size, and a zero
             // here would be read as a measurement.
-            "size_gb": d.size_bytes.map(|b| b / 1_000_000_000),
+            "size_gb": d.size_bytes.map(|b| b / BYTES_PER_GIB),
             "stage": d.stage.as_str(),
             "detail": d.detail,
         })).collect::<Vec<_>>(),
@@ -276,7 +248,19 @@ pub(crate) async fn handle_disk_check(
     resource_group: Option<String>,
     json: bool,
 ) -> Result<()> {
-    let (report, _config, rg) = probe_vm_storage(vm_name, resource_group).await?;
+    // A failure before the probe — no `az` login, VM deallocated, no route — is
+    // "the check could not be completed", which the exit-code contract spells
+    // `2`. Letting it propagate would surface it as azlin's generic `1`, the
+    // code that means *degraded*: a cron sweep would record a storage failure
+    // on a VM whose storage was never inspected.
+    let probe = match probe_vm_storage(vm_name, resource_group).await {
+        Ok(probe) => probe,
+        Err(e) => {
+            eprintln!("Error: {:#}", e);
+            std::process::exit(check_exit_code(StorageStatus::Unknown));
+        }
+    };
+    let (report, rg, _target) = probe;
 
     if json {
         println!(
@@ -315,7 +299,7 @@ pub(crate) async fn handle_disk_repair(
     dry_run: bool,
     force: bool,
 ) -> Result<()> {
-    let (report, _config, rg) = probe_vm_storage(vm_name, resource_group.clone()).await?;
+    let (report, rg, target) = probe_vm_storage(vm_name, resource_group).await?;
     println!("VM: {}  (rg: {})", vm_name, rg);
 
     match report.status {
@@ -343,7 +327,11 @@ pub(crate) async fn handle_disk_repair(
         StorageStatus::Degraded => {}
     }
 
-    let target = resolve_vm_ssh_target(vm_name, None, resource_group).await?;
+    // Resolved once, by the probe. Re-resolving costs three `az` calls per
+    // repair for an answer that cannot have changed.
+    let Some(target) = target else {
+        anyhow::bail!("could not reach '{}' to repair it", vm_name);
+    };
 
     // Every script is built before anything runs, so a refusal on the second
     // disk does not leave the first half-repaired.
@@ -390,24 +378,60 @@ pub(crate) async fn handle_disk_repair(
     println!();
     let mut failed = false;
     for (disk, script) in &plan {
-        let (code, stdout, stderr) = target.exec(script)?;
-        for line in stdout.lines().filter(|l| !l.trim().is_empty()) {
-            println!("  {:<5} {}", disk.role, line.trim_start_matches("azlin: "));
-        }
-        if code != 0 {
-            failed = true;
-            eprintln!(
-                "  {:<5} repair failed (exit {}): {}",
-                disk.role,
-                code,
-                azlin_core::sanitizer::sanitize(stderr.trim())
-            );
+        // Not `exec`: that caps a bastion-routed command at
+        // BASTION_EXEC_TIMEOUT_SECS (60s), and this one copies an entire home
+        // directory. Bastion-only VMs are the population #1131 was reported
+        // against, so the default cap would have killed the copy mid-flight on
+        // exactly the machines this command exists for.
+        //
+        // A transport failure is recorded and the loop continues rather than
+        // propagating: `?` here would abandon the remaining disks *and* skip
+        // the closing notes — including the only place the command says where
+        // the previous home directory went.
+        match target.exec_with_local_timeout(script, REPAIR_EXEC_TIMEOUT_SECS) {
+            Ok((code, stdout, stderr)) => {
+                for line in stdout.lines().filter(|l| !l.trim().is_empty()) {
+                    println!("  {:<5} {}", disk.role, line.trim_start_matches("azlin: "));
+                }
+                if code != 0 {
+                    failed = true;
+                    eprintln!(
+                        "  {:<5} repair failed (exit {}): {}",
+                        disk.role,
+                        code,
+                        azlin_core::sanitizer::sanitize(stderr.trim())
+                    );
+                }
+            }
+            Err(e) => {
+                failed = true;
+                eprintln!(
+                    "  {:<5} the connection failed mid-repair, so what was applied is \
+                     unknown: {:#}",
+                    disk.role, e
+                );
+            }
         }
     }
 
+    // Printed before the verdict, and on every path: a repair that failed
+    // halfway still moved a home directory, and where it went is the first
+    // thing the operator needs to know.
+    println!();
+    println!(
+        "Note: open shells and tmux sessions still hold the old directories. Reconnect\n      \
+         to see the new mounts:  azlin connect {}",
+        vm_name
+    );
+    println!(
+        "Note: if the home directory was moved, its previous contents were kept\n      \
+         alongside it as `<path>.old` and still occupy the OS disk. Remove them\n      \
+         once you have confirmed the new mount."
+    );
+
     // Re-probed rather than assumed: the whole point of this command is that
     // "it printed success" is not the same claim as "the disk is mounted".
-    let (after, _config, _rg) = probe_vm_storage(vm_name, Some(rg)).await?;
+    let (after, _rg, _target) = probe_vm_storage(vm_name, Some(rg)).await?;
     println!();
     println!("Storage: {}", after.status);
     if failed || after.status != StorageStatus::Ok {
@@ -417,17 +441,5 @@ pub(crate) async fn handle_disk_repair(
             vm_name
         );
     }
-
-    println!();
-    println!(
-        "Note: open shells and tmux sessions still hold the old directories. Reconnect\n      \
-         to see the new mounts:  azlin connect {}",
-        vm_name
-    );
-    println!(
-        "Note: the previous contents of the repaired home directory were kept alongside\n      \
-         it as `<path>.old` and still occupy the OS disk. Remove them once you have\n      \
-         confirmed the new mount."
-    );
     Ok(())
 }

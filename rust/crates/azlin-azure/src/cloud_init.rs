@@ -118,7 +118,7 @@ pub struct DiskConfig {
 
 /// Shell snippet: wait for an Azure LUN device to appear (udevadm + retry loop).
 /// Returns a script fragment that sets `$DEV_VAR` to the resolved block device path.
-fn lun_wait_snippet(lun: u32, dev_var: &str, label: &str) -> String {
+fn lun_wait_snippet(lun: u32, dev_var: &str, label: &str, device: &str) -> String {
     format!(
         r#"  # Wait for udev to finish processing device events
   udevadm settle --timeout=30 || true
@@ -126,7 +126,7 @@ fn lun_wait_snippet(lun: u32, dev_var: &str, label: &str) -> String {
   # Retry loop: poll for LUN device availability (12 retries x 5s = 60s max)
   {dev_var}=""
   for retry in $(seq 1 12); do
-    {dev_var}=$(readlink -f /dev/disk/azure/scsi1/lun{lun} 2>/dev/null) || true
+    {dev_var}=$(readlink -f {device} 2>/dev/null) || true
     if [ -n "${dev_var}" ] && [ -b "${dev_var}" ]; then
       break
     fi
@@ -141,6 +141,7 @@ fn lun_wait_snippet(lun: u32, dev_var: &str, label: &str) -> String {
         lun = lun,
         dev_var = dev_var,
         label = label,
+        device = device,
     )
 }
 
@@ -171,6 +172,13 @@ fn provisioning_preamble() -> String {
 set -euo pipefail
 
 mkdir -p /var/lib/azlin
+
+# The ledger describes *this* run, so it starts empty.
+#
+# Appending to whatever was there before would let a `failed` row from an
+# earlier boot pin the VM at `degraded` forever, with no way to clear it short
+# of deleting the file by hand.
+: > /var/lib/azlin/provisioning.tsv
 
 # Record one section's outcome.
 #
@@ -212,10 +220,16 @@ azlin_storage_summary() {
 # files are written here, from an EXIT trap, so even an unhandled failure
 # outside a section reaches a terminal state -- a degraded one.
 azlin_finalize() {
+  azlin_exit=$?
   azlin_storage_summary
-  azlin_final=ok
-  if awk -F'\t' '$2=="failed"{f=1} END{exit !f}' /var/lib/azlin/provisioning.tsv 2>/dev/null; then
-    azlin_final=degraded
+  # `ok` has to be *earned*: the ledger must exist, hold no failed row, and the
+  # shell must be on its way out cleanly. Defaulting to `ok` and downgrading
+  # only on a failed row would report success for a run that died before it
+  # wrote anything -- which is the failure this whole change exists to stop.
+  azlin_final=degraded
+  if [ "$azlin_exit" -eq 0 ] && [ -f /var/lib/azlin/provisioning.tsv ] \
+     && ! awk -F'\t' '$2=="failed"{f=1} END{exit !f}' /var/lib/azlin/provisioning.tsv; then
+    azlin_final=ok
   fi
   printf '%s\n' "$azlin_final" > /var/lib/azlin/provisioning-status
   : > /var/lib/azlin/provisioning-complete
@@ -227,17 +241,42 @@ trap azlin_finalize EXIT
     .to_string()
 }
 
-/// Wrap one section so its failure cannot end the script.
+/// Wrap one section so its failure cannot end the script, without making the
+/// section itself permissive.
 ///
-/// The `rc=0; ( … ) || rc=$?` form is load-bearing in both halves. The `||`
-/// list is what stops `set -e` from ending the script at the group; the `rc=0`
-/// before it is what keeps `$rc` defined under `set -u` when the group is
-/// skipped. The obvious-looking alternative, `( … ); rc=$?`, aborts on the
-/// group and never reaches the assignment.
+/// ```sh
+/// rc=0
+/// set +e
+/// (
+///   set -e
+///   …
+/// )
+/// rc=$?
+/// set -e
+/// ```
 ///
-/// The subshell still inherits `set -e` and still stops at its own first
-/// failing command -- which is what the home block's rollback trap depends on.
-/// What the wrapper changes is the blast radius, not the strictness.
+/// Every part of that is load-bearing, and the obvious shorter spelling is
+/// wrong in a way that is invisible by inspection:
+///
+/// `( … ) || rc=$?` reads as "run the group under `set -e`, capture its
+/// status". It is not. POSIX suspends `errexit` for *any* command that is an
+/// operand of `&&` or `||`, and bash propagates that suspension into the
+/// subshell — so the body runs straight past its first failing command and
+/// `$rc` ends up as the status of the body's **last** command. Every disk
+/// section ends in `echo`, so every section would have been recorded `ok` no
+/// matter what failed inside it. Re-declaring `set -e` at the top of the
+/// subshell does not help either; the suspension is a property of the context,
+/// not of the option. Verified in bash 5.3 and in dash.
+///
+/// The consequence was not cosmetic: a failed `mount` would have been followed
+/// by the copy, the `mv`, the bind over the OS-disk directory, and finally
+/// `rm -rf /home/<user>.old` — deleting the original — with the ledger
+/// reporting `ok`. `set +e` at the *boundary* with `set -e` restored *inside*
+/// the group is the form that both stops the body at its first failure and
+/// keeps that failure from ending the script.
+///
+/// `rc=0` before the group keeps `$rc` defined under `set -u` on the branch
+/// where the group is skipped.
 fn render_section(section: &Section) -> String {
     let Section {
         name,
@@ -250,9 +289,11 @@ fn render_section(section: &Section) -> String {
             "if [ \"$AZLIN_ARCHIVE\" = down ]; then\n  azlin_record {name} skipped\nelse\n"
         ));
     }
-    out.push_str("(\n");
+    out.push_str("set +e\n(\n  set -e\n");
     out.push_str(body.trim_end());
-    out.push_str(&format!("\n) || rc=$?\nazlin_record {name} \"$rc\"\n"));
+    out.push_str(&format!(
+        "\n)\nrc=$?\nset -e\nazlin_record {name} \"$rc\"\n"
+    ));
     if *needs_network {
         out.push_str("fi\n");
     }
@@ -261,34 +302,45 @@ fn render_section(section: &Section) -> String {
 }
 
 /// The disk sections, which run before anything that touches the network.
+///
+/// Every layout fact here — the LUN, the device path, the filesystem label, the
+/// backing mount, the bind pair — comes from `disk_layout`, the same module the
+/// probe and the repairer read. Re-spelling any of them locally is how a
+/// generator and its detector drift apart, and the failure that produces is the
+/// worst one available: every correctly provisioned VM in the fleet reporting
+/// `degraded`, forever, with `azlin disk repair` standing by to "fix" them.
+///
+/// The two procedures stay distinct, because they genuinely are: the home block
+/// makes a mandatory, verified copy and can roll back, and the tmp block sets a
+/// sticky bit and treats its copy as disposable.
 fn disk_sections(disk_config: &DiskConfig, user: &str) -> Vec<Section> {
-    let mut out = Vec::new();
-    let mut next_lun = 0u32;
+    use crate::disk_layout::{bind_pair, fstab_line, lun_device_path, roles, BindKind, FstabSpec};
 
-    if disk_config.home_disk {
-        let lun = next_lun;
-        next_lun += 1;
-        let bind_src = format!("/mnt/home-data/{}", user);
-        let bind_dst = format!("/home/{}", user);
-        let ext4 = crate::disk_layout::fstab_line(&crate::disk_layout::FstabSpec::Ext4ByUuid {
-            uuid_expr: "$HOME_UUID".to_string(),
-            target: "/mnt/home-data".to_string(),
-        });
-        let bind = crate::disk_layout::fstab_line(&crate::disk_layout::FstabSpec::Bind {
-            source: bind_src.clone(),
-            target: bind_dst.clone(),
-        });
-        out.push(Section {
-            name: "disk-home".to_string(),
-            needs_network: false,
-            body: format!(
-                r#"  # Home disk (LUN {lun})
+    roles(disk_config)
+        .into_iter()
+        .map(|role| {
+            let (bind_src, bind_dst) = bind_pair(&role, user);
+            let uuid_var = format!("{}_UUID", role.name.to_uppercase());
+            let dev_var = format!("{}_DEV", role.name.to_uppercase());
+            let ext4 = fstab_line(&FstabSpec::Ext4ByUuid {
+                uuid_expr: format!("${uuid_var}"),
+                target: role.backing.to_string(),
+            });
+            let bind = fstab_line(&FstabSpec::Bind {
+                source: bind_src.clone(),
+                target: bind_dst.clone(),
+            });
+            let wait = lun_wait_snippet(role.lun, &dev_var, role.name, &lun_device_path(role.lun));
+
+            let body = match role.bind_kind {
+                BindKind::UserHome => format!(
+                    r#"  # Home disk (LUN {lun})
 {wait}
 
-  mkfs.ext4 -F -L azlin-home "$HOME_DEV"
-  mkdir -p /mnt/home-data
-  mount "$HOME_DEV" /mnt/home-data
-  mkdir -p /mnt/home-data/{u}
+  mkfs.ext4 -F -L {label} "${dev_var}"
+  mkdir -p {backing}
+  mount "${dev_var}" {backing}
+  mkdir -p {src}
   # Copy the existing home to the new disk.
   #
   # `rsync` is in default_dev_packages(), not in the Azure Ubuntu base image,
@@ -297,88 +349,93 @@ fn disk_sections(disk_config: &DiskConfig, user: &str) -> Vec<Section> {
   # xattr/ACL intent. Neither is suppressed: a silently skipped copy would bind
   # an empty directory over the user's home.
   if command -v rsync > /dev/null 2>&1; then
-    rsync -aAX /home/{u}/ /mnt/home-data/{u}/
+    rsync -aAX {dst}/ {src}/
   else
-    cp -a /home/{u}/. /mnt/home-data/{u}/
+    cp -a {dst}/. {src}/
   fi
-  # Bind mount over /home/{u} -- with rollback trap to restore original on failure
-  mv /home/{u} /home/{u}.old
-  trap 'if [ -d /home/{u}.old ] && ! mountpoint -q /home/{u} 2>/dev/null; then rm -rf /home/{u}; mv /home/{u}.old /home/{u}; echo "[AZLIN] Rolled back /home/{u} after disk setup failure"; fi' EXIT
-  mkdir -p /home/{u}
-  mount --bind /mnt/home-data/{u} /home/{u}
+  # Bind mount over {dst} -- with rollback trap to restore original on failure
+  mv {dst} {dst}.old
+  trap 'if [ -d {dst}.old ] && ! mountpoint -q {dst} 2>/dev/null; then rm -rf {dst}; mv {dst}.old {dst}; echo "[AZLIN] Rolled back {dst} after disk setup failure"; fi' EXIT
+  mkdir -p {dst}
+  mount --bind {src} {dst}
   # A `mount` that returns 0 without producing a mountpoint would leave the
   # user's home an empty directory on the OS disk with their data in `.old`,
   # and the rest of the block would still record the section `ok`. Fail here
   # instead, and let the trap above put the original back.
-  if ! mountpoint -q /home/{u}; then
-    echo "WARNING: the bind mount over /home/{u} did not take"
+  if ! mountpoint -q {dst}; then
+    echo "WARNING: the bind mount over {dst} did not take"
     exit 1
   fi
-  chown {u}:{u} /mnt/home-data/{u}
+  chown {u}:{u} {src}
   # Persist in fstab (idempotent)
-  HOME_UUID=$(blkid -s UUID -o value "$HOME_DEV")
-  grep -q "UUID=$HOME_UUID" /etc/fstab || echo "{ext4}" >> /etc/fstab
-  grep -q "{bind_src} {bind_dst}" /etc/fstab || echo "{bind}" >> /etc/fstab
+  {uuid_var}=$(blkid -s UUID -o value "${dev_var}")
+  grep -q "UUID=${uuid_var}" /etc/fstab || echo "{ext4}" >> /etc/fstab
+  grep -q "{src} {dst}" /etc/fstab || echo "{bind}" >> /etc/fstab
   # Only now is the copy on the OS disk expendable. Until fstab is written the
   # mount does not survive a reboot, so a failure anywhere above this line must
   # leave the original where the operator can still find it.
-  rm -rf /home/{u}.old
-  echo "[AZLIN] Home disk mounted at /home/{u} ($(lsblk -no SIZE "$HOME_DEV" | tr -d ' '))""#,
-                lun = lun,
-                wait = lun_wait_snippet(lun, "HOME_DEV", "home"),
-                u = user,
-                ext4 = ext4,
-                bind_src = bind_src,
-                bind_dst = bind_dst,
-                bind = bind,
-            ),
-        });
-    }
-
-    if disk_config.tmp_disk {
-        let lun = next_lun;
-        let ext4 = crate::disk_layout::fstab_line(&crate::disk_layout::FstabSpec::Ext4ByUuid {
-            uuid_expr: "$TMP_UUID".to_string(),
-            target: "/mnt/tmp-data".to_string(),
-        });
-        let bind = crate::disk_layout::fstab_line(&crate::disk_layout::FstabSpec::Bind {
-            source: "/mnt/tmp-data/tmp".to_string(),
-            target: "/tmp".to_string(),
-        });
-        out.push(Section {
-            name: "disk-tmp".to_string(),
-            needs_network: false,
-            body: format!(
-                r#"  # Tmp disk (LUN {lun})
+  rm -rf {dst}.old
+  echo "[AZLIN] Home disk mounted at {dst} ($(lsblk -no SIZE "${dev_var}" | tr -d ' '))""#,
+                    lun = role.lun,
+                    wait = wait,
+                    label = role.fs_label,
+                    dev_var = dev_var,
+                    uuid_var = uuid_var,
+                    backing = role.backing,
+                    src = bind_src,
+                    dst = bind_dst,
+                    u = user,
+                    ext4 = ext4,
+                    bind = bind,
+                ),
+                BindKind::Tmp => format!(
+                    r#"  # Tmp disk (LUN {lun})
 {wait}
 
-  mkfs.ext4 -F -L azlin-tmp "$TMP_DEV"
-  mkdir -p /mnt/tmp-data
-  mount "$TMP_DEV" /mnt/tmp-data
-  mkdir -p /mnt/tmp-data/tmp
+  mkfs.ext4 -F -L {label} "${dev_var}"
+  mkdir -p {backing}
+  mount "${dev_var}" {backing}
+  mkdir -p {src}
   # The sticky bit goes on the *backing* directory. A boot mounts that
-  # directory over /tmp, so /tmp shows whatever mode it carries; a `chmod 1777
-  # /tmp` afterwards reaches the same inode through the bind and looks correct
-  # until the next reboot brings /tmp up unwritable.
-  chmod 1777 /mnt/tmp-data/tmp
-  # /tmp contents are disposable, so unlike the home copy this one is
+  # directory over {dst}, so {dst} shows whatever mode it carries; a `chmod 1777
+  # {dst}` afterwards reaches the same inode through the bind and looks correct
+  # until the next reboot brings {dst} up unwritable.
+  chmod 1777 {src}
+  # {dst} contents are disposable, so unlike the home copy this one is
   # best-effort by design.
-  {{ if command -v rsync > /dev/null 2>&1; then rsync -aAX /tmp/ /mnt/tmp-data/tmp/; else cp -a /tmp/. /mnt/tmp-data/tmp/; fi ; }} || true
-  mount --bind /mnt/tmp-data/tmp /tmp
+  {{ if command -v rsync > /dev/null 2>&1; then rsync -aAX {dst}/ {src}/; else cp -a {dst}/. {src}/; fi ; }} || true
+  mount --bind {src} {dst}
+  # Same reason as the home block: a bind that did not take must fail the
+  # section rather than be recorded `ok` with {dst} still on the OS disk.
+  if ! mountpoint -q {dst}; then
+    echo "WARNING: the bind mount over {dst} did not take"
+    exit 1
+  fi
   # Persist in fstab (idempotent)
-  TMP_UUID=$(blkid -s UUID -o value "$TMP_DEV")
-  grep -q "UUID=$TMP_UUID" /etc/fstab || echo "{ext4}" >> /etc/fstab
-  grep -q "/mnt/tmp-data/tmp /tmp" /etc/fstab || echo "{bind}" >> /etc/fstab
-  echo "[AZLIN] Tmp disk mounted at /tmp ($(lsblk -no SIZE "$TMP_DEV" | tr -d ' '))""#,
-                lun = lun,
-                wait = lun_wait_snippet(lun, "TMP_DEV", "tmp"),
-                ext4 = ext4,
-                bind = bind,
-            ),
-        });
-    }
+  {uuid_var}=$(blkid -s UUID -o value "${dev_var}")
+  grep -q "UUID=${uuid_var}" /etc/fstab || echo "{ext4}" >> /etc/fstab
+  grep -q "{src} {dst}" /etc/fstab || echo "{bind}" >> /etc/fstab
+  echo "[AZLIN] Tmp disk mounted at {dst} ($(lsblk -no SIZE "${dev_var}" | tr -d ' '))""#,
+                    lun = role.lun,
+                    wait = wait,
+                    label = role.fs_label,
+                    dev_var = dev_var,
+                    uuid_var = uuid_var,
+                    backing = role.backing,
+                    src = bind_src,
+                    dst = bind_dst,
+                    ext4 = ext4,
+                    bind = bind,
+                ),
+            };
 
-    out
+            Section {
+                name: format!("disk-{}", role.name),
+                needs_network: false,
+                body,
+            }
+        })
+        .collect()
 }
 
 /// Render the dev cloud-init shell script with optional data disk setup.
@@ -596,11 +653,18 @@ exec /usr/local/bin/chromium-browser "$@"
 CHROMIUMALIAS
 chmod 755 /usr/local/bin/chromium"#.to_string(),
         },
-        // astral-uv (uv package manager)
+        // astral-uv (uv package manager).
+        //
+        // `snap wait system seed.loaded` first: cloud-init's scripts-user stage
+        // routinely runs while snapd is still seeding, and an install issued
+        // then fails with "too early for operation, device not yet seeded".
+        // That used to be absorbed by a trailing `|| true`, which now would
+        // record the section `ok` regardless. Waiting removes the race instead
+        // of hiding it, and a genuine failure is reported.
         SetupSection {
             name: "setup-astral-uv",
             needs_network: true,
-            command: "snap install astral-uv --classic".to_string(),
+            command: "snap wait system seed.loaded && snap install astral-uv --classic".to_string(),
         },
         // Node.js 24 LTS (via NodeSource)
         SetupSection {
@@ -621,7 +685,12 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         SetupSection {
             name: "setup-tmux-conf",
             needs_network: false,
-            command: format!("printf '[%%s] %%s\\n' \"$(hostname)\" \"tmux.conf\" && cat > /home/{u}/.tmux.conf << 'TMUXEOF'\nset -g status-left-length 50\nset -g status-left \"#[fg=cyan][#h]#[fg=green] #S #[fg=yellow]| \"\nset -g status-right \"#[fg=cyan]%%Y-%%m-%%d %%H:%%M\"\nset -g status-interval 60\nset -g status-bg black\nset -g status-fg white\nTMUXEOF\nchown {u}:{u} /home/{u}/.tmux.conf"),
+            // `%` needs no escaping in a Rust format string. The doubled
+            // `%%` that used to be here reached the VM verbatim, where shell
+            // `printf` reads `%%` as a literal percent and discards its
+            // arguments -- the log line printed `[%s] %s`, and tmux rendered a
+            // literal `%Y-%m-%d %H:%M` in every VM's status bar.
+            command: format!("printf '[%s] %s\\n' \"$(hostname)\" \"tmux.conf\" && cat > /home/{u}/.tmux.conf << 'TMUXEOF'\nset -g status-left-length 50\nset -g status-left \"#[fg=cyan][#h]#[fg=green] #S #[fg=yellow]| \"\nset -g status-right \"#[fg=cyan]%Y-%m-%d %H:%M\"\nset -g status-interval 60\nset -g status-bg black\nset -g status-fg white\nTMUXEOF\nchown {u}:{u} /home/{u}/.tmux.conf"),
         },
         // Fix tmux socket dir permissions (Ubuntu 25.10+).
         //
@@ -776,10 +845,17 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         // Its exit status is no longer discarded: this *is* the check that the
         // toolchains landed, and a section recorded `ok` after it failed would
         // be a verification that verifies nothing.
+        //
+        // Which is also why `az --version` is no longer piped into `head -2`.
+        // The section runs under the file's `pipefail`, and `az` prints ~15
+        // lines; `head` exiting after two leaves `az` to take SIGPIPE and exit
+        // non-zero, failing the section on a VM where everything is installed.
+        // The old trailing `|| true` hid that; nothing needs to now, because
+        // the check only cares whether the command runs at all.
         SetupSection {
             name: "setup-verify",
             needs_network: false,
-            command: format!("echo '[AZLIN] Verifying installed toolchains' && which gh && gh --version && which az && az --version | head -2 && which node && node --version && su - {u} -c 'which rustc && rustc --version && which amplihack && amplihack --version && which azlin && azlin --version && which azdoit && azdoit --version && which ay && ay --version' && which dotnet && dotnet --version"),
+            command: format!("echo '[AZLIN] Verifying installed toolchains' && which gh && gh --version && which az && az --version > /dev/null && which node && node --version && su - {u} -c 'which rustc && rustc --version && which amplihack && amplihack --version && which azlin && azlin --version && which azdoit && azdoit --version && which ay && ay --version' && which dotnet && dotnet --version"),
         },
     ]
 }
@@ -1660,6 +1736,99 @@ mod tests {
         );
     }
 
+    /// The test that proves the section wrapper, by running it.
+    ///
+    /// This is the one assertion the original wrapper could not have passed,
+    /// and no amount of reading the generated script would have revealed it:
+    /// `( … ) || rc=$?` suspends `errexit` inside the subshell, so the body ran
+    /// past its first failing command and `$rc` came back as the status of the
+    /// body's *last* command. Every disk section ends in `echo`, so every
+    /// section reported `ok`.
+    ///
+    /// Concretely, on a VM where `mount "$HOME_DEV" /mnt/home-data` failed, the
+    /// body would have gone on to copy into the OS-disk directory, `mv` the
+    /// original to `.old`, bind over it, and delete `.old` — losing the home
+    /// directory and recording `disk-home ok`.
+    ///
+    /// So the property is asserted the only way it can be: run it.
+    #[cfg(unix)]
+    #[test]
+    fn the_section_wrapper_stops_the_body_at_its_first_failure() {
+        use std::process::Command;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let root = std::env::temp_dir().join(format!(
+            "azlin-section-wrapper-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock before unix epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("create scratch root");
+        let var_lib = root.join("var-lib-azlin");
+
+        // The real preamble and the real wrapper, with only the ledger path
+        // redirected into the scratch directory.
+        let script = format!(
+            "{}{}{}echo AZLIN_REACHED_END\nexit 0\n",
+            provisioning_preamble(),
+            render_section(&Section {
+                name: "probe-a".to_string(),
+                needs_network: false,
+                body: "  echo AZLIN_A1\n  false\n  echo AZLIN_A2".to_string(),
+            }),
+            render_section(&Section {
+                name: "probe-b".to_string(),
+                needs_network: false,
+                body: "  echo AZLIN_B1".to_string(),
+            }),
+        )
+        .replace("/var/lib/azlin", var_lib.to_str().expect("utf-8 path"));
+
+        let out = Command::new("bash")
+            .arg("-c")
+            .arg(&script)
+            .current_dir(&root)
+            .output()
+            .expect("failed to run bash");
+        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+        let ledger = std::fs::read_to_string(var_lib.join("provisioning.tsv")).unwrap_or_default();
+        let status = std::fs::read_to_string(var_lib.join("provisioning-status"))
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert!(stdout.contains("AZLIN_A1"), "the body never ran:\n{stdout}");
+        assert!(
+            !stdout.contains("AZLIN_A2"),
+            "the body continued past its first failing command; `errexit` is \
+             suspended inside the group:\n{stdout}"
+        );
+        assert!(
+            ledger.contains("probe-a\tfailed\t1"),
+            "the failure must be recorded with its real status, not the status \
+             of the body's last command. Ledger:\n{ledger}"
+        );
+
+        // The other half: the failure must not end the script, and a section
+        // that succeeds must still be recorded `ok`.
+        assert!(
+            stdout.contains("AZLIN_B1") && stdout.contains("AZLIN_REACHED_END"),
+            "a failed section ended the script:\n{stdout}"
+        );
+        assert!(
+            ledger.contains("probe-b\tok\t0"),
+            "a successful section must be recorded `ok`. Ledger:\n{ledger}"
+        );
+        assert_eq!(
+            status, "degraded",
+            "a run with a failed section must not report `ok`. Ledger:\n{ledger}"
+        );
+        assert!(out.status.success(), "script exited non-zero:\n{stdout}");
+    }
+
     /// The copy on the OS disk is the only thing standing between a failed
     /// bind and a lost home directory, so it is removed *last* — after the
     /// fstab entries are written.
@@ -1678,16 +1847,24 @@ mod tests {
                 tmp_disk: false,
             },
         );
-        let fstab = script
+        // Scoped to the section, not the whole script: `azlin_storage_summary`
+        // in the preamble also mentions `/etc/fstab`, and matching that offset
+        // made this assertion true no matter where the cleanup moved to.
+        let block = script
+            .split("# ---- section: disk-home ----")
+            .nth(1)
+            .and_then(|rest| rest.split("# ---- section: ").next())
+            .expect("a disk-home section");
+        let fstab = block
             .find("/etc/fstab")
             .expect("the home block must persist the mount");
-        let cleanup = script
+        let cleanup = block
             .find("rm -rf /home/azureuser.old")
             .expect("the home block must clean up the original");
         assert!(
             fstab < cleanup,
             "`rm -rf /home/azureuser.old` at {cleanup} precedes the fstab write at \
-             {fstab}; a failure in between would leave no copy on either disk:\n{script}"
+             {fstab}; a failure in between would leave no copy on either disk:\n{block}"
         );
     }
 

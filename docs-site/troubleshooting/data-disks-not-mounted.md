@@ -191,9 +191,9 @@ HOME_UUID=$(blkid -s UUID -o value "$HOME_DEV")
 TMP_UUID=$(blkid -s UUID -o value "$TMP_DEV")
 cat >> /etc/fstab <<EOF
 UUID=$HOME_UUID /mnt/home-data ext4 defaults,nofail 0 2
-/mnt/home-data/azureuser /home/azureuser none bind 0 0
+/mnt/home-data/azureuser /home/azureuser none bind,nofail 0 0
 UUID=$TMP_UUID /mnt/tmp-data ext4 defaults,nofail 0 2
-/mnt/tmp-data/tmp /tmp none bind 0 0
+/mnt/tmp-data/tmp /tmp none bind,nofail 0 0
 EOF
 
 # 7. Prove the entries mount, now -- not at the next reboot
@@ -238,7 +238,7 @@ UUID=... /tmp ext4 defaults,nofail,mode=1777 0 2
 
 # RIGHT -- the sticky bit is a chmod, not a mount option
 UUID=... /mnt/tmp-data ext4 defaults,nofail 0 2
-/mnt/tmp-data/tmp /tmp none bind 0 0
+/mnt/tmp-data/tmp /tmp none bind,nofail 0 0
 ```
 
 Step 7 above exists to catch exactly this: if `mount -a` does not bring the
@@ -248,7 +248,7 @@ entry up now, it will not bring it up at boot either.
 
 Nothing to configure. VMs created with a current azlin set the disks up before
 any network step, record the outcome, and report `degraded` in
-`azlin disk check`, `azlin health`, and `azlin list --with-health` if anything went
+`azlin disk check` and the `Storage` column of `azlin list --with-health` if anything went
 wrong. A `raw` disk cannot go unnoticed for weeks again.
 
 ## Related

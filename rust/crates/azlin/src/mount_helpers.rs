@@ -64,7 +64,7 @@ pub fn build_disk_mount_script(lun: u32, mount_path: &str) -> Result<String, Str
     // shell injection is not a property to hold by convention.
     validate_mount_path(mount_path)?;
     let device = azure_lun_device(lun);
-    let format_step = azlin_azure::disk_layout::blkid_guarded_mkfs_with("DEV", None, "sudo ");
+    let format_step = azlin_azure::disk_layout::blkid_guarded_mkfs("DEV", None, "sudo ");
     let fstab =
         azlin_azure::disk_layout::fstab_line(&azlin_azure::disk_layout::FstabSpec::Ext4ByUuid {
             uuid_expr: "$UUID".to_string(),

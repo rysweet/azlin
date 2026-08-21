@@ -40,6 +40,16 @@ pub fn storage_cell(status: Option<StorageStatus>) -> String {
     }
 }
 
+/// Colour band for the `Agent` cell, or `None` when there is no reading.
+///
+/// `classify_agent_level` matches `OK` and `Down` and sends everything else to
+/// `Warning`, so handing it the `--` placeholder painted an unmeasured VM
+/// amber — a verdict about a machine nobody asked. Same mistake as a green
+/// `0.0`, one column over.
+pub fn agent_level(status: Option<&str>) -> Option<ThresholdLevel> {
+    status.map(crate::error_helpers::classify_agent_level)
+}
+
 /// Every health cell for one VM, always [`HEALTH_COLUMNS`] long.
 ///
 /// A VM that answered nothing still fills every column. A row that is silently

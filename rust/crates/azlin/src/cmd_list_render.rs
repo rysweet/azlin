@@ -485,15 +485,24 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
                 // never painted green: green is the claim that the machine is
                 // fine, which is exactly what could not be checked.
                 let cell = match *header {
-                    "Agent" => threshold_ansi(
-                        crate::error_helpers::classify_agent_level(text),
-                        &trunc(text, width),
-                    ),
+                    "Agent" => {
+                        let padded = trunc(text, width);
+                        match crate::health_render::agent_level(
+                            metrics.map(|m| m.agent_status.as_str()),
+                        ) {
+                            Some(level) => threshold_ansi(level, &padded),
+                            None => padded,
+                        }
+                    }
+                    // Coloured from the enum, not from the text it rendered to:
+                    // matching on `"ok"`/`"degraded"` couples the colour to a
+                    // spelling the compiler cannot see, so renaming the display
+                    // text would silently stop painting a degraded VM red.
                     "Storage" => {
                         let padded = trunc(text, width);
-                        match text.as_str() {
-                            "ok" => green(&padded),
-                            "degraded" => red(&padded),
+                        match storage {
+                            Some(azlin_azure::disk_layout::StorageStatus::Ok) => green(&padded),
+                            Some(azlin_azure::disk_layout::StorageStatus::Degraded) => red(&padded),
                             _ => padded,
                         }
                     }
@@ -567,6 +576,19 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
     }
 }
 
+/// The wire spelling of a storage status, but only when it is a verdict.
+///
+/// `Unknown` and `NoDisks` are not verdicts, and the table renders both as
+/// `--`. The machine-readable surfaces say `null`/empty for the same reason:
+/// a consumer must not be able to read "we could not check" as a result.
+fn verdict_str(status: &azlin_azure::disk_layout::StorageStatus) -> Option<&'static str> {
+    use azlin_azure::disk_layout::StorageStatus;
+    match status {
+        StorageStatus::Ok | StorageStatus::Degraded => Some(status.as_str()),
+        StorageStatus::Unknown | StorageStatus::NoDisks => None,
+    }
+}
+
 // ── JSON renderer ────────────────────────────────────────────────────
 
 fn render_json(cfg: &ListRenderConfig, data: &ListRenderData) -> Result<()> {
@@ -614,11 +636,13 @@ fn render_json(cfg: &ListRenderConfig, data: &ListRenderData) -> Result<()> {
                     obj["health_mem_percent"] = serde_json::json!(null);
                     obj["health_disk_percent"] = serde_json::json!(null);
                 }
-                // `null` for a VM that was not probed or could not be parsed.
-                // A storage verdict is only ever emitted by a probe that
-                // completed.
+                // `null` for anything that is not a verdict — unprobed,
+                // unparseable, or a VM with no data disks. The table renders
+                // all three as `--`; emitting `"unknown"` here would give the
+                // JSON and CSV consumers a different vocabulary from the one
+                // the tests pin, for the same VM.
                 obj["storage"] =
-                    serde_json::json!(data.storage_data.get(&vm.name).map(|s| s.as_str()));
+                    serde_json::json!(data.storage_data.get(&vm.name).and_then(verdict_str));
             }
             obj
         })
@@ -715,7 +739,7 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
                 ",{}",
                 data.storage_data
                     .get(&vm.name)
-                    .map(|s| s.as_str())
+                    .and_then(verdict_str)
                     .unwrap_or("")
             ));
         }

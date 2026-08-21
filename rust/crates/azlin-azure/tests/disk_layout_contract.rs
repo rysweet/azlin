@@ -121,14 +121,38 @@ fn an_ext4_fstab_line_is_defaults_nofail_and_nothing_else() {
     assert!(!line.contains("mode="), "{line}");
 }
 
+/// The bind line carries `nofail` for the same reason the ext4 line does, and
+/// it matters more: systemd gives a bind mount a hard `RequiresMountsFor` on
+/// its source, so a detached data disk would take `local-fs.target` down and
+/// boot the VM into emergency mode with no SSH. A missing data disk must cost a
+/// directory, never the machine.
 #[test]
-fn a_bind_fstab_line_is_none_bind_zero_zero() {
+fn a_bind_fstab_line_cannot_wedge_the_boot() {
     let line = fstab_line(&FstabSpec::Bind {
         source: "/mnt/tmp-data/tmp".into(),
         target: "/tmp".into(),
     });
-    assert_eq!(line, "/mnt/tmp-data/tmp /tmp none bind 0 0");
+    assert_eq!(line, "/mnt/tmp-data/tmp /tmp none bind,nofail 0 0");
     assert!(!line.contains("mode="), "{line}");
+}
+
+/// Both kinds of entry, one property: nothing azlin writes to fstab may stop a
+/// VM from booting.
+#[test]
+fn no_fstab_line_azlin_writes_can_block_boot() {
+    for spec in [
+        FstabSpec::Ext4ByUuid {
+            uuid_expr: "$HOME_UUID".into(),
+            target: "/mnt/home-data".into(),
+        },
+        FstabSpec::Bind {
+            source: "/mnt/home-data/azureuser".into(),
+            target: "/home/azureuser".into(),
+        },
+    ] {
+        let line = fstab_line(&spec);
+        assert!(line.contains("nofail"), "{line}");
+    }
 }
 
 /// fstab by UUID, not by `/dev/sd*`: Azure reassigns those in attach order
@@ -153,9 +177,13 @@ fn no_fstab_line_names_a_kernel_device() {
 
 /// The guard that makes `azlin disk repair` and `azlin disk add --mount` safe
 /// to point at a live VM. Shared, so there is one implementation to get right.
+///
+/// Built with the `"sudo "` prefix both callers pass: a zero-privilege variant
+/// existed only so this test could omit the argument, which meant the test
+/// covered a code path no VM ever ran.
 #[test]
 fn the_shared_mkfs_never_reformats_without_asking_blkid_first() {
-    let script = blkid_guarded_mkfs("HOME_DEV", Some("azlin-home"));
+    let script = blkid_guarded_mkfs("HOME_DEV", Some("azlin-home"), "sudo ");
     let mkfs_line = script
         .lines()
         .find(|l| l.contains("mkfs"))
@@ -167,9 +195,40 @@ fn the_shared_mkfs_never_reformats_without_asking_blkid_first() {
         "the blkid guard must precede the mkfs it guards:\n{script}"
     );
     assert!(mkfs_line.contains("-L azlin-home"), "{script}");
+    // `-F` is not a hole in the guard: `blkid` decides *whether* to format, and
+    // `-F` only stops `mke2fs` asking "the device looks unusual, proceed?" on a
+    // stdin that is closed. Without it the format hangs, then exits non-zero
+    // with no explanation.
+    assert!(
+        mkfs_line.contains("mkfs.ext4 -F"),
+        "the format must not be able to stop for an interactive prompt over an \
+         SSH session with no stdin:\n{script}"
+    );
     assert!(
         script.contains("not reformatting"),
         "a skipped format must say so, or a no-op looks like a success:\n{script}"
+    );
+
+    // Position is not polarity. Swapping the guard's two branches — format when
+    // `blkid` *succeeds* — keeps `blkid` before `mkfs`, keeps the label, and
+    // keeps the "not reformatting" message, while doing exactly the opposite
+    // thing: skipping the format on a blank disk and destroying a filesystem on
+    // a populated one. So assert which branch the `mkfs` is in.
+    let (then_branch, else_branch) = script
+        .split_once("\nelse\n")
+        .unwrap_or_else(|| panic!("the guard must have both branches:\n{script}"));
+    assert!(
+        !then_branch.contains("mkfs"),
+        "the `blkid` success branch must not format — that is the branch where \
+         a filesystem was found:\n{script}"
+    );
+    assert!(
+        else_branch.contains("mkfs"),
+        "the format belongs in the branch reached when `blkid` finds nothing:\n{script}"
+    );
+    assert!(
+        then_branch.contains("not reformatting"),
+        "the skip message belongs with the skip:\n{script}"
     );
 }
 
@@ -636,6 +695,102 @@ fn repair_sets_the_sticky_bit_on_the_backing_directory_not_on_tmp() {
     assert!(
         script.contains("chmod 1777 /mnt/tmp-data/tmp"),
         "chmodding /tmp alone is lost at the next boot:\n{script}"
+    );
+}
+
+/// `--force` is a plan-wide flag, and it must not leak onto a disk whose stage
+/// does not need `mkfs`.
+///
+/// `azlin disk repair vm --force` issued for a `formatted` home disk used to
+/// emit `mkfs.ext4 -F` against a `backing-mounted` tmp disk in the same run —
+/// a device that is mounted and in use. The only thing that stopped it
+/// destroying the filesystem was `mke2fs` refusing to format a mounted device,
+/// which is not a guarantee this code gets to rely on.
+#[test]
+fn force_does_not_reach_a_disk_whose_stage_needs_no_mkfs() {
+    for stage in [DiskStage::BackingMounted, DiskStage::Healthy] {
+        let script = build_disk_repair_script(&finding("tmp", 1, stage), USER, true)
+            .unwrap_or_else(|e| panic!("{stage:?} with --force should not error: {e}"));
+        assert!(
+            !script.contains("mkfs"),
+            "--force must only unlock `mkfs` for a `formatted` disk; {stage:?} \
+             needs none:\n{script}"
+        );
+    }
+}
+
+/// The copy must never run over a destination that already holds data.
+///
+/// At stage `backing-mounted` the data disk already holds the real home and
+/// only the bind is missing. Copying `/home/<user>` — which at that point is
+/// the empty mount point, or a stale OS-disk stub — over it would overwrite
+/// live files with older ones. And because the copy has no `--delete`, the
+/// entry counts could then never match, so every subsequent repair aborted
+/// with "nothing was moved" *after* having already moved something.
+#[test]
+fn the_copy_is_skipped_when_the_destination_already_holds_data() {
+    for stage in [DiskStage::Raw, DiskStage::BackingMounted] {
+        let script = build_disk_repair_script(&finding("home", 0, stage), USER, false).unwrap();
+        let guard = script
+            .find("if [ -n \"$(sudo ls -A /mnt/home-data/azureuser 2>/dev/null)\" ]; then")
+            .unwrap_or_else(|| panic!("no emptiness guard before the copy:\n{script}"));
+        let copy = script
+            .find("rsync -aAXH /home/azureuser/")
+            .unwrap_or_else(|| panic!("no copy step:\n{script}"));
+        assert!(
+            guard < copy,
+            "{stage:?}: the copy must sit behind the guard, not beside it:\n{script}"
+        );
+    }
+}
+
+/// Binding over an empty directory loses nothing, so the `.old` rename is only
+/// taken when there is something to preserve — and never when `.old` is
+/// already occupied by an earlier attempt's copy.
+///
+/// The old unconditional `[ ! -e .old ]` skip did the opposite: on a re-run
+/// after a partial repair it left the populated directory in place and bound
+/// over it, hiding the data under the mount while the message pointed the
+/// operator at a stale `.old`.
+#[test]
+fn the_original_is_only_renamed_when_there_is_something_to_preserve() {
+    let script =
+        build_disk_repair_script(&finding("home", 0, DiskStage::Raw), USER, false).unwrap();
+    assert!(
+        script.contains("if [ -n \"$(sudo ls -A /home/azureuser 2>/dev/null)\" ]; then"),
+        "the rename must be conditional on the target holding something:\n{script}"
+    );
+    assert!(
+        script.contains("is left over from an earlier repair"),
+        "a re-run that would need `.old` twice must stop, not shadow the \
+         populated directory:\n{script}"
+    );
+    assert!(
+        !script.contains("if [ ! -e /home/azureuser.old ]; then"),
+        "the `.old`-exists skip silently bound over live data:\n{script}"
+    );
+}
+
+/// A whole disk carrying a partition table has no `fstype` of its own — the
+/// filesystem is one level down, inside a partition. Calling that `raw` puts it
+/// below `holds_data()` and lets a repair format it with no `--force`.
+#[test]
+fn a_partitioned_disk_is_not_reported_as_blank() {
+    let t = "\
+azlin-disk lun=0 role=home dev=/dev/sdb size=1073741824000 fstype= label= backing=no bind=no pttype=gpt
+azlin-provisioning complete=yes status=ok ledger=yes failed=
+";
+    let report = parse_disk_probe(
+        t,
+        &DiskConfig {
+            home_disk: true,
+            tmp_disk: false,
+        },
+    );
+    assert_eq!(report.disks[0].stage, DiskStage::Formatted, "{report:?}");
+    assert!(
+        report.disks[0].stage.holds_data(),
+        "a partitioned disk must require --force before any mkfs: {report:?}"
     );
 }
 

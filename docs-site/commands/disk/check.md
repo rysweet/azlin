@@ -202,8 +202,9 @@ an older image, a truncated session — yields `unknown` and exit code `2`, neve
 a false `degraded`. A missing `azlin-provisioning` line is a parse failure; a
 line reporting `ledger=no` is not.
 
-The probe is cheap and read-only, which is why the same result also feeds
-`azlin health` and `azlin list --with-health`.
+The probe is cheap and read-only, which is why the same result also feeds the
+`Storage` column of `azlin list --with-health`. `azlin health` reports process
+and saturation metrics only; it does not run the storage probe.
 
 ## Storage in the health surfaces
 

@@ -161,12 +161,22 @@ fn disk_setup_is_emitted_before_every_network_dependent_step() {
 // F3 — failure isolation
 // ---------------------------------------------------------------------------
 
-/// Every section must use the `rc=0; ( … ) || rc=$?` form.
+/// Every section must use the `rc=0; set +e; ( set -e; … ); rc=$?; set -e`
+/// form.
 ///
-/// The `||` list is what stops `set -e` from ending the script, and `rc=0`
-/// before the group is what keeps `rc` defined under `set -u`. Writing
-/// `( … ); rc=$?` instead — the obvious-looking alternative — aborts on the
-/// group and never reaches the assignment.
+/// The shorter `( … ) || rc=$?` is what this file originally asserted, and it
+/// is wrong in a way that is invisible by inspection: POSIX suspends `errexit`
+/// for any command that is an operand of `&&`/`||`, and bash propagates that
+/// suspension into the subshell. The body runs straight past its first failing
+/// command, and `$rc` becomes the status of the body's *last* command — which
+/// for every disk section is an `echo`. Re-declaring `set -e` at the top of the
+/// subshell does not restore it either.
+///
+/// `set +e` at the boundary with `set -e` restored *inside* the group is the
+/// only spelling that both stops the body at its first failure and keeps that
+/// failure from ending the script. `the_section_wrapper_stops_the_body_at_its_first_failure`
+/// below is the test that actually proves it; this one keeps every section on
+/// the one form that has been proven.
 #[test]
 fn every_section_is_wrapped_so_its_failure_cannot_end_the_script() {
     let script = render(&both_disks());
@@ -183,10 +193,20 @@ fn every_section_is_wrapped_so_its_failure_cannot_end_the_script() {
              defined under `set -u` even if the group is skipped:\n{body}"
         );
         assert!(
-            body.contains(") || rc=$?"),
-            "section {name:?} must close with `) || rc=$?`; a bare `( … )` on \
-             its own line aborts the script under `set -e` before any status \
-             can be recorded:\n{body}"
+            body.contains("set +e\n(\n  set -e\n"),
+            "section {name:?} must open with `set +e` at the boundary and \
+             `set -e` inside the group; `( … ) || rc=$?` silently runs the body \
+             past its first failure:\n{body}"
+        );
+        assert!(
+            body.contains(")\nrc=$?\nset -e\n"),
+            "section {name:?} must capture the group's status and restore \
+             errexit immediately:\n{body}"
+        );
+        assert!(
+            !body.contains(") || rc=$?"),
+            "section {name:?} uses the `|| rc=$?` form, which suspends errexit \
+             inside the subshell:\n{body}"
         );
         assert!(
             body.contains(&format!("azlin_record {name} \"$rc\"")),
@@ -195,21 +215,42 @@ fn every_section_is_wrapped_so_its_failure_cannot_end_the_script() {
     }
 }
 
-/// `set +e` inside a section would let execution continue past a failed
-/// `mount --bind` to the `rm -rf /home/<user>.old` cleanup, deleting the only
-/// copy of the original home directory. That is a data-loss difference, not a
-/// style one: the rollback trap depends on the subshell stopping at its first
-/// failing command.
+/// `set +e` may relax the *boundary* and nothing else.
+///
+/// The failure it must not enable is inside the body: execution continuing past
+/// a failed `mount --bind` to the `rm -rf /home/<user>.old` cleanup, deleting
+/// the only copy of the original home directory. That is a data-loss
+/// difference, not a style one — the rollback trap depends on the subshell
+/// stopping at its first failing command.
 #[test]
-fn no_section_disables_errexit_inside_the_subshell() {
+fn errexit_is_relaxed_only_at_the_section_boundary() {
     let script = render(&both_disks());
+
+    for (name, body) in sections(&script) {
+        // Exactly one relaxation per section, and it is the boundary one.
+        assert_eq!(
+            body.matches("set +e").count(),
+            1,
+            "section {name:?} relaxes errexit more than once:\n{body}"
+        );
+        let relax = body.find("set +e").expect("the boundary relaxation");
+        let group = body.find("(\n  set -e\n").expect("the group");
+        assert!(
+            relax < group,
+            "section {name:?} relaxes errexit inside the group rather than \
+             around it:\n{body}"
+        );
+        // Everything after the group's opening `set -e` runs fail-fast.
+        let inside = &body[group..];
+        let close = inside.find("\n)\nrc=$?").expect("the group's close");
+        assert!(
+            !inside[..close].contains("set +e"),
+            "section {name:?} disables errexit inside the group:\n{body}"
+        );
+    }
+
     assert!(
-        !script.contains("set +e"),
-        "failure isolation must come from `|| rc=$?` at the section boundary, \
-         never from `set +e` inside it:\n{script}"
-    );
-    assert!(
-        !script.contains("|| true\n) || rc=$?"),
+        !script.contains("|| true\n)\nrc=$?"),
         "a section whose last command is `|| true` reports success regardless \
          of what happened inside it:\n{script}"
     );

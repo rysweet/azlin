@@ -67,9 +67,9 @@ Provisioning appends four lines — two ext4 mounts keyed by UUID, two binds:
 
 ```
 UUID=8f3c1a02-... /mnt/home-data ext4 defaults,nofail 0 2
-/mnt/home-data/azureuser /home/azureuser none bind 0 0
+/mnt/home-data/azureuser /home/azureuser none bind,nofail 0 0
 UUID=b71d4e55-... /mnt/tmp-data ext4 defaults,nofail 0 2
-/mnt/tmp-data/tmp /tmp none bind 0 0
+/mnt/tmp-data/tmp /tmp none bind,nofail 0 0
 ```
 
 Three properties are load-bearing:
@@ -77,16 +77,24 @@ Three properties are load-bearing:
 - **UUIDs, not device names.** A `/dev/sdb` entry in fstab survives until the
   first reboot that reorders the SCSI bus, and then mounts the wrong disk on the
   right path.
-- **`nofail`.** A missing data disk must not stop the VM from booting. A VM that
-  will not come up is a worse failure than a VM with one directory on the OS
-  disk.
+- **`nofail`, on all four lines.** A missing data disk must not stop the VM from
+  booting. A VM that will not come up is a worse failure than a VM with one
+  directory on the OS disk. It matters *more* on the bind lines than on the ext4
+  ones: systemd's fstab generator gives a bind mount a hard `RequiresMountsFor`
+  on its source, so a bind without `nofail` takes `local-fs.target` down when
+  the backing disk is absent and the VM boots to emergency mode with no SSH —
+  defeating the `nofail` on the ext4 line above it.
 - **`defaults,nofail` and nothing else on the ext4 lines.** In particular
   **never `mode=`**. `mode=1777` is a tmpfs option; ext4 rejects the mount
   outright, and combined with `nofail` the rejection is silent — the boot
   succeeds and `/tmp` quietly stays on the OS disk. Every producer of an fstab
   line in azlin — cloud-init, `azlin disk repair`, and `azlin disk add --mount`
-  — goes through one function, and a test asserts that no ext4 line it emits
-  contains `mode=`.
+  — goes through one function, which takes no options argument at all. There is
+  nowhere for a stray option to enter, and a test asserts that no ext4 line it
+  emits contains `mode=`. That structural guarantee is what protects against
+  this class; `mount -a` during a repair does **not**, because both paths are
+  already mounted by then and it skips them. A reboot is still the only
+  end-to-end proof.
 
 ### `/tmp` gets its sticky bit from the backing directory
 
@@ -221,6 +229,12 @@ Splitting them this way keeps the sentinel's existing meaning for readiness
 checks while making "finished" and "finished correctly" separately answerable. A
 VM whose disk sections failed reaches a terminal state — it does not sit in
 "provisioning" forever — and it reports `degraded` rather than healthy.
+
+`azlin new` reads both files when it waits for the VM: a `degraded` status
+prints a warning naming the failed sections instead of "Cloud-init provisioning
+complete." The sentinel alone can no longer mean success, because it is now
+written on every path — reading it as success is how a VM with unformatted data
+disks came back from `azlin new` looking like a clean create.
 
 The script itself exits `0` even from a degraded run, deliberately. A non-zero
 exit produces one `Failed to run module scripts_user` line at the bottom of

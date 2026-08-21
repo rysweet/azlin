@@ -12,7 +12,7 @@
 use azlin_azure::disk_layout::StorageStatus;
 
 use crate::cmd_disk_ops::{check_exit_code, repair_hint};
-use crate::health_render::{health_cells, storage_cell, HEALTH_COLUMNS, UNKNOWN_CELL};
+use crate::health_render::{agent_level, health_cells, storage_cell, HEALTH_COLUMNS, UNKNOWN_CELL};
 
 // ---------------------------------------------------------------------------
 // The Storage cell
@@ -80,11 +80,31 @@ fn a_health_row_has_exactly_as_many_cells_as_there_are_health_columns() {
     );
 
     // VM that answered the storage probe but not the metrics probe, and the
-    // reverse: neither may shorten the row.
+    // reverse: neither may shorten the row. The metrics-present arm builds its
+    // cells from a hand-written list rather than from HEALTH_COLUMNS, so it is
+    // the arm that falls behind when a column is added — and the only other
+    // guard on it is a `debug_assert!`, which is compiled out in release.
     assert_eq!(
         health_cells(None, Some(StorageStatus::Degraded)).len(),
         HEALTH_COLUMNS.len()
     );
+    let measured = crate::HealthMetrics {
+        vm_name: "vm".to_string(),
+        power_state: "Running".to_string(),
+        agent_status: "OK".to_string(),
+        error_count: Some(0),
+        cpu_percent: Some(12.0),
+        mem_percent: Some(41.0),
+        disk_percent: Some(98.0),
+    };
+    for storage in [None, Some(StorageStatus::Ok)] {
+        assert_eq!(
+            health_cells(Some(&measured), storage).len(),
+            HEALTH_COLUMNS.len(),
+            "a fully measured VM must fill every health column, not the four \
+             this arm was written against"
+        );
+    }
 }
 
 #[test]
@@ -93,6 +113,24 @@ fn a_degraded_vm_shows_degraded_in_its_row() {
     assert!(
         cells.iter().any(|c| c.contains("degraded")),
         "the verdict must reach the row, not just the header: {cells:?}"
+    );
+}
+
+/// The `Agent` column has the same rule as every other health column, and it
+/// is the one that was easiest to get wrong: `classify_agent_level` matches
+/// `OK` and `Down` and sends everything else to `Warning`, so feeding it the
+/// `--` placeholder painted an unmeasured VM amber. An unmeasured machine is
+/// not in a warning state; nobody looked.
+#[test]
+fn an_unmeasured_agent_is_not_given_a_colour() {
+    assert_eq!(agent_level(None), None);
+    assert_eq!(
+        agent_level(Some("OK")),
+        Some(crate::error_helpers::ThresholdLevel::Normal)
+    );
+    assert_eq!(
+        agent_level(Some("Down")),
+        Some(crate::error_helpers::ThresholdLevel::Critical)
     );
 }
 

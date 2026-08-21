@@ -76,9 +76,10 @@ These are the reasons this command can be pointed at a VM that has data on it.
   reported for an entry that does not actually mount. This is what catches a
   malformed option before the next reboot does — see
   [why `mode=` never appears on an ext4 line](../../storage/data-disk-layout.md#fstab-entries).
-- **It never runs implicitly.** `azlin disk check`, `azlin health`, and
-  `azlin list --with-health` report and print the suggested command. Nothing formats
-  a disk as a side effect of a status query.
+- **It never runs implicitly.** `azlin disk check` reports the verdict and
+  prints the suggested command; `azlin list --with-health` reports the verdict in
+  its `Storage` column. Nothing formats a disk as a side effect of a status
+  query.
 
 ## Examples
 
