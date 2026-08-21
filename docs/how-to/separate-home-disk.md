@@ -4,6 +4,8 @@
 
 azlin automatically provisions VMs with a separate 100GB managed disk mounted as `/home` (unless using NFS storage). You can also add a dedicated `/tmp` disk for scratch space. Both disks are Azure Premium SSD managed disks, tagged with azlin metadata for easy auditing, and set up via hardened cloud-init with retry logic and graceful degradation.
 
+Disk setup runs **before** package installation and every other network-dependent step in cloud-init, and each disk's outcome is recorded so a failure is reported rather than silent. To verify or repair a running VM, use [`azlin disk check` and `azlin disk repair`](../../docs-site/commands/disk/index.md); the full layout reference lives in [Data Disk Layout](../../docs-site/storage/data-disk-layout.md).
+
 ## Quick Start
 
 ```bash
@@ -90,6 +92,15 @@ The disks appear at stable Azure device paths:
 
 Cloud-init runs a hardened shell script with the following safeguards:
 
+**Disk setup runs first:**
+The disk blocks are emitted ahead of `apt-get update`, `apt-get upgrade`, and every package or toolchain install. Disk setup needs only tools present in the base image and no network at all; package installation needs the Ubuntu archive, which a bastion-only VM with no outbound route cannot reach. Sequencing the network-free critical step behind the network-dependent optional one is what previously left VMs with attached, unformatted disks (#1131).
+
+**Per-section failure isolation:**
+The script keeps `set -euo pipefail` as its default, so critical work still fails fast. Each *optional* section is wrapped as `rc=0; ( ... ) || rc=$?` and its outcome recorded, so a package that will not install can no longer abort the script. The subshell still inherits `set -e` and still stops at its first failing command, which is what the home block's rollback trap depends on.
+
+**Provisioning ledger:**
+Every section appends `name<TAB>status<TAB>rc` to `/var/lib/azlin/provisioning.tsv` and echoes `[AZLIN] section=<name> status=<status> rc=<rc>` to the cloud-init log. At the end, `/var/lib/azlin/provisioning-complete` is written unconditionally (so the VM always reaches a terminal state) alongside `/var/lib/azlin/provisioning-status`, containing `ok` or `degraded`.
+
 **Retry loop for LUN device detection:**
 The Azure SCSI device symlinks may not appear immediately. Cloud-init polls for up to 60 seconds (12 retries × 5s) using `udevadm settle` and `readlink -f` before giving up.
 
@@ -110,7 +121,8 @@ If the bind mount fails after `/home/{user}` has been renamed, a shell `trap` au
   done
   HOME_DEV=$(readlink -f /dev/disk/azure/scsi1/lun0)
 
-  # 2. Format with ext4
+  # 2. Format with ext4 (unguarded -F: this runs once, on a disk azlin created
+  #    blank seconds earlier -- see the note below before reusing this line)
   mkfs.ext4 -F -L azlin-home "$HOME_DEV"
 
   # 3. Mount disk and rsync existing home data
@@ -137,9 +149,19 @@ If the bind mount fails after `/home/{user}` has been renamed, a shell `trap` au
   grep -q "UUID=$HOME_UUID" /etc/fstab || \
     echo "UUID=$HOME_UUID /mnt/home-data ext4 defaults,nofail 0 2" >> /etc/fstab
   grep -q "/mnt/home-data/{user} /home/{user}" /etc/fstab || \
-    echo "/mnt/home-data/{user} /home/{user} none bind 0 0" >> /etc/fstab
-) || echo "WARN: home disk setup failed, continuing without separate home disk"
+    echo "/mnt/home-data/{user} /home/{user} none bind,nofail 0 0" >> /etc/fstab
+
+  # 7. Only now is the copy on the OS disk expendable
+  rm -rf /home/{user}.old
+)
+rc=$?
+set -e
+azlin_record disk-home "$rc"
 ```
+
+The `set +e` around the group and the `set -e` *inside* it are both required.
+`( … ) || echo WARN`, which this block used to end with, suspends `errexit`
+inside the subshell — the body runs straight past its first failing command.
 
 **Tmp disk script flow** follows the same pattern, mounting at `/tmp` with `chmod 1777` (sticky bit).
 
@@ -149,9 +171,9 @@ The mount is added to `/etc/fstab` idempotently (only if not already present) fo
 
 ```
 UUID=<home-disk-uuid> /mnt/home-data ext4 defaults,nofail 0 2
-/mnt/home-data/{user} /home/{user} none bind 0 0
+/mnt/home-data/{user} /home/{user} none bind,nofail 0 0
 UUID=<tmp-disk-uuid> /mnt/tmp-data ext4 defaults,nofail 0 2
-/mnt/tmp-data/tmp /tmp none bind 0 0
+/mnt/tmp-data/tmp /tmp none bind,nofail 0 0
 ```
 
 ## Configuration Options
@@ -253,24 +275,37 @@ Cleaning up orphaned disks: dev-vm_home, dev-vm_tmp
 Each disk block runs in a subshell. If LUN detection, formatting, or mounting fails, the error is contained:
 
 ```
-WARN: home disk setup failed, using OS disk
+[AZLIN] section=disk-home status=failed rc=1
 ```
 
-The rest of cloud-init (tool installation, repo clone, etc.) continues normally. The `nofail` fstab option ensures the system boots even if the disk is absent on reboot.
+The rest of cloud-init (tool installation, repo clone, etc.) continues normally, and the `nofail` fstab option — on the bind entry as well as the ext4 one — ensures the system boots even if the disk is absent on reboot. The failure is **not** silent: the section is recorded in the ledger, `/var/lib/azlin/provisioning-status` reads `degraded`, `azlin new` prints a warning naming the failed sections, and the VM reports `degraded` in `azlin disk check` and in the `Storage` column of `azlin list --with-health`.
 
 ### Diagnosing Failures
 
-```bash
-# Check cloud-init logs for disk setup
-sudo cat /var/log/cloud-init-output.log | grep -A10 "disk setup"
+Start from the host — one command, read-only, no SSH session to set up by hand:
 
-# Check if disk is attached
+```bash
+azlin disk check dev
+```
+
+It reports each role disk's stage (`absent`, `raw`, `formatted`, `backing-mounted`, `healthy`) and exits non-zero when anything is degraded. Repair in place with `azlin disk repair dev`.
+
+On the VM itself:
+
+```bash
+# What each provisioning section did
+cat /var/lib/azlin/provisioning.tsv
+cat /var/lib/azlin/provisioning-status
+
+# Cloud-init's own record
+grep '\[AZLIN\] section=' /var/log/cloud-init-output.log
+
+# Is the disk attached at all?
 lsblk
 ls -la /dev/disk/azure/scsi1/
-
-# Manual mount if needed
-sudo mount /dev/disk/azure/scsi1/lun0 /home/azureuser
 ```
+
+Do not mount the disk directly on `/home/{user}`: the layout is a backing mount plus a bind mount, and a direct mount diverges from what `azlin disk check` and the fstab entries expect. See [Data Disks Not Mounted](../../docs-site/troubleshooting/data-disks-not-mounted.md) for the correct manual sequence.
 
 ## Cost Analysis
 
@@ -347,22 +382,16 @@ sudo cat /var/log/cloud-init.log | grep -A10 "disk_setup"
 2. LUN symlink not yet available at `/dev/disk/azure/scsi1/lun0`
 3. Filesystem formatting failed
 
-**Manual recovery**:
+**Recovery**:
 ```bash
-# Check if disk is attached
-lsblk
-ls -la /dev/disk/azure/scsi1/
-
-# Format disk (if needed)
-sudo mkfs.ext4 /dev/disk/azure/scsi1/lun0
-
-# Mount disk
-sudo mount /dev/disk/azure/scsi1/lun0 /home/azureuser
-
-# Add to fstab (idempotent)
-grep -q 'lun0.*/home/azureuser' /etc/fstab || \
-  echo '/dev/disk/azure/scsi1/lun0 /home/azureuser ext4 defaults,nofail 0 2' | sudo tee -a /etc/fstab
+# Diagnose (read-only) and repair in place -- no reprovisioning
+azlin disk check dev
+azlin disk repair dev
 ```
+
+`azlin disk repair` formats only disks with no filesystem (`--force` is required for any disk that already has one), copies and verifies the existing contents before switching the bind mount, writes the fstab entries, and proves them with `mount -a` before reporting success.
+
+The manual equivalent, for when the command cannot be run, is in [Data Disks Not Mounted](../../docs-site/troubleshooting/data-disks-not-mounted.md#5-manual-repair-if-you-cannot-run-azlin-disk-repair). Note that `mode=1777` is a tmpfs option and must never appear in an ext4 fstab entry: ext4 rejects it, `nofail` swallows the rejection, and `/tmp` silently stays on the OS disk.
 
 ### Disk Creation Failed
 
@@ -490,8 +519,8 @@ az disk list --query "[?tags.\"azlin-session\" && !managedBy]" -o table
 - LUN 1: `/dev/disk/azure/scsi1/lun1`
 
 **Mount Options**:
-- Home: `defaults,nofail` on `/home/{user}`
-- Tmp: `defaults,nofail` on `/mnt/tmp-data`, bind-mounted to `/tmp` (sticky bit set via `chmod 1777`)
+- Home: `defaults,nofail` on `/mnt/home-data`, bind-mounted to `/home/{user}`
+- Tmp: `defaults,nofail` on `/mnt/tmp-data`, bind-mounted to `/tmp` (sticky bit set via `chmod 1777`, never as a mount option)
 
 ### Cloud-Init Implementation
 
@@ -500,15 +529,27 @@ The disk setup uses a hardened shell script (not cloud-init YAML disk modules) f
 **Key hardening features:**
 
 1. **`udevadm settle` + retry loop**: Waits up to 60s for Azure SCSI device symlinks to appear (12 retries × 5s sleep)
-2. **Subshell isolation**: Each disk block runs in `( ... ) || echo "WARN: ..."` so failures don't abort other cloud-init tasks
+2. **Subshell isolation**: Each disk block runs in `rc=0; ( ... ) || rc=$?` followed by a ledger record, so a failure is captured and reported rather than aborting the script. The subshell keeps `set -e`, which is what the rollback trap depends on; the `|| rc=$?` is what keeps the failure local
 3. **Mandatory rsync**: Home disk copies existing `/home/{user}` content before bind-mounting (preserves dotfiles, SSH keys)
 4. **Idempotent fstab**: Uses `grep -q` guard before appending to `/etc/fstab` (safe for re-runs)
-5. **Immediate cleanup**: Removes `/home/{user}.old` after verifying bind-mount succeeded
+5. **Late cleanup**: Removes `/home/{user}.old` only after the fstab entries are written. Until they are, the mount does not survive a reboot, so the copy on the OS disk is the only thing that would still hold the data — deleting it as soon as the bind verified was a data-loss window.
 6. **Ownership fix**: `chown -R {user}:{user}` after mount ensures correct permissions
+
+**Execution order** (script level): disk blocks first, then `apt-get update`/`upgrade`/`install`, then toolchain setup, then the ledger and completion sentinel. Each optional section is individually isolated, so no section's failure can prevent a later one from running.
+
+!!! warning "The `-F` format is unguarded, and only safe here"
+
+    Cloud-init formats without checking `blkid` first, because it runs once on a
+    disk `azlin new` created blank moments earlier. **Do not run these commands
+    by hand on a VM that has been used** — `-F` will destroy an existing
+    filesystem without asking. To fix a running VM, use
+    [`azlin disk repair`](../../docs-site/commands/disk/repair.md), which is
+    `blkid`-guarded and requires `--force` to reformat. See
+    [which paths are guarded](../../docs-site/storage/data-disk-layout.md#formatting-which-paths-are-guarded).
 
 **Execution order** (per disk block):
 1. `udevadm settle` + device readlink poll (up to 60s)
-2. `mkfs.ext4 -F` (format)
+2. `mkfs.ext4 -F` (format, unguarded — first boot only)
 3. Temp-mount, `rsync -aAX` existing content, unmount
 4. Bind-mount to target path
 5. Append to `/etc/fstab` (idempotent)

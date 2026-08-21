@@ -29,6 +29,22 @@ pub(crate) async fn dispatch(
                 )
                 .await?;
             }
+            azlin_cli::DiskAction::Check {
+                vm_name,
+                resource_group,
+                json,
+            } => {
+                crate::cmd_disk_ops::handle_disk_check(&vm_name, resource_group, json).await?;
+            }
+            azlin_cli::DiskAction::Repair {
+                vm_name,
+                resource_group,
+                dry_run,
+                force,
+            } => {
+                crate::cmd_disk_ops::handle_disk_repair(&vm_name, resource_group, dry_run, force)
+                    .await?;
+            }
         },
 
         azlin_cli::Commands::Ip { action } => match action {

@@ -1314,10 +1314,15 @@ mod tests {
         assert!(script.contains("usermod -aG docker azureuser"));
     }
 
+    /// The terminal state is written from an EXIT trap now, not from the last
+    /// setup command (#1131): a marker only reachable when everything before it
+    /// succeeded is exactly the thing that never fired on the broken VM.
     #[test]
     fn test_cloud_init_script_completion_marker() {
         let script = cloud_init_script("user");
-        assert!(script.contains("cloud-init provisioning complete"));
+        assert!(script.contains("trap azlin_finalize EXIT"));
+        assert!(script.contains("/var/lib/azlin/provisioning-complete"));
+        assert!(script.contains("/var/lib/azlin/provisioning-status"));
     }
 
     #[test]

@@ -202,6 +202,7 @@ nav:
     - storage/index.md
     - Creating Storage: storage/creating.md
     - Mounting Storage: storage/mounting.md
+    - Data Disk Layout: storage/data-disk-layout.md
 
   - Azure Bastion:
     - Bastion Setup: bastion/setup.md
@@ -272,6 +273,11 @@ nav:
       - commands/storage/list.md
       - commands/storage/status.md
       - commands/storage/delete.md
+    - Disk Commands:
+      - commands/disk/index.md
+      - commands/disk/add.md
+      - commands/disk/check.md
+      - commands/disk/repair.md
     - Batch Commands:
       - commands/batch/index.md
       - commands/batch/command.md
@@ -374,6 +380,7 @@ nav:
 
   - Troubleshooting:
     - Compound Naming: troubleshooting/compound-naming.md
+    - Data Disks Not Mounted: troubleshooting/data-disks-not-mounted.md
 
   - FAQ: faq.md
   - Changelog: changelog.md
