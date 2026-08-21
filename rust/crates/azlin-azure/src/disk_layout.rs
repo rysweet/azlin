@@ -603,11 +603,15 @@ pub fn build_disk_repair_script(
         }
         DiskStage::Formatted if !force => {
             return Err(format!(
-                "refusing to format the {} disk at LUN {}: it already has a filesystem, \
-                 which may hold data this repair cannot see because it is not mounted. \
-                 Inspect it first, then re-run with --force if it should be reformatted \
-                 anyway.",
-                role.name, finding.lun
+                "refusing to format the {role} disk at LUN {lun}: it already has a \
+                 filesystem, which may hold data this repair cannot see because it is \
+                 not mounted. Look at it before deciding — `--force` reformats, and \
+                 that is not reversible:\n    \
+                 sudo mkdir -p /mnt/inspect && sudo mount {device} /mnt/inspect && \
+                 ls -la /mnt/inspect",
+                role = role.name,
+                lun = finding.lun,
+                device = lun_device_path(finding.lun),
             ))
         }
         _ => {}
@@ -713,9 +717,13 @@ pub fn build_disk_repair_script(
              fi\n\
              sudo mkdir -p {target}\n\
              if ! sudo mount --bind {src} {target} || ! mountpoint -q {target}; then\n  \
-               sudo rmdir {target} 2>/dev/null || true\n  \
-               sudo mv {target}.old {target}\n  \
-               echo 'azlin: bind mount failed; the original directory was restored' >&2\n  \
+               if sudo rmdir {target} 2>/dev/null; then\n    \
+                 sudo mv {target}.old {target}\n    \
+                 echo 'azlin: bind mount failed; the original directory was restored' >&2\n  \
+               else\n    \
+                 echo 'azlin: bind mount failed, and {target} is not empty so it was left \
+alone; the original is at {target}.old' >&2\n  \
+               fi\n  \
                exit 1\n\
              fi\n\
              sudo chown {user}:{user} {src}\n\

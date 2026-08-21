@@ -306,15 +306,23 @@ fn disk_sections(disk_config: &DiskConfig, user: &str) -> Vec<Section> {
   trap 'if [ -d /home/{u}.old ] && ! mountpoint -q /home/{u} 2>/dev/null; then rm -rf /home/{u}; mv /home/{u}.old /home/{u}; echo "[AZLIN] Rolled back /home/{u} after disk setup failure"; fi' EXIT
   mkdir -p /home/{u}
   mount --bind /mnt/home-data/{u} /home/{u}
-  # Verify bind mount succeeded before cleaning up
-  if mountpoint -q /home/{u}; then
-    rm -rf /home/{u}.old
+  # A `mount` that returns 0 without producing a mountpoint would leave the
+  # user's home an empty directory on the OS disk with their data in `.old`,
+  # and the rest of the block would still record the section `ok`. Fail here
+  # instead, and let the trap above put the original back.
+  if ! mountpoint -q /home/{u}; then
+    echo "WARNING: the bind mount over /home/{u} did not take"
+    exit 1
   fi
   chown {u}:{u} /mnt/home-data/{u}
   # Persist in fstab (idempotent)
   HOME_UUID=$(blkid -s UUID -o value "$HOME_DEV")
   grep -q "UUID=$HOME_UUID" /etc/fstab || echo "{ext4}" >> /etc/fstab
   grep -q "{bind_src} {bind_dst}" /etc/fstab || echo "{bind}" >> /etc/fstab
+  # Only now is the copy on the OS disk expendable. Until fstab is written the
+  # mount does not survive a reboot, so a failure anywhere above this line must
+  # leave the original where the operator can still find it.
+  rm -rf /home/{u}.old
   echo "[AZLIN] Home disk mounted at /home/{u} ($(lsblk -no SIZE "$HOME_DEV" | tr -d ' '))""#,
                 lun = lun,
                 wait = lun_wait_snippet(lun, "HOME_DEV", "home"),
@@ -440,9 +448,10 @@ pub fn render_dev_cloud_init_script_with_disks(
     // misfire. Both failing is the archive being unreachable -- and then every
     // `curl https://...` below would spend its own timeout failing the same
     // way, which is how #1131's VM spent its provisioning window.
+    script.push_str("AZLIN_APT_INSTALL_RC=$rc\n\n");
     script.push_str(
         "AZLIN_ARCHIVE=up\n\
-         if [ \"$AZLIN_APT_UPDATE_RC\" -ne 0 ] && [ \"$rc\" -ne 0 ]; then\n  \
+         if [ \"$AZLIN_APT_UPDATE_RC\" -ne 0 ] && [ \"$AZLIN_APT_INSTALL_RC\" -ne 0 ]; then\n  \
            AZLIN_ARCHIVE=down\n  \
            echo '[AZLIN] the package archive is unreachable; skipping the \
 network-dependent toolchain sections'\n\
@@ -1649,6 +1658,92 @@ mod tests {
                 || script.contains("rm -rf \"/home/azureuser.old\""),
             "Home disk block must clean up /home/azureuser.old after bind mount"
         );
+    }
+
+    /// The copy on the OS disk is the only thing standing between a failed
+    /// bind and a lost home directory, so it is removed *last* — after the
+    /// fstab entries are written.
+    ///
+    /// Until fstab is written, the mount does not survive a reboot: a run that
+    /// binds successfully and then fails on `blkid` would come back from the
+    /// next boot with an empty `/home/<user>` and the data on an unmounted
+    /// disk. Deleting `.old` before that point is what would make it
+    /// unrecoverable.
+    #[test]
+    fn the_home_block_deletes_the_original_only_after_fstab_is_written() {
+        let script = render_dev_cloud_init_script_with_disks(
+            "azureuser",
+            &DiskConfig {
+                home_disk: true,
+                tmp_disk: false,
+            },
+        );
+        let fstab = script
+            .find("/etc/fstab")
+            .expect("the home block must persist the mount");
+        let cleanup = script
+            .find("rm -rf /home/azureuser.old")
+            .expect("the home block must clean up the original");
+        assert!(
+            fstab < cleanup,
+            "`rm -rf /home/azureuser.old` at {cleanup} precedes the fstab write at \
+             {fstab}; a failure in between would leave no copy on either disk:\n{script}"
+        );
+    }
+
+    /// A `mount` that returns 0 without producing a mountpoint must fail the
+    /// section rather than fall through.
+    ///
+    /// Falling through would chown, write fstab, and record `disk-home` as
+    /// `ok` — with the user's home an empty directory on the OS disk and their
+    /// data in `.old`. That is the original bug's signature: a report of
+    /// success over storage that is not there.
+    #[test]
+    fn the_home_block_treats_a_bind_that_did_not_take_as_a_failure() {
+        let script = render_dev_cloud_init_script_with_disks(
+            "azureuser",
+            &DiskConfig {
+                home_disk: true,
+                tmp_disk: false,
+            },
+        );
+        let bind = script
+            .find("mount --bind /mnt/home-data/azureuser /home/azureuser")
+            .expect("a bind step");
+        let after = &script[bind..];
+        let check = after
+            .find("if ! mountpoint -q /home/azureuser; then")
+            .expect("the bind must be verified immediately after it is made");
+        let exit = after[check..]
+            .find("exit 1")
+            .expect("an unverified bind must end the section");
+        assert!(
+            after[check..check + exit].lines().count() < 6,
+            "the `exit 1` must belong to the mountpoint check, not to something \
+             later:\n{}",
+            &after[check..check + exit]
+        );
+    }
+
+    /// The gate that skips the network-dependent toolchain sections reads two
+    /// named variables, not whatever `$rc` happens to hold.
+    ///
+    /// `$rc` is reused by every section. Reading it here worked only because
+    /// the gate sat directly after `apt-install`, so inserting a section
+    /// between them would have silently changed which failure the gate was
+    /// looking at.
+    #[test]
+    fn the_archive_gate_reads_named_variables_rather_than_the_ambient_rc() {
+        let script = render_dev_cloud_init_script_with_disks("azureuser", &DiskConfig::default());
+        assert!(
+            script.contains(
+                "if [ \"$AZLIN_APT_UPDATE_RC\" -ne 0 ] && [ \"$AZLIN_APT_INSTALL_RC\" -ne 0 ]; then"
+            ),
+            "the gate must name both signals it depends on:\n{script}"
+        );
+        for capture in ["AZLIN_APT_UPDATE_RC=$rc", "AZLIN_APT_INSTALL_RC=$rc"] {
+            assert!(script.contains(capture), "{capture} is never captured");
+        }
     }
 
     #[test]
