@@ -148,132 +148,377 @@ pub fn render_dev_cloud_init_script(admin_username: &str) -> String {
     render_dev_cloud_init_script_with_disks(admin_username, &DiskConfig::default())
 }
 
-/// Render the dev cloud-init shell script with optional data disk setup.
+/// One failure-isolated section of the generated provisioning script.
+struct Section {
+    /// Ledger key. Printed back by `azlin disk check`, so it is a contract —
+    /// see `docs-site/storage/data-disk-layout.md`.
+    name: String,
+    /// The commands, emitted verbatim inside the section's subshell.
+    body: String,
+    /// Whether the section needs the package archive to be reachable. Those
+    /// are skipped, not run and failed, when it demonstrably is not.
+    needs_network: bool,
+}
+
+/// The preamble: the ledger writer, the storage summary, and the terminal
+/// state that runs on every path.
 ///
-/// When `disk_config` enables home or tmp disks, the script includes
-/// hardened formatting/mounting blocks with retry loops and subshell isolation.
-pub fn render_dev_cloud_init_script_with_disks(
-    admin_username: &str,
-    disk_config: &DiskConfig,
-) -> String {
-    let safe_username = sanitize_admin_username(admin_username);
-    let packages = default_dev_packages();
-    // Pre-allocate ~10KB for the generated script to avoid repeated reallocations
-    let mut script = String::with_capacity(10 * 1024);
-    script.push_str("#!/bin/bash\nset -euo pipefail\n\n");
-    script.push_str("apt-get update -qq\n");
-    script.push_str("apt-get upgrade -y -qq\n\n");
-    script.push_str("apt-get install -y -qq \\\n");
+/// `set -euo pipefail` stays the file default. Critical work still fails fast
+/// at its first error; only the section boundaries are permeable, and each one
+/// records what happened.
+fn provisioning_preamble() -> String {
+    r#"#!/bin/bash
+set -euo pipefail
 
-    for (idx, package) in packages.iter().enumerate() {
-        script.push_str("    ");
-        script.push_str(package);
-        if idx + 1 != packages.len() {
-            script.push_str(" \\\n");
-        } else {
-            script.push('\n');
-        }
+mkdir -p /var/lib/azlin
+
+# Record one section's outcome.
+#
+# $2 is a numeric exit status, or the literal `skipped` for a section whose
+# dependency failed. A `[ "$2" = 0 ]` test alone would render `skipped` as
+# `failed`, and "the archive was unreachable" is not the same report as "this
+# step is broken".
+azlin_record() {
+  azlin_status=failed
+  case "$2" in
+    0) azlin_status=ok ;;
+    skipped) azlin_status=skipped ;;
+  esac
+  printf '%s\t%s\t%s\n' "$1" "$azlin_status" "$2" >> /var/lib/azlin/provisioning.tsv
+  echo "[AZLIN] section=$1 status=$azlin_status rc=$2"
+}
+
+# The azlin data-disk backing mounts, reported unconditionally so
+# /var/log/cloud-init-output.log records the storage the VM actually came up
+# with. A VM with no data disks shows both as absent, which is the answer to
+# "where did my /home go". `fstab=no` on a mounted backing path means the mount
+# is live now and will not survive a reboot.
+azlin_storage_summary() {
+  for azlin_backing in /mnt/home-data /mnt/tmp-data; do
+    if mountpoint -q "$azlin_backing" 2>/dev/null; then
+      azlin_persisted=no
+      if grep -qs " $azlin_backing " /etc/fstab; then azlin_persisted=yes; fi
+      echo "[AZLIN] storage: $azlin_backing mounted, fstab=$azlin_persisted"
+    else
+      echo "[AZLIN] storage: $azlin_backing absent"
+    fi
+  done
+}
+
+# Terminal state, written on every path.
+#
+# #1131 left the VM with no terminal state at all: the script died mid-way, the
+# sentinel was never written, and readiness checks had nothing to read. Both
+# files are written here, from an EXIT trap, so even an unhandled failure
+# outside a section reaches a terminal state -- a degraded one.
+azlin_finalize() {
+  azlin_storage_summary
+  azlin_final=ok
+  if awk -F'\t' '$2=="failed"{f=1} END{exit !f}' /var/lib/azlin/provisioning.tsv 2>/dev/null; then
+    azlin_final=degraded
+  fi
+  printf '%s\n' "$azlin_final" > /var/lib/azlin/provisioning-status
+  : > /var/lib/azlin/provisioning-complete
+  echo "[AZLIN] provisioning finished: status=$azlin_final"
+}
+trap azlin_finalize EXIT
+
+"#
+    .to_string()
+}
+
+/// Wrap one section so its failure cannot end the script.
+///
+/// The `rc=0; ( … ) || rc=$?` form is load-bearing in both halves. The `||`
+/// list is what stops `set -e` from ending the script at the group; the `rc=0`
+/// before it is what keeps `$rc` defined under `set -u` when the group is
+/// skipped. The obvious-looking alternative, `( … ); rc=$?`, aborts on the
+/// group and never reaches the assignment.
+///
+/// The subshell still inherits `set -e` and still stops at its own first
+/// failing command -- which is what the home block's rollback trap depends on.
+/// What the wrapper changes is the blast radius, not the strictness.
+fn render_section(section: &Section) -> String {
+    let Section {
+        name,
+        body,
+        needs_network,
+    } = section;
+    let mut out = format!("# ---- section: {name} ----\nrc=0\n");
+    if *needs_network {
+        out.push_str(&format!(
+            "if [ \"$AZLIN_ARCHIVE\" = down ]; then\n  azlin_record {name} skipped\nelse\n"
+        ));
     }
-
-    script.push('\n');
-
-    // Disk formatting and mounting (must happen before user setup so home dir is on the right disk)
-    if disk_config.home_disk || disk_config.tmp_disk {
-        script.push_str("# -- Data disk setup --\n");
-        script.push_str("echo '[AZLIN] Formatting and mounting data disks...'\n\n");
+    out.push_str("(\n");
+    out.push_str(body.trim_end());
+    out.push_str(&format!("\n) || rc=$?\nazlin_record {name} \"$rc\"\n"));
+    if *needs_network {
+        out.push_str("fi\n");
     }
+    out.push('\n');
+    out
+}
 
+/// The disk sections, which run before anything that touches the network.
+fn disk_sections(disk_config: &DiskConfig, user: &str) -> Vec<Section> {
+    let mut out = Vec::new();
     let mut next_lun = 0u32;
 
     if disk_config.home_disk {
-        // LUN 0 = home disk -- wrapped in subshell for failure isolation
-        script.push_str(&format!(
-            r#"# Home disk (LUN {lun})
-(
+        let lun = next_lun;
+        next_lun += 1;
+        let bind_src = format!("/mnt/home-data/{}", user);
+        let bind_dst = format!("/home/{}", user);
+        let ext4 = crate::disk_layout::fstab_line(&crate::disk_layout::FstabSpec::Ext4ByUuid {
+            uuid_expr: "$HOME_UUID".to_string(),
+            target: "/mnt/home-data".to_string(),
+        });
+        let bind = crate::disk_layout::fstab_line(&crate::disk_layout::FstabSpec::Bind {
+            source: bind_src.clone(),
+            target: bind_dst.clone(),
+        });
+        out.push(Section {
+            name: "disk-home".to_string(),
+            needs_network: false,
+            body: format!(
+                r#"  # Home disk (LUN {lun})
 {wait}
 
   mkfs.ext4 -F -L azlin-home "$HOME_DEV"
   mkdir -p /mnt/home-data
   mount "$HOME_DEV" /mnt/home-data
-  # Copy existing home to the new disk
-  rsync -aAX /home/{u}/ /mnt/home-data/{u}/
+  mkdir -p /mnt/home-data/{u}
+  # Copy the existing home to the new disk.
+  #
+  # `rsync` is in default_dev_packages(), not in the Azure Ubuntu base image,
+  # and this block now runs *before* apt -- so the tool is chosen at runtime.
+  # `cp -a` (= `-dR --preserve=all`) is in coreutils and covers the same
+  # xattr/ACL intent. Neither is suppressed: a silently skipped copy would bind
+  # an empty directory over the user's home.
+  if command -v rsync > /dev/null 2>&1; then
+    rsync -aAX /home/{u}/ /mnt/home-data/{u}/
+  else
+    cp -a /home/{u}/. /mnt/home-data/{u}/
+  fi
   # Bind mount over /home/{u} -- with rollback trap to restore original on failure
   mv /home/{u} /home/{u}.old
-  trap 'if [ -d /home/{u}.old ] && ! mountpoint -q /home/{u} 2>/dev/null; then rm -rf /home/{u} 2>/dev/null; mv /home/{u}.old /home/{u}; echo "[AZLIN] Rolled back /home/{u} after disk setup failure"; fi' EXIT
+  trap 'if [ -d /home/{u}.old ] && ! mountpoint -q /home/{u} 2>/dev/null; then rm -rf /home/{u}; mv /home/{u}.old /home/{u}; echo "[AZLIN] Rolled back /home/{u} after disk setup failure"; fi' EXIT
   mkdir -p /home/{u}
   mount --bind /mnt/home-data/{u} /home/{u}
   # Verify bind mount succeeded before cleaning up
   if mountpoint -q /home/{u}; then
     rm -rf /home/{u}.old
   fi
+  chown {u}:{u} /mnt/home-data/{u}
   # Persist in fstab (idempotent)
   HOME_UUID=$(blkid -s UUID -o value "$HOME_DEV")
-  grep -q "UUID=$HOME_UUID" /etc/fstab || echo "UUID=$HOME_UUID /mnt/home-data ext4 defaults,nofail 0 2" >> /etc/fstab
-  grep -q "/mnt/home-data/{u} /home/{u}" /etc/fstab || echo "/mnt/home-data/{u} /home/{u} none bind 0 0" >> /etc/fstab
-  echo "[AZLIN] Home disk mounted at /home/{u} ($(lsblk -no SIZE "$HOME_DEV" | tr -d ' '))"
-) || echo "WARN: Home disk setup failed, continuing without separate home disk"
-
-"#,
-            lun = next_lun,
-            wait = lun_wait_snippet(next_lun, "HOME_DEV", "home"),
-            u = safe_username,
-        ));
-        next_lun += 1;
+  grep -q "UUID=$HOME_UUID" /etc/fstab || echo "{ext4}" >> /etc/fstab
+  grep -q "{bind_src} {bind_dst}" /etc/fstab || echo "{bind}" >> /etc/fstab
+  echo "[AZLIN] Home disk mounted at /home/{u} ($(lsblk -no SIZE "$HOME_DEV" | tr -d ' '))""#,
+                lun = lun,
+                wait = lun_wait_snippet(lun, "HOME_DEV", "home"),
+                u = user,
+                ext4 = ext4,
+                bind_src = bind_src,
+                bind_dst = bind_dst,
+                bind = bind,
+            ),
+        });
     }
 
     if disk_config.tmp_disk {
-        script.push_str(&format!(
-            r#"# Tmp disk (LUN {lun})
-(
+        let lun = next_lun;
+        let ext4 = crate::disk_layout::fstab_line(&crate::disk_layout::FstabSpec::Ext4ByUuid {
+            uuid_expr: "$TMP_UUID".to_string(),
+            target: "/mnt/tmp-data".to_string(),
+        });
+        let bind = crate::disk_layout::fstab_line(&crate::disk_layout::FstabSpec::Bind {
+            source: "/mnt/tmp-data/tmp".to_string(),
+            target: "/tmp".to_string(),
+        });
+        out.push(Section {
+            name: "disk-tmp".to_string(),
+            needs_network: false,
+            body: format!(
+                r#"  # Tmp disk (LUN {lun})
 {wait}
 
   mkfs.ext4 -F -L azlin-tmp "$TMP_DEV"
   mkdir -p /mnt/tmp-data
   mount "$TMP_DEV" /mnt/tmp-data
   mkdir -p /mnt/tmp-data/tmp
+  # The sticky bit goes on the *backing* directory. A boot mounts that
+  # directory over /tmp, so /tmp shows whatever mode it carries; a `chmod 1777
+  # /tmp` afterwards reaches the same inode through the bind and looks correct
+  # until the next reboot brings /tmp up unwritable.
   chmod 1777 /mnt/tmp-data/tmp
-  # Copy existing /tmp contents
-  rsync -aAX /tmp/ /mnt/tmp-data/tmp/ 2>/dev/null || true
+  # /tmp contents are disposable, so unlike the home copy this one is
+  # best-effort by design.
+  {{ if command -v rsync > /dev/null 2>&1; then rsync -aAX /tmp/ /mnt/tmp-data/tmp/; else cp -a /tmp/. /mnt/tmp-data/tmp/; fi ; }} || true
   mount --bind /mnt/tmp-data/tmp /tmp
-  chmod 1777 /tmp
   # Persist in fstab (idempotent)
   TMP_UUID=$(blkid -s UUID -o value "$TMP_DEV")
-  grep -q "UUID=$TMP_UUID" /etc/fstab || echo "UUID=$TMP_UUID /mnt/tmp-data ext4 defaults,nofail 0 2" >> /etc/fstab
-  grep -q "/mnt/tmp-data/tmp /tmp" /etc/fstab || echo "/mnt/tmp-data/tmp /tmp none bind 0 0" >> /etc/fstab
-  echo "[AZLIN] Tmp disk mounted at /tmp ($(lsblk -no SIZE "$TMP_DEV" | tr -d ' '))"
-) || echo "WARN: Tmp disk setup failed, continuing without separate tmp disk"
-
-"#,
-            lun = next_lun,
-            wait = lun_wait_snippet(next_lun, "TMP_DEV", "tmp"),
-        ));
+  grep -q "UUID=$TMP_UUID" /etc/fstab || echo "{ext4}" >> /etc/fstab
+  grep -q "/mnt/tmp-data/tmp /tmp" /etc/fstab || echo "{bind}" >> /etc/fstab
+  echo "[AZLIN] Tmp disk mounted at /tmp ($(lsblk -no SIZE "$TMP_DEV" | tr -d ' '))""#,
+                lun = lun,
+                wait = lun_wait_snippet(lun, "TMP_DEV", "tmp"),
+                ext4 = ext4,
+                bind = bind,
+            ),
+        });
     }
 
-    for command in default_dev_setup_commands(safe_username) {
-        script.push_str(&command);
-        script.push_str("\n\n");
+    out
+}
+
+/// Render the dev cloud-init shell script with optional data disk setup.
+///
+/// Two properties of the ordering here are the fix for issue #1131, and both
+/// are asserted by `tests/cloud_init_failure_isolation.rs`:
+///
+/// 1. **Disk setup is emitted first.** It needs `udevadm`, `mkfs.ext4`, `blkid`
+///    and `mount` -- all in the Azure Ubuntu base image -- and no network at
+///    all. Package installation needs the archive, which on a bastion-only VM
+///    with no outbound route is unreachable. Sequencing the step that cannot
+///    fail for network reasons behind the step that can is what left VMs with
+///    attached, unformatted disks for weeks.
+/// 2. **Every section is failure-isolated and recorded.** Ordering alone only
+///    protects whatever happens to be first; a missing `tree` package must not
+///    be able to abort filesystem provisioning no matter where it sits.
+pub fn render_dev_cloud_init_script_with_disks(
+    admin_username: &str,
+    disk_config: &DiskConfig,
+) -> String {
+    let safe_username = sanitize_admin_username(admin_username);
+    let packages = default_dev_packages();
+
+    // Pre-allocate ~24KB for the generated script to avoid repeated reallocations
+    let mut script = String::with_capacity(24 * 1024);
+    script.push_str(&provisioning_preamble());
+
+    if disk_config.home_disk || disk_config.tmp_disk {
+        script.push_str("echo '[AZLIN] Formatting and mounting data disks...'\n\n");
     }
+    for section in disk_sections(disk_config, safe_username) {
+        script.push_str(&render_section(&section));
+    }
+
+    script.push_str(&render_section(&Section {
+        name: "apt-update".to_string(),
+        needs_network: false,
+        body: "  apt-get update -qq".to_string(),
+    }));
+    script.push_str("AZLIN_APT_UPDATE_RC=$rc\n\n");
+
+    script.push_str(&render_section(&Section {
+        name: "apt-upgrade".to_string(),
+        needs_network: false,
+        body: "  apt-get upgrade -y -qq".to_string(),
+    }));
+
+    let mut install = String::from("  apt-get install -y -qq \\\n");
+    for (idx, package) in packages.iter().enumerate() {
+        install.push_str("    ");
+        install.push_str(package);
+        if idx + 1 != packages.len() {
+            install.push_str(" \\\n");
+        }
+    }
+    script.push_str(&render_section(&Section {
+        name: "apt-install".to_string(),
+        needs_network: false,
+        body: install,
+    }));
+
+    // The gate for the toolchain sections below.
+    //
+    // Two signals, not one: `apt-get update` fails whenever any configured
+    // source is unreachable, and `apt-get install` fails when a single package
+    // name is missing from an otherwise healthy archive. Either alone would
+    // misfire. Both failing is the archive being unreachable -- and then every
+    // `curl https://...` below would spend its own timeout failing the same
+    // way, which is how #1131's VM spent its provisioning window.
+    script.push_str(
+        "AZLIN_ARCHIVE=up\n\
+         if [ \"$AZLIN_APT_UPDATE_RC\" -ne 0 ] && [ \"$rc\" -ne 0 ]; then\n  \
+           AZLIN_ARCHIVE=down\n  \
+           echo '[AZLIN] the package archive is unreachable; skipping the \
+network-dependent toolchain sections'\n\
+         fi\n\n",
+    );
+
+    for setup in dev_setup_sections(safe_username) {
+        script.push_str(&render_section(&Section {
+            name: setup.name.to_string(),
+            needs_network: setup.needs_network,
+            body: setup.command,
+        }));
+    }
+
+    // Provisioning is finished, and the terminal state is written by the EXIT
+    // trap. Exiting 0 even from a degraded run is deliberate: a non-zero exit
+    // here produces a `Failed to run module scripts_user` line buried in
+    // /var/log/cloud-init-output.log, which is exactly the channel that failed
+    // to tell anyone about #1131 for weeks. `provisioning-status`, the
+    // `Storage` column and `azlin disk check` are the channels that work.
+    script.push_str("exit 0\n");
 
     script
 }
 
-/// Default packages for development VMs
-/// Default setup commands for development VMs (run after packages install).
+/// One provisioning step, with the ledger name it reports under.
+pub struct SetupSection {
+    /// Section name in `/var/lib/azlin/provisioning.tsv`. Contract; see
+    /// `docs-site/storage/data-disk-layout.md`.
+    pub name: &'static str,
+    /// Whether the step needs the package archive / the wider internet.
+    /// Network steps are skipped rather than run when the archive has already
+    /// proved unreachable.
+    pub needs_network: bool,
+    pub command: String,
+}
+
+/// `cmd`, but a failure prints `message` and still fails.
+///
+/// The steps below used to end in `|| echo 'WARNING: … failed'`, which was the
+/// only way to report a failure while keeping `set -euo pipefail` from ending
+/// the whole script. Now that each section is isolated and its exit status is
+/// recorded in the ledger, that suffix would actively hide the failure: it
+/// turns a non-zero status into zero, and the section would be recorded `ok`.
+/// This keeps the message and keeps the status.
+fn warn_and_fail(cmd: &str, message: &str) -> String {
+    format!("{cmd} || {{ echo 'WARNING: {message}' >&2; false; }}")
+}
+
+/// Default setup commands for development VMs, in execution order.
 ///
 /// These install toolchains that aren't available as apt packages, matching
 /// the full Python azlin provisioning (gh, az, node, claude, rust, go, .NET).
-pub fn default_dev_setup_commands(username: &str) -> Vec<String> {
+pub fn dev_setup_sections(username: &str) -> Vec<SetupSection> {
+    let u = username;
     vec![
         // Python 3.14 - install via deadsnakes but do NOT change system python3
-        "if python3.14 --version 2>/dev/null; then echo 'Python 3.14 available'; else add-apt-repository -y ppa:deadsnakes/ppa && apt update && apt install -y python3.14 python3.14-venv python3.14-dev || echo 'WARNING: Python 3.14 install failed'; fi".to_string(),
-        // GitHub CLI
-        "mkdir -p -m 755 /etc/apt/keyrings && wget -nv -O /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && mkdir -p -m 755 /etc/apt/sources.list.d && echo \"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && apt update && apt install -y gh || echo 'WARNING: GitHub CLI install failed'".to_string(),
+        SetupSection {
+            name: "setup-python314",
+            needs_network: true,
+            command: "if python3.14 --version 2>/dev/null; then echo 'Python 3.14 available'; else add-apt-repository -y ppa:deadsnakes/ppa && apt update && apt install -y python3.14 python3.14-venv python3.14-dev; fi".to_string(),
+        },
+        SetupSection {
+            name: "setup-github-cli",
+            needs_network: true,
+            command: warn_and_fail(
+                "mkdir -p -m 755 /etc/apt/keyrings && wget -nv -O /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && mkdir -p -m 755 /etc/apt/sources.list.d && echo \"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && apt update && apt install -y gh",
+                "GitHub CLI install failed",
+            ),
+        },
         // Azure CLI.
         //
         // Not `curl -sL https://aka.ms/InstallAzureCLIDeb | bash`. That script
         // derives its apt dist from `lsb_release -cs` and 404s on any codename
         // Microsoft has not published. Ubuntu 26.04 ("resolute") is not
-        // published — only up to "noble" is — so on 26.04 it simply fails.
+        // published -- only up to "noble" is -- so on 26.04 it simply fails.
         //
         // Worse, it failed *silently*: in a `curl ... | bash` pipeline the exit
         // status is bash's, so a failed download still exits 0, and `-s`
@@ -283,12 +528,27 @@ pub fn default_dev_setup_commands(username: &str) -> Vec<String> {
         // Install from the repo directly instead: use the running codename when
         // Microsoft publishes it, fall back to the newest published LTS when
         // they do not, and report failure either way.
-        r#"AZ_DIST=$(lsb_release -cs) && if ! curl -fsSL "https://packages.microsoft.com/repos/azure-cli/dists/$AZ_DIST/Release" >/dev/null 2>&1; then echo "NOTE: azure-cli has no apt dist for '$AZ_DIST'; falling back to noble"; AZ_DIST=noble; fi && mkdir -p -m 755 /etc/apt/keyrings && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg && chmod go+r /etc/apt/keyrings/microsoft.gpg && mkdir -p -m 755 /etc/apt/sources.list.d && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ $AZ_DIST main" > /etc/apt/sources.list.d/azure-cli.list && apt-get update && apt-get install -y azure-cli || echo 'WARNING: Azure CLI install failed'"#.to_string(),
+        SetupSection {
+            name: "setup-azure-cli",
+            needs_network: true,
+            command: warn_and_fail(
+                r#"AZ_DIST=$(lsb_release -cs) && if ! curl -fsSL "https://packages.microsoft.com/repos/azure-cli/dists/$AZ_DIST/Release" >/dev/null 2>&1; then echo "NOTE: azure-cli has no apt dist for '$AZ_DIST'; falling back to noble"; AZ_DIST=noble; fi && mkdir -p -m 755 /etc/apt/keyrings && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg && chmod go+r /etc/apt/keyrings/microsoft.gpg && mkdir -p -m 755 /etc/apt/sources.list.d && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ $AZ_DIST main" > /etc/apt/sources.list.d/azure-cli.list && apt-get update && apt-get install -y azure-cli"#,
+                "Azure CLI install failed",
+            ),
+        },
         // Chromium (Ubuntu ships this as a snap-backed launcher)
-        "apt-get install -y chromium-browser".to_string(),
+        SetupSection {
+            name: "setup-chromium",
+            needs_network: true,
+            command: "apt-get install -y chromium-browser".to_string(),
+        },
         // Chromium wrappers so SSH/X11 launches use a scoped user session instead of
         // failing with the snap cgroup error.
-        r#"cat > /usr/local/bin/chromium-browser << 'CHROMIUMWRAP'
+        SetupSection {
+            name: "setup-chromium-wrappers",
+            needs_network: false,
+            command: r#"mkdir -p /usr/local/bin
+cat > /usr/local/bin/chromium-browser << 'CHROMIUMWRAP'
 #!/bin/sh
 set -eu
 
@@ -326,41 +586,94 @@ cat > /usr/local/bin/chromium << 'CHROMIUMALIAS'
 exec /usr/local/bin/chromium-browser "$@"
 CHROMIUMALIAS
 chmod 755 /usr/local/bin/chromium"#.to_string(),
+        },
         // astral-uv (uv package manager)
-        "snap install astral-uv --classic || true".to_string(),
+        SetupSection {
+            name: "setup-astral-uv",
+            needs_network: true,
+            command: "snap install astral-uv --classic".to_string(),
+        },
         // Node.js 24 LTS (via NodeSource)
-        "curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt install -y nodejs || echo 'WARNING: Node.js install failed'".to_string(),
+        SetupSection {
+            name: "setup-nodejs",
+            needs_network: true,
+            command: warn_and_fail(
+                "curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt install -y nodejs",
+                "Node.js install failed",
+            ),
+        },
         // npm user-local configuration
-        format!("mkdir -p /home/{u}/.npm-packages && echo 'prefix=${{HOME}}/.npm-packages' > /home/{u}/.npmrc && chown {u}:{u} /home/{u}/.npmrc /home/{u}/.npm-packages", u = username),
+        SetupSection {
+            name: "setup-npm-prefix",
+            needs_network: false,
+            command: format!("mkdir -p /home/{u}/.npm-packages && echo 'prefix=${{HOME}}/.npm-packages' > /home/{u}/.npmrc && chown {u}:{u} /home/{u}/.npmrc /home/{u}/.npm-packages"),
+        },
         // Tmux configuration
-        format!("printf '[%%s] %%s\\n' \"$(hostname)\" \"tmux.conf\" && cat > /home/{u}/.tmux.conf << 'TMUXEOF'\nset -g status-left-length 50\nset -g status-left \"#[fg=cyan][#h]#[fg=green] #S #[fg=yellow]| \"\nset -g status-right \"#[fg=cyan]%%Y-%%m-%%d %%H:%%M\"\nset -g status-interval 60\nset -g status-bg black\nset -g status-fg white\nTMUXEOF\nchown {u}:{u} /home/{u}/.tmux.conf", u = username),
-        // Fix tmux socket dir permissions (Ubuntu 25.10+)
-        format!("chmod 1777 /tmp && TMUX_UID=$(id -u {u}) && mkdir -p /tmp/tmux-$TMUX_UID && chmod 700 /tmp/tmux-$TMUX_UID && chown {u}:{u} /tmp/tmux-$TMUX_UID", u = username),
+        SetupSection {
+            name: "setup-tmux-conf",
+            needs_network: false,
+            command: format!("printf '[%%s] %%s\\n' \"$(hostname)\" \"tmux.conf\" && cat > /home/{u}/.tmux.conf << 'TMUXEOF'\nset -g status-left-length 50\nset -g status-left \"#[fg=cyan][#h]#[fg=green] #S #[fg=yellow]| \"\nset -g status-right \"#[fg=cyan]%%Y-%%m-%%d %%H:%%M\"\nset -g status-interval 60\nset -g status-bg black\nset -g status-fg white\nTMUXEOF\nchown {u}:{u} /home/{u}/.tmux.conf"),
+        },
+        // Fix tmux socket dir permissions (Ubuntu 25.10+).
+        //
+        // `chmod 1777 /tmp` here is on the live mount and is correct for the
+        // running boot; the mode that survives a reboot is the one the tmp
+        // disk section set on /mnt/tmp-data/tmp.
+        SetupSection {
+            name: "setup-tmux-socket",
+            needs_network: false,
+            command: format!("chmod 1777 /tmp && TMUX_UID=$(id -u {u}) && mkdir -p /tmp/tmux-$TMUX_UID && chmod 700 /tmp/tmux-$TMUX_UID && chown {u}:{u} /tmp/tmux-$TMUX_UID"),
+        },
         // Claude Code AI Assistant
         // Download, then execute. NOT `curl ... | bash` inside `su -c`: the
         // generated script sets `pipefail`, but that is a per-shell option and
         // the fresh login shell `su -` starts does not inherit it. Verified:
         // `bash -c 'set -o pipefail; bash -c "false | true; echo $?"'` prints 0.
         // So a failed download would leave bash reading empty stdin, exiting 0,
-        // and the `|| echo WARNING` below would never fire — #1069 one level
+        // and the failure report below would never fire -- #1069 one level
         // deeper.
-        format!("su - {u} -c 'curl -fsSL https://claude.ai/install.sh -o /tmp/claude-install.sh && sh /tmp/claude-install.sh; rc=$?; rm -f /tmp/claude-install.sh; exit $rc' || echo 'WARNING: Claude Code installation failed'", u = username),
+        SetupSection {
+            name: "setup-claude-code",
+            needs_network: true,
+            command: warn_and_fail(
+                &format!("su - {u} -c 'curl -fsSL https://claude.ai/install.sh -o /tmp/claude-install.sh && sh /tmp/claude-install.sh; rc=$?; rm -f /tmp/claude-install.sh; exit $rc'"),
+                "Claude Code installation failed",
+            ),
+        },
         // Rust
-        // Download, then execute — same `su -c` pipefail reasoning as above.
-        format!("su - {u} -c 'curl --proto =https --tlsv1.2 -fsSf https://sh.rustup.rs -o /tmp/rustup-init.sh && sh /tmp/rustup-init.sh -y; rc=$?; rm -f /tmp/rustup-init.sh; exit $rc' || echo 'WARNING: Rust install failed'", u = username),
-        // amplihack-rs (pre-built binary from latest GitHub release, falls back to cargo install)
-        format!("su - {u} -c 'ARCH=$(uname -m | sed s/aarch64/aarch64/ | sed s/x86_64/x86_64/) && \
+        // Download, then execute -- same `su -c` pipefail reasoning as above.
+        SetupSection {
+            name: "setup-rust",
+            needs_network: true,
+            command: warn_and_fail(
+                &format!("su - {u} -c 'curl --proto =https --tlsv1.2 -fsSf https://sh.rustup.rs -o /tmp/rustup-init.sh && sh /tmp/rustup-init.sh -y; rc=$?; rm -f /tmp/rustup-init.sh; exit $rc'"),
+                "Rust install failed",
+            ),
+        },
+        // amplihack-rs (pre-built binary from latest GitHub release)
+        SetupSection {
+            name: "setup-amplihack",
+            needs_network: true,
+            command: warn_and_fail(
+                &format!("su - {u} -c 'ARCH=$(uname -m | sed s/aarch64/aarch64/ | sed s/x86_64/x86_64/) && \
             URL=$(curl -fsSL https://api.github.com/repos/rysweet/amplihack-rs/releases/latest | grep browser_download_url | grep $ARCH-unknown-linux-gnu.tar.gz\\\" | head -1 | cut -d\\\"  -f4) && \
             mkdir -p /tmp/amplihack-install && cd /tmp/amplihack-install && \
             curl -fsSL $URL -o amplihack.tar.gz && tar xzf amplihack.tar.gz && \
             mkdir -p ~/.cargo/bin && cp amplihack amplihack-hooks ~/.cargo/bin/ && \
             chmod +x ~/.cargo/bin/amplihack ~/.cargo/bin/amplihack-hooks && \
             cd ~ && rm -rf /tmp/amplihack-install && \
-            ~/.cargo/bin/amplihack install' || echo 'WARNING: amplihack-rs installation failed'", u = username),
+            ~/.cargo/bin/amplihack install'"),
+                "amplihack-rs installation failed",
+            ),
+        },
         // azlin CLI (pre-built binary from latest GitHub release).
         // Release archives ship platform-suffixed members (azlin-linux-x86_64,
         // azdoit-linux-x86_64, ay-linux-x86_64), so each is renamed on copy.
-        format!("su - {u} -c 'ARCH=$(uname -m | sed s/aarch64/aarch64/ | sed s/x86_64/x86_64/) && \
+        SetupSection {
+            name: "setup-azlin-cli",
+            needs_network: true,
+            command: warn_and_fail(
+                &format!("su - {u} -c 'ARCH=$(uname -m | sed s/aarch64/aarch64/ | sed s/x86_64/x86_64/) && \
             URL=$(curl -fsSL https://api.github.com/repos/rysweet/azlin/releases/latest | grep browser_download_url | grep linux-$ARCH.tar.gz\\\" | head -1 | cut -d\\\"  -f4) && \
             mkdir -p /tmp/azlin-install && cd /tmp/azlin-install && \
             curl -fsSL $URL -o azlin.tar.gz && tar xzf azlin.tar.gz && \
@@ -369,7 +682,10 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
             cp azdoit-linux-$ARCH ~/.cargo/bin/azdoit && \
             cp ay-linux-$ARCH ~/.cargo/bin/ay && \
             chmod +x ~/.cargo/bin/azlin ~/.cargo/bin/azdoit ~/.cargo/bin/ay && \
-            cd ~ && rm -rf /tmp/azlin-install' || echo 'WARNING: azlin binary installation failed (azlin/azdoit/ay)'", u = username),
+            cd ~ && rm -rf /tmp/azlin-install'"),
+                "azlin binary installation failed (azlin/azdoit/ay)",
+            ),
+        },
         // Put the installed CLIs on the default PATH.
         //
         // The installers above drop binaries in ~/.cargo/bin, which is only added
@@ -383,28 +699,62 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         // Each link is guarded by `[ -x ... ]`: a missing binary must produce a
         // WARNING, never a dangling symlink that makes `command -v` succeed while
         // running the command fails.
-        format!("mkdir -p /usr/local/bin && for b in amplihack amplihack-hooks azlin azdoit ay; do src=/home/{u}/.cargo/bin/$b; if [ -x \"$src\" ]; then ln -sf \"$src\" /usr/local/bin/$b || echo \"WARNING: could not link $b into /usr/local/bin; it will be missing from non-interactive shells\"; else echo \"WARNING: $src is missing or not executable; $b will be missing from non-interactive shells\"; fi; done || echo \"WARNING: could not link the installed CLIs into /usr/local/bin\"", u = username),
+        SetupSection {
+            name: "setup-path-links",
+            needs_network: false,
+            command: format!("mkdir -p /usr/local/bin && for b in amplihack amplihack-hooks azlin azdoit ay; do src=/home/{u}/.cargo/bin/$b; if [ -x \"$src\" ]; then ln -sf \"$src\" /usr/local/bin/$b || echo \"WARNING: could not link $b into /usr/local/bin; it will be missing from non-interactive shells\" >&2; else echo \"WARNING: $src is missing or not executable; $b will be missing from non-interactive shells\" >&2; fi; done"),
+        },
         // Go
-        "wget -q https://go.dev/dl/go1.26.4.linux-amd64.tar.gz -O /tmp/go.tar.gz && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz || echo 'WARNING: Go install failed'".to_string(),
+        SetupSection {
+            name: "setup-go",
+            needs_network: true,
+            command: warn_and_fail(
+                "wget -q https://go.dev/dl/go1.26.4.linux-amd64.tar.gz -O /tmp/go.tar.gz && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz",
+                "Go install failed",
+            ),
+        },
         // .NET 10 SDK
-        // The `ln` is guarded: the install runs inside `( ... || echo WARNING )`, so a
-        // failed SDK install still reaches this point. Linking unconditionally left a
-        // dangling /usr/local/bin/dotnet -- `command -v dotnet` succeeded, running it
-        // did not.
-        "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && chmod +x /tmp/dotnet-install.sh && (/tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet || echo 'WARNING: .NET 10 SDK install failed') && if [ -x /usr/share/dotnet/dotnet ]; then ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet; else echo 'WARNING: /usr/share/dotnet/dotnet is missing; not linking /usr/local/bin/dotnet'; fi; rm -f /tmp/dotnet-install.sh".to_string(),
+        //
+        // The `ln` is guarded by `[ -x ... ]` rather than chained off the
+        // installer's exit status: the installer can exit 0 without leaving a
+        // usable binary, and linking unconditionally left a dangling
+        // /usr/local/bin/dotnet -- `command -v dotnet` succeeded, running it
+        // did not. The guard's `else` branch fails the section, so a missing
+        // SDK is recorded rather than merely mentioned.
+        SetupSection {
+            name: "setup-dotnet",
+            needs_network: true,
+            command: "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && chmod +x /tmp/dotnet-install.sh && { /tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet || echo 'WARNING: .NET 10 SDK install failed' >&2; }; rm -f /tmp/dotnet-install.sh; if [ -x /usr/share/dotnet/dotnet ]; then ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet; else echo 'WARNING: /usr/share/dotnet/dotnet is missing; not linking /usr/local/bin/dotnet' >&2; false; fi".to_string(),
+        },
         // Docker post-install
-        format!("usermod -aG docker {u} && systemctl enable docker && systemctl start docker", u = username),
+        SetupSection {
+            name: "setup-docker-group",
+            needs_network: false,
+            command: format!("usermod -aG docker {u} && systemctl enable docker && systemctl start docker"),
+        },
         // Enable systemd user linger so SSH sessions get a systemd user instance
         // (required for snap Chromium cgroup scoping via systemd-run --user)
-        format!("loginctl enable-linger {u}", u = username),
-        // bashrc additions (npm path, go path, cargo env, azlin alias)
-        format!("cat >> /home/{u}/.bashrc << 'BASHEOF'\n\n# npm user-local configuration\nNPM_PACKAGES=\"${{HOME}}/.npm-packages\"\nPATH=\"$NPM_PACKAGES/bin:$PATH\"\nMANPATH=\"$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)\"\n\n# Go\nexport PATH=$PATH:/usr/local/go/bin\n\n# Cargo\nsource $HOME/.cargo/env 2>/dev/null\nBASHEOF", u = username),
+        SetupSection {
+            name: "setup-linger",
+            needs_network: false,
+            command: format!("loginctl enable-linger {u}"),
+        },
+        // bashrc additions (npm path, go path, cargo env)
+        SetupSection {
+            name: "setup-bashrc",
+            needs_network: false,
+            command: format!("cat >> /home/{u}/.bashrc << 'BASHEOF'\n\n# npm user-local configuration\nNPM_PACKAGES=\"${{HOME}}/.npm-packages\"\nPATH=\"$NPM_PACKAGES/bin:$PATH\"\nMANPATH=\"$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)\"\n\n# Go\nexport PATH=$PATH:/usr/local/go/bin\n\n# Cargo\nsource $HOME/.cargo/env 2>/dev/null\nBASHEOF"),
+        },
         // Non-interactive PATH check. The login-shell check below passes even when
         // the binaries only exist in ~/.cargo/bin, which is exactly how #1095 hid:
         // `azlin connect` worked, `ssh <vm> 'amplihack ...'` did not. `su` without
         // `-` gives a non-login, non-interactive shell -- the same environment ssh
         // commands, cron jobs and CI steps get.
-        format!("su {u} -s /bin/bash -c 'for b in amplihack amplihack-hooks azlin azdoit ay; do command -v $b > /dev/null || echo \"WARNING: $b is not on the default non-interactive PATH\"; done' || echo \"WARNING: could not run the non-interactive PATH check\"", u = username),
+        SetupSection {
+            name: "setup-path-check",
+            needs_network: false,
+            command: format!("su {u} -s /bin/bash -c 'for b in amplihack amplihack-hooks azlin azdoit ay; do command -v $b > /dev/null || echo \"WARNING: $b is not on the default non-interactive PATH\" >&2; done'"),
+        },
         // Version verification (rustc is in user homedir, must check as user).
         // All three azlin archive members are checked: the install chain is a
         // single `&&` sequence, so a member missing from a future tarball aborts
@@ -413,10 +763,24 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         // binary (see .github/workflows/rust-release.yml), so `ay --version`
         // prints `azlin <version>`; this check proves `ay` is present and
         // executable, not that it is a distinct program.
-        format!("echo '[AZLIN] Provisioning complete' && which gh && gh --version && which az && az --version | head -2 && which node && node --version && su - {u} -c 'which rustc && rustc --version && which amplihack && amplihack --version && which azlin && azlin --version && which azdoit && azdoit --version && which ay && ay --version' && which dotnet && dotnet --version || true", u = username),
-        // Explicit provisioning sentinel for azlin's post-create readiness checks.
-        "mkdir -p /var/lib/azlin && touch /var/lib/azlin/provisioning-complete && echo 'cloud-init provisioning complete'".to_string(),
+        //
+        // Its exit status is no longer discarded: this *is* the check that the
+        // toolchains landed, and a section recorded `ok` after it failed would
+        // be a verification that verifies nothing.
+        SetupSection {
+            name: "setup-verify",
+            needs_network: false,
+            command: format!("echo '[AZLIN] Verifying installed toolchains' && which gh && gh --version && which az && az --version | head -2 && which node && node --version && su - {u} -c 'which rustc && rustc --version && which amplihack && amplihack --version && which azlin && azlin --version && which azdoit && azdoit --version && which ay && ay --version' && which dotnet && dotnet --version"),
+        },
     ]
+}
+
+/// The setup commands alone, in execution order.
+pub fn default_dev_setup_commands(username: &str) -> Vec<String> {
+    dev_setup_sections(username)
+        .into_iter()
+        .map(|s| s.command)
+        .collect()
 }
 
 /// Default packages for development VMs (installed via apt).
@@ -609,18 +973,33 @@ mod tests {
         );
     }
 
+    /// The sentinel moved out of the setup commands and into the preamble's
+    /// EXIT trap (#1131).
+    ///
+    /// As a setup command it was the *last* thing the script did, so it was
+    /// reached only when everything before it succeeded — which is why the VM
+    /// that started this issue sat in "provisioning" forever with no terminal
+    /// state and no explanation. From the trap it is written on every path, and
+    /// the separate status file carries whether that path went well.
     #[test]
-    fn test_default_dev_setup_commands_write_provisioning_sentinel() {
-        let cmds = default_dev_setup_commands("azureuser");
+    fn the_script_writes_its_terminal_state_from_a_trap_not_from_a_setup_command() {
+        let script = render_dev_cloud_init_script("azureuser");
         assert!(
-            cmds.iter()
-                .any(|c| c.contains("/var/lib/azlin/provisioning-complete")),
-            "default_dev_setup_commands must write a provisioning-complete sentinel"
+            script.contains("trap azlin_finalize EXIT"),
+            "the terminal state must be written on every path:\n{script}"
         );
+        for path in [
+            "/var/lib/azlin/provisioning-complete",
+            "/var/lib/azlin/provisioning-status",
+        ] {
+            assert!(script.contains(path), "{path} is never written:\n{script}");
+        }
         assert!(
-            cmds.iter()
-                .any(|c| c.contains("cloud-init provisioning complete")),
-            "default_dev_setup_commands must emit the final provisioning marker"
+            !default_dev_setup_commands("azureuser")
+                .iter()
+                .any(|c| c.contains("/var/lib/azlin/provisioning-complete")),
+            "the sentinel must not be a setup command again: a step at the end of \
+             the list is reached only when everything before it succeeded"
         );
     }
 
@@ -649,6 +1028,13 @@ mod tests {
         );
     }
 
+    /// The install body must chain with `&&` so a failed step reaches the
+    /// reporting branch, and that branch must report *and* fail.
+    ///
+    /// The suffix used to be `|| echo 'WARNING: …'`, which was the only way to
+    /// report a failure while keeping `set -euo pipefail` from ending the whole
+    /// script. Sections are isolated and recorded now (#1131), so that spelling
+    /// would turn a non-zero status into zero and the ledger would say `ok`.
     #[test]
     fn test_default_dev_setup_commands_install_failures_are_not_swallowed() {
         let cmds = default_dev_setup_commands("azureuser");
@@ -657,17 +1043,22 @@ mod tests {
                 .iter()
                 .find(|c| c.contains(marker))
                 .unwrap_or_else(|| panic!("missing install command for {marker}"));
+            let (body, report) = cmd
+                .split_once(" || { echo 'WARNING:")
+                .unwrap_or_else(|| panic!("{marker} install must report failure: {cmd}"));
             assert!(
-                !cmd.contains("2>/dev/null"),
+                !body.contains("2>/dev/null"),
                 "{marker} install must not discard errors and continue past them: {cmd}"
             );
             assert!(
-                !cmd.contains(';'),
-                "{marker} install must chain with && so a failed step reaches the WARNING branch: {cmd}"
+                !body.contains(';'),
+                "{marker} install must chain with && so a failed step reaches the \
+                 reporting branch: {cmd}"
             );
             assert!(
-                cmd.contains("|| echo 'WARNING:"),
-                "{marker} install must report failure: {cmd}"
+                report.trim_end().ends_with("false; }"),
+                "{marker} install must keep its non-zero status after reporting, or \
+                 the section is recorded `ok`: {cmd}"
             );
         }
     }
@@ -680,7 +1071,7 @@ mod tests {
     /// members, so the test never touches the network. Everything from
     /// `mkdir -p ~/.cargo/bin` onwards -- the `cp`/`chmod`/`cd`/`rm` tail where
     /// the bugs this PR fixes actually live -- is executed verbatim, including
-    /// the `&&` chaining and the `|| echo 'WARNING: ...'` branch.
+    /// the `&&` chaining and the `|| { echo 'WARNING: ...'; false; }` branch.
     #[cfg(unix)]
     fn offline_azlin_install_script(staging: &str, present_members: &[&str]) -> String {
         const ARCH: &str = "x86_64";
@@ -692,12 +1083,12 @@ mod tests {
             .expect("default_dev_setup_commands must install the azlin CLI")
             .clone();
 
-        // Unwrap `su - <user> -c '<script>' || echo 'WARNING: ...'`, keeping the
-        // trailing `|| echo` branch so the failure reporting is exercised too.
+        // Unwrap `su - <user> -c '<script>' || { echo 'WARNING: ...'; false; }`,
+        // keeping the trailing branch so the failure reporting is exercised too.
         let body_start = cmd.find('\'').expect("install command must be quoted") + 1;
         let body_end = body_start
             + cmd[body_start..]
-                .find("' || echo")
+                .find("' || { echo")
                 .expect("install command must have a WARNING fallback");
         let script_body = &cmd[body_start..body_end];
         let warning_branch = &cmd[body_end + 1..];
@@ -780,7 +1171,8 @@ mod tests {
         let staging_removed = !staging.exists();
 
         // Failure path: a future tarball drops `ay-linux-<arch>`. The chain must
-        // abort and reach the WARNING branch instead of reporting success.
+        // abort, reach the WARNING branch, and still exit non-zero so the
+        // section wrapper records it.
         let (missing_status, missing_output) = run(&["azlin", "azdoit"], "");
 
         let _ = std::fs::remove_dir_all(&root);
@@ -807,8 +1199,10 @@ mod tests {
         );
 
         assert!(
-            missing_status,
-            "the WARNING branch must keep provisioning alive: {missing_output}"
+            !missing_status,
+            "a missing archive member must leave a non-zero status for the section \
+             wrapper to record; keeping provisioning alive is the wrapper's job, \
+             not this command's: {missing_output}"
         );
         assert!(
             missing_output.contains("WARNING:"),
@@ -1049,7 +1443,7 @@ mod tests {
             "the rendered script must put the installed CLIs on the default PATH"
         );
         assert!(script.contains("/var/lib/azlin/provisioning-complete"));
-        assert!(script.contains("cloud-init provisioning complete"));
+        assert!(script.contains("[AZLIN] provisioning finished: status=$azlin_final"));
     }
 
     #[test]
@@ -1381,8 +1775,9 @@ mod tests {
             "must not use the aka.ms script, which 404s on unpublished codenames: {az}"
         );
         assert!(
-            az.contains("|| echo 'WARNING: Azure CLI install failed'"),
-            "a failed Azure CLI install must be reported, not swallowed: {az}"
+            az.contains("|| { echo 'WARNING: Azure CLI install failed' >&2; false; }"),
+            "a failed Azure CLI install must be reported *and* still fail, so the \
+             provisioning ledger records it: {az}"
         );
         assert!(
             az.contains("AZ_DIST=noble"),
@@ -1424,19 +1819,33 @@ mod tests {
         }
     }
 
-    /// Every dev-setup step that can fail should say so. This guards the class
-    /// of bug rather than the single instance — an unguarded step is how the
-    /// Azure CLI silently went missing in the first place.
+    /// Every dev-setup step that can fail should say so, and none may swallow
+    /// its exit status on the way. This guards the class of bug rather than the
+    /// single instance — an unguarded step is how the Azure CLI silently went
+    /// missing in the first place.
+    ///
+    /// The second half is what changed with #1131. Each section's exit status
+    /// is now recorded in `/var/lib/azlin/provisioning.tsv`, so a trailing
+    /// `|| echo` or `|| true` no longer merely fails to report — it actively
+    /// reports the opposite, marking a failed section `ok`.
     #[test]
     fn network_installing_dev_setup_commands_report_their_failures() {
-        let cmds = default_dev_setup_commands("azureuser");
-        for cmd in &cmds {
+        for cmd in default_dev_setup_commands("azureuser") {
             // Only steps that reach the network can fail for environmental
             // reasons worth reporting.
-            let fetches = cmd.contains("curl ") || cmd.contains("wget ");
-            if fetches && !cmd.contains("|| echo") {
-                panic!("network-installing step has no failure report: {cmd}");
+            if !(cmd.contains("curl ") || cmd.contains("wget ")) {
+                continue;
             }
+            assert!(
+                cmd.contains("WARNING:"),
+                "network-installing step has no failure report: {cmd}"
+            );
+            let tail = cmd.trim_end();
+            assert!(
+                !tail.ends_with("|| true") && !tail.ends_with('\''),
+                "a step whose last operator is an unconditional success hides its \
+                 own failure from the provisioning ledger: {cmd}"
+            );
         }
     }
 }

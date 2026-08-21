@@ -9,6 +9,7 @@ Complete reference for all azlin commands organized by category.
 - [Auth Commands](auth/index.md) - Authentication profiles
 - [Context Commands](context/index.md) - Multi-tenant context management
 - [Storage Commands](storage/index.md) - Azure Files NFS storage
+- [Disk Commands](disk/index.md) - Data disks: add, check, repair
 
 ### Operations & Monitoring
 - [Batch Commands](batch/index.md) - Batch operations across VMs
@@ -65,6 +66,9 @@ Complete reference for all azlin commands organized by category.
 - `azlin storage list` - List storage accounts
 - `azlin cp` - Copy files to/from VMs
 - `azlin sync` - Sync home directory
+- `azlin disk add` - Attach a data disk to a VM
+- `azlin disk check` - Verify a VM's `/home` and `/tmp` disks
+- `azlin disk repair` - Repair disks that were attached but never set up
 
 ### Monitoring & Operations
 - `azlin status` - Show VM status

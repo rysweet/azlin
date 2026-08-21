@@ -52,6 +52,11 @@ pub fn azure_lun_device(lun: u32) -> String {
 ///
 /// `nofail` keeps a missing disk from blocking boot: a VM that will not come
 /// up is a worse outcome than a missing mount.
+///
+/// The guard and the fstab line both come from `azlin_azure::disk_layout`,
+/// shared with `azlin disk repair` and (for the fstab line) with the cloud-init
+/// generator. One `mode=` in the wrong place cost a manual repair a whole cycle
+/// to find (#1131); there is one function that can make that mistake now.
 pub fn build_disk_mount_script(lun: u32, mount_path: &str) -> Result<String, String> {
     // Validated here as well as at the call site. The path is interpolated into a
     // shell script two modules away from where it is checked, so a second caller
@@ -59,21 +64,24 @@ pub fn build_disk_mount_script(lun: u32, mount_path: &str) -> Result<String, Str
     // shell injection is not a property to hold by convention.
     validate_mount_path(mount_path)?;
     let device = azure_lun_device(lun);
+    let format_step = azlin_azure::disk_layout::blkid_guarded_mkfs_with("DEV", None, "sudo ");
+    let fstab =
+        azlin_azure::disk_layout::fstab_line(&azlin_azure::disk_layout::FstabSpec::Ext4ByUuid {
+            uuid_expr: "$UUID".to_string(),
+            target: mount_path.to_string(),
+        });
     Ok(format!(
         "set -e\n\
          DEV={device}\n\
          for _ in $(seq 1 30); do [ -e \"$DEV\" ] && break; sleep 1; done\n\
          if [ ! -e \"$DEV\" ]; then echo \"azlin: {device} never appeared\" >&2; exit 1; fi\n\
-         if ! sudo blkid \"$DEV\" >/dev/null 2>&1; then\n\
-         echo 'azlin: formatting (no filesystem found)'\n\
-         sudo mkfs.ext4 -F \"$DEV\"\n\
-         else echo 'azlin: filesystem already present, not reformatting'; fi\n\
+         {format_step}\n\
          sudo mkdir -p {mount_path}\n\
          sudo mount \"$DEV\" {mount_path}\n\
          echo 'azlin: step=mounted'\n\
          UUID=$(sudo blkid -s UUID -o value \"$DEV\")\n\
          if ! grep -q \"$UUID\" /etc/fstab; then\n\
-         echo \"UUID=$UUID {mount_path} ext4 defaults,nofail 0 2\" | sudo tee -a /etc/fstab >/dev/null\n\
+         echo \"{fstab}\" | sudo tee -a /etc/fstab >/dev/null\n\
          fi\n\
          echo 'azlin: step=persisted'\n"
     ))

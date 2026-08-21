@@ -23,6 +23,7 @@ pub(crate) struct ListRenderData<'a> {
     pub tmux_sessions: &'a HashMap<String, Vec<String>>,
     pub latencies: &'a HashMap<String, u64>,
     pub health_data: &'a HashMap<String, crate::HealthMetrics>,
+    pub storage_data: &'a HashMap<String, azlin_azure::disk_layout::StorageStatus>,
     pub proc_data: &'a HashMap<String, String>,
 }
 
@@ -272,26 +273,20 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
         });
     }
     if cfg.with_health {
-        cols.push(ColDef {
-            header: "Agent",
-            width: 5,
-            right_align: false,
-        });
-        cols.push(ColDef {
-            header: "CPU%",
-            width: 5,
-            right_align: true,
-        });
-        cols.push(ColDef {
-            header: "Mem%",
-            width: 5,
-            right_align: true,
-        });
-        cols.push(ColDef {
-            header: "Disk%",
-            width: 5,
-            right_align: true,
-        });
+        // Widths by header, so a column added to HEALTH_COLUMNS cannot be
+        // rendered without one.
+        for header in crate::health_render::HEALTH_COLUMNS {
+            let (width, right_align) = match *header {
+                "Agent" => (5, false),
+                "Storage" => (8, false),
+                _ => (5, true),
+            };
+            cols.push(ColDef {
+                header,
+                width,
+                right_align,
+            });
+        }
     }
     if cfg.show_procs {
         cols.push(ColDef {
@@ -478,34 +473,45 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
             col_i += 1;
         }
 
-        // Health (4 columns: Agent, CPU%, Mem%, Disk%)
+        // Health columns, always HEALTH_COLUMNS long: a row that is silently
+        // short shifts every column after it.
         if cfg.with_health {
-            if let Some(m) = data.health_data.get(&vm.name) {
-                // Agent
-                let agent_padded = trunc(&m.agent_status, cols[col_i].width);
-                cells.push(threshold_ansi(
-                    crate::error_helpers::classify_agent_level(&m.agent_status),
-                    &agent_padded,
-                ));
+            let metrics = data.health_data.get(&vm.name);
+            let storage = data.storage_data.get(&vm.name).copied();
+            let texts = crate::health_render::health_cells(metrics, storage);
+            for (header, text) in crate::health_render::HEALTH_COLUMNS.iter().zip(&texts) {
+                let width = cols[col_i].width;
+                // Colour is decided per column, and an unmeasured value is
+                // never painted green: green is the claim that the machine is
+                // fine, which is exactly what could not be checked.
+                let cell = match *header {
+                    "Agent" => threshold_ansi(
+                        crate::error_helpers::classify_agent_level(text),
+                        &trunc(text, width),
+                    ),
+                    "Storage" => {
+                        let padded = trunc(text, width);
+                        match text.as_str() {
+                            "ok" => green(&padded),
+                            "degraded" => red(&padded),
+                            _ => padded,
+                        }
+                    }
+                    _ => {
+                        let value = metrics.and_then(|m| match *header {
+                            "CPU%" => m.cpu_percent,
+                            "Mem%" => m.mem_percent,
+                            _ => m.disk_percent,
+                        });
+                        let padded = trunc_right(text, width);
+                        match crate::health_render::metric_level(value) {
+                            Some(level) => threshold_ansi(level, &padded),
+                            None => padded,
+                        }
+                    }
+                };
+                cells.push(cell);
                 col_i += 1;
-                // CPU% / Mem% / Disk%. A metric with no reading renders as
-                // `--` and is left uncoloured — a green `0` here reported an
-                // unreachable VM as a healthy idle one.
-                for value in [m.cpu_percent, m.mem_percent, m.disk_percent] {
-                    let text = crate::health_render::metric_cell_rounded(value);
-                    let padded = trunc_right(&text, cols[col_i].width);
-                    cells.push(match crate::health_render::metric_level(value) {
-                        Some(level) => threshold_ansi(level, &padded),
-                        None => padded,
-                    });
-                    col_i += 1;
-                }
-            } else {
-                // No health data — show "-" in all 4 columns
-                for _ in 0..4 {
-                    cells.push(trunc("-", cols[col_i].width));
-                    col_i += 1;
-                }
             }
         }
 
@@ -608,6 +614,11 @@ fn render_json(cfg: &ListRenderConfig, data: &ListRenderData) -> Result<()> {
                     obj["health_mem_percent"] = serde_json::json!(null);
                     obj["health_disk_percent"] = serde_json::json!(null);
                 }
+                // `null` for a VM that was not probed or could not be parsed.
+                // A storage verdict is only ever emitted by a probe that
+                // completed.
+                obj["storage"] =
+                    serde_json::json!(data.storage_data.get(&vm.name).map(|s| s.as_str()));
             }
             obj
         })
@@ -636,7 +647,7 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
         headers.push("Latency");
     }
     if cfg.with_health {
-        headers.extend_from_slice(&["Agent", "CPU%", "Mem%", "Disk%"]);
+        headers.extend_from_slice(crate::health_render::HEALTH_COLUMNS);
     }
     println!("{}", headers.join(","));
 
@@ -692,8 +703,21 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
                     crate::health_render::metric_csv(m.disk_percent)
                 ));
             } else {
-                row.push_str(",,,,");
+                // One empty field per metric column, counted from the shared
+                // column list so it cannot fall behind it.
+                for _ in 0..crate::health_render::HEALTH_COLUMNS.len() - 1 {
+                    row.push(',');
+                }
             }
+            // Empty rather than `unknown`: an empty CSV field is the
+            // conventional "no value", and this column must not claim one.
+            row.push_str(&format!(
+                ",{}",
+                data.storage_data
+                    .get(&vm.name)
+                    .map(|s| s.as_str())
+                    .unwrap_or("")
+            ));
         }
         println!("{}", row);
     }

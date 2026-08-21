@@ -1380,6 +1380,7 @@ mod cmd_config_diff;
 mod cmd_config_init;
 mod cmd_connect;
 mod cmd_context;
+mod cmd_disk_ops;
 mod cmd_env;
 mod cmd_gui;
 mod cmd_gui_install;
