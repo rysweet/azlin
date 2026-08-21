@@ -6,16 +6,16 @@
 //! ran at 98%. These two commands make the condition askable and fixable
 //! without reprovisioning.
 //!
-//! The layout they compare against lives in `azlin_azure::disk_layout`, shared
-//! with the cloud-init generator, so a detector cannot drift from the thing it
-//! detects.
+//! The layout they compare against lives in `azlin_azure::disk_layout`, under
+//! that module's drift rule.
 
 use super::*;
 use anyhow::{Context, Result};
 use azlin_azure::cloud_init::DiskConfig;
 use azlin_azure::disk_layout::{
     build_disk_probe_script, build_disk_repair_script, config_from_attached_disks,
-    parse_disk_probe, DiskFinding, DiskReport, DiskStage, StorageStatus,
+    parse_disk_probe, reformats_existing_filesystem, DiskFinding, DiskReport, DiskStage,
+    StorageStatus,
 };
 
 /// Process exit status for a completed (or attempted) check.
@@ -54,11 +54,21 @@ pub fn repair_hint(vm_name: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// The data disks Azure reports attached to this VM, as `(name, lun)`.
-fn attached_disks(rg: &str, vm_name: &str) -> Result<Vec<(String, u32)>> {
+///
+/// `subscription_id` is explicit rather than ambient. This query used to run
+/// before `create_auth()` — which is where an azlin context becomes real — so a
+/// bare `az vm show` read whatever subscription the Azure CLI happened to be
+/// pointed at. For anyone using `azlin context`, that is the wrong one: the VM
+/// is not found there, `check` and `repair` fail outright, and on the unlucky
+/// path where a same-named VM *does* exist in the CLI's subscription, the disk
+/// layout of one machine decides the repair plan for another.
+fn attached_disks(subscription_id: &str, rg: &str, vm_name: &str) -> Result<Vec<(String, u32)>> {
     let out = std::process::Command::new("az")
         .args([
             "vm",
             "show",
+            "--subscription",
+            subscription_id,
             "--resource-group",
             rg,
             "--name",
@@ -135,7 +145,13 @@ pub(crate) async fn probe_vm_storage(
         })
     };
 
-    let attached = attached_disks(&rg, vm_name)?;
+    // Before the disk query, not after it: `create_auth` is the chokepoint that
+    // switches the Azure CLI to the active context's subscription, and every
+    // `az` call this function makes has to run on the far side of it.
+    let auth = crate::dispatch_helpers::create_auth()?;
+    let subscription_id = auth.subscription_id().to_string();
+
+    let attached = attached_disks(&subscription_id, &rg, vm_name)?;
     let config = match config_from_attached_disks(vm_name, &attached) {
         Ok(config) => config,
         Err(reason) => {
@@ -147,7 +163,9 @@ pub(crate) async fn probe_vm_storage(
         return verdict_only(StorageStatus::NoDisks);
     }
 
-    let target = resolve_vm_ssh_target(vm_name, None, resource_group).await?;
+    let target =
+        crate::dispatch_helpers::resolve_vm_ssh_target_with_auth(&auth, vm_name, resource_group)
+            .await?;
     let report = run_probe(vm_name, &config, &target)?;
     Ok(ProbedVm {
         report,
@@ -373,6 +391,7 @@ pub(crate) async fn handle_disk_repair(
     resource_group: Option<String>,
     dry_run: bool,
     force: bool,
+    yes: bool,
 ) -> Result<()> {
     let probed = probe_vm_storage(vm_name, resource_group).await?;
     let (report, rg) = (&probed.report, probed.resource_group.clone());
@@ -463,6 +482,42 @@ pub(crate) async fn handle_disk_repair(
         println!();
         println!("--dry-run: nothing was executed on the VM.");
         return Ok(());
+    }
+
+    // The one irreversible thing this command can do gets the one prompt.
+    //
+    // `--dry-run` protects the careful operator; it does not protect the one
+    // who mistyped the VM name. Nineteen other azlin commands confirm before
+    // something destructive, and the only command in the tool that can run
+    // `mkfs` over a filesystem holding data azlin cannot see had no
+    // confirmation at all — because `--force` here reads like the
+    // skip-the-prompt flag it is everywhere else and is not one. The plan is
+    // printed above, so this asks after the operator has seen exactly which
+    // disks are involved.
+    let reformats: Vec<&&DiskFinding> = plan
+        .iter()
+        .map(|(disk, _)| disk)
+        .filter(|disk| reformats_existing_filesystem(disk, force))
+        .collect();
+    if !reformats.is_empty() {
+        println!();
+        for disk in &reformats {
+            println!(
+                "  --force will run mkfs.ext4 over the existing filesystem on the {} disk \
+                 at LUN {} ({}).",
+                disk.role,
+                disk.lun,
+                disk.device
+                    .as_deref()
+                    .unwrap_or(crate::health_render::UNKNOWN_CELL),
+            );
+        }
+        println!("  Anything on it that is not already on another disk is lost.");
+        if !crate::dispatch_helpers::safe_confirm_with_flag("Reformat and continue?", yes, "--yes")?
+        {
+            println!("Nothing was executed on the VM.");
+            return Ok(());
+        }
     }
 
     println!();

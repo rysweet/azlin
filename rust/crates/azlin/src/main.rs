@@ -571,6 +571,17 @@ fn optional_threshold_ansi(level: Option<error_helpers::ThresholdLevel>, s: &str
     }
 }
 
+/// The columns of the `azlin health` table, and the width of each.
+///
+/// Hoisted out of the renderer and paired, because the failure mode is a column
+/// added to one list and not the other: every cell after it then lands in the
+/// wrong column, and the table still looks like a table. The row builder asserts
+/// against these two under `cargo test`.
+pub(crate) const HEALTH_TABLE_COLUMNS: [&str; 8] = [
+    "VM Name", "State", "Agent", "Errors", "CPU %", "Memory %", "Disk %", "Storage",
+];
+const HEALTH_TABLE_WIDTHS: [usize; 8] = [20, 10, 10, 6, 6, 8, 6, 9];
+
 /// Apply ANSI color based on threshold level.
 fn threshold_ansi(level: error_helpers::ThresholdLevel, s: &str) -> String {
     match level {
@@ -582,13 +593,20 @@ fn threshold_ansi(level: error_helpers::ThresholdLevel, s: &str) -> String {
 
 /// Render a health metrics table with per-cell coloring.
 /// Colors are applied AFTER truncation to avoid ANSI width corruption.
-fn render_health_table(metrics: &[HealthMetrics]) {
+///
+/// `storage` is keyed by VM name and may be missing an entry, which renders
+/// `--`: `azlin health` asks the read-only storage probe the same question
+/// `azlin list --with-health` does, and a VM it could not ask is not a VM whose
+/// storage is fine. The column is deliberately last — it is the one #1131 made
+/// necessary, and the four golden signals keep their order.
+fn render_health_table(
+    metrics: &[HealthMetrics],
+    storage: &std::collections::HashMap<String, azlin_azure::disk_layout::StorageStatus>,
+) {
     use crate::table_render::{trunc, trunc_right};
 
-    let headers = [
-        "VM Name", "State", "Agent", "Errors", "CPU %", "Memory %", "Disk %",
-    ];
-    let widths = [20usize, 10, 10, 6, 6, 8, 6];
+    let headers = HEALTH_TABLE_COLUMNS;
+    let widths = HEALTH_TABLE_WIDTHS;
 
     // Build border lines
     let top = table_render::border_line(&widths, '┌', '┬', '┐', '─');
@@ -634,7 +652,16 @@ fn render_health_table(metrics: &[HealthMetrics]) {
                 health_render::metric_level(m.disk_percent),
                 &trunc_right(&health_render::metric_cell(m.disk_percent), widths[6]),
             ),
+            trunc(
+                &health_render::storage_cell(storage.get(&m.vm_name).copied()),
+                widths[7],
+            ),
         ];
+        debug_assert_eq!(
+            cells.len(),
+            HEALTH_TABLE_COLUMNS.len(),
+            "a health row must fill every column it has a header for"
+        );
         println!("{}", table_render::render_row(&cells, &widths));
     }
     println!("{bot}");

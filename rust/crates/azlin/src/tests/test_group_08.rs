@@ -155,7 +155,7 @@ fn test_render_health_table_many_entries() {
         })
         .collect();
     // Should not panic with many entries
-    crate::render_health_table(&metrics);
+    crate::render_health_table(&metrics, &std::collections::HashMap::new());
 }
 
 #[test]
@@ -170,5 +170,5 @@ fn test_render_health_table_100_percent() {
         disk_percent: Some(100.0),
     }];
     // Should not panic
-    crate::render_health_table(&metrics);
+    crate::render_health_table(&metrics, &std::collections::HashMap::new());
 }

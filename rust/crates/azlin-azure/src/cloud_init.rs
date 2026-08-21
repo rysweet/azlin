@@ -36,11 +36,24 @@ fn append_runcmd_entry(yaml: &mut String, cmd: &str) {
     }
 }
 
+/// The admin username as it is safe to interpolate, or `azureuser`.
+///
+/// `char::is_alphanumeric` is a **Unicode** predicate: it accepts `Ω`, `𝟙` and
+/// every other letter or digit in the standard, none of which `useradd` will
+/// take and several of which normalise to something else on the way to the VM.
+/// The rule that matters here is the POSIX one, so this asks for ASCII.
+///
+/// The fallback is deliberate and stays. Cloud-init cannot fail closed: a
+/// rejected username means a VM that boots with no account on it and no way in.
+/// `azlin disk repair` faces the same question with the opposite right answer —
+/// see `disk_layout::checked_username`, which rejects, because repairing
+/// `azureuser`'s home when the caller named someone else would bind the wrong
+/// directory over the wrong path.
 fn sanitize_admin_username(username: &str) -> &str {
-    if username
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-        && !username.is_empty()
+    if !username.is_empty()
+        && username
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
         username
     } else {
@@ -59,14 +72,10 @@ pub fn generate_cloud_init(
     packages: &[&str],
     setup_commands: &[String],
 ) -> String {
-    // Validate username: alphanumeric, hyphens, underscores only
-    if !username
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-    {
-        // Fall back to safe default rather than injecting unsafe values
-        return generate_cloud_init("azureuser", ssh_public_key, packages, setup_commands);
-    }
+    // One username rule, in `sanitize_admin_username`. This used to be a second
+    // copy of it, and the two had already drifted: the copy accepted an empty
+    // name and emitted `users:\n  - name:` — valid YAML, no account.
+    let username = sanitize_admin_username(username);
 
     // Validate SSH key (no newlines)
     if validate_cloud_init_input(ssh_public_key, "ssh_public_key").is_err() {
@@ -87,10 +96,16 @@ pub fn generate_cloud_init(
     if !packages.is_empty() {
         yaml.push_str("\npackage_update: true\npackage_upgrade: true\npackages:\n");
         for pkg in packages {
-            // Package names: alphanumeric, hyphens, dots, plus signs
+            // Package names: ASCII alphanumeric, hyphens, dots, plus signs.
+            //
+            // ASCII for the same reason the username is: `char::is_alphanumeric`
+            // is the Unicode predicate and accepts letters and digits from every
+            // script in the standard. Debian package names are `[a-z0-9.+-]`, so
+            // a name this let through is one `apt` will reject anyway -- after
+            // the section it is in has already been recorded `failed`.
             if pkg
                 .chars()
-                .all(|c| c.is_alphanumeric() || c == '-' || c == '.' || c == '+')
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '+')
             {
                 yaml.push_str(&format!("  - {}\n", pkg));
             }
@@ -182,6 +197,10 @@ fn provisioning_preamble() -> String {
 set -euo pipefail
 
 mkdir -p /var/lib/azlin
+# Readable by everyone, writable by root. `azlin disk check` reads the ledger
+# over SSH as the admin user, and the mode is stated rather than inherited from
+# whatever umask cloud-init happens to run under.
+chmod 755 /var/lib/azlin
 
 # The ledger describes *this* run, so it starts empty.
 #
@@ -313,12 +332,8 @@ fn render_section(section: &Section) -> String {
 
 /// The disk sections, which run before anything that touches the network.
 ///
-/// Every layout fact here — the LUN, the device path, the filesystem label, the
-/// backing mount, the bind pair — comes from `disk_layout`, the same module the
-/// probe and the repairer read. Re-spelling any of them locally is how a
-/// generator and its detector drift apart, and the failure that produces is the
-/// worst one available: every correctly provisioned VM in the fleet reporting
-/// `degraded`, forever, with `azlin disk repair` standing by to "fix" them.
+/// Every layout fact here comes from `disk_layout` — see the drift rule in that
+/// module's header for why none of them is spelled locally.
 ///
 /// The two procedures stay distinct, because they genuinely are: the home block
 /// makes a mandatory, verified copy and can roll back, and the tmp block sets a
@@ -895,6 +910,89 @@ pub fn default_dev_packages() -> &'static [&'static str] {
 
 #[cfg(test)]
 mod tests {
+
+    /// `char::is_alphanumeric` is the **Unicode** predicate.
+    ///
+    /// It accepts `Ω`, `𝟙`, Devanagari digits and every other letter or digit
+    /// in the standard — none of which `useradd` will take, several of which
+    /// normalise to something else on the way to the VM, and one class of which
+    /// (the confusables) makes `azlin nеw --user admin` with a Cyrillic `е`
+    /// indistinguishable by eye from the ASCII one. The rule that governs a
+    /// POSIX account name is the ASCII rule, so that is the rule asked for.
+    #[test]
+    fn a_unicode_username_is_not_mistaken_for_an_alphanumeric_one() {
+        for username in [
+            "Ωmega",
+            "admin\u{0435}",
+            "\u{0660}\u{0661}",
+            "user name",
+            "u;rm -rf /",
+            "",
+        ] {
+            assert_eq!(
+                sanitize_admin_username(username),
+                "azureuser",
+                "{username:?} must fall back"
+            );
+        }
+        for username in ["azureuser", "dev-1", "dev_1", "AzureUser2"] {
+            assert_eq!(sanitize_admin_username(username), username);
+        }
+    }
+
+    /// The fallback stays, and it is the opposite of what `azlin disk repair`
+    /// does with the same question.
+    ///
+    /// Cloud-init cannot fail closed: a rejected username means a VM that boots
+    /// with no account on it and no way in. `disk_layout::checked_username`
+    /// rejects instead, because repairing `azureuser`'s home when the caller
+    /// named someone else binds the wrong directory over the wrong path.
+    #[test]
+    fn a_bad_username_still_produces_a_usable_vm() {
+        let yaml = generate_cloud_init("Ωmega", "ssh-ed25519 AAAA test", &[], &[]);
+        assert!(yaml.contains("- name: azureuser"), "{yaml}");
+        assert!(!yaml.contains("Ωmega"), "{yaml}");
+    }
+
+    /// One username rule, not two. The copy inside `generate_cloud_init`
+    /// accepted an empty name and emitted `users:\n  - name:` — valid YAML,
+    /// no account, no way in.
+    #[test]
+    fn an_empty_username_does_not_produce_a_vm_with_no_account() {
+        let yaml = generate_cloud_init("", "ssh-ed25519 AAAA test", &[], &[]);
+        assert!(yaml.contains("- name: azureuser"), "{yaml}");
+        assert!(!yaml.contains("- name: \n"), "{yaml}");
+    }
+
+    /// A package name outside `[a-z0-9.+-]` is one `apt` would reject anyway.
+    #[test]
+    fn package_names_are_ascii_too() {
+        let yaml = generate_cloud_init(
+            "azureuser",
+            "ssh-ed25519 AAAA test",
+            &["build-essential", "libc++1", "gΩcc"],
+            &[],
+        );
+        assert!(yaml.contains("- build-essential"), "{yaml}");
+        assert!(yaml.contains("- libc++1"), "{yaml}");
+        assert!(!yaml.contains("gΩcc"), "{yaml}");
+    }
+
+    /// The mode on the directory the ledger lives in is stated, not inherited.
+    ///
+    /// `azlin disk check` reads `/var/lib/azlin/*` over SSH as the admin user,
+    /// so it has to be traversable; relying on whatever umask cloud-init
+    /// happens to run under is how that becomes a probe returning `unknown` for
+    /// reasons nobody can see.
+    #[test]
+    fn the_provisioning_state_directory_has_an_explicit_mode() {
+        let script = render_dev_cloud_init_script("azureuser");
+        let mkdir = script.find("mkdir -p /var/lib/azlin").expect("the mkdir");
+        let chmod = script
+            .find("chmod 755 /var/lib/azlin")
+            .expect("an explicit mode on the state directory");
+        assert!(mkdir < chmod, "{script}");
+    }
     use super::*;
 
     #[test]

@@ -203,12 +203,13 @@ a false `degraded`. A missing `azlin-provisioning` line is a parse failure; a
 line reporting `ledger=no` is not.
 
 The probe is cheap and read-only, which is why the same result also feeds the
-`Storage` column of `azlin list --with-health`. `azlin health` reports process
-and saturation metrics only; it does not run the storage probe.
+`Storage` column of `azlin list --with-health` and of `azlin health`.
 
 ## Storage in the health surfaces
 
-The `Storage` column reports the same verdict without you having to ask per VM:
+Two surfaces report the same verdict without you having to ask per VM, both from
+this probe and both over the same connection they use for their other metrics —
+so the storage question costs a round trip, not a second sweep.
 
 ```bash
 azlin list --with-health
@@ -222,8 +223,25 @@ build-vm  Ubuntu   running   10.0.1.7      westus2   8    32G   ok     4     22 
 scratch   Ubuntu   running   10.0.1.9      westus2   4    16G   --     --    --    --     --
 ```
 
+```bash
+azlin health
+```
+
+**Output:**
+```
+Health Dashboard — Four Golden Signals (azlin-rg)
+┌────────────────────┬──────────┬──────────┬──────┬──────┬────────┬──────┬─────────┐
+│ VM Name            │ State    │ Agent    │Errors│ CPU %│Memory %│Disk %│ Storage │
+├────────────────────┼──────────┼──────────┼──────┼──────┼────────┼──────┼─────────┤
+│ dev                │ Running  │ OK       │     0│  12.0│    41.0│  98.0│ degraded│
+│ build-vm           │ Running  │ OK       │     0│   4.0│    22.0│  31.0│ ok      │
+│ scratch            │ Running  │ --       │    --│    --│      --│    --│ --      │
+└────────────────────┴──────────┴──────────┴──────┴──────┴────────┴──────┴─────────┘
+```
+
 `--` means the probe did not run or could not be parsed — the same convention
-the other health columns use. It is not a pass.
+the other health columns use. It is not a pass. A VM with no azlin data disks
+also shows `--`: there is no storage layout for it to be `ok` about.
 
 ## Related
 

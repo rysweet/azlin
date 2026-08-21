@@ -197,9 +197,67 @@ fn test_mount_path_traversal_at_end() {
     assert!(crate::mount_helpers::validate_mount_path("/mnt/..").is_err());
 }
 
+/// A space is not a harmless character in either of the two places a mount
+/// path lands.
+///
+/// This test used to assert the opposite. `/mnt/my data` reaches
+/// `build_disk_mount_script`, which writes it into `/etc/fstab` — where the
+/// separator *is* whitespace, so the line reads as target `/mnt/my`, type
+/// `data`, and the next boot either mounts nothing or drops to emergency mode.
+/// It reaches the shell too, where it splits into two arguments.
+///
+/// fstab has an escape for this (`\040`) and azlin does not use it: a mount
+/// point with a space in it is not worth a second quoting rule in a file whose
+/// failure mode is an unbootable VM.
 #[test]
-fn test_mount_path_with_spaces_ok() {
-    assert!(crate::mount_helpers::validate_mount_path("/mnt/my data").is_ok());
+fn test_mount_path_with_spaces_rejected() {
+    assert!(crate::mount_helpers::validate_mount_path("/mnt/my data").is_err());
+    assert!(crate::mount_helpers::validate_mount_path("/mnt/my\tdata").is_err());
+}
+
+/// The blacklist this replaced named thirteen characters. These are the ones it
+/// let through, each of which means something to the shell, to fstab, or to
+/// both.
+#[test]
+fn test_mount_path_rejects_what_the_blacklist_missed() {
+    for path in [
+        "/mnt/it's",
+        "/mnt/back\\slash",
+        "/mnt/hash#comment",
+        "/mnt/star*",
+        "/mnt/question?",
+        "/mnt/tilde~",
+        "/mnt/quote\"",
+        "/mnt/newline\n",
+    ] {
+        assert!(
+            crate::mount_helpers::validate_mount_path(path).is_err(),
+            "{path:?} must be rejected"
+        );
+    }
+}
+
+/// What a mount point actually needs still works.
+#[test]
+fn test_mount_path_allows_ordinary_names() {
+    for path in [
+        "/data",
+        "/mnt/data-1",
+        "/mnt/data_1",
+        "/mnt/v1.2",
+        "/mnt/c++",
+    ] {
+        assert!(
+            crate::mount_helpers::validate_mount_path(path).is_ok(),
+            "{path:?} must be accepted"
+        );
+    }
+}
+
+/// A directory whose name merely begins with dots is not traversal.
+#[test]
+fn test_mount_path_dot_prefixed_segment_is_not_traversal() {
+    assert!(crate::mount_helpers::validate_mount_path("/mnt/..data").is_ok());
 }
 
 #[test]

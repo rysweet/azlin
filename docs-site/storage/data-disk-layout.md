@@ -127,6 +127,19 @@ data gets destroyed:
 | [`azlin disk repair`](../commands/disk/repair.md) | `blkid`, and `--force` to override | Runs on a live VM, days or months later. A filesystem found here may hold data the repair cannot see. |
 | [`azlin disk add --mount`](../commands/disk/add.md) | `blkid`, no override | The disk may be a re-attached one that already holds a filesystem. |
 
+The `blkid` guard **fails closed**. `blkid` reports "no filesystem found" as
+exit status 2; only that status permits a format. Any other non-zero status —
+`blkid` absent from the image, `sudo` denied, an I/O error on the device — stops
+the script instead. The distinction matters because those are the same
+conditions under which the *probe* is most likely to have misread the disk as
+blank, so the guard and the classification it is supposed to be independent of
+would otherwise fail together.
+
+For the same reason the probe reports whether it could answer the filesystem
+question at all. A disk with no `fstype` on a VM where neither `lsblk` nor
+`sudo -n blkid` could run is reported `unknown`, not `raw` — `raw` is the stage a
+repair formats without `--force`.
+
 The consequence worth remembering: **never re-run cloud-init's disk block by
 hand on a VM that has been used.** It is the one unguarded `mkfs` in azlin, and
 it is safe only in the context it was written for — a VM that has existed for
@@ -232,7 +245,11 @@ VM whose disk sections failed reaches a terminal state — it does not sit in
 
 `azlin new` reads both files when it waits for the VM: a `degraded` status
 prints a warning naming the failed sections instead of "Cloud-init provisioning
-complete." The sentinel alone can no longer mean success, because it is now
+complete." It names the sections whose status is `failed` — not the ones that
+are merely "not `ok`", which would include every `skipped` section and bury the
+line that says what actually went wrong. All three readers of the ledger — that
+warning, the storage probe, and cloud-init's own `EXIT` trap — select rows by
+the same test. The sentinel alone can no longer mean success, because it is now
 written on every path — reading it as success is how a VM with unformatted data
 disks came back from `azlin new` looking like a clean create.
 
@@ -255,6 +272,47 @@ with rather than only what went wrong:
 `fstab=no` on a mounted backing path is worth reading twice: the mount is live
 now and will not come back after a reboot.
 
+## Resuming an interrupted repair
+
+`azlin disk repair` copies `/home/<user>` onto the data disk before it switches
+the bind. If that copy is interrupted — Ctrl-C, a dropped SSH session, a reboot
+— the VM is left with the disk formatted, the backing mounted, the bind never
+made, and the destination half populated. The probe reads that as
+`backing-mounted`, which is exactly what a correctly provisioned VM whose bind
+was lost also looks like. The two are indistinguishable from the outside.
+
+So the copy leaves a record of itself, on the data disk and outside the bind
+source:
+
+**`<backing>/.azlin-copy-<user>`** — `in-progress` from before the first byte is
+written, `complete` only after the copy has been verified.
+
+| Destination state | What repair does |
+| ----------------- | ---------------- |
+| empty | copy, verify, mark `complete` |
+| marked `in-progress` | **resume**: copy again, verify, mark `complete` |
+| marked `complete` | nothing — an earlier run already verified it |
+| populated, no marker | nothing — this is data repair did not put there |
+
+The last row is the original rule and it has not changed; it is now applied only
+to the case where it is correct. The row above it is the one that mattered:
+without the marker, a resumed repair skipped the copy *and with it the count
+check and the `rsync -n` pass*, bound the partial directory over `/home/<user>`,
+and reported success. If `.ssh/authorized_keys` was among the files not yet
+copied, the operator could not log in to check — sshd reads `~` through the new
+bind.
+
+The marker lives in the backing mount's root rather than inside
+`<backing>/<user>`, for two reasons: it never appears in the user's home, and it
+is not one more entry on the destination side of the count the copy is verified
+against.
+
+The window between `mv /home/<user> /home/<user>.old` and a verified bind is
+covered by a `trap … EXIT HUP INT TERM`. In that window the home directory is a
+name that resolves to nothing, and a dropped SSH session delivers SIGHUP into
+precisely it. The trap is cleared once the bind is verified — after that, the
+original is *supposed* to stay at `.old`.
+
 ## Provisioning stages
 
 `azlin disk check` reports how far each disk got. The stages are ordered: each
@@ -275,6 +333,7 @@ safe to format without one.
 ## Related
 
 - [`azlin disk check`](../commands/disk/check.md) — report a VM's layout against this contract
+- [`azlin health` and `azlin list --with-health`](../commands/disk/check.md#storage-in-the-health-surfaces) — the same verdict, per VM, in a `Storage` column
 - [`azlin disk repair`](../commands/disk/repair.md) — bring a VM up to it
 - [Data disks are not mounted](../troubleshooting/data-disks-not-mounted.md) — diagnosing the #1131 symptom
 - [Creating VMs](../vm-lifecycle/creating.md) — `--home-disk-size`, `--tmp-disk-size`, `--no-home-disk`

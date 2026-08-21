@@ -459,7 +459,6 @@ pub(crate) async fn dispatch(
                     &all_vms,
                     &bastion_map,
                     vm_manager.subscription_id(),
-                    true,
                 );
                 pb.finish_and_clear();
                 result

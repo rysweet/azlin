@@ -21,8 +21,17 @@ azlin disk repair VM_NAME [OPTIONS]
 |--------|-------------|
 | `--resource-group, --rg TEXT` | Azure resource group (default: configured resource group) |
 | `--dry-run` | Print the plan and the exact script, then exit without touching the VM |
-| `--force` | Permit `mkfs` on a disk that already holds a filesystem. Required for any disk at stage `formatted` or later; refused otherwise |
+| `--force` | Permit `mkfs` on a disk that already holds a filesystem. Required for any disk at stage `formatted` or later; refused otherwise. This is a permission, not a confirmation |
+| `--yes` | Skip the confirmation prompt shown before a `--force` reformat |
 | `-h, --help` | Show help message |
+
+`--force` and `--yes` are two different things, and on this command only.
+Everywhere else in azlin `--force` means "do not ask me"; here it means "you may
+run `mkfs` over a filesystem", and the question about doing so is still asked.
+Collapsing them would make the flag that permits the reformat also the flag that
+skips the question about it, which is how `azlin disk repair --force <typo>`
+becomes unrecoverable. In a non-TTY — cron, CI, a piped shell — `--yes` is
+required rather than assumed.
 
 ## What it does
 
@@ -49,6 +58,12 @@ These are the reasons this command can be pointed at a VM that has data on it.
   uses. A disk at stage `formatted` is refused outright with an explanatory
   message unless you pass `--force`, which is the only route to reformatting.
 
+    The guard **fails closed**. `blkid` spells "no filesystem here" as exit
+    status 2, and only that status permits a format. Any other failure — `blkid`
+    missing from the image, `sudo` denied, an I/O error on the device — stops
+    the repair with a message rather than formatting a disk whose contents
+    nobody could read.
+
     `backing-mounted` is not refused, and the distinction is the point: at that
     stage the filesystem *is* mounted, so its contents are visible and the only
     missing step is the bind. At `formatted` the filesystem is not mounted, so
@@ -68,9 +83,24 @@ These are the reasons this command can be pointed at a VM that has data on it.
     prove that contents, ACLs, and xattrs came across intact. If that matters,
     install `rsync` on the VM and re-run — a repair that already reached
     `healthy` re-runs as a no-op.
+- **An interrupted copy is resumed, not mistaken for a finished one.** The copy
+  writes `in-progress` to a marker on the data disk before it starts and
+  promotes it to `complete` only after the verification passes. A repair
+  interrupted mid-copy — Ctrl-C, a dropped SSH session, a reboot — leaves the VM
+  at stage `backing-mounted` with a half-populated destination, which is
+  indistinguishable on the wire from a VM whose bind was simply lost. The marker
+  is what tells them apart: the first is resumed and re-verified, the second is
+  left alone. Without it the re-run skipped the copy *and* the verification and
+  bound a partial home over the real one.
+
+    Data that this repair did not put there is still never copied over. That
+    rule has not changed; it is now applied only where it is correct.
 - **Failure rolls back.** If the bind mount does not come up, the trap restores
-  the original directory. A failed repair leaves the VM as it was, on the OS
-  disk, not with an empty home directory.
+  the original directory. The trap is armed *before* the rename and cleared only
+  once the bind is verified, so an interruption anywhere in that window — a
+  SIGHUP from a dropped session lands squarely in it — restores the original
+  too. A failed repair leaves the VM as it was, on the OS disk, not with an
+  empty home directory.
 - **fstab is verified, not assumed.** After writing the entries, repair runs
   `mount -a` and re-checks the mount table. "Persisted to fstab" is never
   reported for an entry that does not actually mount. This is what catches a
@@ -156,9 +186,29 @@ sudo mkdir -p /mnt/inspect
 sudo mount /dev/disk/azure/scsi1/lun0 /mnt/inspect
 ```
 
-Exit code `1`. `--force` reformats; there is no prompt-and-continue path,
-because a prompt is not a decision you want to make while reading a wall of
-output.
+Exit code `1`.
+
+Re-running with `--force` names the disks it would reformat and asks before
+doing anything:
+
+```bash
+azlin disk repair archive-vm --force
+```
+
+**Output:**
+```
+VM: archive-vm  (rg: azlin-rg)
+
+Plan:
+  home  0    /dev/sdb  1000G  formatted  -> healthy
+
+  --force will run mkfs.ext4 over the existing filesystem on the home disk at LUN 0 (/dev/sdb).
+  Anything on it that is not already on another disk is lost.
+? Reformat and continue? (y/N)
+```
+
+Add `--yes` to skip that question — which is required, not optional, when stdin
+is not a terminal.
 
 ### A VM that is already fine
 
