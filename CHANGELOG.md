@@ -22,6 +22,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   where the `spawn_blocking` hop and the discovery-failed warning now live.
 
 ### Fixed
+- **The `azlin list` table and CSV no longer print Azure-supplied names
+  unsanitized** — the warnings and the bastion table were fixed above, but the
+  table `azlin list` prints on every run was not: the VM name, the region, the
+  SKU, the OS offer and the `azlin-session` tag all reached the terminal exactly
+  as Azure returned them. The tag is in the *default* table, so no `-w` was
+  needed to be exposed. A name carrying `ESC [ 2 K` and a carriage return erases
+  the row that reports it and prints whatever follows in its place, so the
+  operator reads a fleet that does not exist; in CSV a newline in a name ended
+  the record early and forged an extra row in output a script goes on to parse.
+  All of them are sanitized once now, in one place per VM, shared by the table
+  and CSV writers. Alignment was the second casualty: `trunc` pads a cell to an
+  exact count of *visible* columns, and a control character is a `char` that
+  occupies none, so an unsanitized name silently shifted every border to its
+  right. JSON output is deliberately unchanged — `serde_json` escapes control
+  characters to `\uXXXX`, so a terminal never interprets them and a machine
+  consumer keeps the exact bytes Azure returned. Found by outside-in testing
+  against the real binary, which also confirmed the pre-fix CSV really did emit
+  three records where two were correct.
 - **Terminal escape sequences in Azure-supplied names no longer reach the
   terminal through `azlin list` warnings or the bastion table** — session and
   process names read off remote hosts were sanitized, but resource group, VM and
