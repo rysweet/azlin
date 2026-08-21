@@ -106,6 +106,23 @@ pub(crate) fn build_vm_resource_id(
     )
 }
 
+/// The `BastionMap` key for a (resource group, region) pair.
+///
+/// The two sides of this map come from two different `az` commands: the entry
+/// is inserted with the *bastion's* location as `az network bastion list`
+/// reports it, and looked up with the *VM's* location as the VM listing
+/// reports it. Azure resource group names are case-insensitive and region
+/// names are returned in more than one casing, so comparing the raw strings
+/// makes a bastion vanish from the map on a casing difference alone — and a
+/// VM with no bastion in the map silently reports zero sessions, which is the
+/// #1127 symptom arriving through the key instead of through the port.
+pub(crate) fn bastion_key(resource_group: &str, location: &str) -> (String, String) {
+    (
+        resource_group.to_ascii_lowercase(),
+        location.to_ascii_lowercase(),
+    )
+}
+
 /// One bastion tunnel that must be opened before the tmux probes can run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BastionTunnelPlan {
@@ -228,10 +245,20 @@ pub(crate) fn valid_bastion_coordinates(name: &str, location: &str) -> bool {
 fn discover_bastions(vms: &[VmInfo]) -> BastionMap {
     let mut map = BastionMap::new();
     for rg in resource_groups_needing_bastion_lookup(vms) {
-        let found = crate::list_helpers::detect_bastion_hosts(&rg).unwrap_or_default();
+        let found = match crate::list_helpers::detect_bastion_hosts(&rg) {
+            Ok(found) => found,
+            // Swallowing this reproduces the very bug this module was fixed
+            // for: with no bastion in the map every bastion-only VM in `rg`
+            // falls back to its own private IP, which the operator usually
+            // cannot route to, and reports zero sessions as if it had none.
+            Err(e) => {
+                eprintln!("{}", bastion_lookup_failure_warning(&rg, &e.to_string()));
+                continue;
+            }
+        };
         for (name, location, _sku) in found {
             if valid_bastion_coordinates(&name, &location) {
-                map.insert((rg.clone(), location), name);
+                map.insert(bastion_key(&rg, &location), name);
             }
         }
     }
@@ -275,7 +302,7 @@ pub(crate) fn probe_route(
             host: ip.to_string(),
         };
     }
-    let key = (vm.resource_group.clone(), vm.location.clone());
+    let key = bastion_key(&vm.resource_group, &vm.location);
     if let Some(bastion_name) = bastion_map.get(&key) {
         return ProbeRoute::Bastion {
             target: BastionTunnelPlan {
@@ -310,6 +337,21 @@ pub(crate) fn latency_probe_host(vm: &VmInfo, _bastion_map: &BastionMap) -> Opti
         .as_deref()
         .or(vm.private_ip.as_deref())
         .map(|s| s.to_string())
+}
+
+/// The warning printed when a resource group's bastion lookup fails.
+///
+/// Without a bastion in the map every bastion-only VM in that resource group
+/// silently degrades to its private IP and reports nothing, which is
+/// indistinguishable from having nothing to report.
+pub(crate) fn bastion_lookup_failure_warning(resource_group: &str, error: &str) -> String {
+    let first_line = error.lines().next().unwrap_or("").trim();
+    format!(
+        "Warning: could not list bastion hosts in resource group {}: {}. \
+         VMs there that are only reachable through a bastion will show no tmux, \
+         health or process data.",
+        resource_group, first_line
+    )
 }
 
 /// The warning printed when a bastion tunnel cannot be opened.
@@ -391,9 +433,21 @@ pub(crate) async fn collect_tmux_sessions(
     connect_timeout: u64,
 ) -> HashMap<String, Vec<String>> {
     let owned: Vec<VmInfo> = vms.to_vec();
-    let bastion_map: BastionMap = tokio::task::spawn_blocking(move || discover_bastions(&owned))
-        .await
-        .unwrap_or_default();
+    let bastion_map: BastionMap =
+        match tokio::task::spawn_blocking(move || discover_bastions(&owned)).await {
+            Ok(map) => map,
+            // An empty map here is not "no bastions exist" — it is "we never
+            // found out". Every bastion-only VM would report zero sessions with
+            // nothing on screen to distinguish that from genuinely having none.
+            Err(e) => {
+                eprintln!(
+                    "Warning: bastion discovery did not complete ({}); VMs reachable only \
+                 through a bastion will show no tmux sessions.",
+                    e
+                );
+                BastionMap::new()
+            }
+        };
 
     let ssh_key = resolve_ssh_key();
 
@@ -524,13 +578,24 @@ pub(crate) async fn collect_tmux_sessions(
     while let Some(result) = join_set.join_next().await {
         if let Ok((vm_name, Ok(out))) = result {
             if out.status.success() {
-                let sessions: Vec<String> = String::from_utf8_lossy(&out.stdout)
+                let all: Vec<String> = String::from_utf8_lossy(&out.stdout)
                     .lines()
                     .filter(|l| !l.is_empty() && !l.starts_with('{'))
                     .map(sanitize_remote_text)
                     .filter(|l| !l.is_empty())
-                    .take(MAX_SESSIONS_PER_VM)
                     .collect();
+                // A cap that drops sessions without saying so reads as "this
+                // VM has 20 sessions", which is the same confidently-wrong
+                // answer the tunnel bug gave. The tunnel cap already reports
+                // what it skipped; so does this one.
+                let dropped = all.len().saturating_sub(MAX_SESSIONS_PER_VM);
+                let sessions: Vec<String> = all.into_iter().take(MAX_SESSIONS_PER_VM).collect();
+                if dropped > 0 {
+                    eprintln!(
+                        "Warning: {} has more than {} tmux sessions; {} are not shown.",
+                        vm_name, MAX_SESSIONS_PER_VM, dropped
+                    );
+                }
                 if verbose {
                     eprintln!("[VERBOSE] {} -> {} sessions", vm_name, sessions.len());
                 }
@@ -557,9 +622,13 @@ pub(crate) fn collect_latencies(vms: &[VmInfo]) -> HashMap<String, u64> {
         let Some(ip) = latency_probe_host(vm, &bastion_map) else {
             continue;
         };
-        let Ok(addr) = format!("{}:22", ip).parse::<std::net::SocketAddr>() else {
+        // Parsed as an address, not as `"{ip}:22"` text: an IPv6 address needs
+        // brackets in that form, so the textual parse failed and the VM was
+        // dropped from the Latency column entirely.
+        let Ok(parsed) = ip.parse::<std::net::IpAddr>() else {
             continue;
         };
+        let addr = std::net::SocketAddr::new(parsed, 22);
         let start = std::time::Instant::now();
         if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(2)).is_ok() {
             latencies.insert(vm.name.clone(), start.elapsed().as_millis() as u64);
@@ -1202,7 +1271,7 @@ mod bastion_test_support {
     pub(super) fn bastion_map(entries: &[(&str, &str, &str)]) -> BastionMap {
         entries
             .iter()
-            .map(|(rg, loc, name)| ((rg.to_string(), loc.to_string()), name.to_string()))
+            .map(|(rg, loc, name)| (bastion_key(rg, loc), name.to_string()))
             .collect()
     }
 }
@@ -1487,6 +1556,52 @@ mod bastion_discovery_tests {
             PowerState::Deallocated,
         )];
         assert!(resource_groups_needing_bastion_lookup(&vms).is_empty());
+    }
+
+    /// The map is *inserted* with the bastion's location as `az network
+    /// bastion list` reports it and *looked up* with the VM's location as the
+    /// VM listing reports it. Those are two different `az` commands, and
+    /// Azure is not consistent about casing. Comparing raw strings therefore
+    /// made the bastion vanish on a casing difference alone, and a VM with no
+    /// bastion in the map silently reports zero sessions.
+    #[test]
+    fn a_bastion_is_found_despite_azure_casing_differences() {
+        // Both directions must survive: the map is built from one `az`
+        // command's casing and probed with another's, and which of the two is
+        // upper-cased is not ours to choose.
+        let cases = [
+            // (map rg, map location, vm rg, vm location)
+            ("RG-Prod", "CentralUS", "rg-prod", "centralus"),
+            ("rg-prod", "centralus", "RG-Prod", "CentralUS"),
+            ("Rg-Prod", "centralUS", "rG-pROD", "CENTRALUS"),
+        ];
+        for (map_rg, map_loc, vm_rg, vm_loc) in cases {
+            let map = bastion_map(&[(map_rg, map_loc, "bst-central")]);
+            let mut vm = vm_in_rg("dev", vm_rg, vm_loc, PowerState::Running);
+            vm.private_ip = None;
+            match probe_route(&vm, &map, "sub-1") {
+                ProbeRoute::Bastion { target, .. } => {
+                    assert_eq!(target.bastion_name, "bst-central");
+                }
+                other => panic!(
+                    "map({map_rg}/{map_loc}) vs vm({vm_rg}/{vm_loc}) dropped the bastion: {other:?}"
+                ),
+            }
+        }
+    }
+
+    /// Normalization must not merge genuinely different coordinates.
+    #[test]
+    fn normalization_does_not_conflate_distinct_resource_groups_or_regions() {
+        assert_eq!(
+            bastion_key("RG", "CentralUS"),
+            bastion_key("rg", "centralus")
+        );
+        assert_ne!(
+            bastion_key("rg-a", "centralus"),
+            bastion_key("rg-b", "centralus")
+        );
+        assert_ne!(bastion_key("rg", "centralus"), bastion_key("rg", "westus3"));
     }
 
     /// The displayed "Azure Bastion Hosts" table was built from the first
@@ -1887,5 +2002,58 @@ mod silent_degradation_tests {
         let mid = msg.find("mid").expect("mid listed");
         let zeta = msg.find("zeta").expect("zeta listed");
         assert!(alpha < mid && mid < zeta, "names must be sorted: {}", msg);
+    }
+    /// The Latency column formatted its address as `"{ip}:22"` and parsed
+    /// that. An IPv6 address needs brackets in that form, so it failed to
+    /// parse; the old code then fell back to `0.0.0.0:22` and timed the
+    /// operator's own machine, reporting the result as the VM's latency.
+    /// Parsing the address itself is what makes IPv6 measurable at all.
+    #[test]
+    fn an_ipv6_address_is_a_valid_latency_target_and_is_never_loopback() {
+        for raw in ["10.0.0.4", "2001:db8::1", "fe80::1"] {
+            let parsed: std::net::IpAddr = raw.parse().expect("a real address parses");
+            let addr = std::net::SocketAddr::new(parsed, 22);
+            assert_eq!(addr.port(), 22);
+            assert_eq!(addr.ip().to_string(), raw);
+            assert!(
+                !addr.ip().is_unspecified(),
+                "{raw} must never degrade to 0.0.0.0, which times the local machine"
+            );
+        }
+        // The bracket-less textual form is exactly what used to fail.
+        assert!(
+            "2001:db8::1:22".parse::<std::net::SocketAddr>().is_err(),
+            "the old formatting really was broken for IPv6"
+        );
+    }
+
+    /// A resource group whose bastion lookup fails must say so. Silently
+    /// treating it as "no bastions here" routes every bastion-only VM in that
+    /// group to an unroutable private IP and reports zero sessions — the exact
+    /// symptom #1127 was filed for, reintroduced through the error path.
+    #[test]
+    fn bastion_lookup_failure_names_the_resource_group_and_the_consequence() {
+        let msg = bastion_lookup_failure_warning("rg-prod", "AuthorizationFailed: denied");
+        assert!(msg.contains("rg-prod"), "names the resource group: {msg}");
+        assert!(
+            msg.contains("AuthorizationFailed"),
+            "carries the cause: {msg}"
+        );
+        assert!(
+            msg.contains("no tmux") || msg.contains("bastion"),
+            "states the consequence: {msg}"
+        );
+    }
+
+    /// `az` errors are multi-line chains; only the first line belongs on a
+    /// warning line, matching `tunnel_failure_warning`.
+    #[test]
+    fn bastion_lookup_failure_keeps_only_the_first_line_of_the_error() {
+        let msg = bastion_lookup_failure_warning("rg", "boom\nstack frame\nmore detail");
+        assert!(msg.contains("boom"));
+        assert!(
+            !msg.contains("stack frame"),
+            "detail is --verbose-only: {msg}"
+        );
     }
 }
