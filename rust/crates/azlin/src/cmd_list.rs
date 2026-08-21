@@ -417,6 +417,31 @@ pub(crate) async fn dispatch(
                 std::collections::HashMap::new()
             };
 
+            // Probed only with --with-health, in the same sweep as the
+            // metrics: this is the column that would have made #1131 visible
+            // on the day it happened instead of weeks later at 98% full.
+            //
+            // Gated on `enrichment.health` rather than on `with_health &&
+            // !cross_subscription`: storage is read through an ARM id built
+            // from the probe subscription, so it is subscription-scoped like
+            // its three siblings and takes the same gate. `enrichment.health`
+            // already means "health was asked for and this listing can
+            // attribute it", which is the condition a second copy of the
+            // threshold would have to restate -- and restating it is exactly
+            // how `--show-procs` drifted out of sync with its own note.
+            let storage_data = if enrichment.health {
+                let pb = penguin_spinner("Checking VM storage...");
+                let result = crate::cmd_list_data::collect_storage_status(
+                    &all_vms,
+                    &bastion_map,
+                    vm_manager.subscription_id(),
+                );
+                pb.finish_and_clear();
+                result
+            } else {
+                std::collections::HashMap::new()
+            };
+
             let proc_data = if enrichment.procs {
                 let pb = penguin_spinner("Collecting process data...");
                 let result = crate::cmd_list_data::collect_procs(
@@ -448,6 +473,7 @@ pub(crate) async fn dispatch(
                     tmux_sessions: &tmux_sessions,
                     latencies: &latencies,
                     health_data: &health_data,
+                    storage_data: &storage_data,
                     proc_data: &proc_data,
                 },
             )?;

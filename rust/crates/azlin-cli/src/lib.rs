@@ -2174,6 +2174,39 @@ pub enum DiskAction {
         #[arg(long)]
         mount: Option<String>,
     },
+    /// Report whether a VM's data disks are provisioned as azlin intended
+    ///
+    /// Read only: it never formats, mounts, or writes anything on the VM.
+    /// Exits 0 when every expected disk is healthy (or the VM has none), 1 when
+    /// degraded, and 2 when the check could not be completed.
+    Check {
+        /// VM name or session name
+        vm_name: String,
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+        /// Emit machine-readable JSON instead of the table
+        #[arg(long)]
+        json: bool,
+    },
+    /// Bring a VM's data disks up to azlin's layout in place
+    ///
+    /// Formats, copies, bind-mounts and persists to fstab without
+    /// reprovisioning. Use it when `azlin disk check` reports degraded.
+    Repair {
+        /// VM name or session name
+        vm_name: String,
+        #[arg(long, alias = "rg")]
+        resource_group: Option<String>,
+        /// Print the plan and the exact script, then exit without touching the VM
+        #[arg(long)]
+        dry_run: bool,
+        /// Permit `mkfs` on a disk that already holds a filesystem
+        ///
+        /// Required for any disk at stage `formatted` or later, and refused
+        /// otherwise. Never implied.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 // ── IP subcommands ────────────────────────────────────────────────────────

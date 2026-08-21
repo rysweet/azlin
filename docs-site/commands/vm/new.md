@@ -534,15 +534,18 @@ azlin new --name simple-vm --no-home-disk
 - **Tags**: `azlin-session`, `azlin-role` for auditing
 - **Orphan cleanup**: Disks auto-deleted if VM creation fails
 - **NFS precedence**: `--nfs-storage` disables home disk (planned; NFS not yet in Rust CLI)
-- **Graceful degradation**: Disk setup failure does not abort cloud-init
+- **Ordering**: Disk setup runs before any network-dependent provisioning step
+- **Graceful degradation**: A disk failure is recorded and reported, not silent —
+  `azlin disk check` and the `Storage` column in `azlin list --with-health` report it
 
-**Full documentation:** [Separate Home & Tmp Disk Guide](../../../docs/how-to/separate-home-disk.md)
+**Full documentation:** [Data Disk Layout](../../storage/data-disk-layout.md)
 
 ## Related Commands
 
 - [`azlin list`](list.md) - List all VMs
 - [`azlin connect`](connect.md) - Connect to existing VM
 - [`azlin status`](status.md) - Check VM status
+- [`azlin disk check`](../disk/check.md) - Verify the VM's `/home` and `/tmp` disks
 - [`azlin destroy`](destroy.md) - Delete VM and resources
 - [`azlin template create`](../template/create.md) - Create VM template
 - [`azlin storage create`](../storage/create.md) - Create NFS storage

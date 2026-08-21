@@ -37,6 +37,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exactly how they drifted. The note now names what was actually withheld
   rather than reciting a fixed string, so it can neither claim to have omitted
   something that in fact ran nor stay silent about something that did not.
+- **The `Storage` column shares the one bastion map and takes the same
+  subscription gate** — it arrived (with the column itself) discovering routing
+  for itself, which is the cost this change exists to stop paying: a fifth
+  `az network bastion list` per resource group to recompute a map the caller
+  already holds, and a lookup failure with nowhere to report itself now that
+  discovery hands its warnings back. It is read through an ARM id built from
+  the probe subscription like its three siblings, so it is gated with them
+  rather than on a second copy of the threshold.
 - **Enrichment is gated on which subscription probes can reach, not on how many
   the listing read** — the gate counted subscriptions, and probes are built from
   the subscription the CLI is on rather than the one a context named. A single

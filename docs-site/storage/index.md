@@ -19,6 +19,17 @@ azlin storage mount vm myteam-shared --vm worker-2
 azlin storage unmount --vm my-vm
 ```
 
+## Two kinds of storage
+
+This section covers **Azure Files NFS**, which is shared across VMs. It is not
+the same thing as the per-VM `/home` and `/tmp` **data disks** that `azlin new`
+attaches by default — those are managed disks belonging to one VM, described in
+[Data Disk Layout](data-disk-layout.md) and managed with
+[`azlin disk`](../commands/disk/index.md).
+
+Use NFS when several VMs need the same files. Use data disks when one VM needs
+fast local storage that outlives its OS disk.
+
 ## Overview
 
 azlin provides integrated Azure Files NFS storage management for:

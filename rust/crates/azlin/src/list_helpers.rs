@@ -245,7 +245,9 @@ pub fn detect_bastion_hosts_or_warn(resource_group: &str) -> Vec<(String, String
                 "Warning: could not list bastion hosts in resource group '{}': {}. \
                  VMs there that are only reachable through a bastion may be unreachable.",
                 crate::cmd_list_data::sanitize_remote_text(resource_group),
-                crate::cmd_list_data::sanitize_remote_text(&e.to_string()).trim_end_matches('.')
+                crate::cmd_list_data::strip_one_trailing_period(
+                    &crate::cmd_list_data::sanitize_remote_text(&e.to_string())
+                )
             );
             Vec::new()
         }

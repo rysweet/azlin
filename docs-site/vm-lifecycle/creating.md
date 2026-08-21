@@ -59,6 +59,11 @@ azlin new [OPTIONS]
 | `--tmp-disk-size INTEGER` | Size of separate /tmp disk in GB (16–4096) | None |
 | `-y, --yes` | Accept all defaults (non-interactive) | Interactive |
 
+The `/home` and `/tmp` disks are formatted and bind-mounted by cloud-init before
+any network-dependent step. See [Data Disk Layout](../storage/data-disk-layout.md)
+for the resulting layout, and [`azlin disk check`](../commands/disk/check.md) to
+verify it on a running VM.
+
 ## Size Tiers Explained
 
 azlin provides four convenience size tiers that map to optimal Azure VM SKUs:

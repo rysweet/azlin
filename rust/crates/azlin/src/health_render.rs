@@ -11,9 +11,73 @@
 //! number.
 
 use crate::error_helpers::ThresholdLevel;
+use azlin_azure::disk_layout::StorageStatus;
 
 /// What a metric with no reading looks like in a table cell.
 pub const UNKNOWN_CELL: &str = "--";
+
+/// The health columns, in order, in one place.
+///
+/// The known failure mode in the list renderers is a column added to the header
+/// list while a "no data for this VM" branch keeps filling the old number of
+/// cells, so every column after it shifts by one. There are table, JSON and CSV
+/// paths; the count lives here so they cannot drift.
+pub const HEALTH_COLUMNS: &[&str] = &["Agent", "CPU%", "Mem%", "Disk%", "Storage"];
+
+/// The `Storage` cell for one VM.
+///
+/// `NoDisks` and `Unknown` both render as `--`, for different reasons that land
+/// in the same place: there is no storage layout to be ok about, and there is
+/// no answer, respectively. Neither is a pass. This is the same mistake #1131
+/// was made of, in miniature — an unmeasured value that renders as one.
+pub fn storage_cell(status: Option<StorageStatus>) -> String {
+    match status {
+        Some(StorageStatus::Ok) => "ok".to_string(),
+        Some(StorageStatus::Degraded) => "degraded".to_string(),
+        Some(StorageStatus::NoDisks) | Some(StorageStatus::Unknown) | None => {
+            UNKNOWN_CELL.to_string()
+        }
+    }
+}
+
+/// Colour band for the `Agent` cell, or `None` when there is no reading.
+///
+/// `classify_agent_level` matches `OK` and `Down` and sends everything else to
+/// `Warning`, so handing it the `--` placeholder painted an unmeasured VM
+/// amber — a verdict about a machine nobody asked. Same mistake as a green
+/// `0.0`, one column over.
+pub fn agent_level(status: Option<&str>) -> Option<ThresholdLevel> {
+    status.map(crate::error_helpers::classify_agent_level)
+}
+
+/// Every health cell for one VM, always [`HEALTH_COLUMNS`] long.
+///
+/// A VM that answered nothing still fills every column. A row that is silently
+/// short shifts everything after it.
+pub fn health_cells(
+    metrics: Option<&crate::HealthMetrics>,
+    storage: Option<StorageStatus>,
+) -> Vec<String> {
+    let mut cells = match metrics {
+        Some(m) => vec![
+            // Sanitized here rather than at each render site: the agent status
+            // is read off the listed host over SSH, so it is text this machine
+            // did not author, and it lands directly in the operator's
+            // terminal. An escape sequence in it can end the row and print
+            // rows of its own invention, which is why the session and process
+            // columns have had this treatment all along. Doing it at the
+            // source covers every consumer of these cells at once.
+            crate::cmd_list_data::sanitize_remote_text(&m.agent_status),
+            metric_cell_rounded(m.cpu_percent),
+            metric_cell_rounded(m.mem_percent),
+            metric_cell_rounded(m.disk_percent),
+        ],
+        None => vec![UNKNOWN_CELL.to_string(); HEALTH_COLUMNS.len() - 1],
+    };
+    cells.push(storage_cell(storage));
+    debug_assert_eq!(cells.len(), HEALTH_COLUMNS.len());
+    cells
+}
 
 /// Format a percentage metric for the health table.
 pub fn metric_cell(value: Option<f32>) -> String {

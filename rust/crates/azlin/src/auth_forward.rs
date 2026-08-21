@@ -221,7 +221,21 @@ fn wait_for_cloud_init(
             ip,
             user,
             bastion_port,
-            "if [ -f /var/lib/azlin/provisioning-complete ]; then echo 'status: azlin-ready'; elif command -v cloud-init >/dev/null 2>&1; then cloud-init status --long 2>/dev/null || true; else echo 'status: not-installed'; fi",
+            // The sentinel means "the provisioning script reached its end",
+            // which since #1131 is written on every path -- including the paths
+            // where the data disks were never formatted. On its own it is
+            // therefore no longer evidence of success, so the verdict is read
+            // alongside it from `provisioning-status`. A VM that predates that
+            // file reports `azlin-ready` exactly as before.
+            "if [ -f /var/lib/azlin/provisioning-complete ]; then \
+               if [ -s /var/lib/azlin/provisioning-status ]; then \
+                 echo \"status: azlin-$(head -1 /var/lib/azlin/provisioning-status | tr -d ' ')\"; \
+                 if [ -f /var/lib/azlin/provisioning.tsv ]; then \
+                   echo \"azlin_failed_sections: $(awk -F'\\t' '$2!=\"ok\"{printf \"%s%s\", sep, $1; sep=\",\"}' /var/lib/azlin/provisioning.tsv)\"; \
+                 fi; \
+               else echo 'status: azlin-ready'; fi; \
+             elif command -v cloud-init >/dev/null 2>&1; then cloud-init status --long 2>/dev/null || true; \
+             else echo 'status: not-installed'; fi",
             key_override,
             interactive_ssh,
         ) {
@@ -229,6 +243,23 @@ fn wait_for_cloud_init(
                 match parse_cloud_init_status(&out) {
                     CloudInitStatus::Done => {
                         println!("Cloud-init provisioning complete.");
+                        return Ok(());
+                    }
+                    // Provisioning finished, and finished badly. Not an error:
+                    // the VM exists, boots and is reachable, and refusing to
+                    // return it would be worse than handing it over with the
+                    // truth attached. But it must not read as a clean create.
+                    CloudInitStatus::Degraded => {
+                        println!(
+                            "WARNING: cloud-init finished, but provisioning is degraded."
+                        );
+                        for section in failed_sections(&out) {
+                            println!("         failed section: {}", section);
+                        }
+                        println!(
+                            "         Check the storage layout with `azlin disk check <vm>`, \
+                             and the full ledger at /var/lib/azlin/provisioning.tsv on the VM."
+                        );
                         return Ok(());
                     }
                     CloudInitStatus::Disabled | CloudInitStatus::NotInstalled => {
@@ -388,11 +419,28 @@ pub(crate) fn verify_egress(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CloudInitStatus {
     Done,
+    /// azlin's provisioning script reached its end and recorded at least one
+    /// failed section. Terminal, and not a success.
+    Degraded,
     Disabled,
     Error,
     Running,
     NotInstalled,
     Unknown,
+}
+
+/// The section names the VM reported as not-ok, in ledger order.
+fn failed_sections(output: &str) -> Vec<String> {
+    output
+        .lines()
+        .map(str::trim)
+        .find_map(|line| line.strip_prefix("azlin_failed_sections:"))
+        .unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 fn parse_cloud_init_status(output: &str) -> CloudInitStatus {
@@ -406,7 +454,8 @@ fn parse_cloud_init_status(output: &str) -> CloudInitStatus {
         .find_map(|line| line.strip_prefix("extended_status:").map(str::trim));
 
     match status {
-        Some("azlin-ready") => CloudInitStatus::Done,
+        Some("azlin-ready") | Some("azlin-ok") => CloudInitStatus::Done,
+        Some("azlin-degraded") => CloudInitStatus::Degraded,
         Some("done") => {
             if extended_status
                 .is_some_and(|value| value.contains("degraded") || value.contains("error"))
@@ -1511,6 +1560,35 @@ mod tests {
     fn test_parse_cloud_init_status_azlin_ready_detected() {
         let output = "status: azlin-ready\n";
         assert_eq!(parse_cloud_init_status(output), CloudInitStatus::Done);
+    }
+
+    /// The sentinel changed meaning in #1131: it is written from an EXIT trap
+    /// on every path, so its presence no longer proves provisioning succeeded.
+    /// Reading it as success is how a VM with unformatted data disks came back
+    /// from `azlin new` reporting "Cloud-init provisioning complete."
+    #[test]
+    fn a_degraded_provisioning_run_is_not_reported_as_complete() {
+        let output = "status: azlin-degraded\nazlin_failed_sections: disk-home,apt-install\n";
+        assert_eq!(parse_cloud_init_status(output), CloudInitStatus::Degraded);
+        assert_eq!(failed_sections(output), vec!["disk-home", "apt-install"]);
+    }
+
+    #[test]
+    fn an_ok_provisioning_run_is_complete() {
+        let output = "status: azlin-ok\nazlin_failed_sections: \n";
+        assert_eq!(parse_cloud_init_status(output), CloudInitStatus::Done);
+        assert!(failed_sections(output).is_empty());
+    }
+
+    /// A VM created before the status file existed reports the bare sentinel,
+    /// and must keep its old meaning rather than becoming `Unknown` and
+    /// polling until the timeout.
+    #[test]
+    fn a_vm_that_predates_the_status_file_still_reports_ready() {
+        assert_eq!(
+            parse_cloud_init_status("status: azlin-ready\n"),
+            CloudInitStatus::Done
+        );
     }
 
     #[test]

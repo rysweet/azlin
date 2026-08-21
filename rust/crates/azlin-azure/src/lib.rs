@@ -5,6 +5,7 @@
 pub mod auth;
 pub mod cloud_init;
 pub mod costs;
+pub mod disk_layout;
 pub mod error_handler;
 pub mod native_tunnel;
 pub mod ops;

@@ -1,7 +1,11 @@
 //! Data collection helpers for the list command (tmux, latency, health, procs).
 
 use super::*;
-use azlin_core::models::VmInfo;
+use azlin_azure::cloud_init::DiskConfig;
+use azlin_azure::disk_layout::{
+    build_disk_probe_script, config_from_attached_disks, parse_disk_probe, StorageStatus,
+};
+use azlin_core::models::{PowerState, VmInfo};
 use std::collections::HashMap;
 
 /// Maximum number of tmux sessions to restore per VM to prevent resource exhaustion.
@@ -333,6 +337,25 @@ impl Enrichment {
 /// does not name what nobody asked for: a note listing process data to someone
 /// who never passed `--show-procs` trains them to skim it.
 ///
+/// Whether a string is shaped like an Azure subscription id (a GUID).
+///
+/// Used to tell "these are two different subscriptions" from "these are not
+/// comparable". A context may pin its subscription by name, and a name is
+/// never equal to a GUID; treating that as a mismatch would assert a conflict
+/// that does not exist.
+pub(crate) fn looks_like_subscription_id(s: &str) -> bool {
+    let s = s.trim();
+    let groups = [8usize, 4, 4, 4, 12];
+    let mut parts = s.split('-');
+    for want in groups {
+        match parts.next() {
+            Some(p) if p.len() == want && p.chars().all(|c| c.is_ascii_hexdigit()) => {}
+            _ => return false,
+        }
+    }
+    parts.next().is_none()
+}
+
 /// The gate is on subscription *identity*, not on how many were queried.
 /// Counting was not enough. Probes are built from `probe_subscription` -- the
 /// manager's subscription, fixed at startup from the active context or from
@@ -369,6 +392,17 @@ pub(crate) fn resolve_enrichment(
         _ => return (requested, None),
     };
 
+    // A context may pin its subscription by *name* -- `az` accepts one and
+    // nothing on the write path requires a GUID -- and a name never equals the
+    // GUID the probes carry. Comparing them says "mismatch" for a context that
+    // names the very subscription the CLI is already on, which would drop
+    // every enrichment column and assert as fact a mismatch that does not
+    // exist. When the two are not comparable, say what is actually known and
+    // what would make it knowable, rather than inventing a cause.
+    let unverifiable = mismatched
+        .as_deref()
+        .is_some_and(|only| !looks_like_subscription_id(only));
+
     let mut withheld = vec!["bastion routing"];
     withheld.extend(
         [
@@ -387,6 +421,12 @@ pub(crate) fn resolve_enrichment(
         // Both ids are sanitized: a context file names its subscription and
         // nothing validates that string, so it reaches the terminal the same
         // way an Azure-supplied name does.
+        Some(only) if unverifiable => format!(
+            "this listing's context pins subscription {} by name, which cannot be matched \
+             against the subscription probes use ({}) -- pin it by id to enable them",
+            sanitize_remote_text(only),
+            sanitize_remote_text(probe_subscription)
+        ),
         Some(only) => format!(
             "this listing reads subscription {} but probes would run against {}",
             sanitize_remote_text(only),
@@ -535,10 +575,18 @@ pub(crate) fn insert_bastions_for_group(
             // Name the half that actually failed. The guard rejects on either,
             // and a message that always blames the location sends the operator
             // to check a region that is perfectly fine.
-            let reason = if !valid_bastion_location(&location) {
-                format!("an unusable location ({})", sanitize_remote_text(&location))
-            } else {
-                "a name that cannot be used safely as a command argument".to_string()
+            let reason = match (valid_bastion_name(&name), valid_bastion_location(&location)) {
+                // Both halves failing must say so. Naming only the location
+                // sends the operator to check a region, find it fine, rerun,
+                // and see the bastion dropped again with nothing new on
+                // screen -- the same misattribution one level down.
+                (false, false) => format!(
+                    "a name that cannot be used safely as a command argument, at an unusable \
+                     location ({})",
+                    sanitize_remote_text(&location)
+                ),
+                (_, false) => format!("an unusable location ({})", sanitize_remote_text(&location)),
+                _ => "a name that cannot be used safely as a command argument".to_string(),
             };
             warnings.push(format!(
                 "Warning: ignoring bastion {} in resource group {} because Azure reported it with \
@@ -672,6 +720,17 @@ pub(crate) fn latency_probe_host(vm: &VmInfo) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Drop exactly one trailing period, so a sentence that supplies its own does
+/// not print "authorization.. VMs there".
+///
+/// One, not a run: `trim_end_matches` would eat an ellipsis whole, and an `az`
+/// message ending in "..." is telling the reader it was cut short -- which is
+/// exactly what a sanitizer that truncates without a marker makes worth
+/// keeping.
+pub(crate) fn strip_one_trailing_period(s: &str) -> &str {
+    s.strip_suffix('.').unwrap_or(s)
+}
+
 /// The warning printed when a resource group's bastion lookup fails.
 ///
 /// Without a bastion in the map every bastion-only VM in that resource group
@@ -693,7 +752,7 @@ pub(crate) fn bastion_lookup_failure_warning(resource_group: &str, error: &str) 
         sanitize_remote_text(resource_group),
         // `az` errors usually end in a period and this sentence supplies its
         // own, which read as "authorization.. VMs there".
-        sanitize_remote_text(first_line).trim_end_matches('.')
+        strip_one_trailing_period(&sanitize_remote_text(first_line))
     )
 }
 
@@ -740,8 +799,8 @@ pub(crate) fn collision_warning(colliding: &std::collections::HashSet<String>) -
     names.sort();
     format!(
         "Warning: VM name(s) {} appear in more than one resource group; \
-         their per-VM columns (tmux, health, processes, latency) are withheld \
-         to avoid attributing one VM's data to another.",
+         the per-VM columns this listing collects are withheld for them, to \
+         avoid attributing one VM's data to another.",
         names.join(", ")
     )
 }
@@ -1158,6 +1217,155 @@ pub(crate) fn collect_health_data(
         health_data.insert(vm.name.clone(), metrics);
     }
     health_data
+}
+
+/// The data-disk roles each VM was created with, from one `az vm list` per
+/// resource group.
+///
+/// The name-to-role convention and the LUN agreement check both live in
+/// `disk_layout`, shared with `azlin disk check`: two copies of them is how the
+/// per-VM command and the fleet column came to give contradictory verdicts for
+/// the same machine. One query per resource group rather than one per VM keeps
+/// `azlin list --with-health` from paying an Azure round trip per row.
+///
+/// A VM whose LUNs disagree with the layout is absent from the map, so it
+/// renders `--` rather than a verdict the probe could not have reached.
+pub(crate) fn collect_disk_configs(vms: &[VmInfo]) -> HashMap<String, DiskConfig> {
+    let mut out = HashMap::new();
+    let mut groups: Vec<&str> = vms.iter().map(|v| v.resource_group.as_str()).collect();
+    groups.sort_unstable();
+    groups.dedup();
+
+    for rg in groups {
+        let Ok(output) = std::process::Command::new("az")
+            .args([
+                "vm",
+                "list",
+                "--resource-group",
+                rg,
+                "--query",
+                "[].{name:name,disks:storageProfile.dataDisks[].{name:name,lun:lun}}",
+                "-o",
+                "json",
+            ])
+            .output()
+        else {
+            continue;
+        };
+        if !output.status.success() {
+            continue;
+        }
+        let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
+            continue;
+        };
+        for entry in parsed.as_array().map(Vec::as_slice).unwrap_or_default() {
+            let Some(name) = entry.get("name").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let attached: Vec<(String, u32)> = entry
+                .get("disks")
+                .and_then(|v| v.as_array())
+                .map(|disks| {
+                    disks
+                        .iter()
+                        .map(|d| {
+                            (
+                                d.get("name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or_default()
+                                    .to_string(),
+                                d.get("lun").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            if let Ok(config) = config_from_attached_disks(name, &attached) {
+                out.insert(name.to_string(), config);
+            }
+        }
+    }
+    out
+}
+
+/// Run the read-only storage probe against every VM that has data disks.
+///
+/// This is the collector behind the `Storage` column. #1131 was invisible
+/// precisely because no list surface asked this question: the VM reported
+/// Running and healthy for weeks while both its data disks sat unformatted.
+///
+/// A VM that cannot be reached, or whose output cannot be parsed, is left out
+/// of the map entirely and renders as `--`. It is never recorded as `ok`.
+/// Bastion routing is lent by the caller, like every other collector here.
+/// This one arrived discovering it for itself, which is the cost this module
+/// was reorganised to stop paying: a fifth `az network bastion list` per
+/// resource group to recompute a map the caller already holds, and -- since
+/// discovery returns its warnings for the caller to print -- a lookup failure
+/// that no longer had anywhere to report itself.
+pub(crate) fn collect_storage_status(
+    vms: &[VmInfo],
+    bastion_map: &BastionMap,
+    subscription_id: &str,
+) -> HashMap<String, StorageStatus> {
+    let mut out = HashMap::new();
+    let configs = collect_disk_configs(vms);
+    let ssh_key_path = resolve_ssh_key();
+    let colliding = colliding_vm_names(vms);
+
+    for vm in vms {
+        if colliding.contains(&vm.name) || vm.power_state != PowerState::Running {
+            continue;
+        }
+        let Some(config) = configs.get(&vm.name) else {
+            continue;
+        };
+        if !config.home_disk && !config.tmp_disk {
+            out.insert(vm.name.clone(), StorageStatus::NoDisks);
+            continue;
+        }
+        let user = vm
+            .admin_username
+            .as_deref()
+            .unwrap_or(DEFAULT_ADMIN_USERNAME);
+        let Ok(script) = build_disk_probe_script(config, user) else {
+            continue;
+        };
+
+        let (ip, bastion_info_owned) = match probe_route(vm, bastion_map, subscription_id) {
+            ProbeRoute::Direct { host } => (host, None),
+            ProbeRoute::Bastion {
+                target,
+                fallback_host,
+            } => (
+                fallback_host.unwrap_or_default(),
+                Some((
+                    target.bastion_name,
+                    target.resource_group,
+                    target.vm_resource_id,
+                    ssh_key_path.clone(),
+                )),
+            ),
+            ProbeRoute::Unreachable => continue,
+        };
+
+        let result = match &bastion_info_owned {
+            Some((bastion_name, rg, vm_rid, key)) => crate::bastion_ssh_exec(
+                bastion_name,
+                rg,
+                vm_rid,
+                user,
+                key.as_deref(),
+                &script,
+                crate::BASTION_EXEC_TIMEOUT_SECS,
+            ),
+            None => crate::ssh_exec(&ip, user, &script, None, true),
+        };
+        let Ok((_, stdout, _)) = result else {
+            continue;
+        };
+        out.insert(vm.name.clone(), parse_disk_probe(&stdout, config).status);
+    }
+    out
 }
 
 /// Collect top process data for running VMs.
@@ -2266,6 +2474,26 @@ mod bastion_discovery_tests {
         );
     }
 
+    /// When both halves are unusable the message must say so. Naming only the
+    /// location sends the operator to check a region, find it fine, and rerun
+    /// into the same silent drop.
+    #[test]
+    fn a_doubly_invalid_bastion_names_both_faults() {
+        let mut map = BastionMap::new();
+        let warnings = insert_bastions_for_group(
+            &mut map,
+            "rg-a",
+            vec![("-inject".into(), "East US".into(), "Standard".into())],
+        );
+        assert!(map.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert!(
+            warnings[0].contains("name") && warnings[0].contains("East US"),
+            "both faults must be named: {}",
+            warnings[0]
+        );
+    }
+
     /// The rejected entry is reported even when nothing valid replaces it --
     /// that is the case where the group loses its only route, and the case
     /// where saying nothing reads as "this group has no bastion".
@@ -2742,6 +2970,91 @@ mod silent_degradation_tests {
             note.is_none(),
             "nothing withheld but a note printed: {note:?}"
         );
+    }
+
+    /// A context may pin its subscription by name -- `az` accepts one and
+    /// nothing on the write path requires a GUID. A name never equals a GUID,
+    /// so comparing them yields "mismatch" for a context that may well name
+    /// the subscription the CLI is already on. Enrichment is still withheld
+    /// (it cannot be attributed), but the note must not assert a conflict it
+    /// has not established, and must say what would make it knowable.
+    #[test]
+    fn a_subscription_pinned_by_name_is_not_reported_as_a_conflict() {
+        let (permitted, note) = resolve_enrichment(
+            Enrichment {
+                tmux: true,
+                health: false,
+                procs: false,
+            },
+            &subs(["My Production Sub"]),
+            "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+        );
+        assert!(!permitted.any(), "unattributable enrichment ran");
+        let note = note.expect("withholding must be explained");
+        assert!(
+            note.contains("by name") && note.contains("pin it by id"),
+            "the note must be actionable rather than assert a mismatch: {note}"
+        );
+        assert!(
+            !note.contains("but probes would run against"),
+            "a conflict was asserted that was never established: {note}"
+        );
+    }
+
+    /// The `len > 1` cause wording had no test, so a regression in it shipped
+    /// silently.
+    #[test]
+    fn a_multi_subscription_listing_says_how_many() {
+        let (permitted, note) = resolve_enrichment(
+            Enrichment {
+                tmux: true,
+                health: true,
+                procs: true,
+            },
+            &subs(["sub-a", "sub-b", "sub-c"]),
+            "sub-a",
+        );
+        assert!(!permitted.any());
+        let note = note.expect("withholding must be explained");
+        assert!(
+            note.contains("spans 3 subscriptions"),
+            "the count is the reason and must be stated: {note}"
+        );
+    }
+
+    #[test]
+    fn subscription_ids_are_recognised_by_shape() {
+        assert!(looks_like_subscription_id(
+            "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb"
+        ));
+        assert!(looks_like_subscription_id(
+            "  AAAAAAAA-1111-2222-3333-BBBBBBBBBBBB  "
+        ));
+        for not_an_id in [
+            "My Production Sub",
+            "",
+            "aaaaaaaa-1111-2222-3333",
+            "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb-extra",
+            "gggggggg-1111-2222-3333-bbbbbbbbbbbb",
+        ] {
+            assert!(
+                !looks_like_subscription_id(not_an_id),
+                "{not_an_id:?} was taken for a subscription id"
+            );
+        }
+    }
+
+    /// One period, not a run: an `az` message ending in "..." is saying it was
+    /// cut short, and the sanitizer truncates without a marker.
+    #[test]
+    fn only_one_trailing_period_is_dropped() {
+        assert_eq!(
+            strip_one_trailing_period("not authorized."),
+            "not authorized"
+        );
+        assert_eq!(strip_one_trailing_period("cut short..."), "cut short..");
+        assert_eq!(strip_one_trailing_period("no period"), "no period");
+        assert_eq!(strip_one_trailing_period(""), "");
     }
 
     /// A subscription id is a GUID, so a casing difference between the context
