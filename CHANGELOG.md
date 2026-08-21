@@ -71,6 +71,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which does not change because a VM happens to be deallocated. A resource
   group whose lookup fails is named on stderr rather than dropped, so an
   incomplete table cannot be mistaken for a complete one (#1127)
+- **A bastion lookup that fails now says so instead of reporting zero
+  sessions** — `discover_bastions` took `detect_bastion_hosts(...)` through
+  `unwrap_or_default()`, so a resource group the caller lacks
+  `Microsoft.Network/bastionHosts/read` on, or a transient `az` failure,
+  produced an empty bastion set for that group. Every bastion-only VM there
+  then fell back to its own private IP, which the operator usually cannot
+  route to, and reported zero tmux sessions — the original #1127 symptom
+  arriving through the error path. The resource group and the first line of
+  the cause are now named on stderr. The same applies when bastion discovery
+  itself does not complete: an empty map means "we never found out", not "there
+  are no bastions" (#1127)
+- **A bastion is no longer lost to an Azure casing difference** — the bastion
+  map is *inserted* with the bastion's location as `az network bastion list`
+  reports it and *looked up* with the VM's location as the VM listing reports
+  it. Those are two different commands, Azure is not consistent about casing,
+  and resource group names are case-insensitive to begin with; the raw string
+  comparison therefore dropped the bastion on a casing difference alone, giving
+  the same silent zero. Both sides now go through one `bastion_key` helper that
+  case-folds the pair (#1127)
+- **`azlin list` says when a VM has more tmux sessions than it shows** — the
+  per-VM cap silently kept the first 20, which renders as "this VM has 20
+  sessions". The count not shown is now reported on stderr, matching the
+  tunnel-cap behaviour; a cap that hides what it dropped is the same
+  confidently-wrong answer this PR exists to remove (#1127)
+- **Remotely-collected text can no longer reorder the row it is printed in** —
+  `char::is_control` covers only the `Cc` category, so stripping control
+  characters removed the ESC that begins an ANSI sequence but let
+  `U+202E RIGHT-TO-LEFT OVERRIDE` and its relatives through; those are `Cf`.
+  In a table cell such a character reverses the rendering of everything after
+  it, which is enough to make one VM's row read as another's. Bidirectional
+  overrides, isolates, zero-width spaces and the BOM are now stripped alongside
+  control characters, finishing the defense the control filter starts (#1127)
 - **`azlin list` omits tmux, health and process data for VMs whose names
   collide** — those results are keyed by VM name for display, so two running
   VMs with the same name in different resource groups would render one VM's

@@ -242,6 +242,13 @@ pub(crate) fn valid_bastion_coordinates(name: &str, location: &str) -> bool {
 ///
 /// Blocking `az` calls, so callers on the async path must wrap this in
 /// `spawn_blocking`.
+///
+/// Each collector that needs routing calls this itself, so combining
+/// `--with-health` and `--show-procs` repeats the lookup up to three times per
+/// resource group. That is wasted latency, not a wrong answer — tunnels are
+/// deduplicated by the tunnel registry, so the repeats cost `az` calls only.
+/// Threading one shared map through every collector is the real fix and is
+/// deliberately left out of this change, which is already wide.
 fn discover_bastions(vms: &[VmInfo]) -> BastionMap {
     let mut map = BastionMap::new();
     for rg in resource_groups_needing_bastion_lookup(vms) {
@@ -322,6 +329,21 @@ pub(crate) fn probe_route(
         },
         None => ProbeRoute::Unreachable,
     }
+}
+
+/// The directly routable address to retry at when a bastion attempt fails.
+///
+/// `ProbeRoute::Bastion::fallback_host` documents this degradation path, but
+/// until now no collector read the field: a bastion transport failure dropped
+/// the VM outright. That is strictly less available than the code this routing
+/// replaced, which SSH'd the private IP directly and succeeds for an operator
+/// on a VPN or peered network.
+///
+/// Empty and whitespace-only strings are rejected because the health collector
+/// flattens `Option<String>` with `unwrap_or_default()`, so "no address" and
+/// `""` arrive here as the same thing; `ssh user@` is not a probe.
+pub(crate) fn direct_fallback_host(fallback_host: Option<&str>) -> Option<&str> {
+    fallback_host.filter(|h| !h.trim().is_empty())
 }
 
 /// The address to time for the Latency column, or `None`.
@@ -410,9 +432,27 @@ fn collision_warning(colliding: &std::collections::HashSet<String>) -> String {
 /// invention, which an operator cannot distinguish from real VMs.
 pub(crate) fn sanitize_remote_text(raw: &str) -> String {
     raw.chars()
-        .filter(|c| !c.is_control())
+        .filter(|c| !c.is_control() && !is_bidi_or_invisible(*c))
         .take(MAX_REMOTE_TEXT_LEN)
         .collect()
+}
+
+/// Characters that reorder or hide neighbouring text without being control
+/// characters.
+///
+/// `char::is_control` only covers the `Cc` category, so it strips the ESC that
+/// starts an ANSI sequence but lets `U+202E RIGHT-TO-LEFT OVERRIDE` and its
+/// relatives through — those are `Cf`. In a table cell they reverse the
+/// rendering of everything after them, so a process name can make one VM's row
+/// read as another's. Stripping them finishes the job the control-character
+/// filter starts (the "Trojan Source" class).
+fn is_bidi_or_invisible(c: char) -> bool {
+    matches!(c,
+        '\u{200B}'..='\u{200F}'   // zero-width spaces, LRM/RLM
+        | '\u{202A}'..='\u{202E}' // embedding and override
+        | '\u{2066}'..='\u{2069}' // isolates
+        | '\u{FEFF}'              // zero-width no-break space / BOM
+    )
 }
 
 /// Collect tmux sessions for all running VMs via SSH (direct or bastion).
@@ -509,6 +549,27 @@ pub(crate) async fn collect_tmux_sessions(
             continue;
         }
         let route = probe_route(vm, &bastion_map, subscription_id);
+        // A tunnel that failed to open is not the end of the road. The VM's
+        // private IP is routable for an operator on a VPN or peered network,
+        // and a listed session beats a blank cell that reads as "no sessions"
+        // — which is the #1127 symptom this module exists to remove. Demote
+        // such a plan to a direct probe instead of dropping the VM.
+        let route = match route {
+            ProbeRoute::Bastion {
+                target,
+                fallback_host,
+            } if !bastion_ports.contains_key(&target.vm_resource_id) => {
+                match direct_fallback_host(fallback_host.as_deref()) {
+                    Some(host) => ProbeRoute::Direct {
+                        host: host.to_string(),
+                    },
+                    // Nothing left to try. The warning was already printed
+                    // when the tunnel failed, so do not repeat it here.
+                    None => continue,
+                }
+            }
+            other => other,
+        };
         let user = vm
             .admin_username
             .as_deref()
@@ -543,8 +604,7 @@ pub(crate) async fn collect_tmux_sessions(
             }
             ProbeRoute::Bastion { target, .. } => {
                 let Some(&port) = bastion_ports.get(&target.vm_resource_id) else {
-                    // The tunnel failed to open; the warning was already
-                    // printed at creation time, so do not repeat it here.
+                    // Unreachable: a plan with no port was demoted above.
                     continue;
                 };
                 join_set.spawn(async move {
@@ -713,30 +773,41 @@ pub(crate) fn collect_procs(
             .as_deref()
             .unwrap_or(DEFAULT_ADMIN_USERNAME);
 
-        let procs = match probe_route(vm, &bastion_map, subscription_id) {
-            ProbeRoute::Direct { host } => {
-                let timeout_val = format!("ConnectTimeout={}", connect_timeout);
-                let mut cmd = std::process::Command::new("ssh");
-                cmd.args([
-                    "-o",
-                    "StrictHostKeyChecking=accept-new",
-                    "-o",
-                    &timeout_val,
-                    "-o",
-                    "BatchMode=yes",
-                ]);
-                if let Some(ref key) = ssh_key_path {
-                    cmd.args(["-i", key.to_str().unwrap_or("")]);
-                }
-                cmd.arg(format!("{}@{}", user, host)).arg(PROC_CMD);
-                match cmd.output() {
-                    Ok(out) if out.status.success() => {
-                        String::from_utf8_lossy(&out.stdout).trim().to_string()
-                    }
-                    _ => continue,
-                }
+        // One SSH probe at a directly routable address. Shared by the direct
+        // route and by the bastion route's fallback so the two cannot drift
+        // into spelling the same probe differently.
+        let direct_probe = |host: &str| -> Option<String> {
+            let timeout_val = format!("ConnectTimeout={}", connect_timeout);
+            let mut cmd = std::process::Command::new("ssh");
+            cmd.args([
+                "-o",
+                "StrictHostKeyChecking=accept-new",
+                "-o",
+                &timeout_val,
+                "-o",
+                "BatchMode=yes",
+            ]);
+            if let Some(ref key) = ssh_key_path {
+                cmd.args(["-i", key.to_str().unwrap_or("")]);
             }
-            ProbeRoute::Bastion { target, .. } => {
+            cmd.arg(format!("{}@{}", user, host)).arg(PROC_CMD);
+            match cmd.output() {
+                Ok(out) if out.status.success() => {
+                    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+                }
+                _ => None,
+            }
+        };
+
+        let procs = match probe_route(vm, &bastion_map, subscription_id) {
+            ProbeRoute::Direct { host } => match direct_probe(&host) {
+                Some(out) => out,
+                None => continue,
+            },
+            ProbeRoute::Bastion {
+                target,
+                fallback_host,
+            } => {
                 match crate::bastion_ssh_exec(
                     &target.bastion_name,
                     &target.resource_group,
@@ -747,17 +818,34 @@ pub(crate) fn collect_procs(
                     crate::BASTION_EXEC_TIMEOUT_SECS,
                 ) {
                     Ok((0, stdout, _)) => stdout.trim().to_string(),
+                    // The command reached the VM and failed there. Retrying at
+                    // the private IP would either fail the same way or, far
+                    // worse, succeed against a different host and report its
+                    // processes under this VM's name.
                     Ok(_) => continue,
                     Err(e) => {
-                        eprintln!(
-                            "{}",
-                            tunnel_failure_warning(
-                                &target.vm_name,
-                                &target.bastion_name,
-                                &e.to_string()
-                            )
-                        );
-                        continue;
+                        // Transport failure: the bastion never carried the
+                        // command. Before this routing existed, collect_procs
+                        // SSH'd the private IP directly, which works for an
+                        // operator on a VPN or peered network. Keeping that as
+                        // the fallback makes the new routing strictly more
+                        // available than what it replaced, never less.
+                        match direct_fallback_host(fallback_host.as_deref())
+                            .and_then(|host| direct_probe(host))
+                        {
+                            Some(out) => out,
+                            None => {
+                                eprintln!(
+                                    "{}",
+                                    tunnel_failure_warning(
+                                        &target.vm_name,
+                                        &target.bastion_name,
+                                        &e.to_string()
+                                    )
+                                );
+                                continue;
+                            }
+                        }
                     }
                 }
             }
@@ -1843,6 +1931,48 @@ mod silent_degradation_tests {
     use super::*;
     use azlin_core::models::PowerState;
 
+    /// The bastion route carries a `fallback_host` precisely so a transport
+    /// failure degrades instead of dropping the VM. If this ever returns
+    /// `None` for a real address, `collect_procs` and `collect_tmux_sessions`
+    /// go back to reporting a reachable VM as having nothing on it.
+    #[test]
+    fn a_real_private_ip_is_offered_as_a_fallback() {
+        assert_eq!(direct_fallback_host(Some("10.0.0.4")), Some("10.0.0.4"));
+        assert_eq!(direct_fallback_host(Some("fd00::4")), Some("fd00::4"));
+    }
+
+    /// `collect_health_data` flattens the address with `unwrap_or_default()`,
+    /// so "this VM has no private IP" reaches the fallback as `""`. Treating
+    /// that as an address builds `ssh user@`, which is not a probe: it fails
+    /// slowly and for a reason that has nothing to do with the VM.
+    #[test]
+    fn an_absent_or_blank_address_is_not_a_fallback() {
+        assert_eq!(direct_fallback_host(None), None);
+        assert_eq!(direct_fallback_host(Some("")), None);
+        assert_eq!(direct_fallback_host(Some("   ")), None);
+        assert_eq!(direct_fallback_host(Some("\t")), None);
+    }
+
+    /// The two halves of the contract, stated together: `probe_route` supplies
+    /// the private IP on the bastion route, and the fallback accepts it. This
+    /// is what makes the bastion routing strictly more available than the
+    /// direct-private-IP code it replaced, rather than a trade.
+    #[test]
+    fn bastion_routing_never_removes_the_direct_path_it_replaced() {
+        let vm = vm_in_rg("azt1", "rg-a", "centralus", PowerState::Running);
+        assert!(vm.public_ip.is_none(), "precondition: bastion-only");
+        assert!(vm.private_ip.is_some(), "precondition: has a private IP");
+        let route = probe_route(&vm, &bastion_map(&[("rg-a", "centralus", "bst")]), "sub-1");
+        let ProbeRoute::Bastion { fallback_host, .. } = route else {
+            panic!("a bastion-only VM must route through its bastion");
+        };
+        assert_eq!(
+            direct_fallback_host(fallback_host.as_deref()),
+            Some("10.0.0.4"),
+            "the address the pre-routing code used must still be reachable"
+        );
+    }
+
     /// A tunnel that fails to open drops the VM from the results entirely. That
     /// is indistinguishable from "this VM has no sessions" unless we say so, on
     /// stderr, whether or not --verbose was passed.
@@ -2003,6 +2133,29 @@ mod silent_degradation_tests {
         let zeta = msg.find("zeta").expect("zeta listed");
         assert!(alpha < mid && mid < zeta, "names must be sorted: {}", msg);
     }
+    /// `char::is_control` covers only `Cc`, so bidi overrides (`Cf`) survived
+    /// it. `U+202E` reverses the rendering of the rest of the cell, which is
+    /// enough to make one VM's row read as another's.
+    #[test]
+    fn remote_text_cannot_reorder_the_row_with_bidi_overrides() {
+        assert!(
+            !'\u{202E}'.is_control(),
+            "precondition: the control filter alone does not catch this"
+        );
+        for hostile in [
+            "ssh\u{202E}gpg",
+            "ssh\u{202D}gpg",
+            "ssh\u{200B}gpg",
+            "ssh\u{2066}gpg",
+            "ssh\u{FEFF}gpg",
+        ] {
+            let clean = sanitize_remote_text(hostile);
+            assert_eq!(clean, "sshgpg", "not neutralized: {:?}", hostile);
+        }
+        // Ordinary non-ASCII text must survive untouched.
+        assert_eq!(sanitize_remote_text("café-café"), "café-café");
+    }
+
     /// The Latency column formatted its address as `"{ip}:22"` and parsed
     /// that. An IPv6 address needs brackets in that form, so it failed to
     /// parse; the old code then fell back to `0.0.0.0:22` and timed the
