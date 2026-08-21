@@ -355,9 +355,17 @@ pub(crate) fn resolve_enrichment(
     queried: &std::collections::BTreeSet<String>,
     probe_subscription: &str,
 ) -> (Enrichment, Option<String>) {
+    // Compared case-insensitively and trimmed. A subscription id is a GUID,
+    // which is case-insensitive as an identifier, and the queried side comes
+    // from a hand-edited context file while the probe side comes from `az`.
+    // Withholding on a casing difference alone would disable enrichment for a
+    // listing that is in fact perfectly attributable -- a silent loss of the
+    // three columns the operator asked for, justified by a note blaming a
+    // subscription mismatch that does not exist.
+    let same = |a: &str| a.trim().eq_ignore_ascii_case(probe_subscription.trim());
     let mismatched = match queried.iter().next() {
         _ if queried.len() > 1 => None,
-        Some(only) if only != probe_subscription => Some(only.clone()),
+        Some(only) if !same(only) => Some(only.clone()),
         _ => return (requested, None),
     };
 
@@ -2733,6 +2741,32 @@ mod silent_degradation_tests {
         assert!(
             note.is_none(),
             "nothing withheld but a note printed: {note:?}"
+        );
+    }
+
+    /// A subscription id is a GUID, so a casing difference between the context
+    /// file and `az` is the same subscription. Withholding on that alone would
+    /// drop the three columns the operator asked for and blame a mismatch that
+    /// does not exist.
+    #[test]
+    fn casing_alone_is_not_a_subscription_mismatch() {
+        let requested = Enrichment {
+            tmux: true,
+            health: true,
+            procs: true,
+        };
+        let (permitted, note) = resolve_enrichment(
+            requested,
+            &subs(["AAAAAAAA-1111-2222-3333-BBBBBBBBBBBB"]),
+            "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+        );
+        assert_eq!(
+            permitted, requested,
+            "enrichment lost to a casing difference"
+        );
+        assert!(
+            note.is_none(),
+            "a note blamed a mismatch that does not exist: {note:?}"
         );
     }
 
