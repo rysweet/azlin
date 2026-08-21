@@ -6,6 +6,11 @@ on:
       - 'README.md'
       - 'docs/*.md'
       - 'docs/**/*.md'
+      # The reference check covers the docs site and the changelog too: #1128
+      # shipped a CHANGELOG entry citing a function that never existed, because
+      # the file naming it was outside the check's scope.
+      - 'docs-site/**/*.md'
+      - 'CHANGELOG.md'
       - 'src/azlin/cli.py'
       - 'src/azlin/commands/*.py'
       - 'scripts/validate_documentation.py'
@@ -21,6 +26,8 @@ on:
       - 'README.md'
       - 'docs/*.md'
       - 'docs/**/*.md'
+      - 'docs-site/**/*.md'
+      - 'CHANGELOG.md'
       - 'src/azlin/cli.py'
       - 'src/azlin/commands/*.py'
       - 'scripts/check_doc_code_references.py'
@@ -85,7 +92,7 @@ jobs:
       - name: Test the doc-reference checker
         run: python scripts/test_check_doc_code_references.py
 
-      - name: Check reference docs cite symbols that exist
+      - name: Check docs and changelog cite symbols that exist
         run: python scripts/check_doc_code_references.py
 
       - name: Report validation results

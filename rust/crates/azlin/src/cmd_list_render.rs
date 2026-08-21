@@ -719,6 +719,24 @@ fn render_json(cfg: &ListRenderConfig, data: &ListRenderData) -> Result<()> {
 
 // ── CSV renderer ─────────────────────────────────────────────────────
 
+/// Quote a CSV field that could contain a delimiter, per RFC 4180.
+///
+/// Two of the fields in this row are free-form text the renderer does not
+/// control: the session name comes from an Azure tag and the `Tmux` value comes
+/// off the listed VM itself. `sanitize_remote_text` strips control characters,
+/// but a comma is not a control character — an unquoted session name of `a,b`
+/// therefore ends the field early and shifts every later column by one, which a
+/// consumer reads as valid data for the wrong VM. That is the same
+/// confidently-wrong-row failure the rest of this work removes, arriving through
+/// the CSV writer instead of the routing.
+fn csv_field(value: &str) -> String {
+    if value.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
+}
+
 fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
     // Build headers
     let mut headers = vec!["Session"];
@@ -760,12 +778,12 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
             .map(|s| s.join(";"))
             .unwrap_or_default();
         let (cpu, mem) = crate::display_helpers::query_vm_size_specs(&vm.vm_size, &vm.location);
-        let mut row = disp.session.clone();
+        let mut row = csv_field(&disp.session);
         if cfg.show_tmux_col {
-            row.push_str(&format!(",{}", tmux));
+            row.push_str(&format!(",{}", csv_field(&tmux)));
         }
         if cfg.wide {
-            row.push_str(&format!(",{}", disp.name));
+            row.push_str(&format!(",{}", csv_field(&disp.name)));
         }
         row.push_str(&format!(
             ",{},{},{},{}",
@@ -817,6 +835,35 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── csv_field ─────────────────────────────────────────────────────
+
+    #[test]
+    fn csv_field_leaves_ordinary_values_alone() {
+        assert_eq!(csv_field("main"), "main");
+        assert_eq!(csv_field("build-agent_1"), "build-agent_1");
+        assert_eq!(csv_field(""), "");
+    }
+
+    #[test]
+    fn csv_field_quotes_a_value_containing_the_delimiter() {
+        // A tmux session literally named `a,b` used to end the field early and
+        // shift every later column by one.
+        assert_eq!(csv_field("a,b"), "\"a,b\"");
+    }
+
+    #[test]
+    fn csv_field_doubles_embedded_quotes() {
+        assert_eq!(csv_field("say \"hi\""), "\"say \"\"hi\"\"\"");
+    }
+
+    #[test]
+    fn csv_field_quotes_embedded_newlines() {
+        // sanitize_remote_text strips these before they reach the renderer;
+        // the writer does not rely on that being true forever.
+        assert_eq!(csv_field("a\nb"), "\"a\nb\"");
+        assert_eq!(csv_field("a\rb"), "\"a\rb\"");
+    }
 
     // ── format_tmux_plain ─────────────────────────────────────────────
 

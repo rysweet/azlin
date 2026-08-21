@@ -21,13 +21,19 @@ A tunnel is opened against a *single* VM's ARM resource id and forwards to that
 VM alone. A regional bastion usually fronts many VMs, but its tunnels are not
 interchangeable: sending traffic for VM B down VM A's tunnel reaches VM A.
 
-Azlin's tunnel registry therefore keys tunnels by the target VM's resource id,
-and every caller that decides which host a command runs on — `azlin connect`,
-and the tmux, health and process columns of `azlin list` — looks up its port by
-that resource id. VM names are used for display only. Names are unique within a
-resource group but not across one subscription, and a name-keyed port map is
-what caused `azlin list` to report every bastion-only VM behind a shared bastion
-except one as having no tmux sessions (fixed in `v2.6.126-rust.12ccf60`).
+Azlin's tunnel registry therefore keys tunnels by the target VM's resource id.
+Every caller that opens a tunnel and then connects to a local port — `azlin
+connect`, and the `Tmux` column of `azlin list` — looks that port up by resource
+id, never by VM name. Names are unique within a resource group but not across
+one subscription, and a name-keyed port map is what caused `azlin list` to report
+every bastion-only VM behind a shared bastion except one as having no tmux
+sessions (fixed in `v2.6.126-rust.12ccf60`).
+
+The health and process columns of `azlin list` open no tunnel of their own: they
+hand the VM's resource id to `az network bastion ssh`, which establishes and
+tears down its own connection per command. They are keyed by resource id for the
+same reason — the id is what names the VM the command actually runs on — but
+they never touch the port registry.
 
 Reusing an existing tunnel is safe and is what the registry is for; reusing
 *another VM's* tunnel is not, and the resource-id key is what makes the

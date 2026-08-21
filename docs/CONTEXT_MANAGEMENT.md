@@ -160,9 +160,11 @@ rows below came from:
 A context with no `subscription_id` is listed from whichever subscription the
 CLI is on, and its header says so with `[inherited — context pins none]`.
 
-When the listing spans more than one subscription, the bastion, tmux and health
-columns are omitted: those lookups are scoped to a single subscription and
-cannot be attributed correctly across several.
+When the listing spans more than one subscription, the bastion, tmux, health and
+process columns are omitted: those lookups are scoped to a single subscription
+and cannot be attributed correctly across several. `--show-procs` is included
+because it builds an ARM resource id from the active subscription, which under
+`--all-contexts` would name a same-named VM in the wrong one.
 
 `--contexts <pattern>` filters which contexts are included (`*` acts as a
 substring wildcard).
