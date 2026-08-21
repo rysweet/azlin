@@ -37,6 +37,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exactly how they drifted. The note now names what was actually withheld
   rather than reciting a fixed string, so it can neither claim to have omitted
   something that in fact ran nor stay silent about something that did not.
+- **SSH probes are bounded, and a failed process probe says so under
+  `--verbose`** — the probe `JoinSet` had no limit: one `ssh` child per listed
+  VM, three pipe fds each, so a subscription with a few hundred running VMs ran
+  into the default 1024-fd limit and `cmd.output()` returned `EMFILE`. That was
+  reported only under `--verbose`, so on the default path those VMs rendered as
+  having no sessions -- silent degradation that worsens with fleet size, which
+  is the direction a fleet tool is used. At most 64 probes are now in flight.
+  Separately, the process probe collapsed spawn failure, timeout, refused auth
+  and non-zero exit into a blank cell with no diagnostic at all, leaving no way
+  to tell an idle VM from an unreachable one; the tmux probe had said this
+  under `--verbose` all along.
 - **The `Storage` column shares the one bastion map and takes the same
   subscription gate** — it arrived (with the column itself) discovering routing
   for itself, which is the cost this change exists to stop paying: a fifth

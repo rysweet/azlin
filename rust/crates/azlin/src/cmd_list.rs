@@ -449,6 +449,7 @@ pub(crate) async fn dispatch(
                     &bastion_map,
                     ssh_timeout,
                     vm_manager.subscription_id(),
+                    effective_verbose,
                 );
                 pb.finish_and_clear();
                 result

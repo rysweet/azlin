@@ -128,6 +128,20 @@ pub(crate) type BastionMap = HashMap<(String, String), String>;
 /// see [`PlannedTunnels::skipped`].
 pub(crate) const MAX_BASTION_TUNNELS_PER_RUN: usize = 32;
 
+/// How many SSH probes may be in flight at once.
+///
+/// The `JoinSet` below had no bound: one `ssh` child per listed VM, each
+/// holding three pipe fds. A subscription with a few hundred running VMs
+/// therefore ran straight into the default 1024-fd limit, and `cmd.output()`
+/// returned `EMFILE` -- reported only under `--verbose`, so on the default
+/// path those VMs simply rendered as having no sessions. Silent degradation
+/// that gets worse the larger the fleet, which is the direction a fleet tool
+/// is used.
+///
+/// 64 keeps roughly 200 fds in play, well inside the usual limit, and is far
+/// above the point where more parallel SSH handshakes stop being faster.
+pub(crate) const MAX_CONCURRENT_SSH_PROBES: usize = 64;
+
 /// Upper bound on a single piece of text read off a remote host before it is
 /// handed to the renderer.
 pub(crate) const MAX_REMOTE_TEXT_LEN: usize = 512;
@@ -878,8 +892,11 @@ fn is_bidi_or_invisible(c: char) -> bool {
 
 /// Collect tmux sessions for all running VMs via SSH (direct or bastion).
 ///
-/// SSH probes run concurrently (up to the JoinSet's natural fan-out) using
-/// `tokio::process::Command` to avoid blocking the async runtime. Bastion
+/// SSH probes run concurrently using `tokio::process::Command` to avoid
+/// blocking the async runtime, bounded by [`MAX_CONCURRENT_SSH_PROBES`]. The
+/// bound is the point: a `JoinSet`'s "natural fan-out" is not one, and an
+/// `ssh` child per listed VM exhausted the process fd limit on a large
+/// enough fleet. Bastion
 /// tunnels are pre-created sequentially because tunnel creation mutates a
 /// shared registry file.
 ///
@@ -975,6 +992,7 @@ pub(crate) async fn collect_tmux_sessions(
     let tmux_cmd =
         "tmux list-sessions -F '#{session_name}:#{session_attached}' 2>/dev/null || true";
     let mut join_set = tokio::task::JoinSet::new();
+    let probe_limit = std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_SSH_PROBES));
     // Neither the timeout nor the resolved key varies per VM, so the option
     // list is built once and handed to each probe. Rebuilding it inside the
     // loop also re-cloned the key path for every VM to feed a function that
@@ -1015,10 +1033,15 @@ pub(crate) async fn collect_tmux_sessions(
         let vm_name = vm.name.clone();
         let tmux_cmd = tmux_cmd.to_string();
         let common_opts = common_opts.clone();
+        let probe_limit = probe_limit.clone();
 
         match route {
             ProbeRoute::Direct { host } => {
                 join_set.spawn(async move {
+                    // Held for the lifetime of the child, so the bound is on
+                    // concurrently-open ssh processes rather than on how fast
+                    // they are spawned.
+                    let _permit = probe_limit.acquire_owned().await.ok();
                     let mut cmd = tokio::process::Command::new("ssh");
                     cmd.args(["-o", "StrictHostKeyChecking=accept-new"]);
                     cmd.args(&common_opts);
@@ -1035,6 +1058,7 @@ pub(crate) async fn collect_tmux_sessions(
                     continue;
                 };
                 join_set.spawn(async move {
+                    let _permit = probe_limit.acquire_owned().await.ok();
                     let mut cmd = tokio::process::Command::new("ssh");
                     cmd.args(crate::bastion_tunnel::bastion_loopback_ssh_opts());
                     cmd.args(["-p", &port.to_string()]);
@@ -1378,6 +1402,7 @@ pub(crate) fn collect_procs(
     bastion_map: &BastionMap,
     connect_timeout: u64,
     subscription_id: &str,
+    verbose: bool,
 ) -> HashMap<String, String> {
     const PROC_CMD: &str =
         "ps aux --sort=-%mem | head -6 | tail -5 | awk '{print $11}' | tr '\\n' ', '";
@@ -1406,11 +1431,39 @@ pub(crate) fn collect_procs(
             cmd.args(["-o", "StrictHostKeyChecking=accept-new"]);
             cmd.args(&common_opts);
             cmd.arg(format!("{}@{}", user, host)).arg(PROC_CMD);
+            // Spawn failure, timeout, refused auth and a non-zero exit all
+            // end as a blank Procs cell. That is the right *rendering* -- there
+            // is nothing to show -- but collapsing them with no diagnostic at
+            // all left no way to tell an idle VM from an unreachable one. The
+            // tmux probe has said this under `--verbose` all along; this one
+            // said nothing.
             match cmd.output() {
                 Ok(out) if out.status.success() => {
                     Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
                 }
-                _ => None,
+                Ok(out) => {
+                    if verbose {
+                        eprintln!(
+                            "[VERBOSE] process probe for {} exited {}: {}",
+                            sanitize_remote_text(&vm.name),
+                            out.status,
+                            sanitize_remote_text(crate::list_helpers::first_reportable_line(
+                                &String::from_utf8_lossy(&out.stderr)
+                            ))
+                        );
+                    }
+                    None
+                }
+                Err(e) => {
+                    if verbose {
+                        eprintln!(
+                            "[VERBOSE] process probe for {} could not run: {}",
+                            sanitize_remote_text(&vm.name),
+                            e
+                        );
+                    }
+                    None
+                }
             }
         };
 
