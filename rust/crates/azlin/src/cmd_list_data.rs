@@ -798,13 +798,22 @@ pub(crate) fn collect_latencies(vms: &[VmInfo]) -> HashMap<String, u64> {
 /// resource group.
 ///
 /// The name-to-role convention and the LUN agreement check both live in
-/// `disk_layout`, shared with `azlin disk check`: two copies of them is how the
-/// per-VM command and the fleet column came to give contradictory verdicts for
-/// the same machine. One query per resource group rather than one per VM keeps
-/// `azlin list --with-health` from paying an Azure round trip per row.
+/// `disk_layout`, under that module's drift rule — the concrete cost of two
+/// copies here was the per-VM command and the fleet column giving contradictory
+/// verdicts for the same machine. One query per resource group rather than one
+/// per VM keeps `azlin list --with-health` from paying an Azure round trip per
+/// row.
 ///
 /// A VM whose LUNs disagree with the layout is absent from the map, so it
 /// renders `--` rather than a verdict the probe could not have reached.
+///
+/// Every way this can fail says so on stderr. The fleet column and the per-VM
+/// `azlin disk check` reach the same `--` for the same reasons, and `check`
+/// printed its reason while this printed nothing at all — so a whole resource
+/// group could drop out of the `Storage` column because `az` was not logged in,
+/// and the table would look exactly as it does for a fleet with no data disks.
+/// A column that exists to make an invisible failure visible cannot itself fail
+/// invisibly.
 pub(crate) fn collect_disk_configs(vms: &[VmInfo]) -> HashMap<String, DiskConfig> {
     let mut out = HashMap::new();
     let mut groups: Vec<&str> = vms.iter().map(|v| v.resource_group.as_str()).collect();
@@ -812,7 +821,16 @@ pub(crate) fn collect_disk_configs(vms: &[VmInfo]) -> HashMap<String, DiskConfig
     groups.dedup();
 
     for rg in groups {
-        let Ok(output) = std::process::Command::new("az")
+        let unanswered = |reason: String| {
+            eprintln!(
+                "Storage: could not read the disk layout of resource group '{}', so its \
+                 VMs report '{}': {}",
+                rg,
+                crate::health_render::UNKNOWN_CELL,
+                reason
+            );
+        };
+        let output = match std::process::Command::new("az")
             .args([
                 "vm",
                 "list",
@@ -824,22 +842,40 @@ pub(crate) fn collect_disk_configs(vms: &[VmInfo]) -> HashMap<String, DiskConfig
                 "json",
             ])
             .output()
-        else {
-            continue;
+        {
+            Ok(output) => output,
+            Err(e) => {
+                unanswered(format!("`az vm list` could not be run: {}", e));
+                continue;
+            }
         };
         if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            unanswered(format!(
+                "`az vm list` failed: {}",
+                azlin_core::sanitizer::sanitize(stderr.trim())
+            ));
             continue;
         }
-        let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
-            continue;
+        let parsed = match serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                unanswered(format!("`az vm list` returned invalid JSON: {}", e));
+                continue;
+            }
         };
         for entry in parsed.as_array().map(Vec::as_slice).unwrap_or_default() {
             let Some(name) = entry.get("name").and_then(|v| v.as_str()) else {
+                unanswered("an entry in `az vm list` had no name".to_string());
                 continue;
             };
             let attached = crate::cmd_disk_ops::disks_from_json(entry.get("disks"));
-            if let Ok(config) = config_from_attached_disks(name, &attached) {
-                out.insert(name.to_string(), config);
+            match config_from_attached_disks(name, &attached) {
+                Ok(config) => {
+                    out.insert(name.to_string(), config);
+                }
+                // The same message `azlin disk check` prints for the same VM.
+                Err(reason) => eprintln!("{}", reason),
             }
         }
     }
@@ -859,7 +895,6 @@ pub(crate) fn collect_disk_configs(vms: &[VmInfo]) -> HashMap<String, DiskConfig
 pub(crate) fn collect_health_and_storage(
     vms: &[VmInfo],
     subscription_id: &str,
-    want_storage: bool,
 ) -> (
     HashMap<String, crate::HealthMetrics>,
     HashMap<String, StorageStatus>,
@@ -869,14 +904,9 @@ pub(crate) fn collect_health_and_storage(
     let bastion_map = discover_bastions(vms);
     let ssh_key_path = resolve_ssh_key();
     let colliding = colliding_vm_names(vms);
-    // One `az vm list` per resource group, and only when the column is
-    // wanted: the layout is the same for every VM in the group, so asking
-    // per VM would pay an ARM round trip per row.
-    let configs = if want_storage {
-        collect_disk_configs(vms)
-    } else {
-        HashMap::new()
-    };
+    // One `az vm list` per resource group: the layout is the same for every VM
+    // in the group, so asking per VM would pay an ARM round trip per row.
+    let configs = collect_disk_configs(vms);
 
     for vm in vms {
         if colliding.contains(&vm.name) {
@@ -927,7 +957,12 @@ pub(crate) fn collect_health_and_storage(
         let metrics = crate::collect_health_metrics_with(&exec_route, &vm.name, &state);
         health_data.insert(vm.name.clone(), metrics);
 
-        if let Some(status) = probe_storage(vm, user, disk_config, &exec_route) {
+        if let Some(status) = probe_storage(
+            vm.power_state == PowerState::Running,
+            user,
+            disk_config,
+            &exec_route,
+        ) {
             storage_data.insert(vm.name.clone(), status);
         }
     }
@@ -944,13 +979,17 @@ pub(crate) fn collect_health_and_storage(
 /// `None` means the question could not be answered — unreachable, unparseable,
 /// or a LUN layout that disagrees with what the VM was created with. The
 /// column renders `--`. It is never recorded as `ok`.
-fn probe_storage(
-    vm: &VmInfo,
+///
+/// `azlin health` asks it too, over its own route. Both surfaces name the same
+/// storage state for the same VM because there is one function that decides it,
+/// not one per table.
+pub(crate) fn probe_storage(
+    running: bool,
     user: &str,
     config: Option<&DiskConfig>,
     exec_route: &crate::RoutedExec<'_>,
 ) -> Option<StorageStatus> {
-    if vm.power_state != PowerState::Running {
+    if !running {
         return None;
     }
     let config = config?;

@@ -26,6 +26,20 @@ azlin disk add VM_NAME --size GB [OPTIONS]
 
 The disk is named `<vm-name>_datadisk_<lun>`.
 
+## What `--mount PATH` accepts
+
+The path is written into `/etc/fstab` and interpolated into a shell script, so
+it is validated against what *both* of those parsers accept: an absolute path of
+ASCII letters, digits, and the characters `/ - _ . +`, with no `..` segment.
+
+Anything else is rejected before the disk is touched. A space is the case worth
+naming, because it looks harmless and is not: fstab's field separator *is*
+whitespace, so `--mount "/data disk"` would write a line whose target is `/data`
+and whose filesystem type is `disk`, and the next reboot either mounts nothing
+or drops the VM to emergency mode. fstab has an escape for this (`\040`); azlin
+does not use it, because a mount point with a space in it is not worth a second
+quoting rule in a file whose failure mode is an unbootable VM.
+
 ## `--mount` is opt-in, and has no default
 
 Attaching a disk and mounting it are separate asks. `--mount` once defaulted to

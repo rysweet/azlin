@@ -246,7 +246,7 @@ fn test_render_health_table_does_not_panic() {
         },
     ];
     // Should not panic; just renders to stdout
-    crate::render_health_table(&metrics);
+    crate::render_health_table(&metrics, &std::collections::HashMap::new());
 }
 
 #[test]

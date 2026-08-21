@@ -619,9 +619,9 @@ mod real_shell {
     }
 
     /// Absolute paths the generated script writes to, redirected into the
-    /// scratch directory so an unprivileged *and* a root test both stay inside
-    /// it. Longest-first, because `/mnt/home-data` must be rewritten before
-    /// anything that could match a prefix of it.
+    /// scratch directory so the run stays inside it. Order does not matter:
+    /// [`redirect_paths`] takes the longest match at each position in one
+    /// sweep.
     const REDIRECTED: &[&str] = &[
         "/var/lib/azlin",
         "/mnt/home-data",
@@ -631,6 +631,12 @@ mod real_shell {
         "/etc/fstab",
         "/etc/apt",
         "/home/azureuser",
+        // `mkdir` is *not* shimmed, so `mkdir -p /tmp/tmux-$UID` and the three
+        // `mkdir -p /tmp/<tool>-install` lines were creating real directories
+        // in the test machine's `/tmp` on every run. Nothing destructive, but
+        // the harness's claim is that it runs the generated script without
+        // touching the host, and that was not true.
+        "/tmp",
     ];
 
     /// Rewrite every absolute path the script writes to so it lands under
@@ -640,19 +646,76 @@ mod real_shell {
     /// verbatim", and it is not optional: the script's job is to format disks
     /// and move home directories. Everything that decides *control flow* — the
     /// section wrappers, the ordering, the exit statuses — runs unmodified.
+    ///
+    /// **One sweep, longest match first.** Substituting each path in turn only
+    /// works while no substitution can introduce text a later one matches, and
+    /// `root` is itself under `/tmp` — so a `/tmp` entry rewrote the scratch
+    /// paths the earlier entries had just written. Scanning once means a
+    /// rewritten span is never reconsidered, and it retires the "declare these
+    /// longest-first" rule that the previous version held by convention.
     fn redirect_paths(script: &str, root: &Path) -> String {
-        let mut out = script.to_string();
-        for path in REDIRECTED {
-            assert!(
-                out.contains(path),
-                "the generated script no longer writes to {path}; drop it from \
-                 REDIRECTED rather than leaving a substitution that silently \
-                 no-ops"
-            );
-            let target = root.join(path.trim_start_matches('/').replace('/', "-"));
-            out = out.replace(path, target.to_str().expect("utf-8 path"));
+        let mut mapping: Vec<(&str, String)> = REDIRECTED
+            .iter()
+            .map(|path| {
+                assert!(
+                    script.contains(path),
+                    "the generated script no longer writes to {path}; drop it \
+                     from REDIRECTED rather than leaving a substitution that \
+                     silently no-ops"
+                );
+                let target = root.join(path.trim_start_matches('/').replace('/', "-"));
+                (*path, target.to_str().expect("utf-8 path").to_string())
+            })
+            .collect();
+        mapping.sort_by_key(|(path, _)| std::cmp::Reverse(path.len()));
+
+        let mut out = String::with_capacity(script.len());
+        let mut rest = script;
+        while !rest.is_empty() {
+            match mapping.iter().find(|(path, _)| rest.starts_with(path)) {
+                Some((path, target)) => {
+                    out.push_str(target);
+                    rest = &rest[path.len()..];
+                }
+                None => {
+                    let ch = rest.chars().next().expect("non-empty");
+                    out.push(ch);
+                    rest = &rest[ch.len_utf8()..];
+                }
+            }
         }
         out
+    }
+
+    /// The harness must not run as root.
+    ///
+    /// Its containment is two layers deep and neither layer is complete.
+    /// [`REDIRECTED`] rewrites the paths the script is *known* to write to, and
+    /// `command_not_found_handle` catches commands that are missing — which is
+    /// the load-bearing weakness: it fires only for commands that are *not
+    /// installed*. A section that reaches an installed-but-unshimmed mutating
+    /// command — `useradd`, `sysctl`, `systemd-run`, `mkdir` — runs it for
+    /// real. As an unprivileged user those fail harmlessly; as root they do not
+    /// fail at all.
+    ///
+    /// So the containment is not made airtight — that is a losing game against
+    /// a script whose whole job is to modify a machine — and the one condition
+    /// under which its gaps matter is refused outright. A CI runner that runs
+    /// tests as root gets a clear failure instead of a modified host.
+    fn refuse_to_run_as_root() {
+        let uid = Command::new("id")
+            .arg("-u")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.trim().parse::<u32>().ok());
+        assert_ne!(
+            uid,
+            Some(0),
+            "this harness executes the real cloud-init script against shims that \
+             only intercept *missing* commands; as root an unshimmed one would \
+             modify the host. Run the test suite as an unprivileged user."
+        );
     }
 
     /// Runs the generated script under bash with failing/succeeding apt shims.
@@ -663,6 +726,7 @@ mod real_shell {
         if Command::new("bash").arg("-c").arg("true").output().is_err() {
             return None;
         }
+        refuse_to_run_as_root();
 
         let root = scratch();
         let var_lib = root.join("var-lib-azlin");

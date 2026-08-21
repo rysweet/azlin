@@ -327,7 +327,6 @@ pub(crate) async fn dispatch(
                 let result = crate::cmd_list_data::collect_health_and_storage(
                     &all_vms,
                     vm_manager.subscription_id(),
-                    true,
                 );
                 pb.finish_and_clear();
                 result

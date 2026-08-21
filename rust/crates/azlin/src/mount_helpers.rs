@@ -1,4 +1,17 @@
-/// Validate a mount-point path is safe (no shell metacharacters, no traversal).
+/// Validate a mount-point path is safe to interpolate into a shell script and
+/// into `/etc/fstab`.
+///
+/// A whitelist, not a blacklist. The blacklist this replaced named thirteen
+/// characters and missed the ones that mattered most in the two places the path
+/// actually lands: a **space** or a **tab** splits a word in the shell and a
+/// *field* in fstab — `--mount "/data disk"` wrote `/data disk ext4 …`, which
+/// makes `disk` the filesystem type and takes the boot with it — and a single
+/// quote, a backslash, a `#`, a `*` or a `?` were all accepted too. Enumerating
+/// what is dangerous is a losing game against two parsers with different
+/// metacharacters; enumerating what is allowed is not.
+///
+/// The permitted set is what a mount point plausibly needs: ASCII letters and
+/// digits, `/`, `-`, `_`, `.` and `+`.
 pub fn validate_mount_path(path: &str) -> Result<(), String> {
     if path.is_empty() {
         return Err("Mount path must not be empty".into());
@@ -6,27 +19,24 @@ pub fn validate_mount_path(path: &str) -> Result<(), String> {
     if !path.starts_with('/') {
         return Err(format!("Mount path '{}' must be absolute", path));
     }
-    // Reject shell metacharacters
-    let bad_chars = [
-        ';', '|', '&', '$', '`', '(', ')', '{', '}', '<', '>', '!', '\n', '\0',
-    ];
-    for c in bad_chars {
-        if path.contains(c) {
-            return Err(format!(
-                "Mount path '{}' contains dangerous character '{}'",
-                path, c
-            ));
-        }
+    if let Some(bad) = path
+        .chars()
+        .find(|c| !(c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.' | '+')))
+    {
+        return Err(format!(
+            "Mount path '{}' contains {:?}; a mount path may hold only ASCII letters \
+             and digits and the characters / - _ . +",
+            path, bad
+        ));
     }
-    // Reject traversal
-    if path.contains("/../") || path.ends_with("/..") || path == ".." {
+    // Reject traversal. Segment-wise, so `/data/..foo` — a legal directory
+    // name — is not mistaken for one.
+    if path.split('/').any(|segment| segment == "..") {
         return Err(format!("Mount path '{}' contains path traversal", path));
     }
     Ok(())
 }
 
-/// The Azure-stable device path for a data disk at `lun`.
-///
 /// The script that formats (only if unformatted) and mounts a data disk.
 ///
 /// `azlin disk add --mount` attached the disk and stopped; the flag was
@@ -47,9 +57,8 @@ pub fn validate_mount_path(path: &str) -> Result<(), String> {
 /// up is a worse outcome than a missing mount.
 ///
 /// The guard and the fstab line both come from `azlin_azure::disk_layout`,
-/// shared with `azlin disk repair` and (for the fstab line) with the cloud-init
-/// generator. One `mode=` in the wrong place cost a manual repair a whole cycle
-/// to find (#1131); there is one function that can make that mistake now.
+/// under that module's drift rule. The concrete cost here was a `mode=1777` on
+/// an ext4 line, which mounts silently as nothing (#1131).
 pub fn build_disk_mount_script(lun: u32, mount_path: &str) -> Result<String, String> {
     // Validated here as well as at the call site. The path is interpolated into a
     // shell script two modules away from where it is checked, so a second caller
@@ -73,8 +82,8 @@ pub fn build_disk_mount_script(lun: u32, mount_path: &str) -> Result<String, Str
          for _ in $(seq 1 30); do [ -e \"$DEV\" ] && break; sleep 1; done\n\
          if [ ! -e \"$DEV\" ]; then echo \"azlin: {device} never appeared\" >&2; exit 1; fi\n\
          {format_step}\n\
-         sudo mkdir -p {mount_path}\n\
-         sudo mount \"$DEV\" {mount_path}\n\
+         sudo mkdir -p \"{mount_path}\"\n\
+         sudo mount \"$DEV\" \"{mount_path}\"\n\
          echo 'azlin: step=mounted'\n\
          UUID=$(sudo blkid -s UUID -o value \"$DEV\")\n\
          if ! grep -q \"$UUID\" /etc/fstab; then\n\

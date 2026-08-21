@@ -2203,9 +2203,19 @@ pub enum DiskAction {
         /// Permit `mkfs` on a disk that already holds a filesystem
         ///
         /// Required for any disk at stage `formatted` or later, and refused
-        /// otherwise. Never implied.
+        /// otherwise. Never implied. This is a permission, not a confirmation:
+        /// the reformat is still confirmed interactively unless `--yes` is
+        /// given too.
         #[arg(long)]
         force: bool,
+        /// Skip the confirmation prompt shown before a `--force` reformat
+        ///
+        /// `--force` here means "permit `mkfs`", which is not what it means on
+        /// the rest of azlin's commands, so it does not double as the
+        /// skip-the-prompt flag the way `destroy --force` does. Only a plan
+        /// that reformats an existing filesystem asks.
+        #[arg(long)]
+        yes: bool,
     },
 }
 

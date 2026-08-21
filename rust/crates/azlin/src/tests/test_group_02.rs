@@ -110,7 +110,7 @@ fn test_health_metrics_unknown_state() {
 fn test_render_health_table_empty_list() {
     let metrics: Vec<crate::HealthMetrics> = vec![];
     // Should not panic on empty input
-    crate::render_health_table(&metrics);
+    crate::render_health_table(&metrics, &std::collections::HashMap::new());
 }
 
 #[test]
@@ -124,7 +124,7 @@ fn test_render_health_table_single_entry() {
         mem_percent: Some(40.0),
         disk_percent: Some(30.0),
     }];
-    crate::render_health_table(&metrics);
+    crate::render_health_table(&metrics, &std::collections::HashMap::new());
 }
 
 #[test]
@@ -138,7 +138,7 @@ fn test_render_health_table_high_usage_values() {
         mem_percent: Some(95.0),
         disk_percent: Some(98.0),
     }];
-    crate::render_health_table(&metrics);
+    crate::render_health_table(&metrics, &std::collections::HashMap::new());
 }
 
 #[test]
@@ -152,7 +152,7 @@ fn test_render_health_table_zero_usage() {
         mem_percent: Some(0.0),
         disk_percent: Some(0.0),
     }];
-    crate::render_health_table(&metrics);
+    crate::render_health_table(&metrics, &std::collections::HashMap::new());
 }
 
 #[test]
@@ -186,7 +186,7 @@ fn test_render_health_table_mixed_states() {
             disk_percent: Some(0.0),
         },
     ];
-    crate::render_health_table(&metrics);
+    crate::render_health_table(&metrics, &std::collections::HashMap::new());
 }
 
 // ── cp direction detection tests ─────────────────────────────

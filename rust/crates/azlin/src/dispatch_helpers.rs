@@ -378,7 +378,23 @@ pub(crate) async fn resolve_vm_ssh_target(
         });
     }
     let auth = create_auth()?;
-    let vm_manager = azlin_azure::VmManager::new(&auth);
+    resolve_vm_ssh_target_with_auth(&auth, vm_name, resource_group).await
+}
+
+/// [`resolve_vm_ssh_target`] against an [`azlin_azure::AzureAuth`] the caller
+/// already built.
+///
+/// A command that has to make its own `az` calls must build the auth *first*,
+/// because that is what applies the active context's subscription — and then it
+/// holds one, and re-deriving it here would repeat `az account set` and its
+/// verification per invocation. There is no `ip_flag` arm: a caller that has an
+/// address does not need an auth to use it.
+pub(crate) async fn resolve_vm_ssh_target_with_auth(
+    auth: &azlin_azure::AzureAuth,
+    vm_name: &str,
+    resource_group: Option<String>,
+) -> Result<VmSshTarget> {
+    let vm_manager = azlin_azure::VmManager::new(auth);
     let rg = resolve_resource_group(resource_group)?;
     let vm = vm_manager.get_vm(&rg, vm_name)?;
     let bastion_map: std::collections::HashMap<String, String> =

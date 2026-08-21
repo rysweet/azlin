@@ -194,6 +194,33 @@ fn wait_for_ssh(
     }
 }
 
+/// What `azlin new` asks a booting VM about its own provisioning.
+///
+/// The sentinel means "the provisioning script reached its end", which since
+/// #1131 is written on every path -- including the paths where the data disks
+/// were never formatted. On its own it is therefore no longer evidence of
+/// success, so the verdict is read alongside it from `provisioning-status`. A
+/// VM that predates that file reports `azlin-ready` exactly as before.
+///
+/// The failed-section list is selected with `$2=="failed"`: the same test
+/// `azlin_finalize` uses to decide `ok` vs `degraded`, and the same one the
+/// storage probe uses. It used to be `$2!="ok"` here, which also matched
+/// `skipped` -- so on a degraded create `azlin new` announced `failed section:
+/// setup-rust` for a section the ledger had deliberately recorded as skipped
+/// because its dependency failed, after `azlin_record` went to the trouble of
+/// telling the two apart. Three readers of one file; one rule.
+///
+/// Hoisted out of the call so a test can hold it against the other two.
+pub(crate) const PROVISIONING_STATUS_QUERY: &str = "if [ -f /var/lib/azlin/provisioning-complete ]; then \
+       if [ -s /var/lib/azlin/provisioning-status ]; then \
+         echo \"status: azlin-$(head -1 /var/lib/azlin/provisioning-status | tr -d ' ')\"; \
+         if [ -f /var/lib/azlin/provisioning.tsv ]; then \
+           echo \"azlin_failed_sections: $(awk -F'\\t' '$2==\"failed\"{printf \"%s%s\", sep, $1; sep=\",\"}' /var/lib/azlin/provisioning.tsv)\"; \
+         fi; \
+       else echo 'status: azlin-ready'; fi; \
+     elif command -v cloud-init >/dev/null 2>&1; then cloud-init status --long 2>/dev/null || true; \
+     else echo 'status: not-installed'; fi";
+
 /// Wait for cloud-init to finish provisioning. Best-effort: issues warn but
 /// never block VM usage. Called after SSH is confirmed ready.
 fn wait_for_cloud_init(
@@ -221,21 +248,7 @@ fn wait_for_cloud_init(
             ip,
             user,
             bastion_port,
-            // The sentinel means "the provisioning script reached its end",
-            // which since #1131 is written on every path -- including the paths
-            // where the data disks were never formatted. On its own it is
-            // therefore no longer evidence of success, so the verdict is read
-            // alongside it from `provisioning-status`. A VM that predates that
-            // file reports `azlin-ready` exactly as before.
-            "if [ -f /var/lib/azlin/provisioning-complete ]; then \
-               if [ -s /var/lib/azlin/provisioning-status ]; then \
-                 echo \"status: azlin-$(head -1 /var/lib/azlin/provisioning-status | tr -d ' ')\"; \
-                 if [ -f /var/lib/azlin/provisioning.tsv ]; then \
-                   echo \"azlin_failed_sections: $(awk -F'\\t' '$2!=\"ok\"{printf \"%s%s\", sep, $1; sep=\",\"}' /var/lib/azlin/provisioning.tsv)\"; \
-                 fi; \
-               else echo 'status: azlin-ready'; fi; \
-             elif command -v cloud-init >/dev/null 2>&1; then cloud-init status --long 2>/dev/null || true; \
-             else echo 'status: not-installed'; fi",
+            PROVISIONING_STATUS_QUERY,
             key_override,
             interactive_ssh,
         ) {
@@ -250,9 +263,7 @@ fn wait_for_cloud_init(
                     // return it would be worse than handing it over with the
                     // truth attached. But it must not read as a clean create.
                     CloudInitStatus::Degraded => {
-                        println!(
-                            "WARNING: cloud-init finished, but provisioning is degraded."
-                        );
+                        println!("WARNING: cloud-init finished, but provisioning is degraded.");
                         for section in failed_sections(&out) {
                             println!("         failed section: {}", section);
                         }

@@ -79,6 +79,7 @@ fn disk_repair_neither_forces_nor_previews_by_default() {
             resource_group,
             dry_run,
             force,
+            yes,
         } => {
             assert_eq!(vm_name, "dev");
             assert_eq!(resource_group, None);
@@ -88,6 +89,37 @@ fn disk_repair_neither_forces_nor_previews_by_default() {
                 "`--force` is the only route to mkfs over an existing \
                  filesystem; it must never be the default"
             );
+            assert!(
+                !yes,
+                "the confirmation in front of that mkfs must not be skipped \
+                 by default"
+            );
+        }
+        other => panic!("expected Repair, got {other:?}"),
+    }
+}
+
+/// `--force` and `--yes` are two different permissions and neither implies the
+/// other.
+///
+/// `--force` means "you may run mkfs over a filesystem"; on every other azlin
+/// command `--force` means "do not ask me". Collapsing them here would have
+/// made the flag that permits the reformat also the flag that skips the
+/// question about it, which is how `azlin disk repair --force <typo>` becomes
+/// unrecoverable.
+#[test]
+fn disk_repair_separates_permission_to_reformat_from_confirmation() {
+    match disk_action(&["azlin", "disk", "repair", "dev", "--force"]) {
+        DiskAction::Repair { force, yes, .. } => {
+            assert!(force);
+            assert!(!yes, "`--force` must not imply `--yes`");
+        }
+        other => panic!("expected Repair, got {other:?}"),
+    }
+    match disk_action(&["azlin", "disk", "repair", "dev", "--yes"]) {
+        DiskAction::Repair { force, yes, .. } => {
+            assert!(yes);
+            assert!(!force, "`--yes` must not imply `--force`");
         }
         other => panic!("expected Repair, got {other:?}"),
     }

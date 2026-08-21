@@ -41,9 +41,16 @@ pub(crate) async fn dispatch(
                 resource_group,
                 dry_run,
                 force,
+                yes,
             } => {
-                crate::cmd_disk_ops::handle_disk_repair(&vm_name, resource_group, dry_run, force)
-                    .await?;
+                crate::cmd_disk_ops::handle_disk_repair(
+                    &vm_name,
+                    resource_group,
+                    dry_run,
+                    force,
+                    yes,
+                )
+                .await?;
             }
         },
 
