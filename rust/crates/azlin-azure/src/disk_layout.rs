@@ -409,7 +409,7 @@ pub fn config_from_attached_disks(
 /// It prints facts and has no opinion; [`parse_disk_probe`] decides the verdict.
 pub fn build_disk_probe_script(config: &DiskConfig, username: &str) -> Result<String, String> {
     let user = checked_username(username)?;
-    let mut s = String::with_capacity(2048);
+    let mut s = String::with_capacity(4096);
 
     s.push_str(
         "#!/bin/sh\n\
@@ -697,7 +697,7 @@ pub fn build_disk_repair_script(
     let needs_backing_mount = finding.stage < DiskStage::BackingMounted;
     let home = role.bind_kind == BindKind::UserHome;
 
-    let mut s = String::with_capacity(2048);
+    let mut s = String::with_capacity(4096);
     s.push_str("set -euo pipefail\n");
     s.push_str(&format!(
         "DEV=\"$(readlink -f {} 2>/dev/null || true)\"\n\
