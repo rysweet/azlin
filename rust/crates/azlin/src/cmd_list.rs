@@ -235,12 +235,17 @@ pub(crate) async fn dispatch(
                 },
                 queried_subscriptions.len(),
             );
+            // The "Azure Bastion Hosts" table is withheld on the same grounds,
+            // and the note above accounts for it. The gate is taken from the
+            // decision that produced the note rather than re-derived from the
+            // subscription count: a second copy of the threshold is exactly how
+            // `--show-procs` drifted out of sync with the note it was supposed
+            // to obey. The note is emitted iff enrichment was withheld, so the
+            // table is now withheld iff the note explains it.
+            let cross_subscription = note.is_some();
             if let Some(note) = note {
                 eprintln!("{note}");
             }
-            // The "Azure Bastion Hosts" table is withheld on the same grounds,
-            // and the note above accounts for it.
-            let cross_subscription = queried_subscriptions.len() > 1;
 
             if effective_verbose {
                 eprintln!("[VERBOSE] Detecting bastion hosts...");
@@ -286,7 +291,7 @@ pub(crate) async fn dispatch(
                             // through a message the operator has no reason to
                             // distrust.
                             let first_line = crate::cmd_list_data::sanitize_remote_text(
-                                cause.lines().next().unwrap_or("").trim(),
+                                crate::list_helpers::first_reportable_line(&cause),
                             );
                             let rg = crate::cmd_list_data::sanitize_remote_text(rg);
                             failed_rgs.push(if first_line.is_empty() {
