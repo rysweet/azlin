@@ -13,6 +13,32 @@ fn resolve_ssh_key() -> Option<std::path::PathBuf> {
     crate::key_helpers::find_preferred_private_key(&ssh_dir)
 }
 
+/// The ssh options every probe in this module shares: connect timeout, batch
+/// mode, and the identity file when there is one.
+///
+/// Route-specific options stay at the call site — direct probes add
+/// `StrictHostKeyChecking=accept-new`, bastion probes add
+/// [`crate::bastion_tunnel::bastion_loopback_ssh_opts`] and `-p <port>` — but
+/// three call sites had each spelled this common tail by hand, and each spelled
+/// the identity fallback `key.to_str().unwrap_or("")`. That hands ssh an empty
+/// `-i` argument rather than omitting the flag, so a key path that is not valid
+/// UTF-8 makes ssh fail on a missing identity file and the probe reports the VM
+/// as unreachable. Omitting `-i` is the honest degradation: it is exactly the
+/// state `resolve_ssh_key` returning `None` already produces.
+fn probe_ssh_opts(connect_timeout: u64, ssh_key: Option<&std::path::Path>) -> Vec<String> {
+    let mut opts = vec![
+        "-o".to_string(),
+        format!("ConnectTimeout={}", connect_timeout),
+        "-o".to_string(),
+        "BatchMode=yes".to_string(),
+    ];
+    if let Some(key) = ssh_key.and_then(|k| k.to_str()) {
+        opts.push("-i".to_string());
+        opts.push(key.to_string());
+    }
+    opts
+}
+
 /// Result of resolving a bare identifier against known tmux session names
 /// across all running VMs in a resource group.
 #[derive(Debug, PartialEq, Eq)]
@@ -38,9 +64,12 @@ pub(crate) async fn find_vm_by_tmux_session(
     session_name: &str,
     verbose: bool,
 ) -> SessionLookup {
-    // collect_tmux_sessions now auto-detects whether bastion probing is
-    // needed based on the VM list, so no output-format flag is required.
-    let tmux_sessions = collect_tmux_sessions(vms, verbose, subscription_id, connect_timeout).await;
+    // Bastion routing is discovered from the VM list, so no output-format flag
+    // is required. This caller runs one collector, so it owns the map for the
+    // length of that one call.
+    let bastion_map = discover_bastions_async(vms).await;
+    let tmux_sessions =
+        collect_tmux_sessions(vms, &bastion_map, verbose, subscription_id, connect_timeout).await;
     match_session_in_map(&tmux_sessions, session_name)
 }
 
@@ -239,21 +268,20 @@ pub(crate) fn valid_bastion_coordinates(name: &str, location: &str) -> bool {
 
 /// Discover bastions for every resource group that has a bastion-only VM.
 ///
-/// Blocking `az` calls. `collect_tmux_sessions` is `async` and wraps this in
-/// `spawn_blocking`, because it goes on to drive concurrent SSH probes in a
-/// `JoinSet` and blocking the runtime would stall the very probes it spawned.
-/// `collect_health_data` and `collect_procs` are synchronous and sequential:
-/// they call this directly and block their own thread, which is the thread the
-/// work would occupy either way. Any *new* async caller belongs in the first
-/// group.
+/// Blocking `az` calls: one `az network bastion list` per resource group that
+/// needs routing. Async callers must go through [`discover_bastions_async`],
+/// which moves this off the runtime — `collect_tmux_sessions` drives concurrent
+/// SSH probes in a `JoinSet`, and blocking the runtime here would stall the
+/// very probes it spawned.
 ///
-/// Each collector that needs routing calls this itself, so combining
-/// `--with-health` and `--show-procs` repeats the lookup up to three times per
-/// resource group. That is wasted latency, not a wrong answer — tunnels are
-/// deduplicated by the tunnel registry, so the repeats cost `az` calls only.
-/// Threading one shared map through every collector is the real fix and is
-/// deliberately left out of this change, which is already wide.
-fn discover_bastions(vms: &[VmInfo]) -> BastionMap {
+/// The result belongs to the *caller*, not to each collector. Discovery is a
+/// pure function of `vms`, and a single `azlin vm list --with-health
+/// --show-procs` runs three collectors over one VM list: when each discovered
+/// routing for itself the command spent three `az` invocations per resource
+/// group to compute the same map three times, and the operator watched three
+/// spinners re-derive one answer. Every collector now borrows a map the caller
+/// discovered once.
+pub(crate) fn discover_bastions(vms: &[VmInfo]) -> BastionMap {
     let mut map = BastionMap::new();
     for rg in resource_groups_needing_bastion_lookup(vms) {
         let found = match crate::list_helpers::detect_bastion_hosts(&rg) {
@@ -272,6 +300,30 @@ fn discover_bastions(vms: &[VmInfo]) -> BastionMap {
         }
     }
     map
+}
+
+/// [`discover_bastions`] for async callers, run off the runtime.
+///
+/// The single entry point for anyone holding a VM list and about to run one or
+/// more collectors over it. It exists so that hoisting discovery out of the
+/// collectors did not leave three callers each hand-rolling the same
+/// `spawn_blocking` and the same failure message.
+pub(crate) async fn discover_bastions_async(vms: &[VmInfo]) -> BastionMap {
+    let owned: Vec<VmInfo> = vms.to_vec();
+    match tokio::task::spawn_blocking(move || discover_bastions(&owned)).await {
+        Ok(map) => map,
+        // An empty map here is not "no bastions exist" — it is "we never found
+        // out". Every bastion-only VM would report zero sessions with nothing
+        // on screen to distinguish that from genuinely having none.
+        Err(e) => {
+            eprintln!(
+                "Warning: bastion discovery did not complete ({}); VMs reachable only \
+                 through a bastion will show no tmux sessions, health or process data.",
+                e
+            );
+            BastionMap::new()
+        }
+    }
 }
 
 /// Fold one resource group's `az network bastion list` result into `map`,
@@ -414,13 +466,21 @@ pub(crate) fn latency_probe_host(vm: &VmInfo) -> Option<String> {
 /// Without a bastion in the map every bastion-only VM in that resource group
 /// silently degrades to its private IP and reports nothing, which is
 /// indistinguishable from having nothing to report.
+///
+/// Both interpolations are sanitized. The resource group name is chosen by
+/// whoever created it, and `az` quotes the names it was given back into its own
+/// error text, so an escape sequence in either reaches the terminal through a
+/// message the operator has no reason to distrust. Taking the first line alone
+/// stops a fabricated *second* warning; it does nothing about a cursor-movement
+/// sequence rewriting the one line we do print.
 pub(crate) fn bastion_lookup_failure_warning(resource_group: &str, error: &str) -> String {
     let first_line = error.lines().next().unwrap_or("").trim();
     format!(
         "Warning: could not list bastion hosts in resource group {}: {}. \
          VMs there that are only reachable through a bastion will show no tmux, \
          health or process data.",
-        resource_group, first_line
+        sanitize_remote_text(resource_group),
+        sanitize_remote_text(first_line)
     )
 }
 
@@ -430,11 +490,16 @@ pub(crate) fn bastion_lookup_failure_warning(resource_group: &str, error: &str) 
 /// indistinguishable from "this VM has no sessions" unless we say so — and
 /// saying so only under `--verbose` means the default path degrades silently.
 /// It goes to stderr, so JSON and CSV consumers are unaffected.
+/// The VM name, the bastion name and the error text are all sanitized: the
+/// first two are Azure resource names an operator (or anyone with write access
+/// to the subscription) chooses, and the third routinely quotes them back.
 pub(crate) fn tunnel_failure_warning(vm_name: &str, bastion_name: &str, error: &str) -> String {
     let first_line = error.lines().next().unwrap_or("").trim();
     format!(
         "Warning: could not open a bastion tunnel to {} via {} ({}); its sessions will not be listed.",
-        vm_name, bastion_name, first_line
+        sanitize_remote_text(vm_name),
+        sanitize_remote_text(bastion_name),
+        sanitize_remote_text(first_line)
     )
 }
 
@@ -458,7 +523,7 @@ pub(crate) fn colliding_vm_names(vms: &[VmInfo]) -> std::collections::HashSet<St
 
 /// The warning printed once when some VM names collide.
 fn collision_warning(colliding: &std::collections::HashSet<String>) -> String {
-    let mut names: Vec<&str> = colliding.iter().map(|s| s.as_str()).collect();
+    let mut names: Vec<String> = colliding.iter().map(|s| sanitize_remote_text(s)).collect();
     names.sort();
     format!(
         "Warning: VM name(s) {} appear in more than one resource group; \
@@ -468,11 +533,16 @@ fn collision_warning(colliding: &std::collections::HashSet<String>) -> String {
     )
 }
 
-/// Make text read off a remote host safe to print in a single table cell.
+/// Make text this machine did not author safe to print in a single line.
 ///
 /// Session and process names come from the listed hosts — the least observed
 /// machines in a fleet — and land directly in the operator's terminal, so
 /// control characters are stripped and the length is capped.
+///
+/// The same treatment applies to Azure-supplied strings: resource, VM and
+/// bastion names are chosen by whoever created them, and `az` error text quotes
+/// them back. A warning is not a safer place to print an escape sequence than a
+/// table cell is.
 ///
 /// Newlines are stripped along with every other control character: each caller
 /// already reduces its remote output to one line per cell, and a surviving
@@ -510,33 +580,18 @@ fn is_bidi_or_invisible(c: char) -> bool {
 /// tunnels are pre-created sequentially because tunnel creation mutates a
 /// shared registry file.
 ///
-/// Bastion detection runs whenever at least one running VM has no public IP
-/// (i.e. is bastion-only), regardless of output format. It was once gated on
+/// Bastion routing is supplied by the caller via [`discover_bastions_async`],
+/// which runs whenever at least one running VM has no public IP (i.e. is
+/// bastion-only), regardless of output format. It was once gated on
 /// `is_table_output`, so tmux sessions were never collected for private VMs in
 /// JSON/CSV output modes.
 pub(crate) async fn collect_tmux_sessions(
     vms: &[VmInfo],
+    bastion_map: &BastionMap,
     verbose: bool,
     subscription_id: &str,
     connect_timeout: u64,
 ) -> HashMap<String, Vec<String>> {
-    let owned: Vec<VmInfo> = vms.to_vec();
-    let bastion_map: BastionMap =
-        match tokio::task::spawn_blocking(move || discover_bastions(&owned)).await {
-            Ok(map) => map,
-            // An empty map here is not "no bastions exist" — it is "we never
-            // found out". Every bastion-only VM would report zero sessions with
-            // nothing on screen to distinguish that from genuinely having none.
-            Err(e) => {
-                eprintln!(
-                    "Warning: bastion discovery did not complete ({}); VMs reachable only \
-                 through a bastion will show no tmux sessions.",
-                    e
-                );
-                BastionMap::new()
-            }
-        };
-
     let ssh_key = resolve_ssh_key();
 
     // Same-named VMs in different resource groups cannot be told apart in a
@@ -559,7 +614,7 @@ pub(crate) async fn collect_tmux_sessions(
         .filter(|vm| !colliding.contains(&vm.name))
         .cloned()
         .collect();
-    let planned = plan_bastion_tunnels(&probe_vms, &bastion_map, subscription_id);
+    let planned = plan_bastion_tunnels(&probe_vms, bastion_map, subscription_id);
     if planned.skipped > 0 {
         eprintln!(
             "Warning: {} bastion-only VM(s) beyond the limit of {} tunnels per run were not probed; \
@@ -589,7 +644,15 @@ pub(crate) async fn collect_tmux_sessions(
                     tunnel_failure_warning(&plan.vm_name, &plan.bastion_name, &e.to_string())
                 );
                 if verbose {
-                    eprintln!("[VERBOSE] tunnel error for {}: {:#}", plan.vm_name, e);
+                    // `{:#}` prints the whole anyhow chain, which is the point
+                    // of the verbose line — but it is also the one path that
+                    // reaches the terminal without passing through
+                    // `tunnel_failure_warning`, so it sanitizes for itself.
+                    eprintln!(
+                        "[VERBOSE] tunnel error for {}: {}",
+                        sanitize_remote_text(&plan.vm_name),
+                        sanitize_remote_text(&format!("{:#}", e))
+                    );
                 }
             }
         }
@@ -604,7 +667,7 @@ pub(crate) async fn collect_tmux_sessions(
         if colliding.contains(&vm.name) {
             continue;
         }
-        let route = probe_route(vm, &bastion_map, subscription_id);
+        let route = probe_route(vm, bastion_map, subscription_id);
         // A tunnel that failed to open is not the end of the road. The VM's
         // private IP is routable for an operator on a VPN or peered network,
         // and a listed session beats a blank cell that reads as "no sessions"
@@ -634,23 +697,14 @@ pub(crate) async fn collect_tmux_sessions(
         let vm_name = vm.name.clone();
         let ssh_key = ssh_key.clone();
         let tmux_cmd = tmux_cmd.to_string();
-        let timeout_arg = format!("ConnectTimeout={}", connect_timeout);
+        let common_opts = probe_ssh_opts(connect_timeout, ssh_key.as_deref());
 
         match route {
             ProbeRoute::Direct { host } => {
                 join_set.spawn(async move {
                     let mut cmd = tokio::process::Command::new("ssh");
-                    cmd.args([
-                        "-o",
-                        "StrictHostKeyChecking=accept-new",
-                        "-o",
-                        &timeout_arg,
-                        "-o",
-                        "BatchMode=yes",
-                    ]);
-                    if let Some(ref key) = ssh_key {
-                        cmd.args(["-i", key.to_str().unwrap_or("")]);
-                    }
+                    cmd.args(["-o", "StrictHostKeyChecking=accept-new"]);
+                    cmd.args(&common_opts);
                     cmd.arg(format!("{}@{}", user, host));
                     cmd.arg(&tmux_cmd);
                     cmd.stdout(std::process::Stdio::piped())
@@ -666,11 +720,8 @@ pub(crate) async fn collect_tmux_sessions(
                 join_set.spawn(async move {
                     let mut cmd = tokio::process::Command::new("ssh");
                     cmd.args(crate::bastion_tunnel::bastion_loopback_ssh_opts());
-                    cmd.args(["-o", &timeout_arg, "-o", "BatchMode=yes"]);
                     cmd.args(["-p", &port.to_string()]);
-                    if let Some(ref key) = ssh_key {
-                        cmd.args(["-i", key.to_str().unwrap_or("")]);
-                    }
+                    cmd.args(&common_opts);
                     cmd.arg(format!("{}@127.0.0.1", user));
                     cmd.arg(&tmux_cmd);
                     cmd.stdout(std::process::Stdio::piped())
@@ -793,10 +844,10 @@ pub(crate) fn collect_latencies(vms: &[VmInfo]) -> HashMap<String, u64> {
 /// Collect detailed health metrics (CPU, Mem, Disk, Agent) for running VMs via SSH.
 pub(crate) fn collect_health_data(
     vms: &[VmInfo],
+    bastion_map: &BastionMap,
     subscription_id: &str,
 ) -> HashMap<String, crate::HealthMetrics> {
     let mut health_data = HashMap::new();
-    let bastion_map = discover_bastions(vms);
     let ssh_key_path = resolve_ssh_key();
     let colliding = colliding_vm_names(vms);
 
@@ -812,7 +863,7 @@ pub(crate) fn collect_health_data(
 
         // A bastion-only VM with no recorded private IP is still reachable
         // through its tunnel; it used to be skipped for having no address.
-        let (ip, bastion_info_owned) = match probe_route(vm, &bastion_map, subscription_id) {
+        let (ip, bastion_info_owned) = match probe_route(vm, bastion_map, subscription_id) {
             ProbeRoute::Direct { host } => (host, None),
             ProbeRoute::Bastion {
                 target,
@@ -846,6 +897,7 @@ pub(crate) fn collect_health_data(
 /// machine, so they silently reported no processes at all.
 pub(crate) fn collect_procs(
     vms: &[VmInfo],
+    bastion_map: &BastionMap,
     connect_timeout: u64,
     subscription_id: &str,
 ) -> HashMap<String, String> {
@@ -853,7 +905,6 @@ pub(crate) fn collect_procs(
         "ps aux --sort=-%mem | head -6 | tail -5 | awk '{print $11}' | tr '\\n' ', '";
 
     let mut proc_data = HashMap::new();
-    let bastion_map = discover_bastions(vms);
     let ssh_key_path = resolve_ssh_key();
     let colliding = colliding_vm_names(vms);
 
@@ -870,19 +921,9 @@ pub(crate) fn collect_procs(
         // route and by the bastion route's fallback so the two cannot drift
         // into spelling the same probe differently.
         let direct_probe = |host: &str| -> Option<String> {
-            let timeout_val = format!("ConnectTimeout={}", connect_timeout);
             let mut cmd = std::process::Command::new("ssh");
-            cmd.args([
-                "-o",
-                "StrictHostKeyChecking=accept-new",
-                "-o",
-                &timeout_val,
-                "-o",
-                "BatchMode=yes",
-            ]);
-            if let Some(ref key) = ssh_key_path {
-                cmd.args(["-i", key.to_str().unwrap_or("")]);
-            }
+            cmd.args(["-o", "StrictHostKeyChecking=accept-new"]);
+            cmd.args(probe_ssh_opts(connect_timeout, ssh_key_path.as_deref()));
             cmd.arg(format!("{}@{}", user, host)).arg(PROC_CMD);
             match cmd.output() {
                 Ok(out) if out.status.success() => {
@@ -892,7 +933,7 @@ pub(crate) fn collect_procs(
             }
         };
 
-        let procs = match probe_route(vm, &bastion_map, subscription_id) {
+        let procs = match probe_route(vm, bastion_map, subscription_id) {
             ProbeRoute::Direct { host } => match direct_probe(&host) {
                 Some(out) => out,
                 None => continue,
@@ -2386,6 +2427,117 @@ mod silent_degradation_tests {
         assert!(
             !msg.contains("stack frame"),
             "detail is --verbose-only: {msg}"
+        );
+    }
+    /// Azure resource names and `az` error text are not authored by this
+    /// machine, and a warning is not a safer place to print an escape sequence
+    /// than a table cell is: a `\r` plus a cursor-movement sequence lets the
+    /// named group overwrite the warning that names it.
+    #[test]
+    fn warnings_sanitize_every_string_this_machine_did_not_author() {
+        let hostile = "rg\x1b[2K\rall clear";
+
+        let lookup = bastion_lookup_failure_warning(hostile, hostile);
+        let tunnel = tunnel_failure_warning(hostile, hostile, hostile);
+        let collision = collision_warning(&std::collections::HashSet::from([hostile.to_string()]));
+
+        for msg in [&lookup, &tunnel, &collision] {
+            assert!(
+                !msg.contains('\x1b') && !msg.contains('\r'),
+                "control characters must not survive into a warning: {msg:?}"
+            );
+            assert_eq!(msg.lines().count(), 1, "a warning is one line: {msg:?}");
+            // Stripping the ESC is what disarms the sequence; the printable
+            // remainder stays visible rather than being silently swallowed,
+            // so the operator can see what the group was really called.
+            assert!(
+                msg.contains("rg[2Kall clear"),
+                "the text itself is kept, only the escape is stripped: {msg:?}"
+            );
+        }
+    }
+
+    /// A bidi override in a VM or bastion name reverses the rendering of
+    /// everything after it, so one VM's warning can read as another's. Table
+    /// cells already strip these; warnings must too.
+    #[test]
+    fn warnings_strip_bidi_overrides_not_just_control_characters() {
+        let msg = tunnel_failure_warning("azt-prod\u{202E}", "bst", "denied");
+        assert!(
+            !msg.contains('\u{202E}'),
+            "RIGHT-TO-LEFT OVERRIDE must not reach the terminal: {msg:?}"
+        );
+        assert!(msg.contains("azt-prod"), "the name is still named: {msg:?}");
+    }
+
+    /// The three probe call sites each spelled the identity fallback
+    /// `to_str().unwrap_or("")`, which passes ssh `-i ""`. ssh then fails on a
+    /// missing identity file and the probe reports the VM as unreachable —
+    /// a key path that is not valid UTF-8 turns into a phantom dead VM.
+    /// Omitting the flag is the same state as having no key at all.
+    #[test]
+    fn probe_ssh_opts_omits_the_identity_flag_rather_than_passing_an_empty_one() {
+        let opts = probe_ssh_opts(7, None);
+        assert!(
+            !opts.iter().any(|o| o == "-i"),
+            "no key means no -i at all: {opts:?}"
+        );
+        assert!(
+            !opts.iter().any(|o| o.is_empty()),
+            "an empty argument is never correct: {opts:?}"
+        );
+    }
+
+    /// Every probe shares the connect timeout and batch mode; without
+    /// `BatchMode=yes` a probe against a VM needing a passphrase blocks the
+    /// whole listing on a prompt the operator cannot see behind the spinner.
+    #[test]
+    fn probe_ssh_opts_carries_the_timeout_and_batch_mode_and_the_key_when_there_is_one() {
+        let key = std::path::PathBuf::from("/home/op/.ssh/id_ed25519");
+        let opts = probe_ssh_opts(42, Some(&key));
+        assert!(
+            opts.windows(2)
+                .any(|w| w[0] == "-o" && w[1] == "ConnectTimeout=42"),
+            "the caller's timeout must be the one used: {opts:?}"
+        );
+        assert!(
+            opts.windows(2)
+                .any(|w| w[0] == "-o" && w[1] == "BatchMode=yes"),
+            "a probe must never prompt: {opts:?}"
+        );
+        assert!(
+            opts.windows(2)
+                .any(|w| w[0] == "-i" && w[1] == "/home/op/.ssh/id_ed25519"),
+            "the resolved key must be passed: {opts:?}"
+        );
+    }
+
+    /// `discover_bastions` is a pure function of the VM list, which is what
+    /// makes hoisting it out of the three collectors safe: the map a caller
+    /// discovers once is the map each collector would have discovered for
+    /// itself. If a VM list ever stops determining the set of groups looked
+    /// up, the shared map becomes wrong for some collector and this fails.
+    #[test]
+    fn bastion_lookup_depends_only_on_the_vm_list() {
+        let vms = vec![
+            vm_in_rg("azt-a", "rg-a", "centralus", PowerState::Running),
+            vm_in_rg("azt-b", "rg-b", "westus", PowerState::Running),
+            // Public IP, so `rg-c` needs no bastion lookup at all.
+            VmInfo {
+                resource_group: "rg-c".to_string(),
+                ..vm("azt-c", "centralus", Some("4.4.4.4"), PowerState::Running)
+            },
+        ];
+        let first = resource_groups_needing_bastion_lookup(&vms);
+        let second = resource_groups_needing_bastion_lookup(&vms);
+        assert_eq!(
+            first, second,
+            "repeat lookups differ, so one shared map cannot serve every collector"
+        );
+        assert_eq!(
+            first,
+            vec!["rg-a".to_string(), "rg-b".to_string()],
+            "only groups holding a bastion-only VM are looked up: {first:?}"
         );
     }
 }

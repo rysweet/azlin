@@ -109,6 +109,10 @@ contains a running VM with no public IP:
 - A listing where every VM has a public IP performs no bastion lookup at all.
 - The common single-resource-group listing performs exactly one, as before.
 - A `--show-all-vms` listing performs one per resource group that needs it.
+- The count does not change when you add `--with-health` or `--show-procs`.
+  Discovery happens once per command and the map is shared by every enrichment
+  collector; each collector used to discover routing for itself, so combining
+  the flags spent three lookups per resource group to compute one answer.
 
 Discovery used to run against the resource group of whichever VM sorted first,
 which made it the same first-iterated-wins bug as the shared tunnel, one call

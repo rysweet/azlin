@@ -7,7 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`azlin list` discovers bastion routing once per command instead of once per
+  enrichment collector** — `collect_tmux_sessions`, `collect_health_data` and
+  `collect_procs` each called `discover_bastions` for themselves, so
+  `azlin vm list --with-health --show-procs` ran `az network bastion list` three
+  times per resource group to compute the same `BastionMap` three times, and the
+  operator watched three spinners re-derive one answer. `az` costs about 0.9s of
+  process start alone before the ARM round-trip, so a five-resource-group
+  listing spent at least nine seconds on ten redundant lookups. Discovery is a
+  pure function of the VM list, so it is now done once by the caller and lent to
+  every collector: same routing, a third of the `az` calls. Callers that run a
+  single collector go through the new `discover_bastions_async`, which is also
+  where the `spawn_blocking` hop and the discovery-failed warning now live.
+
 ### Fixed
+- **Terminal escape sequences in Azure-supplied names no longer reach the
+  terminal through `azlin list` warnings or the bastion table** — session and
+  process names read off remote hosts were sanitized, but resource group, VM and
+  bastion names, and the `az` error text that quotes them back, were not.
+  Resource names are chosen by anyone with write access to the subscription, and
+  `--verbose` printed the whole `anyhow` chain of a tunnel failure raw. Taking
+  the first line of an error blocks a *fabricated second warning*; it does
+  nothing about a cursor-movement sequence rewriting the line that is printed.
+  `bastion_lookup_failure_warning`, `tunnel_failure_warning`,
+  `collision_warning`, the verbose tunnel-error line, the "Azure Bastion Hosts"
+  table and the failed-resource-group warning all sanitize now. A warning is not
+  a safer place to print an escape sequence than a table cell is.
+- **A non-UTF-8 SSH key path no longer reports reachable VMs as unreachable** —
+  the three SSH probe sites each spelled the identity fallback
+  `key.to_str().unwrap_or("")`, which hands `ssh` an empty `-i` argument rather
+  than omitting the flag. `ssh` then failed on a missing identity file and the
+  probe was indistinguishable from an unreachable VM. The shared timeout, batch
+  mode and identity options now come from one `probe_ssh_opts` helper, which
+  omits `-i` entirely when the path is not usable — the same state as having no
+  key at all.
 - **`azlin list` no longer reports zero tmux sessions for every bastion-only VM
   but one** (the tunnel keying shipped in `v2.6.126-rust.12ccf60`; recorded
   retroactively together with the gaps found reviewing it) — an Azure Bastion

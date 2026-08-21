@@ -251,9 +251,18 @@ pub(crate) async fn dispatch(
                         // operator to guess which one they hit.
                         Err(e) => {
                             let cause = e.to_string();
-                            let first_line = cause.lines().next().unwrap_or("").trim().to_string();
+                            // Both halves are sanitized: the group name is
+                            // chosen by whoever created it and `az` quotes it
+                            // back into its own error text, so an escape
+                            // sequence in either would reach the terminal
+                            // through a message the operator has no reason to
+                            // distrust.
+                            let first_line = crate::cmd_list_data::sanitize_remote_text(
+                                cause.lines().next().unwrap_or("").trim(),
+                            );
+                            let rg = crate::cmd_list_data::sanitize_remote_text(rg);
                             failed_rgs.push(if first_line.is_empty() {
-                                rg.clone()
+                                rg
                             } else {
                                 format!("{} ({})", rg, first_line)
                             });
@@ -267,8 +276,15 @@ pub(crate) async fn dispatch(
                         &["Name", "Location", "SKU"],
                         &[30, 14, 15],
                     );
+                    // Every cell is an Azure-supplied name. The tmux and process
+                    // columns already sanitize for exactly this reason; a
+                    // bastion name is no more trustworthy than a session name.
                     for (name, location, sku) in &bastions {
-                        bastion_table.add_row(vec![name.clone(), location.clone(), sku.clone()]);
+                        bastion_table.add_row(vec![
+                            crate::cmd_list_data::sanitize_remote_text(name),
+                            crate::cmd_list_data::sanitize_remote_text(location),
+                            crate::cmd_list_data::sanitize_remote_text(sku),
+                        ]);
                     }
                     println!("Azure Bastion Hosts");
                     println!("{bastion_table}");
@@ -293,10 +309,28 @@ pub(crate) async fn dispatch(
             // Either flag turning it off is the reading that cannot surprise
             // anyone: both say "off" and neither has ever meant "on".
             let want_tmux = show_tmux && !no_tmux;
-            let tmux_sessions = if want_tmux && !cross_subscription {
+
+            // The three enrichment collectors below all route through the same
+            // bastion map, and each used to discover it for itself: with
+            // `--with-health --show-procs` that was three `az network bastion
+            // list` calls per resource group computing one answer, and three
+            // spinners spent re-deriving it. Discovery is a pure function of
+            // the VM list, so it happens once here — but only when a collector
+            // that needs it will actually run, which is why these gates are
+            // named rather than repeated.
+            let collect_tmux = want_tmux && !cross_subscription;
+            let collect_health = with_health && !cross_subscription;
+            let bastion_map = if collect_tmux || collect_health || show_procs {
+                crate::cmd_list_data::discover_bastions_async(&all_vms).await
+            } else {
+                Default::default()
+            };
+
+            let tmux_sessions = if collect_tmux {
                 let pb = penguin_spinner("Collecting tmux sessions...");
                 let sessions = crate::cmd_list_data::collect_tmux_sessions(
                     &all_vms,
+                    &bastion_map,
                     effective_verbose,
                     vm_manager.subscription_id(),
                     ssh_timeout,
@@ -317,10 +351,11 @@ pub(crate) async fn dispatch(
                 std::collections::HashMap::new()
             };
 
-            let health_data = if with_health && !cross_subscription {
+            let health_data = if collect_health {
                 let pb = penguin_spinner("Checking VM health...");
                 let result = crate::cmd_list_data::collect_health_data(
                     &all_vms,
+                    &bastion_map,
                     vm_manager.subscription_id(),
                 );
                 pb.finish_and_clear();
@@ -333,6 +368,7 @@ pub(crate) async fn dispatch(
                 let pb = penguin_spinner("Collecting process data...");
                 let result = crate::cmd_list_data::collect_procs(
                     &all_vms,
+                    &bastion_map,
                     ssh_timeout,
                     vm_manager.subscription_id(),
                 );
