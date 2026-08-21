@@ -73,6 +73,52 @@ pub(crate) fn match_session_in_map(
     }
 }
 
+/// One bastion tunnel that must be opened before the tmux probes can run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BastionTunnelPlan {
+    pub vm_name: String,
+    pub bastion_name: String,
+    pub resource_group: String,
+    pub vm_resource_id: String,
+}
+
+/// Decide which bastion tunnels `collect_tmux_sessions` needs, one per VM.
+///
+/// A bastion tunnel is bound to ONE target VM — it is opened against that VM's
+/// resource id — so every bastion-only VM needs its own tunnel. An earlier
+/// version opened a single tunnel per *bastion* and shared its port across all
+/// the VMs in that region, which sent every probe to whichever VM was reached
+/// first; the rest reported zero tmux sessions even when they had some.
+pub(crate) fn plan_bastion_tunnels(
+    vms: &[VmInfo],
+    bastion_map: &HashMap<String, String>,
+    subscription_id: &str,
+) -> Vec<BastionTunnelPlan> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut plans = Vec::new();
+    for vm in vms {
+        if vm.power_state != azlin_core::models::PowerState::Running || vm.public_ip.is_some() {
+            continue;
+        }
+        let Some(bastion_name) = bastion_map.get(&vm.location) else {
+            continue;
+        };
+        if !seen.insert(vm.name.clone()) {
+            continue; // Already planned for this VM
+        }
+        plans.push(BastionTunnelPlan {
+            vm_name: vm.name.clone(),
+            bastion_name: bastion_name.clone(),
+            resource_group: vm.resource_group.clone(),
+            vm_resource_id: format!(
+                "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
+                subscription_id, vm.resource_group, vm.name
+            ),
+        });
+    }
+    plans
+}
+
 /// Collect tmux sessions for all running VMs via SSH (direct or bastion).
 ///
 /// SSH probes run concurrently (up to 8 at a time) using `tokio::process::Command`
@@ -114,38 +160,26 @@ pub(crate) async fn collect_tmux_sessions(
 
     let ssh_key = resolve_ssh_key();
 
-    // Pre-create bastion tunnels so concurrent SSH tasks share them.
-    // Tunnel creation mutates a shared registry file, so we do it sequentially.
+    // Pre-create bastion tunnels before the concurrent SSH probes, because
+    // tunnel creation mutates a shared registry file and must stay sequential.
     let mut bastion_ports: HashMap<String, u16> = HashMap::new();
-    for vm in vms {
-        if vm.power_state != azlin_core::models::PowerState::Running || vm.public_ip.is_some() {
-            continue;
-        }
-        if let Some(bastion_name) = bastion_map.get(&vm.location) {
-            if bastion_ports.contains_key(bastion_name) {
-                continue; // Already opened for this bastion
+    for plan in plan_bastion_tunnels(vms, &bastion_map, subscription_id) {
+        match crate::bastion_tunnel::get_or_create_tunnel(
+            &plan.bastion_name,
+            &plan.resource_group,
+            &plan.vm_resource_id,
+        )
+        .await
+        {
+            Ok(port) => {
+                bastion_ports.insert(plan.vm_name, port);
             }
-            let vm_id = format!(
-                "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
-                subscription_id, vm.resource_group, vm.name
-            );
-            match crate::bastion_tunnel::get_or_create_tunnel(
-                bastion_name,
-                &vm.resource_group,
-                &vm_id,
-            )
-            .await
-            {
-                Ok(port) => {
-                    bastion_ports.insert(bastion_name.clone(), port);
-                }
-                Err(e) => {
-                    if verbose {
-                        eprintln!(
-                            "[VERBOSE] Failed to create bastion tunnel for {}: {}",
-                            vm.name, e
-                        );
-                    }
+            Err(e) => {
+                if verbose {
+                    eprintln!(
+                        "[VERBOSE] Failed to create bastion tunnel for {}: {}",
+                        plan.vm_name, e
+                    );
                 }
             }
         }
@@ -192,8 +226,8 @@ pub(crate) async fn collect_tmux_sessions(
                     .stderr(std::process::Stdio::piped());
                 (vm_name, cmd.output().await)
             });
-        } else if let Some(bastion_name) = bastion_map.get(&vm.location) {
-            if let Some(&port) = bastion_ports.get(bastion_name) {
+        } else if bastion_map.contains_key(&vm.location) {
+            if let Some(&port) = bastion_ports.get(&vm.name) {
                 // Bastion SSH via pre-created tunnel
                 join_set.spawn(async move {
                     let mut cmd = tokio::process::Command::new("ssh");
@@ -762,6 +796,97 @@ fn open_linux_terminal(terminal: &LinuxTerminal, command: &str) -> Result<(), St
     match result {
         Ok(_) => Ok(()),
         Err(e) => Err(format!("failed to launch terminal: {}", e)),
+    }
+}
+
+#[cfg(test)]
+mod bastion_tunnel_plan_tests {
+    use super::*;
+    use azlin_core::models::{OsType, PowerState, ProvisioningState, VmInfo};
+
+    fn vm(name: &str, location: &str, public_ip: Option<&str>, state: PowerState) -> VmInfo {
+        VmInfo {
+            name: name.to_string(),
+            resource_group: "rg".to_string(),
+            location: location.to_string(),
+            vm_size: "Standard_D2s_v5".to_string(),
+            power_state: state,
+            provisioning_state: ProvisioningState::Succeeded,
+            os_type: OsType::Linux,
+            os_offer: None,
+            public_ip: public_ip.map(|s| s.to_string()),
+            private_ip: Some("10.0.0.4".to_string()),
+            admin_username: Some("azureuser".to_string()),
+            tags: HashMap::new(),
+            created_time: None,
+        }
+    }
+
+    fn bastion_map(entries: &[(&str, &str)]) -> HashMap<String, String> {
+        entries
+            .iter()
+            .map(|(loc, name)| (loc.to_string(), name.to_string()))
+            .collect()
+    }
+
+    /// Regression: two bastion-only VMs behind the SAME bastion each need their
+    /// own tunnel. Sharing one tunnel per bastion sent both probes to whichever
+    /// VM was tunnelled first, so the other reported zero tmux sessions.
+    #[test]
+    fn plans_one_tunnel_per_vm_not_per_bastion() {
+        let vms = [
+            vm("dev", "centralus", None, PowerState::Running),
+            vm("azt1", "centralus", None, PowerState::Running),
+        ];
+        let plans = plan_bastion_tunnels(&vms, &bastion_map(&[("centralus", "bst")]), "sub-1");
+
+        assert_eq!(plans.len(), 2, "each VM needs its own tunnel");
+        let names: Vec<&str> = plans.iter().map(|p| p.vm_name.as_str()).collect();
+        assert_eq!(names, vec!["dev", "azt1"]);
+        assert!(
+            plans[0].vm_resource_id != plans[1].vm_resource_id,
+            "tunnels must target distinct VM resource ids"
+        );
+        assert!(plans[0].vm_resource_id.ends_with("/virtualMachines/dev"));
+        assert!(plans.iter().all(|p| p.bastion_name == "bst"));
+    }
+
+    #[test]
+    fn skips_vms_with_public_ips_and_non_running_vms() {
+        let vms = [
+            vm("public", "centralus", Some("4.4.4.4"), PowerState::Running),
+            vm("stopped", "centralus", None, PowerState::Deallocated),
+            vm("private", "centralus", None, PowerState::Running),
+        ];
+        let plans = plan_bastion_tunnels(&vms, &bastion_map(&[("centralus", "bst")]), "sub-1");
+
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].vm_name, "private");
+    }
+
+    #[test]
+    fn skips_regions_without_a_bastion() {
+        let vms = [vm("orphan", "westus3", None, PowerState::Running)];
+        let plans = plan_bastion_tunnels(&vms, &bastion_map(&[("centralus", "bst")]), "sub-1");
+
+        assert!(plans.is_empty());
+    }
+
+    #[test]
+    fn plans_distinct_bastions_for_distinct_regions() {
+        let vms = [
+            vm("a", "centralus", None, PowerState::Running),
+            vm("b", "westus3", None, PowerState::Running),
+        ];
+        let plans = plan_bastion_tunnels(
+            &vms,
+            &bastion_map(&[("centralus", "bst-cus"), ("westus3", "bst-wus3")]),
+            "sub-1",
+        );
+
+        assert_eq!(plans.len(), 2);
+        assert_eq!(plans[0].bastion_name, "bst-cus");
+        assert_eq!(plans[1].bastion_name, "bst-wus3");
     }
 }
 
