@@ -29,10 +29,10 @@ azlin disk check dev
 VM: dev  (rg: rysweet-linux-vm-pool)
 Storage: degraded
 
-  ROLE  LUN  DEVICE      SIZE     STAGE
-  home  0    /dev/sdb    1000G    raw
+  ROLE  LUN  DEVICE    SIZE   STAGE
+  home  0    /dev/sdb  1000G  raw
         no filesystem on the device; /home/<user> is on the OS disk
-  tmp   1    /dev/sdc    200G     raw
+  tmp   1    /dev/sdc  200G   raw
         no filesystem on the device; /tmp is on the OS disk
 ```
 

@@ -53,9 +53,9 @@ azlin disk check build-vm
 VM: build-vm  (rg: azlin-rg)
 Storage: ok
 
-  ROLE  LUN  DEVICE      SIZE     STAGE
-  home  0    /dev/sdb    100G     healthy
-  tmp   1    /dev/sdc    64G      healthy
+ROLE  LUN  DEVICE    SIZE  STAGE
+  home  0    /dev/sdb  100G  healthy
+  tmp   1    /dev/sdc  64G   healthy
 
 Provisioning: complete, status=ok
 ```
@@ -76,10 +76,10 @@ azlin disk check dev
 VM: dev  (rg: rysweet-linux-vm-pool)
 Storage: degraded
 
-  ROLE  LUN  DEVICE      SIZE     STAGE
-  home  0    /dev/sdb    1000G    raw
+  ROLE  LUN  DEVICE    SIZE   STAGE
+  home  0    /dev/sdb  1000G  raw
         no filesystem on the device; /home/<user> is on the OS disk
-  tmp   1    /dev/sdc    200G     raw
+  tmp   1    /dev/sdc  200G   raw
         no filesystem on the device; /tmp is on the OS disk
 
 Provisioning: complete, status unknown (no ledger — VM predates it)

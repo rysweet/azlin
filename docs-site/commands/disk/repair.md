@@ -96,8 +96,8 @@ azlin disk repair dev
 VM: dev  (rg: rysweet-linux-vm-pool)
 
 Plan:
-  home  LUN 0  /dev/sdb    1000G    raw -> healthy
-  tmp   LUN 1  /dev/sdc    200G     raw -> healthy
+  home  0    /dev/sdb  1000G  raw    -> healthy
+  tmp   1    /dev/sdc  200G   raw    -> healthy
 
   home  formatting (no filesystem found)
   home  mounted /dev/sdb on /mnt/home-data

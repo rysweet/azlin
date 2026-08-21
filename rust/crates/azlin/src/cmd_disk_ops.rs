@@ -174,18 +174,23 @@ fn render_report_table(vm_name: &str, rg: &str, report: &DiskReport) {
 
     if !report.disks.is_empty() {
         println!();
-        println!("  ROLE  LUN  DEVICE      SIZE     STAGE");
-        for disk in &report.disks {
-            println!(
-                "  {:<5} {:<4} {:<11} {:<8} {}",
-                disk.role,
-                disk.lun,
-                disk.device.as_deref().unwrap_or("--"),
-                size_cell(disk.size_bytes),
-                disk.stage
-            );
-            if disk.stage != DiskStage::Healthy {
-                println!("        {}", disk.detail);
+        // Widths from content, not hand-spaced: a header string and a row
+        // format kept in character-level agreement by hand misaligns the first
+        // time either changes, and a device path longer than the guessed width
+        // truncates differently here than in the repair plan.
+        for (i, line) in crate::output_helpers::format_as_table(
+            &["ROLE", "LUN", "DEVICE", "SIZE", "STAGE"],
+            &report.disks.iter().map(disk_row).collect::<Vec<_>>(),
+        )
+        .lines()
+        .enumerate()
+        {
+            println!("  {}", line.trim_end());
+            // The header occupies line 0, so disk `n` is line `n + 1`.
+            if let Some(disk) = i.checked_sub(1).and_then(|n| report.disks.get(n)) {
+                if disk.stage != DiskStage::Healthy {
+                    println!("        {}", disk.detail);
+                }
             }
         }
     }
@@ -282,15 +287,18 @@ pub(crate) async fn handle_disk_check(
 // azlin disk repair
 // ---------------------------------------------------------------------------
 
-fn plan_line(disk: &DiskFinding) -> String {
-    format!(
-        "  {:<5} LUN {}  {:<11} {:<8} {} -> healthy",
-        disk.role,
-        disk.lun,
-        disk.device.as_deref().unwrap_or("--"),
+/// One disk as a table row: role, LUN, device, size, stage.
+///
+/// Shared by the `check` table and the `repair` plan so a long device path
+/// cannot be padded one way in one and truncated another way in the other.
+fn disk_row(disk: &DiskFinding) -> Vec<String> {
+    vec![
+        disk.role.clone(),
+        disk.lun.to_string(),
+        disk.device.as_deref().unwrap_or("--").to_string(),
         size_cell(disk.size_bytes),
-        disk.stage
-    )
+        disk.stage.to_string(),
+    ]
 }
 
 pub(crate) async fn handle_disk_repair(
@@ -360,8 +368,22 @@ pub(crate) async fn handle_disk_repair(
 
     println!();
     println!("Plan:");
-    for (disk, _) in &plan {
-        println!("{}", plan_line(disk));
+    let rows: Vec<Vec<String>> = plan
+        .iter()
+        .map(|(disk, _)| {
+            let mut row = disk_row(disk);
+            row.push("-> healthy".to_string());
+            row
+        })
+        .collect();
+    for line in crate::output_helpers::format_as_table(
+        &["ROLE", "LUN", "DEVICE", "SIZE", "STAGE", ""],
+        &rows,
+    )
+    .lines()
+    .skip(1)
+    {
+        println!("  {}", line.trim_end());
     }
 
     if dry_run {
