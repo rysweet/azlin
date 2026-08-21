@@ -218,35 +218,57 @@ pub(crate) async fn dispatch(
                 eprintln!("[VERBOSE] Detecting bastion hosts...");
             }
             // Detect and display bastion hosts (matching Python: shown above VM table)
-            // Use the resolved resource group from the VMs themselves
-            let effective_rg = all_vms
-                .first()
-                .map(|v| v.resource_group.as_str())
-                .unwrap_or("");
+            // Every resource group in the listing is queried, not just the one
+            // belonging to whichever VM sorted first: a listing that spans
+            // resource groups used to display one group's bastions and
+            // silently omit the others.
+            let listing_rgs = crate::cmd_list_data::resource_groups_in_listing(&all_vms);
             if !cross_subscription
                 && matches!(output, azlin_cli::OutputFormat::Table)
-                && !effective_rg.is_empty()
+                && !listing_rgs.is_empty()
             {
                 let pb = penguin_spinner("Detecting bastion hosts...");
-                let bastion_result = crate::list_helpers::detect_bastion_hosts(effective_rg);
-                pb.finish_and_clear();
-                if let Ok(bastions) = bastion_result {
-                    if !bastions.is_empty() {
-                        let mut bastion_table = crate::table_render::SimpleTable::new(
-                            &["Name", "Location", "SKU"],
-                            &[30, 14, 15],
-                        );
-                        for (name, location, sku) in &bastions {
-                            bastion_table.add_row(vec![
-                                name.clone(),
-                                location.clone(),
-                                sku.clone(),
-                            ]);
+                // Deduplicated across resource groups: one bastion can serve
+                // VMs in several of them, and listing it once per group would
+                // read as several bastions.
+                let mut seen = std::collections::HashSet::new();
+                let mut bastions: Vec<(String, String, String)> = Vec::new();
+                let mut failed_rgs: Vec<String> = Vec::new();
+                for rg in &listing_rgs {
+                    match crate::list_helpers::detect_bastion_hosts(rg) {
+                        Ok(found) => {
+                            for entry in found {
+                                if seen.insert(entry.clone()) {
+                                    bastions.push(entry);
+                                }
+                            }
                         }
-                        println!("Azure Bastion Hosts");
-                        println!("{bastion_table}");
-                        println!();
+                        // A failed lookup makes the table incomplete, which is
+                        // indistinguishable from "this group has no bastion"
+                        // unless we say so.
+                        Err(_) => failed_rgs.push(rg.clone()),
                     }
+                }
+                pb.finish_and_clear();
+                bastions.sort();
+                if !bastions.is_empty() {
+                    let mut bastion_table = crate::table_render::SimpleTable::new(
+                        &["Name", "Location", "SKU"],
+                        &[30, 14, 15],
+                    );
+                    for (name, location, sku) in &bastions {
+                        bastion_table.add_row(vec![name.clone(), location.clone(), sku.clone()]);
+                    }
+                    println!("Azure Bastion Hosts");
+                    println!("{bastion_table}");
+                    println!();
+                }
+                if !failed_rgs.is_empty() {
+                    eprintln!(
+                        "Warning: could not list bastion hosts in resource group(s) {}; \
+                         any bastion there is missing from the table above.",
+                        failed_rgs.join(", ")
+                    );
                 }
             }
 
@@ -264,7 +286,6 @@ pub(crate) async fn dispatch(
                 let pb = penguin_spinner("Collecting tmux sessions...");
                 let sessions = crate::cmd_list_data::collect_tmux_sessions(
                     &all_vms,
-                    effective_rg,
                     effective_verbose,
                     vm_manager.subscription_id(),
                     ssh_timeout,
@@ -289,7 +310,6 @@ pub(crate) async fn dispatch(
                 let pb = penguin_spinner("Checking VM health...");
                 let result = crate::cmd_list_data::collect_health_data(
                     &all_vms,
-                    effective_rg,
                     vm_manager.subscription_id(),
                 );
                 pb.finish_and_clear();
@@ -300,7 +320,11 @@ pub(crate) async fn dispatch(
 
             let proc_data = if show_procs {
                 let pb = penguin_spinner("Collecting process data...");
-                let result = crate::cmd_list_data::collect_procs(&all_vms, ssh_timeout);
+                let result = crate::cmd_list_data::collect_procs(
+                    &all_vms,
+                    ssh_timeout,
+                    vm_manager.subscription_id(),
+                );
                 pb.finish_and_clear();
                 result
             } else {

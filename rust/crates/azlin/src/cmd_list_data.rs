@@ -34,7 +34,6 @@ pub(crate) enum SessionLookup {
 /// has a matching tmux session, callers can connect to `vm_name:session_name`.
 pub(crate) async fn find_vm_by_tmux_session(
     vms: &[VmInfo],
-    rg: &str,
     subscription_id: &str,
     connect_timeout: u64,
     session_name: &str,
@@ -42,8 +41,7 @@ pub(crate) async fn find_vm_by_tmux_session(
 ) -> SessionLookup {
     // collect_tmux_sessions now auto-detects whether bastion probing is
     // needed based on the VM list, so no output-format flag is required.
-    let tmux_sessions =
-        collect_tmux_sessions(vms, rg, verbose, subscription_id, connect_timeout).await;
+    let tmux_sessions = collect_tmux_sessions(vms, verbose, subscription_id, connect_timeout).await;
     match_session_in_map(&tmux_sessions, session_name)
 }
 
@@ -73,6 +71,41 @@ pub(crate) fn match_session_in_map(
     }
 }
 
+/// A bastion is scoped to a resource group *and* a region, so a VM may only be
+/// tunnelled through a bastion that shares both. Keying discovery by region
+/// alone would let a VM in `rg-b` be routed through a bastion that only exists
+/// in `rg-a`, where the tunnel open would fail (or, worse, succeed against a
+/// peered network the operator did not intend).
+pub(crate) type BastionMap = HashMap<(String, String), String>;
+
+/// Upper bound on bastion tunnels opened for a single listing.
+///
+/// Each tunnel is a sequential Azure round trip plus a long-lived local
+/// listener, so a very wide listing would otherwise stall for minutes and leak
+/// file descriptors. VMs beyond the cap are *counted*, never silently dropped —
+/// see [`PlannedTunnels::skipped`].
+pub(crate) const MAX_BASTION_TUNNELS_PER_RUN: usize = 32;
+
+/// Upper bound on a single piece of text read off a remote host before it is
+/// handed to the renderer.
+pub(crate) const MAX_REMOTE_TEXT_LEN: usize = 512;
+
+/// Build the ARM resource id for a VM.
+///
+/// Every id in this module goes through here so the id a tunnel is *opened*
+/// against cannot drift from the id used to look its port back up, nor from
+/// the key the tunnel registry stores under.
+pub(crate) fn build_vm_resource_id(
+    subscription_id: &str,
+    resource_group: &str,
+    name: &str,
+) -> String {
+    format!(
+        "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
+        subscription_id, resource_group, name
+    )
+}
+
 /// One bastion tunnel that must be opened before the tmux probes can run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BastionTunnelPlan {
@@ -82,88 +115,314 @@ pub(crate) struct BastionTunnelPlan {
     pub vm_resource_id: String,
 }
 
-/// Decide which bastion tunnels `collect_tmux_sessions` needs, one per VM.
+/// The outcome of [`plan_bastion_tunnels`]: the tunnels to open, plus how many
+/// VMs were left out by [`MAX_BASTION_TUNNELS_PER_RUN`] so the caller can say
+/// so rather than quietly returning a short list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PlannedTunnels {
+    pub plans: Vec<BastionTunnelPlan>,
+    pub skipped: usize,
+}
+
+/// Decide which bastion tunnels the probes need — one per bastion-only VM.
 ///
-/// A bastion tunnel is bound to ONE target VM — it is opened against that VM's
-/// resource id — so every bastion-only VM needs its own tunnel. An earlier
-/// version opened a single tunnel per *bastion* and shared its port across all
-/// the VMs in that region, which sent every probe to whichever VM was reached
-/// first; the rest reported zero tmux sessions even when they had some.
+/// A bastion tunnel is bound to ONE target VM: it is opened against that VM's
+/// resource id. An earlier version opened a single tunnel per *bastion* and
+/// shared its port across every VM in that region, so all probes landed on
+/// whichever VM was reached first and the rest reported zero tmux sessions
+/// even when they had some (#1127).
+///
+/// Deduplication is by resource id, not by name: Azure permits the same VM
+/// name in two resource groups of one subscription, and those are two
+/// different VMs needing two different tunnels.
 pub(crate) fn plan_bastion_tunnels(
     vms: &[VmInfo],
-    bastion_map: &HashMap<String, String>,
+    bastion_map: &BastionMap,
     subscription_id: &str,
-) -> Vec<BastionTunnelPlan> {
+) -> PlannedTunnels {
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut plans = Vec::new();
+    let mut skipped = 0usize;
+
     for vm in vms {
-        if vm.power_state != azlin_core::models::PowerState::Running || vm.public_ip.is_some() {
-            continue;
-        }
-        let Some(bastion_name) = bastion_map.get(&vm.location) else {
+        let ProbeRoute::Bastion { target, .. } = probe_route(vm, bastion_map, subscription_id)
+        else {
             continue;
         };
-        if !seen.insert(vm.name.clone()) {
-            continue; // Already planned for this VM
+        if !seen.insert(target.vm_resource_id.clone()) {
+            continue; // The same VM must not get two tunnels.
         }
-        plans.push(BastionTunnelPlan {
-            vm_name: vm.name.clone(),
-            bastion_name: bastion_name.clone(),
-            resource_group: vm.resource_group.clone(),
-            vm_resource_id: format!(
-                "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
-                subscription_id, vm.resource_group, vm.name
-            ),
-        });
+        if plans.len() >= MAX_BASTION_TUNNELS_PER_RUN {
+            skipped += 1;
+            continue;
+        }
+        plans.push(target);
     }
-    plans
+
+    PlannedTunnels { plans, skipped }
+}
+
+/// Which resource groups need an `az network bastion list` call.
+///
+/// Discovery used to run against a single resource group — the one passed on
+/// the command line — so a listing that spanned resource groups skipped the
+/// bastions of every other one. That is the same first-one-wins defect as
+/// #1127, one call frame higher. Returns a deduplicated, sorted list so the
+/// number of `az` calls is bounded by the resource groups that actually have a
+/// bastion-only VM, and is zero when nothing is private.
+pub(crate) fn resource_groups_needing_bastion_lookup(vms: &[VmInfo]) -> Vec<String> {
+    let mut rgs: Vec<String> = vms
+        .iter()
+        .filter(|vm| {
+            vm.power_state == azlin_core::models::PowerState::Running && vm.public_ip.is_none()
+        })
+        .map(|vm| vm.resource_group.clone())
+        .collect();
+    rgs.sort();
+    rgs.dedup();
+    rgs
+}
+
+/// Every resource group the listing covers, deduplicated and sorted.
+///
+/// The "Azure Bastion Hosts" table used to be built from
+/// `all_vms.first()`'s resource group, so a listing spanning resource groups
+/// displayed only the bastions of whichever VM happened to sort first and
+/// silently omitted the rest — the same first-one-wins omission as #1127,
+/// in the display path rather than the routing path.
+///
+/// Unlike [`resource_groups_needing_bastion_lookup`] this is not filtered by
+/// power state or public IP: the table documents the bastions in the scope the
+/// user asked about, which does not depend on whether a VM happens to be
+/// running right now.
+pub(crate) fn resource_groups_in_listing(vms: &[VmInfo]) -> Vec<String> {
+    let mut rgs: Vec<String> = vms
+        .iter()
+        .filter(|vm| !vm.resource_group.is_empty())
+        .map(|vm| vm.resource_group.clone())
+        .collect();
+    rgs.sort();
+    rgs.dedup();
+    rgs
+}
+
+/// Whether a bastion name/location pair read back from `az` is safe to use.
+///
+/// These strings come from outside the process and go straight into an
+/// argument vector, so a name beginning with `-` would be parsed as a flag.
+pub(crate) fn valid_bastion_coordinates(name: &str, location: &str) -> bool {
+    !name.is_empty()
+        && !location.is_empty()
+        && !name.starts_with('-')
+        && !location.starts_with('-')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+        && location.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+/// Discover bastions for every resource group that has a bastion-only VM.
+///
+/// Blocking `az` calls, so callers on the async path must wrap this in
+/// `spawn_blocking`.
+fn discover_bastions(vms: &[VmInfo]) -> BastionMap {
+    let mut map = BastionMap::new();
+    for rg in resource_groups_needing_bastion_lookup(vms) {
+        let found = crate::list_helpers::detect_bastion_hosts(&rg).unwrap_or_default();
+        for (name, location, _sku) in found {
+            if valid_bastion_coordinates(&name, &location) {
+                map.insert((rg.clone(), location), name);
+            }
+        }
+    }
+    map
+}
+
+/// How a VM should be reached for an SSH probe.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ProbeRoute {
+    /// Reachable at this address without a tunnel.
+    Direct { host: String },
+    /// Bastion-only: open `target`'s tunnel. `fallback_host` is the VM's
+    /// private IP when it has one, which may still be routable for an operator
+    /// on a VPN or peered network if the tunnel cannot be opened.
+    Bastion {
+        target: BastionTunnelPlan,
+        fallback_host: Option<String>,
+    },
+    /// Not running, or no address and no bastion.
+    Unreachable,
+}
+
+/// Decide how to reach `vm` for an SSH probe.
+///
+/// The single routing decision shared by every collector in this module.
+/// `collect_procs` used to inline `public_ip.or(private_ip)`, which SSH'd a
+/// bastion-only VM at its own private IP — unroutable from the operator's
+/// machine — so the VM silently reported no processes at all: the same
+/// user-visible defect class as #1127.
+pub(crate) fn probe_route(
+    vm: &VmInfo,
+    bastion_map: &BastionMap,
+    subscription_id: &str,
+) -> ProbeRoute {
+    if vm.power_state != azlin_core::models::PowerState::Running {
+        return ProbeRoute::Unreachable;
+    }
+    if let Some(ip) = vm.public_ip.as_deref() {
+        // A reachable public IP is never routed through a bastion.
+        return ProbeRoute::Direct {
+            host: ip.to_string(),
+        };
+    }
+    let key = (vm.resource_group.clone(), vm.location.clone());
+    if let Some(bastion_name) = bastion_map.get(&key) {
+        return ProbeRoute::Bastion {
+            target: BastionTunnelPlan {
+                vm_name: vm.name.clone(),
+                bastion_name: bastion_name.clone(),
+                resource_group: vm.resource_group.clone(),
+                vm_resource_id: build_vm_resource_id(subscription_id, &vm.resource_group, &vm.name),
+            },
+            fallback_host: vm.private_ip.clone(),
+        };
+    }
+    // No bastion for this VM: the private IP may still be routable over a VPN
+    // or peering, so keep trying it rather than declaring the VM unreachable.
+    match vm.private_ip.as_deref() {
+        Some(ip) => ProbeRoute::Direct {
+            host: ip.to_string(),
+        },
+        None => ProbeRoute::Unreachable,
+    }
+}
+
+/// The address to time for the Latency column, or `None`.
+///
+/// Deliberately never a tunnel: timing a bastion tunnel measures the tunnel
+/// and the local listener, not the host, which would silently change what the
+/// column means. A VM with no directly routable address is omitted instead.
+pub(crate) fn latency_probe_host(vm: &VmInfo, _bastion_map: &BastionMap) -> Option<String> {
+    if vm.power_state != azlin_core::models::PowerState::Running {
+        return None;
+    }
+    vm.public_ip
+        .as_deref()
+        .or(vm.private_ip.as_deref())
+        .map(|s| s.to_string())
+}
+
+/// The warning printed when a bastion tunnel cannot be opened.
+///
+/// A failed tunnel drops the VM from the results entirely, which is
+/// indistinguishable from "this VM has no sessions" unless we say so — and
+/// saying so only under `--verbose` means the default path degrades silently.
+/// It goes to stderr, so JSON and CSV consumers are unaffected.
+pub(crate) fn tunnel_failure_warning(vm_name: &str, bastion_name: &str, error: &str) -> String {
+    let first_line = error.lines().next().unwrap_or("").trim();
+    format!(
+        "Warning: could not open a bastion tunnel to {} via {} ({}); its sessions will not be listed.",
+        vm_name, bastion_name, first_line
+    )
+}
+
+/// VM names that appear more than once in this listing.
+///
+/// Tunnels are correctly separated by resource id, but the maps handed to the
+/// renderer are still keyed by VM name. Rendering one VM's sessions against a
+/// same-named VM's row is worse than a blank cell, so colliding names have
+/// their enrichment withheld.
+pub(crate) fn colliding_vm_names(vms: &[VmInfo]) -> std::collections::HashSet<String> {
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for vm in vms {
+        *counts.entry(vm.name.as_str()).or_insert(0) += 1;
+    }
+    counts
+        .into_iter()
+        .filter(|(_, n)| *n > 1)
+        .map(|(name, _)| name.to_string())
+        .collect()
+}
+
+/// The warning printed once when some VM names collide.
+fn collision_warning(colliding: &std::collections::HashSet<String>) -> String {
+    let mut names: Vec<&str> = colliding.iter().map(|s| s.as_str()).collect();
+    names.sort();
+    format!(
+        "Warning: VM name(s) {} appear in more than one resource group; \
+         their tmux/health/process columns are withheld to avoid attributing \
+         one VM's data to another.",
+        names.join(", ")
+    )
+}
+
+/// Make text read off a remote host safe to print in a single table cell.
+///
+/// Session and process names come from the listed hosts — the least observed
+/// machines in a fleet — and land directly in the operator's terminal, so
+/// control characters are stripped and the length is capped.
+///
+/// Newlines are stripped along with every other control character: each caller
+/// already reduces its remote output to one line per cell, and a surviving
+/// newline would let a listed host end the row and print rows of its own
+/// invention, which an operator cannot distinguish from real VMs.
+pub(crate) fn sanitize_remote_text(raw: &str) -> String {
+    raw.chars()
+        .filter(|c| !c.is_control())
+        .take(MAX_REMOTE_TEXT_LEN)
+        .collect()
 }
 
 /// Collect tmux sessions for all running VMs via SSH (direct or bastion).
 ///
-/// SSH probes run concurrently (up to 8 at a time) using `tokio::process::Command`
-/// to avoid blocking the async runtime. Bastion tunnels are pre-created so that
-/// concurrent SSH tasks share a single tunnel per bastion.
+/// SSH probes run concurrently (up to the JoinSet's natural fan-out) using
+/// `tokio::process::Command` to avoid blocking the async runtime. Bastion
+/// tunnels are pre-created sequentially because tunnel creation mutates a
+/// shared registry file.
 ///
 /// Bastion detection runs whenever at least one running VM has no public IP
-/// (i.e. is bastion-only), regardless of output format. Previously this was
-/// gated on `is_table_output`, so tmux sessions were never collected for
-/// private VMs in JSON/CSV output modes.
+/// (i.e. is bastion-only), regardless of output format. It was once gated on
+/// `is_table_output`, so tmux sessions were never collected for private VMs in
+/// JSON/CSV output modes.
 pub(crate) async fn collect_tmux_sessions(
     vms: &[VmInfo],
-    effective_rg: &str,
     verbose: bool,
     subscription_id: &str,
     connect_timeout: u64,
 ) -> HashMap<String, Vec<String>> {
-    // A running VM with no public IP is bastion-only; detect bastions whenever
-    // any such VM exists so private VMs are probed in every output format.
-    let needs_bastion = vms.iter().any(|vm| {
-        vm.power_state == azlin_core::models::PowerState::Running && vm.public_ip.is_none()
-    });
-
-    // Build bastion name map (region -> bastion_name) for private VMs
-    let bastion_map: HashMap<String, String> = if needs_bastion {
-        let rg = effective_rg.to_string();
-        tokio::task::spawn_blocking(move || {
-            crate::list_helpers::detect_bastion_hosts(&rg)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|(name, location, _)| (location, name))
-                .collect()
-        })
+    let owned: Vec<VmInfo> = vms.to_vec();
+    let bastion_map: BastionMap = tokio::task::spawn_blocking(move || discover_bastions(&owned))
         .await
-        .unwrap_or_default()
-    } else {
-        HashMap::new()
-    };
+        .unwrap_or_default();
 
     let ssh_key = resolve_ssh_key();
 
+    // Same-named VMs in different resource groups cannot be told apart in a
+    // name-keyed result map, so they are not probed at all.
+    let colliding = colliding_vm_names(vms);
+    if !colliding.is_empty() {
+        eprintln!("{}", collision_warning(&colliding));
+    }
+
     // Pre-create bastion tunnels before the concurrent SSH probes, because
     // tunnel creation mutates a shared registry file and must stay sequential.
+    let planned = plan_bastion_tunnels(vms, &bastion_map, subscription_id);
+    if planned.skipped > 0 {
+        eprintln!(
+            "Warning: {} bastion-only VM(s) beyond the limit of {} tunnels per run were not probed; \
+             narrow the listing (for example with --resource-group) to see their sessions.",
+            planned.skipped, MAX_BASTION_TUNNELS_PER_RUN
+        );
+    }
+
+    // Keyed by VM resource id — the id the tunnel was actually opened against.
+    // Keying by bastion name is the #1127 bug itself; keying by VM name still
+    // collides for same-named VMs in two resource groups.
     let mut bastion_ports: HashMap<String, u16> = HashMap::new();
-    for plan in plan_bastion_tunnels(vms, &bastion_map, subscription_id) {
+    for plan in &planned.plans {
+        if colliding.contains(&plan.vm_name) {
+            continue;
+        }
         match crate::bastion_tunnel::get_or_create_tunnel(
             &plan.bastion_name,
             &plan.resource_group,
@@ -172,14 +431,15 @@ pub(crate) async fn collect_tmux_sessions(
         .await
         {
             Ok(port) => {
-                bastion_ports.insert(plan.vm_name, port);
+                bastion_ports.insert(plan.vm_resource_id.clone(), port);
             }
             Err(e) => {
+                eprintln!(
+                    "{}",
+                    tunnel_failure_warning(&plan.vm_name, &plan.bastion_name, &e.to_string())
+                );
                 if verbose {
-                    eprintln!(
-                        "[VERBOSE] Failed to create bastion tunnel for {}: {}",
-                        plan.vm_name, e
-                    );
+                    eprintln!("[VERBOSE] tunnel error for {}: {:#}", plan.vm_name, e);
                 }
             }
         }
@@ -191,9 +451,10 @@ pub(crate) async fn collect_tmux_sessions(
     let mut join_set = tokio::task::JoinSet::new();
 
     for vm in vms {
-        if vm.power_state != azlin_core::models::PowerState::Running {
+        if colliding.contains(&vm.name) {
             continue;
         }
+        let route = probe_route(vm, &bastion_map, subscription_id);
         let user = vm
             .admin_username
             .as_deref()
@@ -204,31 +465,34 @@ pub(crate) async fn collect_tmux_sessions(
         let tmux_cmd = tmux_cmd.to_string();
         let timeout_arg = format!("ConnectTimeout={}", connect_timeout);
 
-        if let Some(ip) = vm.public_ip.as_deref() {
-            // Direct SSH to public IP
-            let ip = ip.to_string();
-            join_set.spawn(async move {
-                let mut cmd = tokio::process::Command::new("ssh");
-                cmd.args([
-                    "-o",
-                    "StrictHostKeyChecking=accept-new",
-                    "-o",
-                    &timeout_arg,
-                    "-o",
-                    "BatchMode=yes",
-                ]);
-                if let Some(ref key) = ssh_key {
-                    cmd.args(["-i", key.to_str().unwrap_or("")]);
-                }
-                cmd.arg(format!("{}@{}", user, ip));
-                cmd.arg(&tmux_cmd);
-                cmd.stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::piped());
-                (vm_name, cmd.output().await)
-            });
-        } else if bastion_map.contains_key(&vm.location) {
-            if let Some(&port) = bastion_ports.get(&vm.name) {
-                // Bastion SSH via pre-created tunnel
+        match route {
+            ProbeRoute::Direct { host } => {
+                join_set.spawn(async move {
+                    let mut cmd = tokio::process::Command::new("ssh");
+                    cmd.args([
+                        "-o",
+                        "StrictHostKeyChecking=accept-new",
+                        "-o",
+                        &timeout_arg,
+                        "-o",
+                        "BatchMode=yes",
+                    ]);
+                    if let Some(ref key) = ssh_key {
+                        cmd.args(["-i", key.to_str().unwrap_or("")]);
+                    }
+                    cmd.arg(format!("{}@{}", user, host));
+                    cmd.arg(&tmux_cmd);
+                    cmd.stdout(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::piped());
+                    (vm_name, cmd.output().await)
+                });
+            }
+            ProbeRoute::Bastion { target, .. } => {
+                let Some(&port) = bastion_ports.get(&target.vm_resource_id) else {
+                    // The tunnel failed to open; the warning was already
+                    // printed at creation time, so do not repeat it here.
+                    continue;
+                };
                 join_set.spawn(async move {
                     let mut cmd = tokio::process::Command::new("ssh");
                     cmd.args(crate::bastion_tunnel::bastion_loopback_ssh_opts());
@@ -243,11 +507,14 @@ pub(crate) async fn collect_tmux_sessions(
                         .stderr(std::process::Stdio::piped());
                     (vm_name, cmd.output().await)
                 });
-            } else if verbose {
-                eprintln!(
-                    "[VERBOSE] {} has no public IP and no bastion tunnel for region '{}'; skipping tmux collection",
-                    vm.name, vm.location
-                );
+            }
+            ProbeRoute::Unreachable => {
+                if verbose {
+                    eprintln!(
+                        "[VERBOSE] {} has no reachable address and no bastion in {}/{}; skipping tmux collection",
+                        vm.name, vm.resource_group, vm.location
+                    );
+                }
             }
         }
     }
@@ -260,7 +527,9 @@ pub(crate) async fn collect_tmux_sessions(
                 let sessions: Vec<String> = String::from_utf8_lossy(&out.stdout)
                     .lines()
                     .filter(|l| !l.is_empty() && !l.starts_with('{'))
-                    .map(|l| l.to_string())
+                    .map(sanitize_remote_text)
+                    .filter(|l| !l.is_empty())
+                    .take(MAX_SESSIONS_PER_VM)
                     .collect();
                 if verbose {
                     eprintln!("[VERBOSE] {} -> {} sessions", vm_name, sessions.len());
@@ -275,24 +544,25 @@ pub(crate) async fn collect_tmux_sessions(
 }
 
 /// Collect latency measurements for running VMs via TCP connect.
+///
+/// Only directly routable addresses are timed — see [`latency_probe_host`].
 pub(crate) fn collect_latencies(vms: &[VmInfo]) -> HashMap<String, u64> {
+    let colliding = colliding_vm_names(vms);
+    let bastion_map = BastionMap::new();
     let mut latencies = HashMap::new();
     for vm in vms {
-        if vm.power_state != azlin_core::models::PowerState::Running {
+        if colliding.contains(&vm.name) {
             continue;
         }
-        if let Some(ip) = vm.public_ip.as_deref().or(vm.private_ip.as_deref()) {
-            let start = std::time::Instant::now();
-            if std::net::TcpStream::connect_timeout(
-                &format!("{}:22", ip)
-                    .parse()
-                    .unwrap_or_else(|_| std::net::SocketAddr::from(([0, 0, 0, 0], 22))),
-                std::time::Duration::from_secs(2),
-            )
-            .is_ok()
-            {
-                latencies.insert(vm.name.clone(), start.elapsed().as_millis() as u64);
-            }
+        let Some(ip) = latency_probe_host(vm, &bastion_map) else {
+            continue;
+        };
+        let Ok(addr) = format!("{}:22", ip).parse::<std::net::SocketAddr>() else {
+            continue;
+        };
+        let start = std::time::Instant::now();
+        if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(2)).is_ok() {
+            latencies.insert(vm.name.clone(), start.elapsed().as_millis() as u64);
         }
     }
     latencies
@@ -301,98 +571,131 @@ pub(crate) fn collect_latencies(vms: &[VmInfo]) -> HashMap<String, u64> {
 /// Collect detailed health metrics (CPU, Mem, Disk, Agent) for running VMs via SSH.
 pub(crate) fn collect_health_data(
     vms: &[VmInfo],
-    effective_rg: &str,
     subscription_id: &str,
 ) -> HashMap<String, crate::HealthMetrics> {
     let mut health_data = HashMap::new();
-
-    // Build bastion name map (region -> bastion_name) for private VMs
-    let bastion_map: HashMap<String, String> =
-        crate::list_helpers::detect_bastion_hosts(effective_rg)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(name, location, _)| (location, name))
-            .collect();
-
+    let bastion_map = discover_bastions(vms);
     let ssh_key_path = resolve_ssh_key();
+    let colliding = colliding_vm_names(vms);
 
     for vm in vms {
-        if vm.power_state != azlin_core::models::PowerState::Running {
+        if colliding.contains(&vm.name) {
             continue;
         }
-        let ip = match vm.public_ip.as_deref().or(vm.private_ip.as_deref()) {
-            Some(ip) => ip,
-            None => continue,
-        };
+        let state = vm.power_state.to_string();
         let user = vm
             .admin_username
             .as_deref()
             .unwrap_or(DEFAULT_ADMIN_USERNAME);
-        let state = vm.power_state.to_string();
 
-        // Build bastion info when there is no public IP
-        let bastion_info_owned: Option<(String, String, String, Option<std::path::PathBuf>)> = if vm
-            .public_ip
-            .is_none()
-        {
-            bastion_map.get(&vm.location).map(|bn| {
-                    let vm_rid = format!(
-                        "/subscriptions/{}/resourceGroups/{}/providers/Microsoft.Compute/virtualMachines/{}",
-                        subscription_id, vm.resource_group, vm.name
-                    );
-                    (
-                        bn.clone(),
-                        vm.resource_group.clone(),
-                        vm_rid,
-                        ssh_key_path.clone(),
-                    )
-                })
-        } else {
-            None
+        // A bastion-only VM with no recorded private IP is still reachable
+        // through its tunnel; it used to be skipped for having no address.
+        let (ip, bastion_info_owned) = match probe_route(vm, &bastion_map, subscription_id) {
+            ProbeRoute::Direct { host } => (host, None),
+            ProbeRoute::Bastion {
+                target,
+                fallback_host,
+            } => (
+                fallback_host.unwrap_or_default(),
+                Some((
+                    target.bastion_name,
+                    target.resource_group,
+                    target.vm_resource_id,
+                    ssh_key_path.clone(),
+                )),
+            ),
+            ProbeRoute::Unreachable => continue,
         };
+
         let bastion_ref = bastion_info_owned
             .as_ref()
             .map(|(bn, rg_b, rid, key)| (bn.as_str(), rg_b.as_str(), rid.as_str(), key.as_deref()));
 
-        let metrics = crate::collect_health_metrics(&vm.name, ip, user, &state, bastion_ref);
+        let metrics = crate::collect_health_metrics(&vm.name, &ip, user, &state, bastion_ref);
         health_data.insert(vm.name.clone(), metrics);
     }
     health_data
 }
 
 /// Collect top process data for running VMs.
-pub(crate) fn collect_procs(vms: &[VmInfo], connect_timeout: u64) -> HashMap<String, String> {
+///
+/// Bastion-only VMs are routed through their own tunnel. They were previously
+/// SSH'd at their own private IP, which is unroutable from the operator's
+/// machine, so they silently reported no processes at all.
+pub(crate) fn collect_procs(
+    vms: &[VmInfo],
+    connect_timeout: u64,
+    subscription_id: &str,
+) -> HashMap<String, String> {
+    const PROC_CMD: &str =
+        "ps aux --sort=-%mem | head -6 | tail -5 | awk '{print $11}' | tr '\\n' ', '";
+
     let mut proc_data = HashMap::new();
+    let bastion_map = discover_bastions(vms);
+    let ssh_key_path = resolve_ssh_key();
+    let colliding = colliding_vm_names(vms);
+
     for vm in vms {
-        if vm.power_state != azlin_core::models::PowerState::Running {
+        if colliding.contains(&vm.name) {
             continue;
         }
-        let ip = vm.public_ip.as_deref().or(vm.private_ip.as_deref());
-        if let Some(ip) = ip {
-            let user = vm
-                .admin_username
-                .as_deref()
-                .unwrap_or(DEFAULT_ADMIN_USERNAME);
-            let timeout_val = format!("ConnectTimeout={}", connect_timeout);
-            let output = std::process::Command::new("ssh")
-                .args([
+        let user = vm
+            .admin_username
+            .as_deref()
+            .unwrap_or(DEFAULT_ADMIN_USERNAME);
+
+        let procs = match probe_route(vm, &bastion_map, subscription_id) {
+            ProbeRoute::Direct { host } => {
+                let timeout_val = format!("ConnectTimeout={}", connect_timeout);
+                let mut cmd = std::process::Command::new("ssh");
+                cmd.args([
                     "-o",
                     "StrictHostKeyChecking=accept-new",
                     "-o",
                     &timeout_val,
                     "-o",
                     "BatchMode=yes",
-                    &format!("{}@{}", user, ip),
-                    "ps aux --sort=-%mem | head -6 | tail -5 | awk '{print $11}' | tr '\\n' ', '",
-                ])
-                .output();
-            if let Ok(out) = output {
-                if out.status.success() {
-                    let procs = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                    proc_data.insert(vm.name.clone(), procs);
+                ]);
+                if let Some(ref key) = ssh_key_path {
+                    cmd.args(["-i", key.to_str().unwrap_or("")]);
+                }
+                cmd.arg(format!("{}@{}", user, host)).arg(PROC_CMD);
+                match cmd.output() {
+                    Ok(out) if out.status.success() => {
+                        String::from_utf8_lossy(&out.stdout).trim().to_string()
+                    }
+                    _ => continue,
                 }
             }
-        }
+            ProbeRoute::Bastion { target, .. } => {
+                match crate::bastion_ssh_exec(
+                    &target.bastion_name,
+                    &target.resource_group,
+                    &target.vm_resource_id,
+                    user,
+                    ssh_key_path.as_deref(),
+                    PROC_CMD,
+                    crate::BASTION_EXEC_TIMEOUT_SECS,
+                ) {
+                    Ok((0, stdout, _)) => stdout.trim().to_string(),
+                    Ok(_) => continue,
+                    Err(e) => {
+                        eprintln!(
+                            "{}",
+                            tunnel_failure_warning(
+                                &target.vm_name,
+                                &target.bastion_name,
+                                &e.to_string()
+                            )
+                        );
+                        continue;
+                    }
+                }
+            }
+            ProbeRoute::Unreachable => continue,
+        };
+
+        proc_data.insert(vm.name.clone(), sanitize_remote_text(&procs));
     }
     proc_data
 }
@@ -799,97 +1102,7 @@ fn open_linux_terminal(terminal: &LinuxTerminal, command: &str) -> Result<(), St
     }
 }
 
-#[cfg(test)]
-mod bastion_tunnel_plan_tests {
-    use super::*;
-    use azlin_core::models::{OsType, PowerState, ProvisioningState, VmInfo};
-
-    fn vm(name: &str, location: &str, public_ip: Option<&str>, state: PowerState) -> VmInfo {
-        VmInfo {
-            name: name.to_string(),
-            resource_group: "rg".to_string(),
-            location: location.to_string(),
-            vm_size: "Standard_D2s_v5".to_string(),
-            power_state: state,
-            provisioning_state: ProvisioningState::Succeeded,
-            os_type: OsType::Linux,
-            os_offer: None,
-            public_ip: public_ip.map(|s| s.to_string()),
-            private_ip: Some("10.0.0.4".to_string()),
-            admin_username: Some("azureuser".to_string()),
-            tags: HashMap::new(),
-            created_time: None,
-        }
-    }
-
-    fn bastion_map(entries: &[(&str, &str)]) -> HashMap<String, String> {
-        entries
-            .iter()
-            .map(|(loc, name)| (loc.to_string(), name.to_string()))
-            .collect()
-    }
-
-    /// Regression: two bastion-only VMs behind the SAME bastion each need their
-    /// own tunnel. Sharing one tunnel per bastion sent both probes to whichever
-    /// VM was tunnelled first, so the other reported zero tmux sessions.
-    #[test]
-    fn plans_one_tunnel_per_vm_not_per_bastion() {
-        let vms = [
-            vm("dev", "centralus", None, PowerState::Running),
-            vm("azt1", "centralus", None, PowerState::Running),
-        ];
-        let plans = plan_bastion_tunnels(&vms, &bastion_map(&[("centralus", "bst")]), "sub-1");
-
-        assert_eq!(plans.len(), 2, "each VM needs its own tunnel");
-        let names: Vec<&str> = plans.iter().map(|p| p.vm_name.as_str()).collect();
-        assert_eq!(names, vec!["dev", "azt1"]);
-        assert!(
-            plans[0].vm_resource_id != plans[1].vm_resource_id,
-            "tunnels must target distinct VM resource ids"
-        );
-        assert!(plans[0].vm_resource_id.ends_with("/virtualMachines/dev"));
-        assert!(plans.iter().all(|p| p.bastion_name == "bst"));
-    }
-
-    #[test]
-    fn skips_vms_with_public_ips_and_non_running_vms() {
-        let vms = [
-            vm("public", "centralus", Some("4.4.4.4"), PowerState::Running),
-            vm("stopped", "centralus", None, PowerState::Deallocated),
-            vm("private", "centralus", None, PowerState::Running),
-        ];
-        let plans = plan_bastion_tunnels(&vms, &bastion_map(&[("centralus", "bst")]), "sub-1");
-
-        assert_eq!(plans.len(), 1);
-        assert_eq!(plans[0].vm_name, "private");
-    }
-
-    #[test]
-    fn skips_regions_without_a_bastion() {
-        let vms = [vm("orphan", "westus3", None, PowerState::Running)];
-        let plans = plan_bastion_tunnels(&vms, &bastion_map(&[("centralus", "bst")]), "sub-1");
-
-        assert!(plans.is_empty());
-    }
-
-    #[test]
-    fn plans_distinct_bastions_for_distinct_regions() {
-        let vms = [
-            vm("a", "centralus", None, PowerState::Running),
-            vm("b", "westus3", None, PowerState::Running),
-        ];
-        let plans = plan_bastion_tunnels(
-            &vms,
-            &bastion_map(&[("centralus", "bst-cus"), ("westus3", "bst-wus3")]),
-            "sub-1",
-        );
-
-        assert_eq!(plans.len(), 2);
-        assert_eq!(plans[0].bastion_name, "bst-cus");
-        assert_eq!(plans[1].bastion_name, "bst-wus3");
-    }
-}
-
+/// Shared VM/bastion fixtures for the bastion routing test modules below.
 #[cfg(test)]
 mod session_lookup_tests {
     use super::*;
@@ -943,5 +1156,736 @@ mod session_lookup_tests {
                 vm_name: "vm-a".to_string()
             }
         );
+    }
+}
+
+/// Shared VM/bastion fixtures for the bastion routing test modules below.
+#[cfg(test)]
+mod bastion_test_support {
+    use super::*;
+    use azlin_core::models::{OsType, PowerState, ProvisioningState, VmInfo};
+
+    pub(super) fn vm(
+        name: &str,
+        location: &str,
+        public_ip: Option<&str>,
+        state: PowerState,
+    ) -> VmInfo {
+        VmInfo {
+            name: name.to_string(),
+            resource_group: "rg".to_string(),
+            location: location.to_string(),
+            vm_size: "Standard_D2s_v5".to_string(),
+            power_state: state,
+            provisioning_state: ProvisioningState::Succeeded,
+            os_type: OsType::Linux,
+            os_offer: None,
+            public_ip: public_ip.map(|s| s.to_string()),
+            private_ip: Some("10.0.0.4".to_string()),
+            admin_username: Some("azureuser".to_string()),
+            tags: HashMap::new(),
+            created_time: None,
+        }
+    }
+
+    /// Same as [`vm`] but with an explicit resource group, so tests can build
+    /// two VMs that share a name across different resource groups.
+    pub(super) fn vm_in_rg(name: &str, rg: &str, location: &str, state: PowerState) -> VmInfo {
+        VmInfo {
+            resource_group: rg.to_string(),
+            ..vm(name, location, None, state)
+        }
+    }
+
+    /// A bastion map keyed the way Azure actually scopes bastions:
+    /// `(resource group, region) -> bastion name`.
+    pub(super) fn bastion_map(entries: &[(&str, &str, &str)]) -> BastionMap {
+        entries
+            .iter()
+            .map(|(rg, loc, name)| ((rg.to_string(), loc.to_string()), name.to_string()))
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod bastion_tunnel_plan_tests {
+    use super::bastion_test_support::*;
+    use super::*;
+    use azlin_core::models::PowerState;
+
+    /// The set of VM resource ids a plan list targets, order discarded.
+    fn targeted_rids(plans: &[BastionTunnelPlan]) -> std::collections::BTreeSet<String> {
+        plans.iter().map(|p| p.vm_resource_id.clone()).collect()
+    }
+
+    /// Regression: two bastion-only VMs behind the SAME bastion each need their
+    /// own tunnel. Sharing one tunnel per bastion sent both probes to whichever
+    /// VM was tunnelled first, so the other reported zero tmux sessions.
+    #[test]
+    fn plans_one_tunnel_per_vm_not_per_bastion() {
+        let vms = [
+            vm("dev", "centralus", None, PowerState::Running),
+            vm("azt1", "centralus", None, PowerState::Running),
+        ];
+        let planned =
+            plan_bastion_tunnels(&vms, &bastion_map(&[("rg", "centralus", "bst")]), "sub-1");
+
+        assert_eq!(planned.plans.len(), 2, "each VM needs its own tunnel");
+        let names: Vec<&str> = planned.plans.iter().map(|p| p.vm_name.as_str()).collect();
+        assert_eq!(names, vec!["dev", "azt1"]);
+        assert_eq!(
+            targeted_rids(&planned.plans).len(),
+            2,
+            "tunnels must target distinct VM resource ids"
+        );
+        assert!(planned.plans.iter().all(|p| p.bastion_name == "bst"));
+        assert_eq!(planned.skipped, 0);
+    }
+
+    #[test]
+    fn skips_vms_with_public_ips_and_non_running_vms() {
+        let vms = [
+            vm("public", "centralus", Some("4.4.4.4"), PowerState::Running),
+            vm("stopped", "centralus", None, PowerState::Deallocated),
+            vm("private", "centralus", None, PowerState::Running),
+        ];
+        let planned =
+            plan_bastion_tunnels(&vms, &bastion_map(&[("rg", "centralus", "bst")]), "sub-1");
+
+        assert_eq!(planned.plans.len(), 1);
+        assert_eq!(planned.plans[0].vm_name, "private");
+        assert_eq!(
+            planned.skipped, 0,
+            "a VM that needs no tunnel is not a skipped VM"
+        );
+    }
+
+    #[test]
+    fn skips_regions_without_a_bastion() {
+        let vms = [vm("orphan", "westus3", None, PowerState::Running)];
+        let planned =
+            plan_bastion_tunnels(&vms, &bastion_map(&[("rg", "centralus", "bst")]), "sub-1");
+
+        assert!(planned.plans.is_empty());
+    }
+
+    #[test]
+    fn plans_distinct_bastions_for_distinct_regions() {
+        let vms = [
+            vm("a", "centralus", None, PowerState::Running),
+            vm("b", "westus3", None, PowerState::Running),
+        ];
+        let planned = plan_bastion_tunnels(
+            &vms,
+            &bastion_map(&[
+                ("rg", "centralus", "bst-cus"),
+                ("rg", "westus3", "bst-wus3"),
+            ]),
+            "sub-1",
+        );
+
+        assert_eq!(planned.plans.len(), 2);
+        assert_eq!(planned.plans[0].bastion_name, "bst-cus");
+        assert_eq!(planned.plans[1].bastion_name, "bst-wus3");
+    }
+
+    /// A bastion is scoped to a resource group as well as a region. Keying the
+    /// map by region alone lets a VM in `rg-b` be tunnelled through a bastion
+    /// that only exists in `rg-a`.
+    #[test]
+    fn a_bastion_serves_only_its_own_resource_group() {
+        let vms = [vm_in_rg("dev", "rg-b", "centralus", PowerState::Running)];
+        let planned = plan_bastion_tunnels(
+            &vms,
+            &bastion_map(&[("rg-a", "centralus", "bst-a")]),
+            "sub-1",
+        );
+
+        assert!(
+            planned.plans.is_empty(),
+            "a bastion in rg-a must not be used for a VM in rg-b"
+        );
+    }
+
+    /// The invariant the pre-#1127 code provably violated: tunnel count is
+    /// driven by the number of bastion-only VMs, never by the number of
+    /// distinct bastions. Collapsing the map to one entry per bastion made
+    /// these two numbers equal, which is exactly the bug.
+    #[test]
+    fn plan_count_tracks_vm_count_not_bastion_count() {
+        let vms = [
+            vm("dev", "centralus", None, PowerState::Running),
+            vm("azt1", "centralus", None, PowerState::Running),
+            vm("azt2", "centralus", None, PowerState::Running),
+        ];
+        let planned =
+            plan_bastion_tunnels(&vms, &bastion_map(&[("rg", "centralus", "bst")]), "sub-1");
+
+        let distinct_bastions: std::collections::BTreeSet<&str> = planned
+            .plans
+            .iter()
+            .map(|p| p.bastion_name.as_str())
+            .collect();
+        assert_eq!(distinct_bastions.len(), 1, "these VMs share one bastion");
+        assert_eq!(
+            planned.plans.len(),
+            3,
+            "one tunnel per bastion-only VM, not one per bastion"
+        );
+        assert_eq!(
+            targeted_rids(&planned.plans).len(),
+            3,
+            "every tunnel must target a distinct VM resource id"
+        );
+    }
+
+    /// The original symptom was order-dependent: whichever bastion-only VM was
+    /// iterated first won the shared tunnel and the rest silently reported zero
+    /// sessions. Planning must therefore be a pure function of the VM *set*.
+    #[test]
+    fn plans_are_order_independent() {
+        let bstn = bastion_map(&[("rg", "centralus", "bst")]);
+        let forward = [
+            vm("dev", "centralus", None, PowerState::Running),
+            vm("azt1", "centralus", None, PowerState::Running),
+        ];
+        let reversed = [
+            vm("azt1", "centralus", None, PowerState::Running),
+            vm("dev", "centralus", None, PowerState::Running),
+        ];
+
+        assert_eq!(
+            targeted_rids(&plan_bastion_tunnels(&forward, &bstn, "sub-1").plans),
+            targeted_rids(&plan_bastion_tunnels(&reversed, &bstn, "sub-1").plans),
+            "the same VMs in a different order must yield the same tunnels"
+        );
+    }
+
+    /// A VM is identified by its full resource id, not by its name: Azure
+    /// permits the same VM name in two resource groups of one subscription,
+    /// and a bastion tunnel is opened against a resource id. Deduplicating by
+    /// name drops the second VM's tunnel, reproducing the #1127 symptom for a
+    /// different reason.
+    #[test]
+    fn plans_a_tunnel_for_each_of_two_same_named_vms_in_different_resource_groups() {
+        let vms = [
+            vm_in_rg("dev", "rg-a", "centralus", PowerState::Running),
+            vm_in_rg("dev", "rg-b", "centralus", PowerState::Running),
+        ];
+        let planned = plan_bastion_tunnels(
+            &vms,
+            &bastion_map(&[
+                ("rg-a", "centralus", "bst-a"),
+                ("rg-b", "centralus", "bst-b"),
+            ]),
+            "sub-1",
+        );
+
+        assert_eq!(
+            planned.plans.len(),
+            2,
+            "same-named VMs in different resource groups are different VMs"
+        );
+        let rids = targeted_rids(&planned.plans);
+        assert!(rids.iter().any(|r| r.contains("/resourceGroups/rg-a/")));
+        assert!(rids.iter().any(|r| r.contains("/resourceGroups/rg-b/")));
+        assert_eq!(
+            planned
+                .plans
+                .iter()
+                .map(|p| p.resource_group.as_str())
+                .collect::<Vec<_>>(),
+            vec!["rg-a", "rg-b"],
+            "each tunnel is opened in its own VM's resource group"
+        );
+    }
+
+    /// A genuinely duplicated VM entry must still collapse to one tunnel.
+    #[test]
+    fn deduplicates_a_repeated_vm_entry() {
+        let vms = [
+            vm("dev", "centralus", None, PowerState::Running),
+            vm("dev", "centralus", None, PowerState::Running),
+        ];
+        let planned =
+            plan_bastion_tunnels(&vms, &bastion_map(&[("rg", "centralus", "bst")]), "sub-1");
+
+        assert_eq!(
+            planned.plans.len(),
+            1,
+            "the same VM must not get two tunnels"
+        );
+    }
+
+    /// Tunnel creation is sequential and each one costs an Azure round trip, so
+    /// a wide listing is bounded. What must never happen is silent truncation:
+    /// the count of skipped VMs is carried out so the caller can report it.
+    #[test]
+    fn bounds_tunnel_fan_out_and_reports_how_many_it_skipped() {
+        let over = MAX_BASTION_TUNNELS_PER_RUN + 3;
+        let vms: Vec<_> = (0..over)
+            .map(|i| {
+                vm(
+                    &format!("vm{:03}", i),
+                    "centralus",
+                    None,
+                    PowerState::Running,
+                )
+            })
+            .collect();
+        let planned =
+            plan_bastion_tunnels(&vms, &bastion_map(&[("rg", "centralus", "bst")]), "sub-1");
+
+        assert_eq!(planned.plans.len(), MAX_BASTION_TUNNELS_PER_RUN);
+        assert_eq!(
+            planned.skipped, 3,
+            "VMs beyond the cap must be counted, not silently dropped"
+        );
+    }
+}
+
+#[cfg(test)]
+mod bastion_discovery_tests {
+    use super::bastion_test_support::*;
+    use super::*;
+    use azlin_core::models::PowerState;
+
+    /// Discovery used to run against the resource group of whichever VM sorted
+    /// first, so bastion-only VMs in every other resource group were skipped.
+    /// It must run once per resource group that actually needs it.
+    #[test]
+    fn looks_up_every_resource_group_that_has_a_bastion_only_vm() {
+        let vms = [
+            vm_in_rg("a", "rg-a", "centralus", PowerState::Running),
+            vm_in_rg("b", "rg-b", "centralus", PowerState::Running),
+            vm_in_rg("c", "rg-a", "westus3", PowerState::Running),
+        ];
+        assert_eq!(
+            resource_groups_needing_bastion_lookup(&vms),
+            vec!["rg-a", "rg-b"],
+            "one lookup per distinct resource group, deduplicated and ordered"
+        );
+    }
+
+    /// A listing where everything is publicly reachable must not touch Azure.
+    #[test]
+    fn a_listing_with_no_private_vms_performs_no_lookup() {
+        let vms = [
+            vm("pub1", "centralus", Some("4.4.4.4"), PowerState::Running),
+            vm("pub2", "westus3", Some("5.5.5.5"), PowerState::Running),
+        ];
+        assert!(resource_groups_needing_bastion_lookup(&vms).is_empty());
+    }
+
+    /// A stopped VM is never probed, so it must not trigger an `az` call.
+    #[test]
+    fn a_stopped_private_vm_does_not_trigger_a_lookup() {
+        let vms = [vm_in_rg(
+            "off",
+            "rg-a",
+            "centralus",
+            PowerState::Deallocated,
+        )];
+        assert!(resource_groups_needing_bastion_lookup(&vms).is_empty());
+    }
+
+    /// The displayed "Azure Bastion Hosts" table was built from the first
+    /// VM's resource group, so a listing spanning resource groups showed one
+    /// group's bastions and silently omitted the rest.
+    #[test]
+    fn the_bastion_table_covers_every_resource_group_in_the_listing() {
+        let vms = [
+            vm_in_rg("b", "rg-b", "centralus", PowerState::Running),
+            vm_in_rg("a", "rg-a", "centralus", PowerState::Running),
+            vm_in_rg("c", "rg-b", "westus3", PowerState::Running),
+        ];
+        assert_eq!(
+            resource_groups_in_listing(&vms),
+            vec!["rg-a", "rg-b"],
+            "every distinct resource group, deduplicated, regardless of VM order"
+        );
+    }
+
+    /// The table documents the bastions in the scope the user asked about, so
+    /// unlike the routing lookup it must not disappear just because every VM
+    /// happens to be stopped or publicly reachable right now.
+    #[test]
+    fn the_bastion_table_does_not_depend_on_power_state_or_public_ip() {
+        let vms = [
+            vm("pub", "centralus", Some("4.4.4.4"), PowerState::Running),
+            vm_in_rg("off", "rg-z", "westus3", PowerState::Deallocated),
+        ];
+        assert!(
+            resource_groups_needing_bastion_lookup(&vms).is_empty(),
+            "nothing needs routing"
+        );
+        assert_eq!(
+            resource_groups_in_listing(&vms),
+            vec!["rg", "rg-z"],
+            "but the table still covers both groups"
+        );
+    }
+
+    /// An empty listing must not produce an `az` call against `""`.
+    #[test]
+    fn an_empty_listing_queries_nothing() {
+        assert!(resource_groups_in_listing(&[]).is_empty());
+    }
+
+    /// Coordinates come back from `az` and go straight into an argument
+    /// vector, so they are validated first. A name beginning with `-` would be
+    /// parsed as a flag.
+    #[test]
+    fn rejects_bastion_coordinates_that_are_unsafe_or_incomplete() {
+        assert!(valid_bastion_coordinates("bst-westus2", "westus2"));
+        assert!(!valid_bastion_coordinates("", "westus2"), "empty name");
+        assert!(!valid_bastion_coordinates("bst", ""), "empty location");
+        assert!(
+            !valid_bastion_coordinates("--query", "westus2"),
+            "a name that would be read as a flag"
+        );
+        assert!(
+            !valid_bastion_coordinates("-bst", "westus2"),
+            "a name that would be read as a flag"
+        );
+    }
+}
+
+#[cfg(test)]
+mod probe_route_tests {
+    use super::bastion_test_support::*;
+    use super::*;
+    use azlin_core::models::{PowerState, VmInfo};
+
+    /// Every ARM resource id in this module must be built one way, so the id a
+    /// tunnel is opened against cannot drift from the id used to look its port
+    /// back up, nor from the key the tunnel registry stores.
+    #[test]
+    fn build_vm_resource_id_uses_the_arm_path_format() {
+        assert_eq!(
+            build_vm_resource_id("sub-1", "rg-a", "dev"),
+            "/subscriptions/sub-1/resourceGroups/rg-a/providers/Microsoft.Compute/virtualMachines/dev"
+        );
+    }
+
+    /// Two VMs sharing a name in different resource groups have different ids,
+    /// which is what makes the id — not the name — the safe map key.
+    #[test]
+    fn build_vm_resource_id_distinguishes_same_named_vms_across_resource_groups() {
+        assert_ne!(
+            build_vm_resource_id("sub-1", "rg-a", "dev"),
+            build_vm_resource_id("sub-1", "rg-b", "dev")
+        );
+    }
+
+    #[test]
+    fn a_public_vm_is_probed_directly_even_when_its_region_has_a_bastion() {
+        let route = probe_route(
+            &vm("pub", "centralus", Some("4.4.4.4"), PowerState::Running),
+            &bastion_map(&[("rg", "centralus", "bst")]),
+            "sub-1",
+        );
+        assert_eq!(
+            route,
+            ProbeRoute::Direct {
+                host: "4.4.4.4".to_string()
+            },
+            "a reachable public IP must not be routed through a bastion"
+        );
+    }
+
+    /// The `collect_procs` defect: a bastion-only VM was probed at its own
+    /// private IP, which is unroutable from the operator's machine, so the VM
+    /// silently reported no processes. It must be routed through a tunnel
+    /// opened against its own resource id — while keeping the private IP as a
+    /// fallback for operators on a VPN or peered network.
+    #[test]
+    fn a_bastion_only_vm_is_routed_through_a_tunnel_to_its_own_resource_id() {
+        let route = probe_route(
+            &vm_in_rg("dev", "rg-a", "centralus", PowerState::Running),
+            &bastion_map(&[("rg-a", "centralus", "bst")]),
+            "sub-1",
+        );
+        match route {
+            ProbeRoute::Bastion {
+                target,
+                fallback_host,
+            } => {
+                assert_eq!(target.bastion_name, "bst");
+                assert_eq!(target.resource_group, "rg-a");
+                assert_eq!(
+                    target.vm_resource_id,
+                    build_vm_resource_id("sub-1", "rg-a", "dev")
+                );
+                assert_eq!(fallback_host.as_deref(), Some("10.0.0.4"));
+            }
+            other => panic!("expected a bastion route, got {:?}", other),
+        }
+    }
+
+    /// Pre-existing behaviour that must survive the fix: with no bastion for
+    /// this VM the private IP may still be routable (VPN, peering), so keep
+    /// trying it rather than declaring the VM unreachable.
+    #[test]
+    fn a_private_vm_with_no_bastion_still_tries_its_private_ip() {
+        let route = probe_route(
+            &vm("orphan", "westus3", None, PowerState::Running),
+            &bastion_map(&[("rg", "centralus", "bst")]),
+            "sub-1",
+        );
+        assert_eq!(
+            route,
+            ProbeRoute::Direct {
+                host: "10.0.0.4".to_string()
+            }
+        );
+    }
+
+    /// `collect_health_data` used to skip any VM with no recorded IP, which
+    /// dropped bastion-only VMs that were in fact reachable through a tunnel.
+    #[test]
+    fn a_vm_with_no_recorded_ip_is_still_reachable_through_its_bastion() {
+        let vm = VmInfo {
+            private_ip: None,
+            ..vm_in_rg("dev", "rg-a", "centralus", PowerState::Running)
+        };
+        match probe_route(&vm, &bastion_map(&[("rg-a", "centralus", "bst")]), "sub-1") {
+            ProbeRoute::Bastion { fallback_host, .. } => {
+                assert_eq!(fallback_host, None, "there is no address to fall back to");
+            }
+            other => panic!("expected a bastion route, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn a_vm_with_no_address_and_no_bastion_is_unreachable() {
+        let vm = VmInfo {
+            private_ip: None,
+            ..vm("ghost", "westus3", None, PowerState::Running)
+        };
+        assert_eq!(
+            probe_route(&vm, &bastion_map(&[("rg", "centralus", "bst")]), "sub-1"),
+            ProbeRoute::Unreachable
+        );
+    }
+
+    /// Latency must never be measured through a tunnel: that times the tunnel,
+    /// not the host, silently changing what the column means.
+    #[test]
+    fn latency_is_measured_only_on_a_directly_routable_address() {
+        let bstn = bastion_map(&[("rg-a", "centralus", "bst")]);
+        assert_eq!(
+            latency_probe_host(
+                &vm("pub", "centralus", Some("4.4.4.4"), PowerState::Running),
+                &bstn
+            ),
+            Some("4.4.4.4".to_string())
+        );
+        assert_eq!(
+            latency_probe_host(
+                &vm_in_rg("dev", "rg-a", "centralus", PowerState::Running),
+                &bstn
+            ),
+            Some("10.0.0.4".to_string()),
+            "a private IP may still be routable over VPN; the tunnel is never timed"
+        );
+    }
+
+    /// A deallocated VM keeps its addresses in Azure metadata, and Azure hands
+    /// released public IPs to other tenants. Timing one either stalls the
+    /// listing for the full connect timeout or reports a latency measured
+    /// against somebody else's host, attributed to a VM that is not running.
+    #[test]
+    fn latency_is_not_measured_for_a_stopped_vm() {
+        let bstn = bastion_map(&[("rg-a", "centralus", "bst")]);
+        assert_eq!(
+            latency_probe_host(
+                &vm(
+                    "stopped-pub",
+                    "centralus",
+                    Some("4.4.4.4"),
+                    PowerState::Stopped
+                ),
+                &bstn
+            ),
+            None,
+            "a stopped VM's stale public IP must never be timed"
+        );
+        assert_eq!(
+            latency_probe_host(
+                &vm_in_rg("stopped-priv", "rg-a", "centralus", PowerState::Stopped),
+                &bstn
+            ),
+            None,
+            "a stopped VM's stale private IP must never be timed"
+        );
+    }
+}
+
+#[cfg(test)]
+mod silent_degradation_tests {
+    use super::bastion_test_support::*;
+    use super::*;
+    use azlin_core::models::PowerState;
+
+    /// A tunnel that fails to open drops the VM from the results entirely. That
+    /// is indistinguishable from "this VM has no sessions" unless we say so, on
+    /// stderr, whether or not --verbose was passed.
+    #[test]
+    fn tunnel_failure_warning_names_the_vm_the_bastion_and_the_consequence() {
+        let msg = tunnel_failure_warning("azt1", "bst", "bastion tunnel timed out");
+        assert!(msg.contains("azt1"), "must name the VM: {}", msg);
+        assert!(msg.contains("bst"), "must name the bastion: {}", msg);
+        assert!(
+            msg.contains("bastion tunnel timed out"),
+            "must carry the underlying cause: {}",
+            msg
+        );
+        assert!(
+            msg.contains("will not be listed"),
+            "must state that this VM's sessions are missing, not absent: {}",
+            msg
+        );
+    }
+
+    /// Only the first line of the error chain belongs on a warning line; the
+    /// rest is for --verbose.
+    #[test]
+    fn tunnel_failure_warning_keeps_only_the_first_line_of_the_error() {
+        let msg = tunnel_failure_warning(
+            "azt1",
+            "bst",
+            "tunnel failed\ncaused by: RBAC denied\n  at frame 2",
+        );
+        assert!(msg.contains("tunnel failed"));
+        assert!(
+            !msg.contains("caused by"),
+            "error chain must be trimmed: {}",
+            msg
+        );
+        assert_eq!(msg.lines().count(), 1, "a warning is one line: {}", msg);
+    }
+
+    /// Tunnels are correctly separated by resource id, but the display maps are
+    /// still keyed by VM name. Rendering one VM's sessions against another VM's
+    /// row is worse than a blank cell, so colliding names are withheld.
+    #[test]
+    fn detects_vm_names_that_collide_across_resource_groups() {
+        let vms = [
+            vm_in_rg("build-agent", "dev-rg", "centralus", PowerState::Running),
+            vm_in_rg("build-agent", "prod-rg", "centralus", PowerState::Running),
+            vm_in_rg("unique", "dev-rg", "centralus", PowerState::Running),
+        ];
+        let colliding = colliding_vm_names(&vms);
+
+        assert!(colliding.contains("build-agent"));
+        assert!(
+            !colliding.contains("unique"),
+            "a unique name keeps its enrichment columns"
+        );
+        assert_eq!(colliding.len(), 1);
+    }
+
+    /// The ordinary single-resource-group listing must be unaffected.
+    #[test]
+    fn a_listing_with_unique_names_withholds_nothing() {
+        let vms = [
+            vm("a", "centralus", None, PowerState::Running),
+            vm("b", "centralus", None, PowerState::Running),
+        ];
+        assert!(colliding_vm_names(&vms).is_empty());
+    }
+
+    /// Session and process names come from the listed hosts — the least
+    /// observed machines in a fleet — and land in a terminal.
+    #[test]
+    fn remote_text_cannot_carry_escape_sequences_into_the_terminal() {
+        let cleaned = sanitize_remote_text("main\x1b[2Jwiped\x07");
+        assert!(
+            !cleaned.contains('\x1b'),
+            "ANSI escape survived: {:?}",
+            cleaned
+        );
+        assert!(!cleaned.contains('\x07'), "BEL survived: {:?}", cleaned);
+        assert!(
+            cleaned.contains("main"),
+            "legitimate text was lost: {:?}",
+            cleaned
+        );
+    }
+
+    #[test]
+    fn remote_text_is_length_capped() {
+        let cleaned = sanitize_remote_text(&"a".repeat(10_000));
+        assert!(
+            cleaned.len() <= MAX_REMOTE_TEXT_LEN,
+            "unbounded remote text reached the renderer: {} chars",
+            cleaned.len()
+        );
+    }
+
+    #[test]
+    fn ordinary_session_names_pass_through_unchanged() {
+        assert_eq!(sanitize_remote_text("build-agent_1:2"), "build-agent_1:2");
+    }
+
+    /// Sanitized text is placed in a single table cell. A newline that survives
+    /// sanitizing lets a listed host end the row and print arbitrary extra
+    /// rows, so an operator reading `azlin vm list` cannot tell a real VM from
+    /// one a compromised host invented.
+    #[test]
+    fn remote_text_cannot_forge_extra_table_rows() {
+        let cleaned = sanitize_remote_text("bash\nazt-prod  Running  0 sessions");
+        assert!(
+            !cleaned.contains('\n'),
+            "a newline survived into a table cell: {:?}",
+            cleaned
+        );
+        assert!(
+            cleaned.contains("bash"),
+            "legitimate text was lost: {:?}",
+            cleaned
+        );
+    }
+
+    /// Withholding the tmux/health/process columns is the right call for
+    /// colliding names, but a blank column is exactly what the #1127 bug looked
+    /// like. The warning is what separates "withheld on purpose" from
+    /// "silently wrong".
+    #[test]
+    fn collision_warning_names_every_withheld_vm_and_says_why() {
+        let colliding: std::collections::HashSet<String> =
+            ["build-agent".to_string(), "runner".to_string()]
+                .into_iter()
+                .collect();
+        let msg = collision_warning(&colliding);
+
+        assert!(msg.contains("build-agent"), "must name each VM: {}", msg);
+        assert!(msg.contains("runner"), "must name each VM: {}", msg);
+        assert!(
+            msg.contains("more than one resource group"),
+            "must state the cause: {}",
+            msg
+        );
+        assert!(
+            msg.contains("withheld"),
+            "must say the columns are withheld, not empty: {}",
+            msg
+        );
+    }
+
+    /// The warning is assembled from a HashSet, whose iteration order varies
+    /// run to run; an operator diffing two listings must not see spurious churn.
+    #[test]
+    fn collision_warning_lists_names_in_a_stable_order() {
+        let names: std::collections::HashSet<String> = ["zeta", "alpha", "mid"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let msg = collision_warning(&names);
+        let alpha = msg.find("alpha").expect("alpha listed");
+        let mid = msg.find("mid").expect("mid listed");
+        let zeta = msg.find("zeta").expect("zeta listed");
+        assert!(alpha < mid && mid < zeta, "names must be sorted: {}", msg);
     }
 }

@@ -8,6 +8,149 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **`azlin list` no longer reports zero tmux sessions for every bastion-only VM
+  but one** (the tunnel keying shipped in `v2.6.126-rust.12ccf60`; recorded
+  retroactively together with the gaps found reviewing it) — an Azure Bastion
+  tunnel is opened against a single target VM's ARM resource id, so it reaches
+  exactly that one VM. `collect_tmux_sessions` nevertheless kept one port per
+  *bastion*, so when two or more VMs with no public IP sat behind the same
+  regional bastion, every SSH probe was sent through whichever VM's tunnel was
+  created first. That VM's sessions were reported correctly and the others
+  silently showed none. Because the probe landed on a real host that answered,
+  there was no error to see; and because the winner was decided by iteration
+  order, the bug stayed invisible until a second bastion-only VM appeared in
+  one region. It was a regression from #999, which replaced the per-VM tunnel
+  pool with the native tunnel path and collapsed the port map to one entry per
+  bastion. `plan_bastion_tunnels` now emits one tunnel per VM, and every map
+  that decides *which host a command runs on* is keyed by the VM's full
+  resource id rather than its name, so plan, lookup and tunnel-registry keys
+  cannot collide (#1127)
+  - The plan's dedup key and the probe-loop lookup are both built by
+    `build_vm_resource_id`, which is now the sole producer of the string the
+    tunnel registry uses as its key — two hand-rolled copies of that format
+    could diverge and leak a fresh tunnel per VM per invocation
+  - `BastionTunnelPlan` carries the bastion's own resource group alongside the
+    target VM's, so the `(bastion name, resource group)` pair handed to
+    `get_or_create_tunnel` is self-consistent. Bastion names are commonly
+    templated per region, so passing the VM's resource group with the bastion's
+    name could resolve to a same-named bastion in a different resource group
+  - A tunnel that cannot be opened now prints a warning on stderr instead of
+    only under `--verbose`. The VM's row previously looked identical to a VM
+    with no sessions. The warning carries the VM name and the first line of
+    the error; the full error chain is still `--verbose`-only, so nothing new
+    is written to CI logs
+- **`azlin list` now discovers bastions in every resource group it lists, not
+  just the first VM's** — bastion detection ran one `az network bastion list`
+  against the resource group of whichever VM happened to be first in the
+  result set. Under `--show-all-vms` that is an arbitrary choice: a
+  bastion-only VM in any other resource group had no bastion in the map, was
+  skipped without a tunnel, and rendered `-` in the `Tmux` column. This is
+  the same first-iterated-wins failure as the tunnel bug one call frame up, and
+  it hid behind it. Bastion coordinates now live in a `BastionMap` keyed by
+  resource group *and* region, populated by one `az network bastion list` per
+  distinct resource group that actually contains a running VM with no public
+  IP — one call on the common single-resource-group path, none at all when
+  every VM has a public IP. A resource group the caller lacks
+  `Microsoft.Network/bastionHosts/read` on degrades that resource group alone;
+  the rest of the listing is unaffected. Bastion coordinates returned by `az`
+  are validated before use: entries with an empty name or location, or a name
+  beginning with `-`, are dropped rather than passed into an argument vector
+  (#1127)
+- **The `Azure Bastion Hosts` table lists the bastions of every resource group
+  in the listing** — the table above the VM rows was built from a single `az
+  network bastion list` against `all_vms.first()`'s resource group, so a
+  listing spanning resource groups displayed one group's bastions and omitted
+  the others with no indication that it had. This is the routing bug's twin in
+  the display path: same first-iterated-wins shape, same silent omission, and
+  it survived the routing fix because the two paths derive their resource
+  groups independently. The table is now built from every distinct resource
+  group in the listing, deduplicated so a bastion serving VMs in several groups
+  is listed once, and sorted so the output does not depend on VM order. Unlike
+  the routing lookup this is deliberately not filtered by power state or public
+  IP — the table documents the bastions in the scope the user asked about,
+  which does not change because a VM happens to be deallocated. A resource
+  group whose lookup fails is named on stderr rather than dropped, so an
+  incomplete table cannot be mistaken for a complete one (#1127)
+- **`azlin list` omits tmux, health and process data for VMs whose names
+  collide** — those results are keyed by VM name for display, so two running
+  VMs with the same name in different resource groups would render one VM's
+  sessions and processes against the other's row. Azure only guarantees name
+  uniqueness within a resource group, so `--show-all-vms` and `--all-contexts`
+  can produce that collision. Enrichment is now skipped for every VM sharing a
+  colliding name and a note naming them is printed on stderr, following the
+  cross-subscription precedent from #1090. Showing the wrong VM's processes is
+  worse than showing none, and a JSON consumer never sees the stderr note at
+  all. The row itself still lists — only the remotely-collected columns are
+  withheld (#1127)
+- **`azlin list` bounds how many bastion tunnels one invocation opens, and says
+  when it stops** — tmux collection is on by default, so a wide listing now
+  reaches every running private VM in every listed resource group. Tunnel
+  creation is sequential and each tunnel costs an `az` invocation, so the fan-out
+  is capped per invocation and the VMs skipped by the cap are reported by count
+  on stderr. Silently truncating the fan-out would have read as full coverage
+  (#1127)
+- **`azlin list --show-procs` now returns data for VMs with no public IP** —
+  `collect_procs` only ever tried direct SSH to `public_ip` or `private_ip`, so
+  for a bastion-only VM on a network the operator could not route to, the
+  `Procs` column was permanently empty with no indication why. It now takes
+  the same bastion path `collect_health_data` uses, via `bastion_ssh_exec`. The
+  routing decision is a pure `proc_route` function returning `Bastion`, `Direct`
+  or `Skip`, decided before any connection is attempted, so it is unit-tested
+  rather than inferred. A VM with no public IP and no bastion route still routes
+  `Direct` to its private IP, so operators on a VPN or peered network keep the
+  behavior they had; there is deliberately no retry from `Bastion` to `Direct` on
+  failure, because `collect_procs` is sequential and a fallback would spend a
+  second full `ConnectTimeout` per unreachable host to produce the same empty
+  cell. `--show-procs` is now also skipped when a listing spans more than one
+  subscription, as tmux and health already were: building a resource id from
+  the wrong subscription would have pointed `ps` at a same-named VM in another
+  subscription (#1090, #1127). Note that this widens what `azlin list`
+  discloses: process names for private-network VMs now appear in the `Procs`
+  column where they previously did not. The widening is bounded to table output
+  — neither `-o json` nor `-o csv` carries a process field. No new privilege is
+  involved (the bastion path is gated by Azure RBAC on both the bastion and the
+  target VM, plus the SSH key). The command remains restricted to the executable
+  path (`awk '{print $11}'`) and never emits process arguments
+- **`azlin list --with-health` no longer skips VMs that have no IP address at
+  all** — `collect_health_data` bailed out of each VM before consulting the
+  bastion map unless the VM had a public or private IP recorded, so a
+  bastion-only VM whose private IP was absent from the listing was dropped
+  even though it was reachable through its bastion. A VM is now skipped only
+  when it has neither an address nor a bastion route. `collect_health_metrics`
+  states the matching precondition as a guard rather than a comment: with no
+  bastion route and an empty address it returns default metrics instead of
+  relying on a future caller not adding a direct-SSH fallback (#1127)
+- **`azlin list --with-latency` no longer reports a fabricated latency** — the
+  address was formatted as `{ip}:22` and parsed, and any parse failure fell back
+  to `0.0.0.0:22`. An IPv6 private address, which needs brackets in that form,
+  therefore measured a TCP connect to the operator's own machine and recorded
+  the result as the VM's latency — a confident wrong number, the exact failure
+  mode #1106 was filed about. The address is now parsed as an `IpAddr` and the
+  socket built with `SocketAddr::new`; a VM whose address will not parse is
+  skipped and records no measurement — rendered as `-` in the table, an empty
+  field in CSV and `null` in JSON. Latency is still measured only to a
+  directly routable address and never through a bastion tunnel, which would
+  time the tunnel rather than the host (#1127)
+- **`azlin list` strips control characters from remotely-collected process
+  names** — process names arrive from the listed VMs, and the bastion fix newly
+  routes the least-observed hosts in a fleet into that path. `collect_procs`
+  took the remote bytes through `String::from_utf8_lossy` straight into the
+  `Procs` cell, so a process name carrying ANSI escapes could rewrite the
+  operator's screen. Values entering the `Procs` column are now stripped of
+  ASCII control characters and length-capped. The `Tmux` column needed no
+  change: `parse_session_name` already validates every session name against an
+  alphanumeric + `_` + `-` allowlist with a 128-character cap and drops anything
+  that fails, which is strictly stronger than stripping. An allowlist is not
+  available for process names, which are arbitrary executable paths (#1127)
+- **`azlin connect <session-name>` now finds sessions on bastion-only VMs** —
+  resolving a bare identifier as a tmux session name probes every running VM in
+  the resource group, and bastion-only VMs were among those returning nothing
+  before the tunnel fix. Their sessions are now reachable by bare name. The
+  ambiguity check itself is unchanged from #1043: `match_session_in_map` still
+  reports `SessionLookup::Ambiguous` when two differently named VMs each run a
+  session with the requested name, and asks for `vm:session` notation. Keying
+  tunnels by resource id makes that lookup fail closed rather than resolve
+  arbitrarily now that the candidate list can span resource groups
 - **`cargo test` no longer mutates or corrupts the real `~/.azlin/config.toml`**
   — several dispatch tests drove `config set`, `session <vm> <name>` and the
   autopilot lifecycle in-process, so they read and wrote the developer's actual
