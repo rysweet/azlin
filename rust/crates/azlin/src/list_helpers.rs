@@ -245,7 +245,7 @@ pub fn detect_bastion_hosts_or_warn(resource_group: &str) -> Vec<(String, String
                 "Warning: could not list bastion hosts in resource group '{}': {}. \
                  VMs there that are only reachable through a bastion may be unreachable.",
                 crate::cmd_list_data::sanitize_remote_text(resource_group),
-                crate::cmd_list_data::sanitize_remote_text(&e.to_string())
+                crate::cmd_list_data::sanitize_remote_text(&e.to_string()).trim_end_matches('.')
             );
             Vec::new()
         }
@@ -322,21 +322,41 @@ pub fn detect_bastion_hosts(resource_group: &str) -> anyhow::Result<Vec<(String,
         return Err(anyhow::anyhow!("{detail}"));
     }
 
-    // A zero exit whose stdout is not a JSON array is a failed lookup wearing a
-    // success code: `az configure --defaults output=table` and extensions that
-    // greet on stdout both produce it. `unwrap_or_default()` turned that into
-    // "this group has no bastion", which is the same silent degradation as a
-    // swallowed error and reaches the operator the same way -- blank tmux,
-    // health and process columns with nothing on screen to explain them.
+    // A zero exit whose stdout is not a JSON array is a lookup that did not
+    // answer the question, and `unwrap_or_default()` turned it into "this
+    // group has no bastion" -- the same silent degradation as a swallowed
+    // error, reaching the operator the same way: blank tmux, health and
+    // process columns with nothing on screen to explain them.
+    //
+    // No specific cause is claimed here. `--output json` is on the argv, so
+    // `az configure`'s output default cannot override it, and `az`'s own
+    // advisories go to stderr; this guards the residue -- a wrapper or shim
+    // named `az` earlier in PATH, a truncated write, a future change in the
+    // shape ARM returns. The point is that an answer we cannot read must not
+    // be recorded as an answer of "none".
     //
     // Genuinely empty stdout stays benign: it carries no contradicting claim,
     // and reporting it would make a quiet success look like a failure.
     let bastions: Vec<serde_json::Value> = if output.stdout.iter().all(u8::is_ascii_whitespace) {
         Vec::new()
     } else {
-        serde_json::from_slice(&output.stdout).map_err(|e| {
-            anyhow::anyhow!("az exited successfully but its bastion list did not parse: {e}")
-        })?
+        // `Option<Vec<_>>`, not `Vec<_>`: a JSON `null` is how several `az`
+        // commands spell an empty result, and it means the same thing as `[]`
+        // here. Rejecting it would turn the most ordinary case there is -- a
+        // resource group with no bastion -- into a warning claiming the lookup
+        // failed, which is the mirror image of the bug this arm exists to fix
+        // and would train operators to ignore the line.
+        //
+        // Everything else still fails loudly. A table-formatted or
+        // banner-prefixed stdout (`az configure --defaults output=table`, an
+        // extension greeting on stdout) is a lookup that did not answer the
+        // question, and reading it as "no bastion" degrades every
+        // bastion-only VM in the group in silence.
+        serde_json::from_slice::<Option<Vec<serde_json::Value>>>(&output.stdout)
+            .map_err(|e| {
+                anyhow::anyhow!("az exited successfully but its bastion list did not parse: {e}")
+            })?
+            .unwrap_or_default()
     };
 
     Ok(bastions

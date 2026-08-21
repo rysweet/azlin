@@ -308,12 +308,18 @@ pub(crate) async fn dispatch(
             loop {
                 let status = if use_bastion {
                     // Route through Azure Bastion via native WebSocket tunnel
+                    // `_or_warn`, not `if let Ok(..)`: discarding the error
+                    // here leaves "No bastion host found for region 'X'" as
+                    // the whole story when the truth is that the lookup was
+                    // refused, and sends the operator to check a region that
+                    // is fine. No spinner is live on this path -- the last one
+                    // is cleared well above -- so the line reaches a clean
+                    // terminal.
                     let bastion_map: std::collections::HashMap<String, String> =
-                        if let Ok(bastions) = crate::list_helpers::detect_bastion_hosts(&rg) {
-                            bastions.into_iter().map(|(n, l, _)| (l, n)).collect()
-                        } else {
-                            std::collections::HashMap::new()
-                        };
+                        crate::list_helpers::detect_bastion_hosts_or_warn(&rg)
+                            .into_iter()
+                            .map(|(n, l, _)| (l, n))
+                            .collect();
                     let bastion_name = bastion_map.get(&vm.location).ok_or_else(|| {
                         anyhow::anyhow!(
                             "No bastion host found for region '{}'. Cannot connect to private VM.",

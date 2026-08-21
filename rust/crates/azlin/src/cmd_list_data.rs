@@ -246,10 +246,15 @@ pub(crate) fn resource_groups_needing_bastion_lookup(vms: &[VmInfo]) -> Vec<Stri
 /// silently omitted the rest — the same first-one-wins omission as #1127,
 /// in the display path rather than the routing path.
 ///
-/// Unlike [`resource_groups_needing_bastion_lookup`] this is not filtered by
-/// power state or public IP: the table documents the bastions in the scope the
-/// user asked about, which does not depend on whether a VM happens to be
-/// running right now.
+/// Unlike [`resource_groups_needing_bastion_lookup`] this does not filter on
+/// public IP: the table documents the bastions in the scope the user asked
+/// about, whether or not anything there needs a tunnel.
+///
+/// It does not filter on power state either, but that buys less than it looks
+/// like: the caller has already run `apply_filters`, so unless `--show-all-vms`
+/// was passed the VM list reaching here holds only running VMs, and a resource
+/// group whose VMs are all deallocated contributes no group and so no lookup.
+/// The scope is the *listing*, not the subscription.
 pub(crate) fn resource_groups_in_listing(vms: &[VmInfo]) -> Vec<String> {
     let mut rgs: Vec<String> = vms
         .iter()
@@ -266,13 +271,26 @@ pub(crate) fn resource_groups_in_listing(vms: &[VmInfo]) -> Vec<String> {
 /// These strings come from outside the process and go straight into an
 /// argument vector, so a name beginning with `-` would be parsed as a flag.
 pub(crate) fn valid_bastion_coordinates(name: &str, location: &str) -> bool {
+    valid_bastion_name(name) && valid_bastion_location(location)
+}
+
+/// Split from [`valid_bastion_coordinates`] so a rejection can say which half
+/// it was. Reporting "an unusable location (eastus)" when the *name* was the
+/// problem sends the operator to check a region that is fine.
+pub(crate) fn valid_bastion_name(name: &str) -> bool {
     !name.is_empty()
-        && !location.is_empty()
         && !name.starts_with('-')
-        && !location.starts_with('-')
         && name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+}
+
+/// See [`valid_bastion_name`]. Locations are the stricter of the two: they
+/// admit only ASCII alphanumerics, so a region in display form ("East US")
+/// is rejected here.
+pub(crate) fn valid_bastion_location(location: &str) -> bool {
+    !location.is_empty()
+        && !location.starts_with('-')
         && location.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
@@ -315,15 +333,34 @@ impl Enrichment {
 /// does not name what nobody asked for: a note listing process data to someone
 /// who never passed `--show-procs` trains them to skim it.
 ///
-/// `None` only when the listing is single-subscription and nothing was
-/// withheld at all.
+/// The gate is on subscription *identity*, not on how many were queried.
+/// Counting was not enough. Probes are built from `probe_subscription` -- the
+/// manager's subscription, fixed at startup from the active context or from
+/// `az account show` -- while the rows come from whichever subscriptions the
+/// contexts named. One context pinning a subscription the CLI is not currently
+/// on gives `queried.len() == 1`, which passed a count-based gate, and every
+/// probe then ran against an ARM id in the wrong subscription. Where a resource
+/// group and VM name exist in both (shared IaC naming makes that ordinary),
+/// the probe succeeds against the wrong machine and its sessions, health and
+/// processes render under this listing's rows -- the misattribution this
+/// function exists to prevent, arriving through the gate meant to stop it.
+///
+/// An empty `queried` means no context-scoped listing happened at all, so the
+/// manager's subscription is by construction the one that was read.
+///
+/// `None` only when the listing is single-subscription, that subscription is
+/// the one probes would use, and nothing was withheld at all.
 pub(crate) fn resolve_enrichment(
     requested: Enrichment,
-    subscriptions_queried: usize,
+    queried: &std::collections::BTreeSet<String>,
+    probe_subscription: &str,
 ) -> (Enrichment, Option<String>) {
-    if subscriptions_queried <= 1 {
-        return (requested, None);
-    }
+    let mismatched = match queried.iter().next() {
+        _ if queried.len() > 1 => None,
+        Some(only) if only != probe_subscription => Some(only.clone()),
+        _ => return (requested, None),
+    };
+
     let mut withheld = vec!["bastion routing"];
     withheld.extend(
         [
@@ -334,11 +371,27 @@ pub(crate) fn resolve_enrichment(
         .into_iter()
         .filter_map(|(name, asked)| asked.then_some(name)),
     );
+    // "bastion routing is", "bastion routing and tmux sessions are". The list
+    // is one item whenever nothing was requested, which is the common case for
+    // a plain `--all-contexts` listing.
+    let verb = if withheld.len() == 1 { "is" } else { "are" };
+    let cause = match &mismatched {
+        // Both ids are sanitized: a context file names its subscription and
+        // nothing validates that string, so it reaches the terminal the same
+        // way an Azure-supplied name does.
+        Some(only) => format!(
+            "this listing reads subscription {} but probes would run against {}",
+            sanitize_remote_text(only),
+            sanitize_remote_text(probe_subscription)
+        ),
+        None => format!("this listing spans {} subscriptions", queried.len()),
+    };
     let note = format!(
-        "Note: this listing spans {} subscriptions; {} are subscription-scoped and have \
-         been omitted.",
-        subscriptions_queried,
-        join_with_and(&withheld)
+        "Note: {}; {} {} subscription-scoped and {} been omitted.",
+        cause,
+        join_with_and(&withheld),
+        verb,
+        if withheld.len() == 1 { "has" } else { "have" }
     );
     (
         Enrichment {
@@ -471,13 +524,20 @@ pub(crate) fn insert_bastions_for_group(
             // bastion-only VM in it blank for a reason nothing on screen
             // states. Narrating it is what separates "no bastion here" from
             // "a bastion we could not use".
+            // Name the half that actually failed. The guard rejects on either,
+            // and a message that always blames the location sends the operator
+            // to check a region that is perfectly fine.
+            let reason = if !valid_bastion_location(&location) {
+                format!("an unusable location ({})", sanitize_remote_text(&location))
+            } else {
+                "a name that cannot be used safely as a command argument".to_string()
+            };
             warnings.push(format!(
-                "Warning: ignoring bastion {} in resource group {} because Azure reported it at \
-                 an unusable location ({}). VMs reachable only through it will show no tmux, \
-                 health or process data.",
+                "Warning: ignoring bastion {} in resource group {} because Azure reported it with \
+                 {}. VMs reachable only through it will show no tmux, health or process data.",
                 sanitize_remote_text(&name),
                 sanitize_remote_text(resource_group),
-                sanitize_remote_text(&location),
+                reason,
             ));
             continue;
         }
@@ -623,7 +683,9 @@ pub(crate) fn bastion_lookup_failure_warning(resource_group: &str, error: &str) 
          VMs there that are only reachable through a bastion will show no tmux, \
          health or process data.",
         sanitize_remote_text(resource_group),
-        sanitize_remote_text(first_line)
+        // `az` errors usually end in a period and this sentence supplies its
+        // own, which read as "authorization.. VMs there".
+        sanitize_remote_text(first_line).trim_end_matches('.')
     )
 }
 
@@ -670,8 +732,8 @@ pub(crate) fn collision_warning(colliding: &std::collections::HashSet<String>) -
     names.sort();
     format!(
         "Warning: VM name(s) {} appear in more than one resource group; \
-         their tmux/health/process columns are withheld to avoid attributing \
-         one VM's data to another.",
+         their per-VM columns (tmux, health, processes, latency) are withheld \
+         to avoid attributing one VM's data to another.",
         names.join(", ")
     )
 }
@@ -2182,9 +2244,16 @@ mod bastion_discovery_tests {
         // dropped by the allowlist take every VM behind it off the listing
         // with no stated cause.
         assert_eq!(warnings.len(), 1, "the rejected entry is narrated");
+        // `centralus` is a fine location -- the *name* is what was rejected, so
+        // the warning must not send the operator to check the region.
         assert!(
-            warnings[0].contains("--query") && warnings[0].contains("unusable location"),
+            warnings[0].contains("--query") && warnings[0].contains("name"),
             "the warning names what was ignored and why: {}",
+            warnings[0]
+        );
+        assert!(
+            !warnings[0].contains("unusable location"),
+            "a name rejection blamed the location: {}",
             warnings[0]
         );
     }
@@ -2568,6 +2637,11 @@ mod silent_degradation_tests {
         );
     }
 
+    /// The set of subscriptions a listing actually read.
+    fn subs<const N: usize>(ids: [&str; N]) -> std::collections::BTreeSet<String> {
+        ids.iter().map(|s| s.to_string()).collect()
+    }
+
     /// The bug this gate exists to prevent: `--show-procs` ran across
     /// subscriptions while its two siblings did not. Asserting the whole
     /// struct, rather than one field, is what makes a fourth collector added
@@ -2579,7 +2653,7 @@ mod silent_degradation_tests {
             health: true,
             procs: true,
         };
-        let (permitted, note) = resolve_enrichment(requested, 2);
+        let (permitted, note) = resolve_enrichment(requested, &subs(["sub-a", "sub-b"]), "sub-a");
         assert_eq!(
             permitted,
             Enrichment {
@@ -2616,7 +2690,8 @@ mod silent_degradation_tests {
                 health: false,
                 procs: true,
             },
-            3,
+            &subs(["sub-a", "sub-b", "sub-c"]),
+            "sub-a",
         );
         let note = note.expect("process data was withheld and must be explained");
         assert!(note.contains("process data"), "{note}");
@@ -2643,17 +2718,67 @@ mod silent_degradation_tests {
             health: false,
             procs: true,
         };
-        for count in [0, 1] {
-            let (permitted, note) = resolve_enrichment(requested, count);
-            assert_eq!(
-                permitted, requested,
-                "enrichment lost at {count} subscriptions"
-            );
-            assert!(
-                note.is_none(),
-                "nothing was withheld but a note printed: {note:?}"
-            );
-        }
+        // No context-scoped listing happened, so the manager's subscription is
+        // by construction the one that was read.
+        let (permitted, note) = resolve_enrichment(requested, &subs([]), "sub-a");
+        assert_eq!(permitted, requested, "enrichment lost with no contexts");
+        assert!(
+            note.is_none(),
+            "nothing withheld but a note printed: {note:?}"
+        );
+
+        // One subscription, and it is the one probes will use.
+        let (permitted, note) = resolve_enrichment(requested, &subs(["sub-a"]), "sub-a");
+        assert_eq!(permitted, requested, "enrichment lost on the matching sub");
+        assert!(
+            note.is_none(),
+            "nothing withheld but a note printed: {note:?}"
+        );
+    }
+
+    /// The gate counted subscriptions instead of identifying them. One context
+    /// pinning a subscription the CLI is not on gives a count of exactly one,
+    /// which the count-based gate waved through -- and every probe then ran
+    /// against an ARM id in the CLI's subscription. Where the resource group
+    /// and VM name exist in both, the probe succeeds against the wrong machine
+    /// and renders its data under this listing's rows.
+    #[test]
+    fn one_subscription_that_probes_cannot_reach_is_still_withheld() {
+        let requested = Enrichment {
+            tmux: true,
+            health: true,
+            procs: true,
+        };
+        let (permitted, note) = resolve_enrichment(requested, &subs(["sub-b"]), "sub-a");
+        assert!(
+            !permitted.any(),
+            "probes ran against a subscription this listing never read"
+        );
+        let note = note.expect("withholding must be explained");
+        assert!(
+            note.contains("sub-b") && note.contains("sub-a"),
+            "the note must name both subscriptions: {note}"
+        );
+    }
+
+    /// With nothing requested the withheld list is one item, and the note has
+    /// to read as English: it said "bastion routing are subscription-scoped".
+    #[test]
+    fn a_single_withheld_item_reads_as_english() {
+        let (_, note) = resolve_enrichment(
+            Enrichment {
+                tmux: false,
+                health: false,
+                procs: false,
+            },
+            &subs(["sub-b"]),
+            "sub-a",
+        );
+        let note = note.expect("bastion routing is withheld even with nothing requested");
+        assert!(
+            note.contains("bastion routing is subscription-scoped and has been omitted"),
+            "{note}"
+        );
     }
 
     #[test]

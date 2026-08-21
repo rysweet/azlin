@@ -233,7 +233,8 @@ pub(crate) async fn dispatch(
                     health: with_health,
                     procs: show_procs,
                 },
-                queried_subscriptions.len(),
+                &queried_subscriptions,
+                vm_manager.subscription_id(),
             );
             // The "Azure Bastion Hosts" table is withheld on the same grounds,
             // and the note above accounts for it. The gate is taken from the

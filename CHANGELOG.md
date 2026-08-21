@@ -37,6 +37,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exactly how they drifted. The note now names what was actually withheld
   rather than reciting a fixed string, so it can neither claim to have omitted
   something that in fact ran nor stay silent about something that did not.
+- **Enrichment is gated on which subscription probes can reach, not on how many
+  the listing read** — the gate counted subscriptions, and probes are built from
+  the subscription the CLI is on rather than the one a context named. A single
+  context pinning another subscription therefore gave a count of one and passed:
+  every probe then ran against an ARM id in the CLI's subscription. Reachable
+  three ordinary ways — `azlin context create` does not make the new context
+  active, `--contexts` can select a single non-active context, and a partial
+  listing failure collapses a two-subscription run to one. Where the resource
+  group and VM name exist in both, which shared IaC naming makes ordinary, the
+  probe succeeds against the *wrong machine* and its sessions, health and
+  processes render under this listing's rows. The gate now compares identity,
+  and the note names both subscriptions. (The note also read "bastion routing
+  are subscription-scoped" whenever nothing else was withheld.)
 - **A failed bastion lookup is no longer erased by the spinner that was drawn
   over it** — `detect_bastion_hosts` printed its own warning and returned
   `Ok(empty)` whenever `az` merely exited non-zero, which is how a bastion
@@ -53,10 +66,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   explaining why. A non-zero exit is now an `Err`, so the report travels to the
   caller and is printed where it survives.
 - **A bastion lookup that `az` answers with something other than a JSON array
-  is no longer read as "no bastion"** — a zero exit with unparseable stdout
-  (`az configure --defaults output=table`, or an extension greeting on stdout)
-  was swallowed by `unwrap_or_default()`, degrading the whole group silently.
-  It is now reported. Genuinely empty stdout stays benign.
+  is no longer read as "no bastion"** — a zero exit with unparseable stdout was
+  swallowed by `unwrap_or_default()`, degrading the whole group silently. An
+  answer that cannot be read is now reported rather than recorded as an answer
+  of "none". A JSON `null` and an empty stdout both still mean "no bastion
+  here", because they are how that is ordinarily spelled.
 - **A bastion Azure reports at an unusable location is named instead of
   dropped** — the coordinate allowlist admits only ASCII alphanumerics in a
   region, so an ARM response giving a location in display form ("East US")
