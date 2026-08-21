@@ -190,11 +190,22 @@ pub fn detect_bastion_hosts(resource_group: &str) -> anyhow::Result<Vec<(String,
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let stderr = stderr.trim();
+        // This is the warning an operator actually sees when a bastion lookup
+        // fails: `az` exiting non-zero is the common case, and the `Err` arm
+        // callers sanitize is only taken when the process cannot be spawned at
+        // all. Both halves are text this machine did not author -- the group
+        // name is chosen by whoever created it and `az` quotes it back into its
+        // own error -- so an escape sequence in either would rewrite the line
+        // that reports the failure. First line only, for the same reason
+        // `bastion_lookup_failure_warning` takes one: a multi-line error must
+        // not be able to fabricate a second warning.
+        let stderr =
+            crate::cmd_list_data::sanitize_remote_text(stderr.lines().next().unwrap_or("").trim());
         if !stderr.is_empty() {
             eprintln!(
                 "Warning: 'az network bastion list' failed for resource group '{}': {}",
-                resource_group, stderr
+                crate::cmd_list_data::sanitize_remote_text(resource_group),
+                stderr
             );
         }
         return Ok(Vec::new()); // Bastion not available, not a fatal error

@@ -33,7 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bastion_lookup_failure_warning`, `tunnel_failure_warning`,
   `collision_warning`, the verbose tunnel-error line, the "Azure Bastion Hosts"
   table and the failed-resource-group warning all sanitize now. A warning is not
-  a safer place to print an escape sequence than a table cell is.
+  a safer place to print an escape sequence than a table cell is. Outside-in
+  testing against the real binary then found the one site the audit had missed
+  and the one that matters most: `detect_bastion_hosts` prints its own warning
+  and returns `Ok(empty)` when `az` exits non-zero, so *that* — not the `Err`
+  arm `bastion_lookup_failure_warning` guards, which is only taken when `az`
+  cannot be spawned at all — is the failure an operator actually sees, and it
+  echoed `az`'s stderr verbatim. It sanitizes the group name and the first line
+  of `az`'s stderr now.
 - **A non-UTF-8 SSH key path no longer reports reachable VMs as unreachable** —
   the three SSH probe sites each spelled the identity fallback
   `key.to_str().unwrap_or("")`, which hands `ssh` an empty `-i` argument rather
