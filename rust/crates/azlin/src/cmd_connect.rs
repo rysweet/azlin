@@ -189,7 +189,6 @@ pub(crate) async fn dispatch(
                         .collect();
                     let lookup = crate::cmd_list_data::find_vm_by_tmux_session(
                         &running,
-                        &rg,
                         vm_manager.subscription_id(),
                         config.ssh_connect_timeout,
                         &name,

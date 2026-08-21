@@ -15,6 +15,29 @@ When you run `azlin connect my-vm`, azlin:
 
 This happens transparently — no user action is required.
 
+## One Tunnel Per Target VM
+
+A tunnel is opened against a *single* VM's ARM resource id and forwards to that
+VM alone. A regional bastion usually fronts many VMs, but its tunnels are not
+interchangeable: sending traffic for VM B down VM A's tunnel reaches VM A.
+
+Azlin's tunnel registry therefore keys tunnels by the target VM's resource id,
+and every caller that decides which host a command runs on — `azlin connect`,
+and the tmux, health and process columns of `azlin list` — looks up its port by
+that resource id. VM names are used for display only. Names are unique within a
+resource group but not across one subscription, and a name-keyed port map is
+what caused `azlin list` to report every bastion-only VM behind a shared bastion
+except one as having no tmux sessions (fixed in `v2.6.126-rust.12ccf60`).
+
+Reusing an existing tunnel is safe and is what the registry is for; reusing
+*another VM's* tunnel is not, and the resource-id key is what makes the
+difference unspellable.
+
+The loopback listener sets `StrictHostKeyChecking=no` — every tunnel presents as
+`127.0.0.1` on a fresh port, so host keys cannot be pinned. SSH consequently
+cannot tell you it reached the wrong machine. The resource-id key is the only
+control that prevents it.
+
 ## Configuration
 
 Add to `~/.azlin/config.toml`:

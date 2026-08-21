@@ -9,7 +9,7 @@ The `azlin list` command displays all azlin-managed VMs in table format, showing
 **Key features:**
 - Fast listing of VMs in configured resource group (default)
 - Filter by tags for organizational queries
-- Show quota usage and remaining capacity
+- Show quota usage and remaining capacity with `-q`
 - Display active tmux sessions per VM
 - Multi-context support for complex Azure setups
 - Prevent VM name truncation with `--wide` flag
@@ -28,13 +28,24 @@ azlin list [OPTIONS]
 | `--config PATH` | File | Path to custom config file (default: `~/.azlin/config.toml`) |
 | `--all` | Flag | Show all VMs including stopped/deallocated ones (default: running only) |
 | `--tag TEXT` | Key or Key=Value | Filter VMs by tag (format: `key` or `key=value`) |
-| `--show-quota / --no-quota` | Flag | Show/hide Azure vCPU quota information (default: show) |
-| `--show-tmux / --no-tmux` | Flag | Show/hide active tmux sessions (default: show) |
+| `-q, --quota` | Flag | Add the Azure vCPU quota summary footer (default: off) |
+| `--show-tmux [true\|false]` | Flag | Show/hide active tmux sessions (default: show). `--no-tmux` is shorthand for `--show-tmux false` |
+| `--with-health` | Flag | Add the `Agent`, `CPU%`, `Mem%` and `Disk%` columns, collected over SSH |
+| `--show-procs` | Flag | Add the `Procs` column — top processes by memory, collected over SSH. **Table output only** |
+| `--with-latency` | Flag | Add the `Latency` column — a TCP connect time to port 22, measured from this machine |
+| `--vm-pattern TEXT` | Glob Pattern | Filter VMs by name pattern |
+| `-c, --compact` | Flag | Narrower columns for constrained terminals |
+| `--no-cache` | Flag | Skip the cache and fetch fresh data |
 | `-a, --show-all-vms` | Flag | List ALL VMs across ALL resource groups (expensive operation) |
 | `--all-contexts` | Flag | List VMs across all configured contexts (requires context setup) |
 | `--contexts TEXT` | Glob Pattern | List VMs from contexts matching pattern (e.g., `prod*`, `dev-*`) |
 | `-w, --wide` | Flag | **NEW in v0.3.2** - Prevent VM name truncation in output |
 | `-h, --help` | Flag | Show command help and exit |
+
+`-o, --output {table,json,csv}` is a global azlin flag and applies here:
+`azlin -o json list`. Tmux and health data are *collected* in every output
+format and *emitted* in all three. Process data is collected in every format but
+only rendered in the table — see [Limitations](#limitations).
 
 ## Examples
 
@@ -80,17 +91,15 @@ azlin list --tag environment=dev --all
 ### Quota and Session Information
 
 ```bash
-# List with quota information (default)
-azlin list
+# Add the quota footer (off by default)
+azlin list -q
+azlin list --quota
 
-# Hide quota information for faster output
-azlin list --no-quota
-
-# Hide tmux session information
+# Hide tmux session information for faster output
 azlin list --no-tmux
 
-# Minimal output (no quota, no tmux)
-azlin list --no-quota --no-tmux
+# Quota footer without the tmux probes
+azlin list -q --no-tmux
 ```
 
 ### Cross-Resource Group Scanning
@@ -103,6 +112,13 @@ azlin list -a
 # Combine with filters
 azlin list -a --tag environment=production
 ```
+
+`--show-all-vms` also widens the reach of the enrichment columns. Bastions are
+discovered in every resource group that contains a running VM with no public IP,
+so tmux, health and process data are collected for private VMs in *all* the
+listed resource groups — not only the first one. That means a wide listing runs
+remote commands against a correspondingly wide set of hosts; see
+[Limitations](#limitations).
 
 ### Multi-Context Queries
 
@@ -126,8 +142,8 @@ azlin list --contexts "prod*" --all
 # Production VMs, including stopped, with full names
 azlin list --tag environment=production --all --wide
 
-# Development VMs without quota display
-azlin list --tag environment=dev --no-quota
+# Development VMs with the quota footer
+azlin list --tag environment=dev -q
 
 # All VMs in specific RG with full details
 azlin list --rg my-rg --all --wide
@@ -140,7 +156,7 @@ The `azlin list` command displays a table with the following columns:
 | Column | Description |
 |--------|-------------|
 | **Session** | Named session with OS icon prefix (e.g., 🟠 for Ubuntu, 🐧 for Linux, 🪟 for Windows) |
-| **Tmux Sessions** | Active tmux sessions (if `--show-tmux`) |
+| **Tmux** | Active tmux sessions, comma-separated (default; hide with `--no-tmux`). `-` when the VM reported none |
 | **VM Name** | VM identifier (only in `--wide` mode) |
 | **OS** | Operating system name and version (e.g., Ubuntu 25.10, Ubuntu 22.04 LTS) |
 | **Status** | Running, Stopped, Deallocated, etc. |
@@ -149,10 +165,13 @@ The `azlin list` command displays a table with the following columns:
 | **SKU** | Azure VM SKU (only in `--wide` mode) |
 | **CPU** | Number of virtual CPUs |
 | **Mem** | Memory in GB |
+| **Latency** | TCP connect time to port 22 (only with `--with-latency`). No measurement renders as `-` in the table, an empty field in CSV and `null` in JSON |
+| **Agent**, **CPU%**, **Mem%**, **Disk%** | Four separate columns, added together by `--with-health`: agent status and the three usage percentages |
+| **Procs** | Top processes by memory (only with `--show-procs`). Table output only |
 
 **Additional footer information:**
 - Total vCPU usage across running VMs
-- Azure quota limits and remaining capacity (if `--show-quota`)
+- Azure quota limits and remaining capacity (only with `-q, --quota`)
 
 ### Example Output
 
@@ -171,7 +190,7 @@ Total: 50 vCPUs used | Quota: 100 vCPUs available (50 remaining)
 
 ## Understanding Quota Display
 
-The quota footer shows:
+The quota footer (`-q, --quota`) shows:
 
 - **Total vCPUs used**: Sum of vCPUs from all running VMs
 - **Quota limit**: Azure subscription regional vCPU limit
@@ -189,13 +208,121 @@ This means:
 
 ## Understanding Tmux Display
 
-The tmux column shows the number of active tmux sessions on each VM:
+The `Tmux` column lists the active tmux session *names* on each VM, comma-separated:
 
-- **Number (e.g., 2)**: Count of running tmux sessions
-- **0**: No active tmux sessions (or tmux not installed)
-- **-**: VM is stopped/not accessible
+- **`main, debug`**: two sessions, listed by name
+- **`main, debug, +3`**: more sessions than fit the column; the overflow is summarised
+- **`-`**: the VM reported no sessions, or could not be probed
 
 **Use case:** Identify which VMs have active work sessions running.
+
+### VMs Without a Public IP
+
+A VM with no public IP is reached through Azure Bastion instead of direct SSH.
+`azlin list` does this automatically — there is no flag. Whenever the listing
+contains a running VM with no public IP, azlin discovers the bastion hosts in
+that VM's resource group and region, opens a tunnel, and probes through it.
+The `Tmux`, `Agent`/`CPU%`/`Mem%`/`Disk%` and `Procs` columns are filled the same
+way they are for a public VM.
+
+**One tunnel per VM.** A Bastion tunnel is opened against a single VM's ARM
+resource id and forwards to that VM alone. Tunnels to different VMs behind the
+same bastion are not interchangeable, so `azlin list` opens one per VM:
+
+```
+Region westus2, bastion `bastion-westus2`, three VMs with no public IP:
+
+  dev-vm-002  ──▶ 127.0.0.1:52341  ──▶ /subscriptions/…/dev-vm-002
+  dev-vm-004  ──▶ 127.0.0.1:52342  ──▶ /subscriptions/…/dev-vm-004
+  dev-vm-007  ──▶ 127.0.0.1:52343  ──▶ /subscriptions/…/dev-vm-007
+```
+
+Before `v2.6.126-rust.12ccf60` a single tunnel was shared across every VM behind
+a bastion, so all the probes landed on whichever VM's tunnel was created first
+and the rest reported no sessions.
+
+**Discovery spans every listed resource group.** Bastions are looked up once per
+distinct resource group that actually contains a running VM with no public IP.
+A listing where every VM has a public IP performs no bastion lookup at all. If
+you lack `Microsoft.Network/bastionHosts/read` on one resource group, only that
+resource group's private VMs lose their enrichment columns.
+
+**A tunnel that cannot be opened is reported.** Failure prints a warning on
+stderr and the listing continues:
+
+```
+warning: bastion tunnel for dev-vm-002 could not be opened; its tmux sessions
+will not be listed (Bastion host 'bastion-westus2' not found in resource group 'dev-rg')
+```
+
+The warning carries the first line of the error; use `-v` for the full chain. It
+goes to stderr, so `-o json` and `-o csv` piped to a file are unaffected.
+
+**A failed tunnel falls back to the private IP.** When the bastion cannot carry
+the command, azlin retries at the VM's private address, which is routable if you
+are on a VPN or a peered network. So a warning does not always mean the columns
+are empty — it means the tunnel failed, and the row that follows may still be
+filled in by the fallback. Only a command that *reached* the VM and failed there
+is reported as-is: retrying that at the private IP could reach a different host
+and print its numbers under this VM's name.
+
+**A `-` in an enrichment column is not always "nothing to report."** A tunnel
+failure is warned about by default, but an ordinary SSH probe that times out or
+is refused is not — a fleet legitimately contains hosts you cannot reach, and a
+warning per host per listing would drown the ones that matter. Run
+`azlin list --verbose` to see, per VM, whether the probe failed or the VM really
+had nothing running.
+
+**Several bastions in one region.** A resource group can hold more than one
+virtual network and so more than one bastion in a region. The first one Azure
+lists is used and the others are named on stderr; the choice does not vary
+between runs. If the wrong one is picked, narrow the listing with `--rg`.
+
+**Tunnel fan-out is capped.** One invocation opens a bounded number of tunnels.
+If a listing has more bastion-only VMs than that, the remainder are skipped and
+the count is printed on stderr, so a truncated listing never looks like a
+complete one. Narrow the listing with `--rg` or `--tag` to bring a large fleet
+under the cap.
+
+## Limitations
+
+- **Bastion and VM must share a resource group.** Discovery looks for bastions
+  in the resource groups of the VMs being listed. A hub-and-spoke topology, where
+  the bastion lives in a hub resource group and the VMs in spokes, is not
+  resolved; those VMs' enrichment columns stay empty unless their private IP
+  happens to be routable from your machine. Resolving it properly requires
+  VNet-peering discovery, which azlin does not do.
+- **Only one bastion per resource group and region is used.** When a resource
+  group has several bastions in one region, azlin routes through the first one
+  Azure lists and names the rest in a warning. It does not test each bastion to
+  find which one can actually see the VM.
+- **VMs with colliding names lose their enrichment columns.** Azure only
+  guarantees VM name uniqueness within a resource group, and `--show-all-vms` and
+  `--all-contexts` can list two VMs with the same name. Tmux, health and process
+  data are keyed by name for display, so azlin omits those columns for every VM
+  in a colliding set and prints a note naming them, rather than attributing one
+  VM's sessions to the other's row.
+- **Listings spanning several subscriptions omit tmux, health and process
+  data.** Those lookups are subscription-scoped; under `--all-contexts` across
+  more than one subscription they are skipped and a note is printed, rather than
+  attributed to the wrong subscription.
+- **`--show-procs` fills the `Procs` column in table output only.** The data is
+  collected in every output format, but neither `-o json` nor `-o csv` carries a
+  process field. Scripts cannot read process data out of `azlin list`; use
+  `azlin connect <vm> -- ps aux` for that.
+- **Latency is never measured through a bastion tunnel.** `--with-latency`
+  measures a TCP connect to a routable address, so a VM you can only reach
+  through its bastion has no measurement. Timing the tunnel would measure the
+  tunnel, not the host. A VM whose recorded address cannot be parsed likewise has
+  no measurement. "No measurement" renders as `-` in the table, an empty field in
+  CSV and `null` in JSON — the table's `-` is a table convention, not a value a
+  parser will see.
+- **`-o csv` values are not quoted.** The `Tmux` column joins session names with
+  `;` rather than `,` precisely so it does not break a naive parser, but nothing
+  is escaped: a session name is safe only because it is restricted to
+  alphanumerics, `_` and `-`. A spreadsheet will still evaluate any value
+  beginning with `=`, `+`, `-` or `@`. Prefer `-o json` for anything you will
+  parse or open in a spreadsheet.
 
 ## Performance Considerations
 
@@ -212,6 +339,11 @@ The tmux column shows the number of active tmux sessions on each VM:
 - `azlin list --all-contexts` - **Slow** (~5-60 seconds)
   - Depends on number of configured contexts
   - Authenticates to each context separately
+
+- Listings containing VMs with no public IP add one `az network bastion list`
+  per distinct resource group, plus one tunnel per bastion-only VM. Tunnels are
+  opened sequentially; the SSH probes that follow run concurrently. Use
+  `--no-tmux` to skip all of it.
 
 **Tip:** For frequently-used multi-RG queries, use tags instead:
 ```bash
@@ -306,19 +438,34 @@ az account show
 az vm list-usage --location eastus --output table
 
 # Try different region
-azlin list --rg <rg> --no-quota  # Skip quota check
+azlin list --rg <rg>  # Omit -q to skip the quota lookup entirely
 ```
 
-### Tmux Count Incorrect
+### Tmux Column Shows `-` But Sessions Exist
 
-**Symptoms:** Tmux column shows 0 but sessions exist, or shows "-" for running VM.
+**Symptoms:** The `Tmux` column shows `-` for a running VM you know has tmux
+sessions.
+
+**First, check stderr.** A `-` with a warning means azlin could not probe the VM;
+a `-` with no warning means the VM answered and had no sessions. The two look
+identical in the table:
+
+```bash
+azlin list            # warnings and notes go to stderr
+azlin -v list         # adds per-VM detail, including skipped VMs
+```
 
 **Possible causes:**
-- SSH connection issues (firewall, bastion)
-- VM not reachable from current network
-- tmux not installed on VM
 
-**Solutions:**
+| What you see on stderr | Cause | What to do |
+|------------------------|-------|------------|
+| `warning: bastion tunnel for <vm> could not be opened` | The bastion is missing, RBAC denies it, or the tunnel timed out | Run `azlin -v list` for the full error; confirm the bastion exists in the VM's resource group |
+| A note that N VMs were skipped by the tunnel cap | More bastion-only VMs than one invocation opens tunnels for | Narrow the listing with `--rg` or `--tag` |
+| A note naming VMs with duplicate names | Two listed VMs share a name, so `Tmux`, health and `Procs` are withheld from both | List them one resource group at a time with `--rg` |
+| A note that the listing spans several subscriptions | Tmux, health and process data are subscription-scoped | Use `--contexts` to select one subscription at a time |
+| Nothing | The VM answered and reported no sessions, or tmux is not installed | Check on the VM directly |
+
+**Check the VM directly:**
 ```bash
 # Verify VM is reachable
 azlin connect myvm -- echo "test"
@@ -329,6 +476,20 @@ azlin connect myvm -- tmux ls
 # Skip tmux display
 azlin list --no-tmux
 ```
+
+**If several VMs behind one bastion all report zero except one**, you are running
+a build older than `v2.6.126-rust.12ccf60`, which shared a single tunnel across
+every VM behind a bastion. Check and upgrade:
+
+```bash
+azlin --version
+azlin update
+```
+
+**If a private VM in a non-default resource group reports zero under
+`--show-all-vms`**, upgrade for the same reason: bastion discovery used to run
+against one resource group only. See
+[VMs Without a Public IP](#vms-without-a-public-ip).
 
 ### VM Names Truncated
 
@@ -347,14 +508,11 @@ azlin list -w
 
 **Solutions:**
 ```bash
-# Disable quota check
-azlin list --no-quota
-
-# Disable tmux check
+# Disable the tmux probes — the expensive part
 azlin list --no-tmux
 
-# Both disabled for fastest output
-azlin list --no-quota --no-tmux
+# Drop the quota footer too if you had asked for it with -q
+azlin list --no-tmux
 
 # If using --show-all-vms, try scoping to specific RG
 azlin list --rg my-rg  # Much faster
@@ -382,22 +540,22 @@ azlin list --contexts "*prod*"
 
 ```bash
 # Get VM count
-vm_count=$(azlin list --no-quota --no-tmux | grep -c "Running")
+vm_count=$(azlin list --no-tmux | grep -c "Running")
 
 # Check if specific VM exists
 if azlin list | grep -q "myvm"; then
     echo "VM exists"
 fi
 
-# Export VM list (parse table output)
-azlin list --wide --no-quota --no-tmux > vms.txt
+# Export VM list (JSON is the parseable format; see Limitations)
+azlin -o json list --wide --no-tmux > vms.json
 ```
 
 ### Monitoring Workflows
 
 ```bash
 # Check quota before provisioning
-azlin list  # Review "remaining" quota
+azlin list -q  # Review "remaining" quota
 
 # Verify new VM appears
 azlin new --name test && azlin list
@@ -440,3 +598,4 @@ azlin list --tag team=frontend
 - [All VM commands](index.md)
 - [Context Management](../context/index.md)
 - [Tag Management](tag.md)
+- [Native Bastion Tunnel](../../bastion/native-tunnel.md) - How VMs with no public IP are reached, and why each one needs its own tunnel

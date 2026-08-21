@@ -1,0 +1,301 @@
+name: "azlin gives every bastion-only VM its own tunnel, so none silently reports zero tmux sessions"
+description: |
+  Verifies PR #1127 and closes the gaps found when it was re-run through the
+  full workflow.
+
+  An Azure Bastion tunnel is bound to ONE target VM: it is opened against that
+  VM's resource id. Keying the tunnel port map by bastion NAME therefore made
+  every bastion-only VM behind a shared bastion reuse the first VM's tunnel, so
+  all SSH probes landed on one host and the other VMs reported zero tmux
+  sessions. The symptom was order-dependent — whichever VM was iterated first
+  won the tunnel — which is why it stayed invisible until a second bastion-only
+  VM appeared in one region.
+
+  These steps are pure-logic and source-structure assertions: they need neither
+  Azure, a bastion, nor the network.
+
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 30000
+
+steps:
+  - name: "Build the binary under test (never assert against a stale build)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo build -p azlin 2>&1 | tail -1
+        test -x target/debug/azlin && echo "PASS: fresh azlin binary present"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "Tunnel count follows the number of bastion-only VMs, not the number of bastions"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # The invariant the pre-fix code provably violated: three bastion-only
+        # VMs behind ONE bastion must produce three tunnels. The old per-bastion
+        # map produced exactly one.
+        cargo test -p azlin --bin azlin bastion_tunnel_plan_tests:: 2>&1 | tail -3 | tee /tmp/btp.txt
+        grep -q "0 failed" /tmp/btp.txt || { echo "FAIL: bastion tunnel plan tests failed"; exit 1; }
+        echo "PASS: one tunnel per bastion-only VM"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "The tunnel port map is keyed by VM, never by bastion"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # Keying by bastion name is the bug itself; keying by VM *name* still
+        # collides for same-named VMs in two resource groups. The key must be
+        # the resource id the tunnel was actually opened against.
+        grep -nE "bastion_ports\.insert\(\s*plan\.bastion_name" crates/azlin/src/cmd_list_data.rs \
+          && { echo "FAIL: port map is still keyed by bastion name"; exit 1; }
+        grep -nE "bastion_ports\.insert\(\s*plan\.vm_name" crates/azlin/src/cmd_list_data.rs \
+          && { echo "FAIL: port map is keyed by VM name, which collides across resource groups"; exit 1; }
+        grep -q "bastion_ports.insert(plan.vm_resource_id" crates/azlin/src/cmd_list_data.rs \
+          || { echo "FAIL: port map is not keyed by VM resource id"; exit 1; }
+        echo "PASS: tunnel ports are keyed by VM resource id"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 30000
+
+  - name: "Every ARM resource id is built by one helper, so open and lookup cannot drift"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # Two hand-rolled copies of the id format is how the open-path and the
+        # lookup-path drift apart.
+        COPIES=$(grep -c "providers/Microsoft.Compute/virtualMachines/{}" crates/azlin/src/cmd_list_data.rs)
+        test "$COPIES" -le 1 \
+          || { echo "FAIL: $COPIES hand-built copies of the VM resource id format"; exit 1; }
+        cargo test -p azlin --bin azlin probe_route_tests::build_vm_resource_id 2>&1 | tail -3 | tee /tmp/vrid.txt
+        grep -q "0 failed" /tmp/vrid.txt || { echo "FAIL: vm_resource_id tests failed"; exit 1; }
+        echo "PASS: one resource-id builder, covered by tests"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "Planning is a pure function of the VM set, not of iteration order"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # The original symptom was order-dependent, so order-independence is
+        # the property that actually discriminates fixed from broken.
+        cargo test -p azlin --bin azlin plans_are_order_independent 2>&1 | tail -3 | tee /tmp/oi.txt
+        grep -q "1 passed" /tmp/oi.txt || { echo "FAIL: planning is order-dependent"; exit 1; }
+        echo "PASS: same VMs in any order yield the same tunnels"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "collect_procs routes a bastion-only VM through a bastion, not at its private IP"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # Same defect class as the tmux bug: a bastion-only VM was SSH'd at its
+        # own private IP, which is unroutable from the operator's machine, so
+        # the VM silently reported no processes at all.
+        grep -nE "fn collect_procs" -A 25 crates/azlin/src/cmd_list_data.rs \
+          | grep -qE "public_ip\.as_deref\(\)\.or\(vm\.private_ip\.as_deref\(\)\)" \
+          && { echo "FAIL: collect_procs still SSHs bastion-only VMs at their private IP"; exit 1; }
+        cargo test -p azlin --bin azlin probe_route_tests:: 2>&1 | tail -3 | tee /tmp/pr.txt
+        grep -q "0 failed" /tmp/pr.txt || { echo "FAIL: probe route tests failed"; exit 1; }
+        echo "PASS: bastion-only VMs are routed through their own tunnel"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "A tunnel that fails to open says so, whether or not --verbose was passed"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # A failed tunnel drops the VM from the results entirely, which is
+        # indistinguishable from "this VM has no sessions" unless we say so.
+        # This is the PR #1106 silent-degradation rule applied here.
+        awk '/Failed to (create|open) (a )?bastion tunnel/{found=1}
+             found && /if verbose/{print "guarded"; exit}' crates/azlin/src/cmd_list_data.rs \
+          | grep -q guarded && { echo "FAIL: tunnel failure is still verbose-only"; exit 1; }
+        grep -q "fn tunnel_failure_warning" crates/azlin/src/cmd_list_data.rs \
+          || { echo "FAIL: no tunnel failure warning helper"; exit 1; }
+        cargo test -p azlin --bin azlin tunnel_failure_warning 2>&1 | tail -3 | tee /tmp/tfw.txt
+        grep -q "0 failed" /tmp/tfw.txt || { echo "FAIL: tunnel failure warning tests failed"; exit 1; }
+        echo "PASS: a failed tunnel is reported, not swallowed"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "Bastion discovery covers every resource group in the listing"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # Discovery used to query the resource group of whichever VM sorted
+        # first — the same first-iterated-wins bug, one call frame higher.
+        grep -q "fn resource_groups_needing_bastion_lookup" crates/azlin/src/cmd_list_data.rs \
+          || { echo "FAIL: discovery is not planned per resource group"; exit 1; }
+        # A bastion is scoped to a resource group as well as a region, so a
+        # region-only key can route a VM through a bastion it cannot use.
+        grep -qE "type BastionMap = HashMap<\\(String, String\\), String>" crates/azlin/src/cmd_list_data.rs \
+          || { echo "FAIL: bastion map is not keyed by (resource group, region)"; exit 1; }
+        cargo test -p azlin --bin azlin bastion_discovery_tests:: 2>&1 | tail -3 | tee /tmp/bd.txt
+        grep -q "0 failed" /tmp/bd.txt || { echo "FAIL: bastion discovery tests failed"; exit 1; }
+        echo "PASS: one lookup per resource group that needs one"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "Colliding VM names withhold enrichment instead of misattributing it"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # Tunnels are separated by resource id, but the display maps are keyed
+        # by name. Rendering one VM's sessions on another VM's row is worse
+        # than a blank cell.
+        cargo test -p azlin --bin azlin silent_degradation_tests:: 2>&1 | tail -3 | tee /tmp/sd.txt
+        grep -q "0 failed" /tmp/sd.txt || { echo "FAIL: silent degradation tests failed"; exit 1; }
+        # Sanitized text lands in one table cell. A newline exemption would let
+        # a listed host end the row and print rows of its own invention.
+        grep -qE "is_control\(\)\s*\|\|" crates/azlin/src/cmd_list_data.rs \
+          && { echo "FAIL: sanitize_remote_text exempts newlines again"; exit 1; }
+        echo "PASS: colliding names are withheld and announced"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "Latency is never measured through the tunnel"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # Timing a bastion tunnel measures the tunnel, not the host, which
+        # would silently change what the Latency column means.
+        cargo test -p azlin --bin azlin latency_is_measured_only_on_a_directly_routable_address 2>&1 \
+          | tail -3 | tee /tmp/lat.txt
+        grep -q "1 passed" /tmp/lat.txt || { echo "FAIL: latency probe routing test failed"; exit 1; }
+        echo "PASS: latency uses a directly routable address or nothing"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "The documented behaviour matches the code"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        DOC=docs/features/tmux-session-status.md
+        test -f "$DOC" || { echo "FAIL: $DOC is missing"; exit 1; }
+        for CLAIM in "one tunnel per" "build_vm_resource_id" "resource id" "resource group"; do
+          grep -qi "$CLAIM" "$DOC" || { echo "FAIL: docs do not mention '$CLAIM'"; exit 1; }
+        done
+        # Every helper the docs name must actually exist under that name.
+        for FN in build_vm_resource_id plan_bastion_tunnels collect_tmux_sessions \
+                  collect_health_data collect_procs; do
+          grep -q "$FN" "$DOC" || continue
+          grep -q "fn $FN" rust/crates/azlin/src/cmd_list_data.rs \
+            || { echo "FAIL: docs name '$FN' but no such function exists"; exit 1; }
+        done
+        echo "PASS: docs describe the per-VM tunnel behaviour and name real functions"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 30000
+
+  - name: "The whole bastion/tmux data-collection suite is green"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        cargo test -p azlin --bin azlin cmd_list_data:: 2>&1 | tail -3 | tee /tmp/cld.txt
+        grep -q "0 failed" /tmp/cld.txt || { echo "FAIL: cmd_list_data tests failing"; exit 1; }
+        echo "PASS: cmd_list_data suite green"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "Every collector degrades from a failed bastion to the direct address"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        # A bastion transport failure must never turn into an empty row. tmux
+        # and procs already retried at the private IP; health was handed a
+        # fallback address and ignored it, so a tunnel outage blanked the
+        # CPU/Mem/Disk cells and read exactly like a healthy, idle machine.
+        grep -q "direct_fallback_host" rust/crates/azlin/src/main.rs \
+          || { echo "FAIL: the health collector never consults the direct fallback"; exit 1; }
+        # The fallback must hang off the transport error, not off a non-zero
+        # exit: a command that ran on the VM and failed there is that VM's own
+        # answer, and retrying it at the private IP can reach a different host.
+        grep -q "Ok(result) => Ok(result)" rust/crates/azlin/src/main.rs \
+          || { echo "FAIL: health retries on the VM's own non-zero exit"; exit 1; }
+        for F in collect_tmux_sessions collect_procs; do
+          grep -q "$F" rust/crates/azlin/src/cmd_list_data.rs \
+            || { echo "FAIL: $F is gone"; exit 1; }
+        done
+        test "$(grep -c 'direct_fallback_host(' rust/crates/azlin/src/cmd_list_data.rs)" -ge 2 \
+          || { echo "FAIL: tmux and procs no longer share the fallback helper"; exit 1; }
+        echo "PASS: tmux, procs and health all fall back to the direct address"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 30000
+
+  - name: "A second bastion in one region cannot silently take the route"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust
+        # One resource group can hold several virtual networks, so several
+        # bastions in one region. Letting the last one listed win makes the
+        # route depend on Azure's listing order, and a bastion that cannot see
+        # the VM yields the same empty row as having no bastion at all.
+        grep -q "fn insert_bastions_for_group" crates/azlin/src/cmd_list_data.rs \
+          || { echo "FAIL: the bastion selection rule is not a testable function"; exit 1; }
+        cargo test -p azlin --bin azlin bastion_discovery_tests:: 2>&1 | tail -3 | tee /tmp/bd.txt
+        grep -q "0 failed" /tmp/bd.txt || { echo "FAIL: bastion discovery tests failed"; exit 1; }
+        echo "PASS: the first bastion wins deterministically and the other is named"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000

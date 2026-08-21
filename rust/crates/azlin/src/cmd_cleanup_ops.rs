@@ -527,7 +527,6 @@ pub(crate) async fn handle_restore(
         .ssh_connect_timeout;
     let tmux_sessions = crate::cmd_list_data::collect_tmux_sessions(
         &running,
-        &rg,
         verbose,
         vm_manager.subscription_id(),
         ssh_timeout,
