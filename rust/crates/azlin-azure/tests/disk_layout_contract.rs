@@ -517,16 +517,6 @@ fn the_stages_are_ordered() {
     assert!(DiskStage::BackingMounted < DiskStage::Healthy);
 }
 
-/// Only `formatted` and later can hold data, so only those need `--force`.
-#[test]
-fn only_formatted_and_later_can_hold_data() {
-    assert!(!DiskStage::Absent.holds_data());
-    assert!(!DiskStage::Raw.holds_data());
-    assert!(DiskStage::Formatted.holds_data());
-    assert!(DiskStage::BackingMounted.holds_data());
-    assert!(DiskStage::Healthy.holds_data());
-}
-
 // ---------------------------------------------------------------------------
 // Repair composition
 // ---------------------------------------------------------------------------
@@ -773,7 +763,7 @@ fn the_original_is_only_renamed_when_there_is_something_to_preserve() {
 
 /// A whole disk carrying a partition table has no `fstype` of its own — the
 /// filesystem is one level down, inside a partition. Calling that `raw` puts it
-/// below `holds_data()` and lets a repair format it with no `--force`.
+/// below `formatted` and lets a repair format it with no `--force`.
 #[test]
 fn a_partitioned_disk_is_not_reported_as_blank() {
     let t = "\
@@ -789,7 +779,7 @@ azlin-provisioning complete=yes status=ok ledger=yes failed=
     );
     assert_eq!(report.disks[0].stage, DiskStage::Formatted, "{report:?}");
     assert!(
-        report.disks[0].stage.holds_data(),
+        report.disks[0].stage >= DiskStage::Formatted,
         "a partitioned disk must require --force before any mkfs: {report:?}"
     );
 }

@@ -10,7 +10,6 @@
 //! with the cloud-init generator, so a detector cannot drift from the thing it
 //! detects.
 
-#[allow(unused_imports)]
 use super::*;
 use anyhow::{Context, Result};
 use azlin_azure::disk_layout::{
@@ -81,8 +80,21 @@ fn attached_disks(rg: &str, vm_name: &str) -> Result<Vec<(String, u32)>> {
 
     let parsed: serde_json::Value =
         serde_json::from_slice(&out.stdout).context("`az vm show` returned invalid JSON")?;
-    Ok(parsed
-        .as_array()
+    Ok(disks_from_json(Some(&parsed)))
+}
+
+/// An `az` `[{name, lun}]` array as the `(name, lun)` pairs
+/// [`config_from_attached_disks`] takes.
+///
+/// `azlin disk check` reads one VM's disks and the `Storage` column reads a
+/// whole resource group's, from two different `az` queries that nest the same
+/// array differently. Only the extraction is shared -- but it is the half that
+/// decides which disks the layout is matched against, so a second copy that
+/// defaulted a missing `lun` differently would make the two surfaces disagree
+/// about the same VM.
+pub(crate) fn disks_from_json(value: Option<&serde_json::Value>) -> Vec<(String, u32)> {
+    value
+        .and_then(|v| v.as_array())
         .map(|entries| {
             entries
                 .iter()
@@ -98,7 +110,7 @@ fn attached_disks(rg: &str, vm_name: &str) -> Result<Vec<(String, u32)>> {
                 })
                 .collect()
         })
-        .unwrap_or_default())
+        .unwrap_or_default()
 }
 
 /// Run the read-only probe against one VM and turn its output into a verdict.
@@ -295,7 +307,9 @@ fn disk_row(disk: &DiskFinding) -> Vec<String> {
     vec![
         disk.role.clone(),
         disk.lun.to_string(),
-        disk.device.as_deref().unwrap_or("--").to_string(),
+        disk.device
+            .clone()
+            .unwrap_or_else(|| crate::health_render::UNKNOWN_CELL.to_string()),
         size_cell(disk.size_bytes),
         disk.stage.to_string(),
     ]

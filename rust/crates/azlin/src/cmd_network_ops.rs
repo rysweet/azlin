@@ -18,7 +18,7 @@ pub(crate) async fn handle_disk_add(
             .map_err(|e| anyhow::anyhow!("Invalid --mount path: {}", e))?;
     }
     let rg = resolve_resource_group(resource_group.clone())?;
-    let disk_name = format!("{}_datadisk_{}", vm_name, lun.unwrap_or(0));
+    let disk_name = crate::disk_helpers::build_data_disk_name(vm_name, lun.unwrap_or(0));
 
     let pb = penguin_spinner(&format!("Adding {} GB disk to {}...", size, vm_name));
 
