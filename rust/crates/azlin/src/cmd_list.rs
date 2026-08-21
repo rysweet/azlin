@@ -349,8 +349,16 @@ pub(crate) async fn dispatch(
             // against a terminal showing nothing. It carries its own.
             let bastion_map = if enrichment.any() {
                 let pb = penguin_spinner("Locating bastion hosts...");
-                let map = crate::cmd_list_data::discover_bastions_async(&all_vms).await;
+                let (map, warnings) = crate::cmd_list_data::discover_bastions_async(&all_vms).await;
                 pb.finish_and_clear();
+                // After the spinner is cleared, as with the sweep above: the
+                // spinner erases and redraws its line every tick, so a warning
+                // printed while it runs is wiped before it can be read — and a
+                // lost bastion warning leaves every bastion-only VM in that
+                // group showing no sessions with nothing to say why.
+                for warning in &warnings {
+                    eprintln!("{warning}");
+                }
                 map
             } else {
                 Default::default()

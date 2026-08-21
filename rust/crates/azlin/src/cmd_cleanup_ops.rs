@@ -526,7 +526,11 @@ pub(crate) async fn handle_restore(
         .unwrap_or_default()
         .ssh_connect_timeout;
     // One collector, so this caller owns the map for the length of one call.
-    let bastion_map = crate::cmd_list_data::discover_bastions_async(&running).await;
+    let (bastion_map, bastion_warnings) =
+        crate::cmd_list_data::discover_bastions_async(&running).await;
+    for warning in &bastion_warnings {
+        eprintln!("{warning}");
+    }
     let tmux_sessions = crate::cmd_list_data::collect_tmux_sessions(
         &running,
         &bastion_map,

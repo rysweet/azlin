@@ -67,7 +67,10 @@ pub(crate) async fn find_vm_by_tmux_session(
     // Bastion routing is discovered from the VM list, so no output-format flag
     // is required. This caller runs one collector, so it owns the map for the
     // length of that one call.
-    let bastion_map = discover_bastions_async(vms).await;
+    let (bastion_map, bastion_warnings) = discover_bastions_async(vms).await;
+    for warning in &bastion_warnings {
+        eprintln!("{warning}");
+    }
     let tmux_sessions =
         collect_tmux_sessions(vms, &bastion_map, verbose, subscription_id, connect_timeout).await;
     match_session_in_map(&tmux_sessions, session_name)
@@ -366,25 +369,40 @@ fn join_with_and(items: &[&str]) -> String {
 /// group to compute the same map three times, and the operator watched three
 /// spinners re-derive one answer. Every collector now borrows a map the caller
 /// discovered once.
-fn discover_bastions(vms: &[VmInfo]) -> BastionMap {
+///
+/// The warnings are returned rather than printed, for the same reason
+/// [`insert_bastions_for_group`] returns its own: every caller runs this behind
+/// a spinner, and `indicatif` erases and redraws its line on each tick, so a
+/// warning written from in here is wiped before the operator can read it. The
+/// caller prints them once its spinner is cleared.
+fn discover_bastions(vms: &[VmInfo]) -> (BastionMap, Vec<String>) {
+    collect_bastions(
+        &resource_groups_needing_bastion_lookup(vms),
+        crate::list_helpers::detect_bastion_hosts,
+    )
+}
+
+/// Fold one `az network bastion list` result per resource group into a map,
+/// returning it with every warning the caller should print.
+///
+/// The lookup is a parameter so the failure path is testable without `az`.
+/// Swallowing a failed lookup reproduces the very bug this module was fixed
+/// for: with no bastion in the map every bastion-only VM in that group falls
+/// back to its own private IP, which the operator usually cannot route to, and
+/// reports zero sessions as if it had none.
+fn collect_bastions(
+    groups: &[String],
+    lookup: impl Fn(&str) -> anyhow::Result<Vec<(String, String, String)>>,
+) -> (BastionMap, Vec<String>) {
     let mut map = BastionMap::new();
-    for rg in resource_groups_needing_bastion_lookup(vms) {
-        let found = match crate::list_helpers::detect_bastion_hosts(&rg) {
-            Ok(found) => found,
-            // Swallowing this reproduces the very bug this module was fixed
-            // for: with no bastion in the map every bastion-only VM in `rg`
-            // falls back to its own private IP, which the operator usually
-            // cannot route to, and reports zero sessions as if it had none.
-            Err(e) => {
-                eprintln!("{}", bastion_lookup_failure_warning(&rg, &e.to_string()));
-                continue;
-            }
-        };
-        for warning in insert_bastions_for_group(&mut map, &rg, found) {
-            eprintln!("{}", warning);
+    let mut warnings = Vec::new();
+    for rg in groups {
+        match lookup(rg) {
+            Ok(found) => warnings.extend(insert_bastions_for_group(&mut map, rg, found)),
+            Err(e) => warnings.push(bastion_lookup_failure_warning(rg, &e.to_string())),
         }
     }
-    map
+    (map, warnings)
 }
 
 /// [`discover_bastions`] for async callers, run off the runtime.
@@ -393,21 +411,24 @@ fn discover_bastions(vms: &[VmInfo]) -> BastionMap {
 /// more collectors over it. It exists so that hoisting discovery out of the
 /// collectors did not leave three callers each hand-rolling the same
 /// `spawn_blocking` and the same failure message.
-pub(crate) async fn discover_bastions_async(vms: &[VmInfo]) -> BastionMap {
+///
+/// Returns the map together with the warnings the caller must print; see
+/// [`discover_bastions`] for why they are not printed here.
+pub(crate) async fn discover_bastions_async(vms: &[VmInfo]) -> (BastionMap, Vec<String>) {
     let owned: Vec<VmInfo> = vms.to_vec();
     match tokio::task::spawn_blocking(move || discover_bastions(&owned)).await {
-        Ok(map) => map,
+        Ok(result) => result,
         // An empty map here is not "no bastions exist" — it is "we never found
         // out". Every bastion-only VM would report zero sessions with nothing
         // on screen to distinguish that from genuinely having none.
-        Err(e) => {
-            eprintln!(
+        Err(e) => (
+            BastionMap::new(),
+            vec![format!(
                 "Warning: bastion discovery did not complete ({}); VMs reachable only \
                  through a bastion will show no tmux sessions, health or process data.",
                 e
-            );
-            BastionMap::new()
-        }
+            )],
+        ),
     }
 }
 
@@ -2843,6 +2864,55 @@ mod silent_degradation_tests {
             resource_groups_needing_bastion_lookup(&reordered),
             groups,
             "lookup set depends on VM order, so the shared map is wrong for some collector"
+        );
+    }
+
+    /// Both warnings discovery can raise — a failed lookup and a resource group
+    /// with two bastions in one region — must reach the caller as data. They
+    /// used to go straight to stderr from inside the `Locating bastion
+    /// hosts...` spinner, which erases and redraws its line on every tick, so
+    /// the operator saw neither: a bastion-only VM then reported zero sessions
+    /// with nothing on screen to say why.
+    #[test]
+    fn bastion_discovery_returns_its_warnings_instead_of_printing_them() {
+        let groups = vec!["rg-denied".to_string(), "rg-two-bastions".to_string()];
+        let (map, warnings) = collect_bastions(&groups, |rg| {
+            if rg == "rg-denied" {
+                anyhow::bail!("AuthorizationFailed: denied");
+            }
+            Ok(vec![
+                (
+                    "bastion-a".to_string(),
+                    "centralus".to_string(),
+                    "Standard".to_string(),
+                ),
+                (
+                    "bastion-b".to_string(),
+                    "centralus".to_string(),
+                    "Standard".to_string(),
+                ),
+            ])
+        });
+
+        assert_eq!(
+            map.get(&bastion_key("rg-two-bastions", "centralus")),
+            Some(&"bastion-a".to_string()),
+            "the first bastion still wins deterministically: {map:?}"
+        );
+        assert_eq!(
+            warnings.len(),
+            2,
+            "one warning per failed lookup and per passed-over bastion: {warnings:?}"
+        );
+        assert_eq!(
+            warnings[0],
+            bastion_lookup_failure_warning("rg-denied", "AuthorizationFailed: denied"),
+            "the failure warning must keep the sanitized wording it always had"
+        );
+        assert!(
+            warnings[1].contains("using bastion-a and ignoring bastion-b"),
+            "the duplicate-bastion warning must be returned too: {:?}",
+            warnings[1]
         );
     }
 }

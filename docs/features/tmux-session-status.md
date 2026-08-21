@@ -106,13 +106,23 @@ are held in a `BastionMap` keyed by `(resource group, region)`, built by running
 `az network bastion list` once per distinct resource group that actually
 contains a running VM with no public IP:
 
-- A listing where every VM has a public IP performs no bastion lookup at all.
-- The common single-resource-group listing performs exactly one, as before.
+- A listing where every VM has a public IP performs no routing lookup at all.
+- The common single-resource-group listing performs exactly one routing lookup,
+  as before.
 - A `--show-all-vms` listing performs one per resource group that needs it.
 - The count does not change when you add `--with-health` or `--show-procs`.
   Discovery happens once per command and the map is shared by every enrichment
   collector; each collector used to discover routing for itself, so combining
   the flags spent three lookups per resource group to compute one answer.
+
+The counts above are the *routing* sweep only. Table output runs a second,
+independent sweep to render the "Azure Bastion Hosts" table: one
+`az network bastion list` per distinct resource group in the listing, gated on
+table format and a single subscription alone. That sweep is not filtered by
+power state or public IP, because the table documents the bastions in the scope
+the operator asked about — so a table listing in which every VM has a public IP
+still performs one lookup per resource group. JSON and CSV output, which render
+no such table, perform only the routing sweep.
 
 Discovery used to run against the resource group of whichever VM sorted first,
 which made it the same first-iterated-wins bug as the shared tunnel, one call
