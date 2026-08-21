@@ -30,8 +30,13 @@ pub fn validate_mount_path(path: &str) -> Result<(), String> {
 /// `/dev/sdc` and friends are assigned in attach order and change across
 /// reboots; `/dev/disk/azure/scsi1/lunN` is the symlink Azure's udev rules
 /// maintain and is the only name that means the same disk twice.
+///
+/// One line, from `disk_layout`, because the udev path is Azure's to change:
+/// when it does, `azlin disk add --mount` and `azlin disk check`/`repair` must
+/// move together or the probe will report `absent` for a disk the mount script
+/// just attached.
 pub fn azure_lun_device(lun: u32) -> String {
-    format!("/dev/disk/azure/scsi1/lun{}", lun)
+    azlin_azure::disk_layout::lun_device_path(lun)
 }
 
 /// The script that formats (only if unformatted) and mounts a data disk.
