@@ -886,24 +886,7 @@ pub(crate) fn collect_disk_configs(vms: &[VmInfo]) -> HashMap<String, DiskConfig
             let Some(name) = entry.get("name").and_then(|v| v.as_str()) else {
                 continue;
             };
-            let attached: Vec<(String, u32)> = entry
-                .get("disks")
-                .and_then(|v| v.as_array())
-                .map(|disks| {
-                    disks
-                        .iter()
-                        .map(|d| {
-                            (
-                                d.get("name")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or_default()
-                                    .to_string(),
-                                d.get("lun").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                            )
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
+            let attached = crate::cmd_disk_ops::disks_from_json(entry.get("disks"));
             if let Ok(config) = config_from_attached_disks(name, &attached) {
                 out.insert(name.to_string(), config);
             }

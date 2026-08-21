@@ -90,7 +90,7 @@ pub fn roles(config: &DiskConfig) -> Vec<DiskRole> {
 ///
 /// `azlin disk repair` receives a finding rather than a config, and has to get
 /// back to the layout without re-deriving it.
-pub fn role_by_name(name: &str, lun: u32) -> Option<DiskRole> {
+fn role_by_name(name: &str, lun: u32) -> Option<DiskRole> {
     match name {
         "home" => Some(DiskRole { lun, ..HOME_ROLE }),
         "tmp" => Some(DiskRole { lun, ..TMP_ROLE }),
@@ -120,8 +120,19 @@ pub fn bind_pair(role: &DiskRole, username: &str) -> (String, String) {
 /// silently, and the failure they drift into is `NoDisks`: exit 0 and a `--`
 /// cell for every VM in the fleet, which is precisely the false pass this whole
 /// issue is about.
-pub fn data_disk_name(vm_name: &str, role: &DiskRole) -> String {
+fn data_disk_name(vm_name: &str, role: &DiskRole) -> String {
     format!("{}_{}", vm_name, role.name)
+}
+
+/// Every backing mount azlin can create, whatever the disk configuration is.
+///
+/// The provisioning preamble reports on all of them unconditionally, including
+/// on a VM with no data disks: "both absent" is the answer to "where did my
+/// /home go". It needs the paths without a `DiskConfig` to derive them from,
+/// and taking them from anywhere but here is how a generator and its detector
+/// drift apart.
+pub fn all_backing_paths() -> [&'static str; 2] {
+    [HOME_ROLE.backing, TMP_ROLE.backing]
 }
 
 /// The Azure udev symlink for a LUN.
@@ -232,16 +243,6 @@ pub enum DiskStage {
 }
 
 impl DiskStage {
-    /// Whether a disk at this stage can contain data.
-    ///
-    /// Only these stages need `--force` before a `mkfs`. `raw` — the common
-    /// case, and the one #1131 produced — is safe to format without one, and
-    /// making the common repair require a scary flag is how operators learn to
-    /// pass `--force` by habit.
-    pub fn holds_data(&self) -> bool {
-        *self >= DiskStage::Formatted
-    }
-
     /// The wire/JSON spelling.
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -582,7 +583,7 @@ pub fn parse_disk_probe(output: &str, config: &DiskConfig) -> DiskReport {
 
         // A whole disk carrying a partition table reports no `fstype` — the
         // filesystem is inside a partition, one level down. Calling that `raw`
-        // would put it below `holds_data()` and let a repair format it with no
+        // would put it below `formatted` and let a repair format it with no
         // `--force`, which is the one thing the stage ladder exists to prevent.
         // `formatted` is the honest classification: something is on it, and
         // this tool cannot see what.

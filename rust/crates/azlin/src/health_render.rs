@@ -24,20 +24,28 @@ pub const UNKNOWN_CELL: &str = "--";
 /// paths; the count lives here so they cannot drift.
 pub const HEALTH_COLUMNS: &[&str] = &["Agent", "CPU%", "Mem%", "Disk%", "Storage"];
 
-/// The `Storage` cell for one VM.
+/// The wire spelling of a storage status, but only when it is a verdict.
 ///
-/// `NoDisks` and `Unknown` both render as `--`, for different reasons that land
-/// in the same place: there is no storage layout to be ok about, and there is
-/// no answer, respectively. Neither is a pass. This is the same mistake #1131
-/// was made of, in miniature — an unmeasured value that renders as one.
-pub fn storage_cell(status: Option<StorageStatus>) -> String {
+/// `NoDisks` and `Unknown` are not verdicts, for different reasons that land in
+/// the same place: there is no storage layout to be ok about, and there is no
+/// answer, respectively. Neither is a pass. This is the same mistake #1131 was
+/// made of, in miniature — an unmeasured value that renders as one.
+///
+/// Every surface asks this one question: the table paints `None` as
+/// [`UNKNOWN_CELL`], JSON emits `null` and CSV an empty field. Spelling the
+/// rule once is what stops those three from disagreeing about the same VM, and
+/// borrowing [`StorageStatus::as_str`] is what stops the table's vocabulary
+/// from drifting from the machine-readable one.
+pub fn storage_verdict(status: Option<StorageStatus>) -> Option<&'static str> {
     match status {
-        Some(StorageStatus::Ok) => "ok".to_string(),
-        Some(StorageStatus::Degraded) => "degraded".to_string(),
-        Some(StorageStatus::NoDisks) | Some(StorageStatus::Unknown) | None => {
-            UNKNOWN_CELL.to_string()
-        }
+        Some(s @ (StorageStatus::Ok | StorageStatus::Degraded)) => Some(s.as_str()),
+        Some(StorageStatus::NoDisks) | Some(StorageStatus::Unknown) | None => None,
     }
+}
+
+/// The `Storage` cell for one VM.
+pub fn storage_cell(status: Option<StorageStatus>) -> String {
+    storage_verdict(status).unwrap_or(UNKNOWN_CELL).to_string()
 }
 
 /// Colour band for the `Agent` cell, or `None` when there is no reading.
@@ -81,7 +89,7 @@ pub fn metric_cell(value: Option<f32>) -> String {
 }
 
 /// Format a percentage metric for the narrower `azlin list --health` columns.
-pub fn metric_cell_rounded(value: Option<f32>) -> String {
+fn metric_cell_rounded(value: Option<f32>) -> String {
     match value {
         Some(v) => format!("{:.0}", v),
         None => UNKNOWN_CELL.to_string(),

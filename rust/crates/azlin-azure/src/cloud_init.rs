@@ -110,15 +110,24 @@ pub fn generate_cloud_init(
 /// Disk configuration for cloud-init provisioning.
 #[derive(Debug, Clone, Default)]
 pub struct DiskConfig {
-    /// If true, LUN 0 is a home disk to be mounted at /home/{user}.
+    /// If true, a home disk is attached. Its filesystem is mounted at
+    /// `/mnt/home-data` and `/mnt/home-data/{user}` is bind-mounted at
+    /// `/home/{user}`; nothing is ever mounted on `/home` directly. See
+    /// `disk_layout`.
     pub home_disk: bool,
-    /// If true, LUN 1 (or LUN 0 if no home disk) is a tmp disk to be mounted at /tmp.
+    /// If true, a tmp disk is attached, mounted at `/mnt/tmp-data` with
+    /// `/mnt/tmp-data/tmp` bind-mounted at `/tmp`. LUNs are assigned in attach
+    /// order, so this is LUN 0 when there is no home disk. See `disk_layout`.
     pub tmp_disk: bool,
 }
 
 /// Shell snippet: wait for an Azure LUN device to appear (udevadm + retry loop).
 /// Returns a script fragment that sets `$DEV_VAR` to the resolved block device path.
-fn lun_wait_snippet(lun: u32, dev_var: &str, label: &str, device: &str) -> String {
+///
+/// The device path is derived from the LUN here rather than passed alongside
+/// it: two parameters that must agree are two parameters that can disagree.
+fn lun_wait_snippet(lun: u32, dev_var: &str, label: &str) -> String {
+    let device = crate::disk_layout::lun_device_path(lun);
     format!(
         r#"  # Wait for udev to finish processing device events
   udevadm settle --timeout=30 || true
@@ -168,7 +177,8 @@ struct Section {
 /// at its first error; only the section boundaries are permeable, and each one
 /// records what happened.
 fn provisioning_preamble() -> String {
-    r#"#!/bin/bash
+    let backings = crate::disk_layout::all_backing_paths().join(" ");
+    let body = r#"#!/bin/bash
 set -euo pipefail
 
 mkdir -p /var/lib/azlin
@@ -202,7 +212,7 @@ azlin_record() {
 # "where did my /home go". `fstab=no` on a mounted backing path means the mount
 # is live now and will not survive a reboot.
 azlin_storage_summary() {
-  for azlin_backing in /mnt/home-data /mnt/tmp-data; do
+  for azlin_backing in __AZLIN_BACKINGS__; do
     if mountpoint -q "$azlin_backing" 2>/dev/null; then
       azlin_persisted=no
       if grep -qs " $azlin_backing " /etc/fstab; then azlin_persisted=yes; fi
@@ -237,8 +247,8 @@ azlin_finalize() {
 }
 trap azlin_finalize EXIT
 
-"#
-    .to_string()
+"#;
+    body.replace("__AZLIN_BACKINGS__", &backings)
 }
 
 /// Wrap one section so its failure cannot end the script, without making the
@@ -314,7 +324,7 @@ fn render_section(section: &Section) -> String {
 /// makes a mandatory, verified copy and can roll back, and the tmp block sets a
 /// sticky bit and treats its copy as disposable.
 fn disk_sections(disk_config: &DiskConfig, user: &str) -> Vec<Section> {
-    use crate::disk_layout::{bind_pair, fstab_line, lun_device_path, roles, BindKind, FstabSpec};
+    use crate::disk_layout::{bind_pair, fstab_line, roles, BindKind, FstabSpec};
 
     roles(disk_config)
         .into_iter()
@@ -330,7 +340,7 @@ fn disk_sections(disk_config: &DiskConfig, user: &str) -> Vec<Section> {
                 source: bind_src.clone(),
                 target: bind_dst.clone(),
             });
-            let wait = lun_wait_snippet(role.lun, &dev_var, role.name, &lun_device_path(role.lun));
+            let wait = lun_wait_snippet(role.lun, &dev_var, role.name);
 
             let body = match role.bind_kind {
                 BindKind::UserHome => format!(
@@ -515,12 +525,8 @@ network-dependent toolchain sections'\n\
          fi\n\n",
     );
 
-    for setup in dev_setup_sections(safe_username) {
-        script.push_str(&render_section(&Section {
-            name: setup.name.to_string(),
-            needs_network: setup.needs_network,
-            body: setup.command,
-        }));
+    for section in dev_setup_sections(safe_username) {
+        script.push_str(&render_section(&section));
     }
 
     // Provisioning is finished, and the terminal state is written by the EXIT
@@ -532,18 +538,6 @@ network-dependent toolchain sections'\n\
     script.push_str("exit 0\n");
 
     script
-}
-
-/// One provisioning step, with the ledger name it reports under.
-pub struct SetupSection {
-    /// Section name in `/var/lib/azlin/provisioning.tsv`. Contract; see
-    /// `docs-site/storage/data-disk-layout.md`.
-    pub name: &'static str,
-    /// Whether the step needs the package archive / the wider internet.
-    /// Network steps are skipped rather than run when the archive has already
-    /// proved unreachable.
-    pub needs_network: bool,
-    pub command: String,
 }
 
 /// `cmd`, but a failure prints `message` and still fails.
@@ -562,19 +556,19 @@ fn warn_and_fail(cmd: &str, message: &str) -> String {
 ///
 /// These install toolchains that aren't available as apt packages, matching
 /// the full Python azlin provisioning (gh, az, node, claude, rust, go, .NET).
-pub fn dev_setup_sections(username: &str) -> Vec<SetupSection> {
+fn dev_setup_sections(username: &str) -> Vec<Section> {
     let u = username;
     vec![
         // Python 3.14 - install via deadsnakes but do NOT change system python3
-        SetupSection {
-            name: "setup-python314",
+        Section {
+            name: "setup-python314".to_string(),
             needs_network: true,
-            command: "if python3.14 --version 2>/dev/null; then echo 'Python 3.14 available'; else add-apt-repository -y ppa:deadsnakes/ppa && apt update && apt install -y python3.14 python3.14-venv python3.14-dev; fi".to_string(),
+            body: "if python3.14 --version 2>/dev/null; then echo 'Python 3.14 available'; else add-apt-repository -y ppa:deadsnakes/ppa && apt update && apt install -y python3.14 python3.14-venv python3.14-dev; fi".to_string(),
         },
-        SetupSection {
-            name: "setup-github-cli",
+        Section {
+            name: "setup-github-cli".to_string(),
             needs_network: true,
-            command: warn_and_fail(
+            body: warn_and_fail(
                 "mkdir -p -m 755 /etc/apt/keyrings && wget -nv -O /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && mkdir -p -m 755 /etc/apt/sources.list.d && echo \"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && apt update && apt install -y gh",
                 "GitHub CLI install failed",
             ),
@@ -594,26 +588,26 @@ pub fn dev_setup_sections(username: &str) -> Vec<SetupSection> {
         // Install from the repo directly instead: use the running codename when
         // Microsoft publishes it, fall back to the newest published LTS when
         // they do not, and report failure either way.
-        SetupSection {
-            name: "setup-azure-cli",
+        Section {
+            name: "setup-azure-cli".to_string(),
             needs_network: true,
-            command: warn_and_fail(
+            body: warn_and_fail(
                 r#"AZ_DIST=$(lsb_release -cs) && if ! curl -fsSL "https://packages.microsoft.com/repos/azure-cli/dists/$AZ_DIST/Release" >/dev/null 2>&1; then echo "NOTE: azure-cli has no apt dist for '$AZ_DIST'; falling back to noble"; AZ_DIST=noble; fi && mkdir -p -m 755 /etc/apt/keyrings && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg && chmod go+r /etc/apt/keyrings/microsoft.gpg && mkdir -p -m 755 /etc/apt/sources.list.d && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ $AZ_DIST main" > /etc/apt/sources.list.d/azure-cli.list && apt-get update && apt-get install -y azure-cli"#,
                 "Azure CLI install failed",
             ),
         },
         // Chromium (Ubuntu ships this as a snap-backed launcher)
-        SetupSection {
-            name: "setup-chromium",
+        Section {
+            name: "setup-chromium".to_string(),
             needs_network: true,
-            command: "apt-get install -y chromium-browser".to_string(),
+            body: "apt-get install -y chromium-browser".to_string(),
         },
         // Chromium wrappers so SSH/X11 launches use a scoped user session instead of
         // failing with the snap cgroup error.
-        SetupSection {
-            name: "setup-chromium-wrappers",
+        Section {
+            name: "setup-chromium-wrappers".to_string(),
             needs_network: false,
-            command: r#"mkdir -p /usr/local/bin
+            body: r#"mkdir -p /usr/local/bin
 cat > /usr/local/bin/chromium-browser << 'CHROMIUMWRAP'
 #!/bin/sh
 set -eu
@@ -661,46 +655,46 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         // That used to be absorbed by a trailing `|| true`, which now would
         // record the section `ok` regardless. Waiting removes the race instead
         // of hiding it, and a genuine failure is reported.
-        SetupSection {
-            name: "setup-astral-uv",
+        Section {
+            name: "setup-astral-uv".to_string(),
             needs_network: true,
-            command: "snap wait system seed.loaded && snap install astral-uv --classic".to_string(),
+            body: "snap wait system seed.loaded && snap install astral-uv --classic".to_string(),
         },
         // Node.js 24 LTS (via NodeSource)
-        SetupSection {
-            name: "setup-nodejs",
+        Section {
+            name: "setup-nodejs".to_string(),
             needs_network: true,
-            command: warn_and_fail(
+            body: warn_and_fail(
                 "curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt install -y nodejs",
                 "Node.js install failed",
             ),
         },
         // npm user-local configuration
-        SetupSection {
-            name: "setup-npm-prefix",
+        Section {
+            name: "setup-npm-prefix".to_string(),
             needs_network: false,
-            command: format!("mkdir -p /home/{u}/.npm-packages && echo 'prefix=${{HOME}}/.npm-packages' > /home/{u}/.npmrc && chown {u}:{u} /home/{u}/.npmrc /home/{u}/.npm-packages"),
+            body: format!("mkdir -p /home/{u}/.npm-packages && echo 'prefix=${{HOME}}/.npm-packages' > /home/{u}/.npmrc && chown {u}:{u} /home/{u}/.npmrc /home/{u}/.npm-packages"),
         },
         // Tmux configuration
-        SetupSection {
-            name: "setup-tmux-conf",
+        Section {
+            name: "setup-tmux-conf".to_string(),
             needs_network: false,
             // `%` needs no escaping in a Rust format string. The doubled
             // `%%` that used to be here reached the VM verbatim, where shell
             // `printf` reads `%%` as a literal percent and discards its
             // arguments -- the log line printed `[%s] %s`, and tmux rendered a
             // literal `%Y-%m-%d %H:%M` in every VM's status bar.
-            command: format!("printf '[%s] %s\\n' \"$(hostname)\" \"tmux.conf\" && cat > /home/{u}/.tmux.conf << 'TMUXEOF'\nset -g status-left-length 50\nset -g status-left \"#[fg=cyan][#h]#[fg=green] #S #[fg=yellow]| \"\nset -g status-right \"#[fg=cyan]%Y-%m-%d %H:%M\"\nset -g status-interval 60\nset -g status-bg black\nset -g status-fg white\nTMUXEOF\nchown {u}:{u} /home/{u}/.tmux.conf"),
+            body: format!("printf '[%s] %s\\n' \"$(hostname)\" \"tmux.conf\" && cat > /home/{u}/.tmux.conf << 'TMUXEOF'\nset -g status-left-length 50\nset -g status-left \"#[fg=cyan][#h]#[fg=green] #S #[fg=yellow]| \"\nset -g status-right \"#[fg=cyan]%Y-%m-%d %H:%M\"\nset -g status-interval 60\nset -g status-bg black\nset -g status-fg white\nTMUXEOF\nchown {u}:{u} /home/{u}/.tmux.conf"),
         },
         // Fix tmux socket dir permissions (Ubuntu 25.10+).
         //
         // `chmod 1777 /tmp` here is on the live mount and is correct for the
         // running boot; the mode that survives a reboot is the one the tmp
         // disk section set on /mnt/tmp-data/tmp.
-        SetupSection {
-            name: "setup-tmux-socket",
+        Section {
+            name: "setup-tmux-socket".to_string(),
             needs_network: false,
-            command: format!("chmod 1777 /tmp && TMUX_UID=$(id -u {u}) && mkdir -p /tmp/tmux-$TMUX_UID && chmod 700 /tmp/tmux-$TMUX_UID && chown {u}:{u} /tmp/tmux-$TMUX_UID"),
+            body: format!("chmod 1777 /tmp && TMUX_UID=$(id -u {u}) && mkdir -p /tmp/tmux-$TMUX_UID && chmod 700 /tmp/tmux-$TMUX_UID && chown {u}:{u} /tmp/tmux-$TMUX_UID"),
         },
         // Claude Code AI Assistant
         // Download, then execute. NOT `curl ... | bash` inside `su -c`: the
@@ -710,29 +704,29 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         // So a failed download would leave bash reading empty stdin, exiting 0,
         // and the failure report below would never fire -- #1069 one level
         // deeper.
-        SetupSection {
-            name: "setup-claude-code",
+        Section {
+            name: "setup-claude-code".to_string(),
             needs_network: true,
-            command: warn_and_fail(
+            body: warn_and_fail(
                 &format!("su - {u} -c 'curl -fsSL https://claude.ai/install.sh -o /tmp/claude-install.sh && sh /tmp/claude-install.sh; rc=$?; rm -f /tmp/claude-install.sh; exit $rc'"),
                 "Claude Code installation failed",
             ),
         },
         // Rust
         // Download, then execute -- same `su -c` pipefail reasoning as above.
-        SetupSection {
-            name: "setup-rust",
+        Section {
+            name: "setup-rust".to_string(),
             needs_network: true,
-            command: warn_and_fail(
+            body: warn_and_fail(
                 &format!("su - {u} -c 'curl --proto =https --tlsv1.2 -fsSf https://sh.rustup.rs -o /tmp/rustup-init.sh && sh /tmp/rustup-init.sh -y; rc=$?; rm -f /tmp/rustup-init.sh; exit $rc'"),
                 "Rust install failed",
             ),
         },
         // amplihack-rs (pre-built binary from latest GitHub release)
-        SetupSection {
-            name: "setup-amplihack",
+        Section {
+            name: "setup-amplihack".to_string(),
             needs_network: true,
-            command: warn_and_fail(
+            body: warn_and_fail(
                 &format!("su - {u} -c 'ARCH=$(uname -m | sed s/aarch64/aarch64/ | sed s/x86_64/x86_64/) && \
             URL=$(curl -fsSL https://api.github.com/repos/rysweet/amplihack-rs/releases/latest | grep browser_download_url | grep $ARCH-unknown-linux-gnu.tar.gz\\\" | head -1 | cut -d\\\"  -f4) && \
             mkdir -p /tmp/amplihack-install && cd /tmp/amplihack-install && \
@@ -747,10 +741,10 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         // azlin CLI (pre-built binary from latest GitHub release).
         // Release archives ship platform-suffixed members (azlin-linux-x86_64,
         // azdoit-linux-x86_64, ay-linux-x86_64), so each is renamed on copy.
-        SetupSection {
-            name: "setup-azlin-cli",
+        Section {
+            name: "setup-azlin-cli".to_string(),
             needs_network: true,
-            command: warn_and_fail(
+            body: warn_and_fail(
                 &format!("su - {u} -c 'ARCH=$(uname -m | sed s/aarch64/aarch64/ | sed s/x86_64/x86_64/) && \
             URL=$(curl -fsSL https://api.github.com/repos/rysweet/azlin/releases/latest | grep browser_download_url | grep linux-$ARCH.tar.gz\\\" | head -1 | cut -d\\\"  -f4) && \
             mkdir -p /tmp/azlin-install && cd /tmp/azlin-install && \
@@ -777,16 +771,16 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         // Each link is guarded by `[ -x ... ]`: a missing binary must produce a
         // WARNING, never a dangling symlink that makes `command -v` succeed while
         // running the command fails.
-        SetupSection {
-            name: "setup-path-links",
+        Section {
+            name: "setup-path-links".to_string(),
             needs_network: false,
-            command: format!("mkdir -p /usr/local/bin && for b in amplihack amplihack-hooks azlin azdoit ay; do src=/home/{u}/.cargo/bin/$b; if [ -x \"$src\" ]; then ln -sf \"$src\" /usr/local/bin/$b || echo \"WARNING: could not link $b into /usr/local/bin; it will be missing from non-interactive shells\" >&2; else echo \"WARNING: $src is missing or not executable; $b will be missing from non-interactive shells\" >&2; fi; done"),
+            body: format!("mkdir -p /usr/local/bin && for b in amplihack amplihack-hooks azlin azdoit ay; do src=/home/{u}/.cargo/bin/$b; if [ -x \"$src\" ]; then ln -sf \"$src\" /usr/local/bin/$b || echo \"WARNING: could not link $b into /usr/local/bin; it will be missing from non-interactive shells\" >&2; else echo \"WARNING: $src is missing or not executable; $b will be missing from non-interactive shells\" >&2; fi; done"),
         },
         // Go
-        SetupSection {
-            name: "setup-go",
+        Section {
+            name: "setup-go".to_string(),
             needs_network: true,
-            command: warn_and_fail(
+            body: warn_and_fail(
                 "wget -q https://go.dev/dl/go1.26.4.linux-amd64.tar.gz -O /tmp/go.tar.gz && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz",
                 "Go install failed",
             ),
@@ -799,39 +793,39 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         // /usr/local/bin/dotnet -- `command -v dotnet` succeeded, running it
         // did not. The guard's `else` branch fails the section, so a missing
         // SDK is recorded rather than merely mentioned.
-        SetupSection {
-            name: "setup-dotnet",
+        Section {
+            name: "setup-dotnet".to_string(),
             needs_network: true,
-            command: "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && chmod +x /tmp/dotnet-install.sh && { /tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet || echo 'WARNING: .NET 10 SDK install failed' >&2; }; rm -f /tmp/dotnet-install.sh; if [ -x /usr/share/dotnet/dotnet ]; then ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet; else echo 'WARNING: /usr/share/dotnet/dotnet is missing; not linking /usr/local/bin/dotnet' >&2; false; fi".to_string(),
+            body: "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && chmod +x /tmp/dotnet-install.sh && { /tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet || echo 'WARNING: .NET 10 SDK install failed' >&2; }; rm -f /tmp/dotnet-install.sh; if [ -x /usr/share/dotnet/dotnet ]; then ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet; else echo 'WARNING: /usr/share/dotnet/dotnet is missing; not linking /usr/local/bin/dotnet' >&2; false; fi".to_string(),
         },
         // Docker post-install
-        SetupSection {
-            name: "setup-docker-group",
+        Section {
+            name: "setup-docker-group".to_string(),
             needs_network: false,
-            command: format!("usermod -aG docker {u} && systemctl enable docker && systemctl start docker"),
+            body: format!("usermod -aG docker {u} && systemctl enable docker && systemctl start docker"),
         },
         // Enable systemd user linger so SSH sessions get a systemd user instance
         // (required for snap Chromium cgroup scoping via systemd-run --user)
-        SetupSection {
-            name: "setup-linger",
+        Section {
+            name: "setup-linger".to_string(),
             needs_network: false,
-            command: format!("loginctl enable-linger {u}"),
+            body: format!("loginctl enable-linger {u}"),
         },
         // bashrc additions (npm path, go path, cargo env)
-        SetupSection {
-            name: "setup-bashrc",
+        Section {
+            name: "setup-bashrc".to_string(),
             needs_network: false,
-            command: format!("cat >> /home/{u}/.bashrc << 'BASHEOF'\n\n# npm user-local configuration\nNPM_PACKAGES=\"${{HOME}}/.npm-packages\"\nPATH=\"$NPM_PACKAGES/bin:$PATH\"\nMANPATH=\"$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)\"\n\n# Go\nexport PATH=$PATH:/usr/local/go/bin\n\n# Cargo\nsource $HOME/.cargo/env 2>/dev/null\nBASHEOF"),
+            body: format!("cat >> /home/{u}/.bashrc << 'BASHEOF'\n\n# npm user-local configuration\nNPM_PACKAGES=\"${{HOME}}/.npm-packages\"\nPATH=\"$NPM_PACKAGES/bin:$PATH\"\nMANPATH=\"$NPM_PACKAGES/share/man:$(manpath 2>/dev/null || echo $MANPATH)\"\n\n# Go\nexport PATH=$PATH:/usr/local/go/bin\n\n# Cargo\nsource $HOME/.cargo/env 2>/dev/null\nBASHEOF"),
         },
         // Non-interactive PATH check. The login-shell check below passes even when
         // the binaries only exist in ~/.cargo/bin, which is exactly how #1095 hid:
         // `azlin connect` worked, `ssh <vm> 'amplihack ...'` did not. `su` without
         // `-` gives a non-login, non-interactive shell -- the same environment ssh
         // commands, cron jobs and CI steps get.
-        SetupSection {
-            name: "setup-path-check",
+        Section {
+            name: "setup-path-check".to_string(),
             needs_network: false,
-            command: format!("su {u} -s /bin/bash -c 'for b in amplihack amplihack-hooks azlin azdoit ay; do command -v $b > /dev/null || echo \"WARNING: $b is not on the default non-interactive PATH\" >&2; done'"),
+            body: format!("su {u} -s /bin/bash -c 'for b in amplihack amplihack-hooks azlin azdoit ay; do command -v $b > /dev/null || echo \"WARNING: $b is not on the default non-interactive PATH\" >&2; done'"),
         },
         // Version verification (rustc is in user homedir, must check as user).
         // All three azlin archive members are checked: the install chain is a
@@ -852,19 +846,24 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         // non-zero, failing the section on a VM where everything is installed.
         // The old trailing `|| true` hid that; nothing needs to now, because
         // the check only cares whether the command runs at all.
-        SetupSection {
-            name: "setup-verify",
+        Section {
+            name: "setup-verify".to_string(),
             needs_network: false,
-            command: format!("echo '[AZLIN] Verifying installed toolchains' && which gh && gh --version && which az && az --version > /dev/null && which node && node --version && su - {u} -c 'which rustc && rustc --version && which amplihack && amplihack --version && which azlin && azlin --version && which azdoit && azdoit --version && which ay && ay --version' && which dotnet && dotnet --version"),
+            body: format!("echo '[AZLIN] Verifying installed toolchains' && which gh && gh --version && which az && az --version > /dev/null && which node && node --version && su - {u} -c 'which rustc && rustc --version && which amplihack && amplihack --version && which azlin && azlin --version && which azdoit && azdoit --version && which ay && ay --version' && which dotnet && dotnet --version"),
         },
     ]
 }
 
 /// The setup commands alone, in execution order.
-pub fn default_dev_setup_commands(username: &str) -> Vec<String> {
+///
+/// The generator renders `dev_setup_sections` directly; this projection exists
+/// only so the tests below can assert on a single step's command without
+/// re-deriving the section wrapper around it.
+#[cfg(test)]
+fn default_dev_setup_commands(username: &str) -> Vec<String> {
     dev_setup_sections(username)
         .into_iter()
-        .map(|s| s.command)
+        .map(|s| s.body)
         .collect()
 }
 

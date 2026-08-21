@@ -27,18 +27,6 @@ pub fn validate_mount_path(path: &str) -> Result<(), String> {
 
 /// The Azure-stable device path for a data disk at `lun`.
 ///
-/// `/dev/sdc` and friends are assigned in attach order and change across
-/// reboots; `/dev/disk/azure/scsi1/lunN` is the symlink Azure's udev rules
-/// maintain and is the only name that means the same disk twice.
-///
-/// One line, from `disk_layout`, because the udev path is Azure's to change:
-/// when it does, `azlin disk add --mount` and `azlin disk check`/`repair` must
-/// move together or the probe will report `absent` for a disk the mount script
-/// just attached.
-pub fn azure_lun_device(lun: u32) -> String {
-    azlin_azure::disk_layout::lun_device_path(lun)
-}
-
 /// The script that formats (only if unformatted) and mounts a data disk.
 ///
 /// `azlin disk add --mount` attached the disk and stopped; the flag was
@@ -68,7 +56,11 @@ pub fn build_disk_mount_script(lun: u32, mount_path: &str) -> Result<String, Str
     // would inherit that guarantee by convention rather than by construction — and
     // shell injection is not a property to hold by convention.
     validate_mount_path(mount_path)?;
-    let device = azure_lun_device(lun);
+    // Straight from `disk_layout`, because the udev path is Azure's to change:
+    // when it does, `azlin disk add --mount` and `azlin disk check`/`repair`
+    // must move together or the probe reports `absent` for a disk the mount
+    // script just attached.
+    let device = azlin_azure::disk_layout::lun_device_path(lun);
     let format_step = azlin_azure::disk_layout::blkid_guarded_mkfs("DEV", None, "sudo ");
     let fstab =
         azlin_azure::disk_layout::fstab_line(&azlin_azure::disk_layout::FstabSpec::Ext4ByUuid {
@@ -100,7 +92,10 @@ mod mount_script_tests {
     fn the_device_is_the_stable_azure_symlink() {
         // `/dev/sdc` is assigned in attach order and means a different disk
         // after a reboot.
-        assert_eq!(azure_lun_device(3), "/dev/disk/azure/scsi1/lun3");
+        assert_eq!(
+            azlin_azure::disk_layout::lun_device_path(3),
+            "/dev/disk/azure/scsi1/lun3"
+        );
     }
 
     /// Running `disk add --mount` twice must not destroy the filesystem the
