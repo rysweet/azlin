@@ -463,8 +463,7 @@ pub(crate) async fn dispatch(
                 // reuse a live tunnel-host if one exists, otherwise spawn a fully
                 // DETACHED `azlin __tunnel-host` that owns the native tunnel.
                 let bastion_map: std::collections::HashMap<String, String> =
-                    crate::list_helpers::detect_bastion_hosts(&rg)
-                        .unwrap_or_default()
+                    crate::list_helpers::detect_bastion_hosts_or_warn(&rg)
                         .into_iter()
                         .map(|(n, l, _)| (l, n))
                         .collect();

@@ -92,12 +92,24 @@ steps:
         rust/target/debug/azlin list --resource-group rg-oit --with-health --show-procs >/dev/null 2>&1
         rich=$(grep -c 'network bastion list' "$AZ_CALL_LOG")
 
-        echo "bastion lookups: plain=$plain with-health+show-procs=$rich"
+        export AZ_CALL_LOG="$SHIM/json.log"; : > "$AZ_CALL_LOG"
+        rust/target/debug/azlin list --resource-group rg-oit -o json >/dev/null 2>&1
+        json=$(grep -c 'network bastion list' "$AZ_CALL_LOG")
+
+        echo "bastion lookups: plain=$plain with-health+show-procs=$rich json=$json"
         # Before the shared map: plain=2 (display table + tmux collector),
         # rich=4 (display table + three collectors). The claim is that the
         # enrichment flags cost nothing extra.
         [ "$plain" = "$rich" ] || { echo "FAIL: enrichment flags still multiply bastion discovery"; exit 1; }
-        [ "$rich" -le 2 ] || { echo "FAIL: more than one discovery per lookup site: $rich"; exit 1; }
+        # Exactly 2, not "at most 2". `-le` also passed when discovery was
+        # removed altogether (plain=rich=1) or when the stub stopped matching
+        # (plain=rich=0), so it could not distinguish the fix from the bug.
+        [ "$rich" = 2 ] || { echo "FAIL: expected exactly 2 lookup sites, got $rich"; exit 1; }
+        # The #1127 regression guard proper. Discovery was once gated on table
+        # output, so JSON and CSV listings collected nothing for bastion-only
+        # VMs. JSON renders no bastion table, so it performs the routing sweep
+        # alone: exactly 1. A zero here means the gate is back.
+        [ "$json" = 1 ] || { echo "FAIL: JSON output performed $json routing lookups, expected 1"; exit 1; }
         echo "PASS: bastion routing is discovered once per command"
     expect:
       exit_code: 0

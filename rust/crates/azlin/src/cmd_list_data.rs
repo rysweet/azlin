@@ -57,23 +57,30 @@ pub(crate) enum SessionLookup {
 /// Used by `azlin connect <name>` to fall back to session-name resolution
 /// when `<name>` does not match any VM hostname: if exactly one running VM
 /// has a matching tmux session, callers can connect to `vm_name:session_name`.
+///
+/// Returns the lookup together with the bastion warnings the caller must
+/// print, for the same reason [`discover_bastions`] returns its own: the only
+/// caller runs this behind a spinner, and printing from in here would let
+/// `indicatif` erase the line that explains why a bastion-only VM's sessions
+/// are missing from the search. The caller prints them once its spinner is
+/// cleared.
 pub(crate) async fn find_vm_by_tmux_session(
     vms: &[VmInfo],
     subscription_id: &str,
     connect_timeout: u64,
     session_name: &str,
     verbose: bool,
-) -> SessionLookup {
+) -> (SessionLookup, Vec<String>) {
     // Bastion routing is discovered from the VM list, so no output-format flag
     // is required. This caller runs one collector, so it owns the map for the
     // length of that one call.
     let (bastion_map, bastion_warnings) = discover_bastions_async(vms).await;
-    for warning in &bastion_warnings {
-        eprintln!("{warning}");
-    }
     let tmux_sessions =
         collect_tmux_sessions(vms, &bastion_map, verbose, subscription_id, connect_timeout).await;
-    match_session_in_map(&tmux_sessions, session_name)
+    (
+        match_session_in_map(&tmux_sessions, session_name),
+        bastion_warnings,
+    )
 }
 
 /// Pure matching logic for [`find_vm_by_tmux_session`], split out so it can
@@ -371,10 +378,13 @@ fn join_with_and(items: &[&str]) -> String {
 /// discovered once.
 ///
 /// The warnings are returned rather than printed, for the same reason
-/// [`insert_bastions_for_group`] returns its own: every caller runs this behind
-/// a spinner, and `indicatif` erases and redraws its line on each tick, so a
-/// warning written from in here is wiped before the operator can read it. The
-/// caller prints them once its spinner is cleared.
+/// [`insert_bastions_for_group`] returns its own: the callers that draw a
+/// spinner over this work (`azlin list`, and `azlin connect`'s session-name
+/// fallback) run `indicatif`, which erases and redraws its line on each tick,
+/// so a warning written from in here is wiped before the operator can read it.
+/// Those callers print them once the spinner is cleared. `handle_restore` has
+/// no spinner and prints them immediately; returning rather than printing
+/// costs it nothing and keeps one rule for every caller.
 fn discover_bastions(vms: &[VmInfo]) -> (BastionMap, Vec<String>) {
     collect_bastions(
         &resource_groups_needing_bastion_lookup(vms),
@@ -453,6 +463,22 @@ pub(crate) fn insert_bastions_for_group(
     let mut warnings = Vec::new();
     for (name, location, _sku) in found {
         if !valid_bastion_coordinates(&name, &location) {
+            // The allowlist is deliberately strict, because these two strings
+            // reach an `ssh`/`az` argv. Dropping silently is what it must not
+            // do: `location` admits only ASCII alphanumerics, so an ARM
+            // response giving a region in display form ("East US") takes this
+            // arm and removes the group's only route, leaving every
+            // bastion-only VM in it blank for a reason nothing on screen
+            // states. Narrating it is what separates "no bastion here" from
+            // "a bastion we could not use".
+            warnings.push(format!(
+                "Warning: ignoring bastion {} in resource group {} because Azure reported it at \
+                 an unusable location ({}). VMs reachable only through it will show no tmux, \
+                 health or process data.",
+                sanitize_remote_text(&name),
+                sanitize_remote_text(resource_group),
+                sanitize_remote_text(&location),
+            ));
             continue;
         }
         match map.entry(bastion_key(resource_group, &location)) {
@@ -639,7 +665,7 @@ pub(crate) fn colliding_vm_names(vms: &[VmInfo]) -> std::collections::HashSet<St
 }
 
 /// The warning printed once when some VM names collide.
-fn collision_warning(colliding: &std::collections::HashSet<String>) -> String {
+pub(crate) fn collision_warning(colliding: &std::collections::HashSet<String>) -> String {
     let mut names: Vec<String> = colliding.iter().map(|s| sanitize_remote_text(s)).collect();
     names.sort();
     format!(
@@ -729,10 +755,16 @@ fn is_bidi_or_invisible(c: char) -> bool {
 /// shared registry file.
 ///
 /// Bastion routing is supplied by the caller via [`discover_bastions_async`],
-/// which runs whenever at least one running VM has no public IP (i.e. is
-/// bastion-only), regardless of output format. It was once gated on
-/// `is_table_output`, so tmux sessions were never collected for private VMs in
-/// JSON/CSV output modes.
+/// which the caller runs whenever a collector that needs it will run --
+/// regardless of output format. It was once gated on `is_table_output`, so
+/// tmux sessions were never collected for private VMs in JSON/CSV output
+/// modes; nothing here may reintroduce a gate of that shape.
+///
+/// Which resource groups then cost an `az` call is a separate question,
+/// decided inside discovery by [`resource_groups_needing_bastion_lookup`]:
+/// only groups holding a running VM with no public IP. An empty map therefore
+/// means either "no bastion-only VM was listed" or "the lookup failed and said
+/// so" -- never "we quietly skipped it".
 pub(crate) async fn collect_tmux_sessions(
     vms: &[VmInfo],
     bastion_map: &BastionMap,
@@ -744,10 +776,14 @@ pub(crate) async fn collect_tmux_sessions(
 
     // Same-named VMs in different resource groups cannot be told apart in a
     // name-keyed result map, so they are not probed at all.
+    //
+    // The warning is the *caller's* to print, via [`collision_warning`]. It
+    // used to be printed here, which meant it appeared only when this
+    // collector ran: `--no-tmux --with-health --show-procs` withheld exactly
+    // the same VMs from three other collectors and said nothing. It is also
+    // one warning about the VM list, not about tmux, so printing it per
+    // collector would repeat it once per enrichment flag.
     let colliding = colliding_vm_names(vms);
-    if !colliding.is_empty() {
-        eprintln!("{}", collision_warning(&colliding));
-    }
 
     // Pre-create bastion tunnels before the concurrent SSH probes, because
     // tunnel creation mutates a shared registry file and must stay sequential.
@@ -2141,7 +2177,36 @@ mod bastion_discovery_tests {
             Some(&"bst-real".to_string()),
             "the valid bastion still gets the slot"
         );
-        assert!(warnings.is_empty(), "a rejected entry is not a conflict");
+        // A rejected entry is not a *conflict*, but it is not nothing either.
+        // This assertion used to require silence, which is what let a bastion
+        // dropped by the allowlist take every VM behind it off the listing
+        // with no stated cause.
+        assert_eq!(warnings.len(), 1, "the rejected entry is narrated");
+        assert!(
+            warnings[0].contains("--query") && warnings[0].contains("unusable location"),
+            "the warning names what was ignored and why: {}",
+            warnings[0]
+        );
+    }
+
+    /// The rejected entry is reported even when nothing valid replaces it --
+    /// that is the case where the group loses its only route, and the case
+    /// where saying nothing reads as "this group has no bastion".
+    #[test]
+    fn a_display_form_location_is_reported_not_swallowed() {
+        let mut map = BastionMap::new();
+        let warnings = insert_bastions_for_group(
+            &mut map,
+            "rg-a",
+            vec![("bst-real".into(), "East US".into(), "Standard".into())],
+        );
+        assert!(map.is_empty(), "an unusable location yields no route");
+        assert_eq!(warnings.len(), 1);
+        assert!(
+            warnings[0].contains("bst-real") && warnings[0].contains("East US"),
+            "the warning names the bastion and the location that rejected it: {}",
+            warnings[0]
+        );
     }
 }
 
@@ -2449,11 +2514,34 @@ mod silent_degradation_tests {
     #[test]
     fn remote_text_is_length_capped() {
         let cleaned = sanitize_remote_text(&"a".repeat(10_000));
-        assert!(
-            cleaned.len() <= MAX_REMOTE_TEXT_LEN,
-            "unbounded remote text reached the renderer: {} chars",
-            cleaned.len()
+        // Chars, not bytes: `take` runs on the char iterator. Asserting
+        // `cleaned.len()` passed only because the input was ASCII, so it
+        // pinned a guarantee the function does not actually make.
+        assert_eq!(
+            cleaned.chars().count(),
+            MAX_REMOTE_TEXT_LEN,
+            "unbounded remote text reached the renderer"
         );
+    }
+
+    /// The cap counts characters, so a multi-byte name is capped at the same
+    /// 512 *characters* -- not 512 bytes. Pinning it here keeps the previous
+    /// byte-based assertion from being reintroduced as "the obvious fix".
+    #[test]
+    fn the_cap_counts_characters_not_bytes() {
+        let cleaned = sanitize_remote_text(&"é".repeat(10_000));
+        assert_eq!(cleaned.chars().count(), MAX_REMOTE_TEXT_LEN);
+        assert_eq!(cleaned.len(), MAX_REMOTE_TEXT_LEN * 2, "still bounded");
+    }
+
+    /// `take` must consume the *filtered* stream. If the two adapters were
+    /// ever swapped, a host could spend the whole budget on characters that
+    /// are stripped afterwards and blank the cell entirely -- a silent
+    /// disappearance that looks exactly like having nothing to report.
+    #[test]
+    fn stripped_characters_cannot_exhaust_the_length_budget() {
+        let padded = "\u{00AD}".repeat(MAX_REMOTE_TEXT_LEN + 100) + "real-session";
+        assert_eq!(sanitize_remote_text(&padded), "real-session");
     }
 
     #[test]

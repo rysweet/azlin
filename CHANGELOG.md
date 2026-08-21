@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`azlin list` discovers bastion routing once per command instead of once per
   enrichment collector** — `collect_tmux_sessions`, `collect_health_data` and
   `collect_procs` each called `discover_bastions` for themselves, so
-  `azlin vm list --with-health --show-procs` ran `az network bastion list` three
+  `azlin list --with-health --show-procs` ran `az network bastion list` three
   times per resource group to compute the same `BastionMap` three times, and the
   operator watched three spinners re-derive one answer. `az` costs about 0.9s of
   process start alone before the ARM round-trip, so a five-resource-group
@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   where the `spawn_blocking` hop and the discovery-failed warning now live.
 
 ### Fixed
-- **`azlin vm list --show-procs --all-contexts` no longer attributes one
+- **`azlin list --show-procs --all-contexts` no longer attributes one
   subscription's processes to another's VMs** — bastion, tmux and health
   enrichment are all subscription-scoped, because they probe by an ARM id built
   from the queried subscription and `VmInfo` carries no subscription of its own.
@@ -37,17 +37,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exactly how they drifted. The note now names what was actually withheld
   rather than reciting a fixed string, so it can neither claim to have omitted
   something that in fact ran nor stay silent about something that did not.
-- **A blank first line from `az` no longer suppresses the bastion-lookup
-  warning entirely** — the warning took `stderr.lines().next()`, and `az` writes
-  a leading blank line often enough that the message came out empty, failed the
-  `is_empty` check and printed nothing while still returning `Ok(empty)`. Every
-  bastion-only VM in the group then reported zero sessions with nothing on
-  screen explaining why: the exact silent degradation this series exists to
-  close, reintroduced by the fix for it. The warning now reports the first line
-  that names a failure, skipping blank lines and `az`'s own `WARNING:` banners
-  (which otherwise blamed a missing extension for what was an authorization
-  error), and falls back to the banner when that is all `az` said — an imprecise
-  cause still beats silence.
+- **A failed bastion lookup is no longer erased by the spinner that was drawn
+  over it** — `detect_bastion_hosts` printed its own warning and returned
+  `Ok(empty)` whenever `az` merely exited non-zero, which is how a bastion
+  lookup actually fails: no authorization on the resource, a missing extension,
+  a subscription the credential cannot see. Two things followed. The line was
+  written from inside `spawn_blocking` while `indicatif` redrew its spinner
+  every 120ms, so it was overwritten before it could be read; and because
+  `Ok(empty)` is indistinguishable from "this group has no bastion", the
+  warning list the caller prints after clearing that spinner came back empty.
+  The aggregated "could not list bastion hosts in resource group(s) …" notice
+  was unreachable for the same reason — it was fed only by the `Err` arm, which
+  `az` reached only when it could not be spawned at all. Every bastion-only VM
+  in the group showed no tmux, health or process data with nothing on screen
+  explaining why. A non-zero exit is now an `Err`, so the report travels to the
+  caller and is printed where it survives.
+- **A bastion lookup that `az` answers with something other than a JSON array
+  is no longer read as "no bastion"** — a zero exit with unparseable stdout
+  (`az configure --defaults output=table`, or an extension greeting on stdout)
+  was swallowed by `unwrap_or_default()`, degrading the whole group silently.
+  It is now reported. Genuinely empty stdout stays benign.
+- **A bastion Azure reports at an unusable location is named instead of
+  dropped** — the coordinate allowlist admits only ASCII alphanumerics in a
+  region, so an ARM response giving a location in display form ("East US")
+  removed the group's only route while the adjacent duplicate-bastion branch
+  warned about far less. Losing a route is now narrated like every other
+  degradation on this path.
+- **The same-name collision warning covers every enrichment column, not just
+  tmux** — it was printed from the tmux collector, so `--no-tmux --with-health
+  --show-procs` withheld exactly the same VMs from three other collectors and
+  said nothing. It is now printed once by the listing, after its spinner is
+  cleared, and covers tmux, health, processes and latency alike.
+- **The bastion-lookup warning reports one line, and the line that names the
+  failure** — it previously printed the whole trimmed `stderr` blob, so a
+  multi-line `az` error could occupy the screen, and `az`'s own `WARNING:`
+  advisory banners could be read as the cause (blaming a missing extension for
+  what was an authorization error). It now skips blank lines and banners to
+  reach the line that names the failure, falling back to the banner when that
+  is all `az` said — an imprecise cause still beats silence.
 - **`sanitize_remote_text` no longer lets `U+2028`/`U+2029` through** — they are
   `Zl`/`Zp`, not `Cc`, so `char::is_control` missed them while every terminal
   and text consumer still breaks a line on them, defeating the no-forged-rows

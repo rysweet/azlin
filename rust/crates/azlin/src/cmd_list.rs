@@ -364,6 +364,20 @@ pub(crate) async fn dispatch(
                 Default::default()
             };
 
+            // Every collector below withholds same-named VMs, so the warning
+            // belongs here rather than inside any one of them: printed from
+            // the tmux collector it appeared only when tmux ran, leaving
+            // `--no-tmux --with-health --show-procs` to blank the same rows
+            // with nothing on screen explaining why. Printed once here, after
+            // the spinner above is cleared, it covers all four and cannot be
+            // erased mid-draw.
+            if enrichment.any() || with_latency {
+                let colliding = crate::cmd_list_data::colliding_vm_names(&all_vms);
+                if !colliding.is_empty() {
+                    eprintln!("{}", crate::cmd_list_data::collision_warning(&colliding));
+                }
+            }
+
             let tmux_sessions = if enrichment.tmux {
                 let pb = penguin_spinner("Collecting tmux sessions...");
                 let sessions = crate::cmd_list_data::collect_tmux_sessions(

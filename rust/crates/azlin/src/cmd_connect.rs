@@ -187,7 +187,7 @@ pub(crate) async fn dispatch(
                         .into_iter()
                         .filter(|v| v.power_state == azlin_core::models::PowerState::Running)
                         .collect();
-                    let lookup = crate::cmd_list_data::find_vm_by_tmux_session(
+                    let (lookup, bastion_warnings) = crate::cmd_list_data::find_vm_by_tmux_session(
                         &running,
                         vm_manager.subscription_id(),
                         config.ssh_connect_timeout,
@@ -196,6 +196,15 @@ pub(crate) async fn dispatch(
                     )
                     .await;
                     pb2.finish_and_clear();
+                    // After the spinner is cleared, not before: it erases and
+                    // redraws its line every tick, so a warning printed while
+                    // it runs is wiped before it can be read -- and a lost
+                    // bastion warning means a session on a bastion-only VM is
+                    // reported "not found" with nothing on screen saying the
+                    // search could not reach that VM at all.
+                    for warning in &bastion_warnings {
+                        eprintln!("{warning}");
+                    }
                     match lookup {
                         crate::cmd_list_data::SessionLookup::Found { vm_name } => {
                             eprintln!("Resolved tmux session '{}' to VM '{}'.", name, vm_name);

@@ -110,18 +110,24 @@ contains a running VM with no public IP:
 - The common single-resource-group listing performs exactly one routing lookup,
   as before.
 - A `--show-all-vms` listing performs one per resource group that needs it.
-- The count does not change when you add `--with-health` or `--show-procs`.
-  Discovery happens once per command and the map is shared by every enrichment
-  collector; each collector used to discover routing for itself, so combining
-  the flags spent three lookups per resource group to compute one answer.
+- Adding `--with-health` or `--show-procs` to a listing that already collects
+  tmux sessions does not change the count. Discovery happens once per command
+  and the map is shared by every enrichment collector; each collector used to
+  discover routing for itself, so combining the flags spent three lookups per
+  resource group to compute one answer. (Starting from `--no-tmux`, which runs
+  no collector and so performs no routing lookup, the first enrichment flag
+  does take the count from zero to one per resource group that needs it.)
 
 The counts above are the *routing* sweep only. Table output runs a second,
 independent sweep to render the "Azure Bastion Hosts" table: one
 `az network bastion list` per distinct resource group in the listing, gated on
 table format and a single subscription alone. That sweep is not filtered by
-power state or public IP, because the table documents the bastions in the scope
-the operator asked about — so a table listing in which every VM has a public IP
-still performs one lookup per resource group. JSON and CSV output, which render
+public IP, because the table documents the bastions in the scope the operator
+asked about — so a table listing in which every VM has a public IP still
+performs one lookup per resource group. It is, however, driven by the listing
+that survives filtering, so a resource group whose VMs are all deallocated
+contributes no lookup and its bastions are absent from the table unless
+`--show-all-vms` keeps those VMs in the listing. JSON and CSV output, which render
 no such table, perform only the routing sweep.
 
 Discovery used to run against the resource group of whichever VM sorted first,
