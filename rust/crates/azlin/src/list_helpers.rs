@@ -152,6 +152,48 @@ mod tests {
         assert_eq!(vms.len(), 2);
     }
 
+    /// `az` writes a blank line before its error often enough that taking the
+    /// literally-first line dropped this warning entirely: empty after
+    /// trimming, so nothing printed, so every bastion-only VM in the group
+    /// reported zero sessions with no visible cause -- the silent degradation
+    /// this path exists to end.
+    #[test]
+    fn a_leading_blank_line_cannot_suppress_the_bastion_warning() {
+        assert_eq!(
+            first_reportable_line("\n\nERROR: (AuthorizationFailed) no access\n"),
+            "ERROR: (AuthorizationFailed) no access"
+        );
+    }
+
+    /// `az` prefixes stderr with its own advisories. Reporting one of those as
+    /// the cause sends the operator after a missing extension when the real
+    /// failure was authorization.
+    #[test]
+    fn az_advisory_banners_are_not_reported_as_the_cause() {
+        let stderr = "WARNING: The command requires the extension bastion.\n\
+                      WARNING: Extension is experimental.\n\
+                      ERROR: (SubscriptionNotFound) not found\n";
+        assert_eq!(
+            first_reportable_line(stderr),
+            "ERROR: (SubscriptionNotFound) not found"
+        );
+    }
+
+    /// When the banner is all `az` said, an imprecise cause still beats
+    /// printing nothing: nothing reads as "this group has no bastion".
+    #[test]
+    fn a_banner_only_stderr_still_reports_something() {
+        assert_eq!(
+            first_reportable_line("\nWARNING: The command requires the extension bastion.\n"),
+            "WARNING: The command requires the extension bastion."
+        );
+    }
+
+    #[test]
+    fn empty_stderr_reports_nothing() {
+        assert_eq!(first_reportable_line("\n  \n\t\n"), "");
+    }
+
     #[test]
     fn test_apply_filters_combined() {
         let mut vms = vec![
@@ -161,6 +203,26 @@ mod tests {
         apply_filters(&mut vms, true, Some("env=dev"), Some("dev*"));
         assert_eq!(vms.len(), 1);
         assert_eq!(vms[0].name, "dev-1");
+    }
+}
+
+/// Pick the one line of an `az` stderr blob worth showing an operator.
+///
+/// Skips blank lines and `az`'s own advisory banners (`WARNING: ...`, which is
+/// how it announces a missing extension or a deprecated argument) to reach the
+/// line that names the failure. Falls back to the first non-blank line when the
+/// banners are all there is, so the warning is never silently dropped -- an
+/// imprecise cause still tells the operator the lookup failed, whereas printing
+/// nothing tells them the group has no bastion.
+fn first_reportable_line(stderr: &str) -> &str {
+    let mut lines = stderr.lines().map(str::trim).filter(|l| !l.is_empty());
+    let Some(first) = lines.next() else {
+        return "";
+    };
+    if first.starts_with("WARNING:") {
+        lines.find(|l| !l.starts_with("WARNING:")).unwrap_or(first)
+    } else {
+        first
     }
 }
 
@@ -196,11 +258,20 @@ pub fn detect_bastion_hosts(resource_group: &str) -> anyhow::Result<Vec<(String,
         // all. Both halves are text this machine did not author -- the group
         // name is chosen by whoever created it and `az` quotes it back into its
         // own error -- so an escape sequence in either would rewrite the line
-        // that reports the failure. First line only, for the same reason
+        // that reports the failure. One line only, for the same reason
         // `bastion_lookup_failure_warning` takes one: a multi-line error must
         // not be able to fabricate a second warning.
-        let stderr =
-            crate::cmd_list_data::sanitize_remote_text(stderr.lines().next().unwrap_or("").trim());
+        //
+        // Which line matters. `az` writes a leading blank line and an advisory
+        // banner ("WARNING: The command requires the extension ...") ahead of
+        // the actual error often enough that taking literally the first line
+        // either suppressed this warning entirely -- blank first line, empty
+        // after trimming, no warning, silent `Ok(vec![])` -- or reported the
+        // extension notice as the cause. Suppressing it is the worse half:
+        // every bastion-only VM in the group then shows no tmux, health or
+        // process data with nothing on screen explaining why, which is the
+        // silent degradation this whole path exists to end.
+        let stderr = crate::cmd_list_data::sanitize_remote_text(first_reportable_line(&stderr));
         if !stderr.is_empty() {
             eprintln!(
                 "Warning: 'az network bastion list' failed for resource group '{}': {}",

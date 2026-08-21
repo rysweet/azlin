@@ -269,10 +269,11 @@ pub(crate) fn valid_bastion_coordinates(name: &str, location: &str) -> bool {
 /// Discover bastions for every resource group that has a bastion-only VM.
 ///
 /// Blocking `az` calls: one `az network bastion list` per resource group that
-/// needs routing. Async callers must go through [`discover_bastions_async`],
-/// which moves this off the runtime — `collect_tmux_sessions` drives concurrent
-/// SSH probes in a `JoinSet`, and blocking the runtime here would stall the
-/// very probes it spawned.
+/// needs routing. Private on purpose — [`discover_bastions_async`] is the only
+/// stud this module offers, because every caller in the crate is async and
+/// calling this one directly from a runtime thread would stall the concurrent
+/// SSH probes `collect_tmux_sessions` spawns in its `JoinSet`. An exported
+/// blocking twin would be an invitation to exactly that mistake.
 ///
 /// The result belongs to the *caller*, not to each collector. Discovery is a
 /// pure function of `vms`, and a single `azlin vm list --with-health
@@ -281,7 +282,7 @@ pub(crate) fn valid_bastion_coordinates(name: &str, location: &str) -> bool {
 /// group to compute the same map three times, and the operator watched three
 /// spinners re-derive one answer. Every collector now borrows a map the caller
 /// discovered once.
-pub(crate) fn discover_bastions(vms: &[VmInfo]) -> BastionMap {
+fn discover_bastions(vms: &[VmInfo]) -> BastionMap {
     let mut map = BastionMap::new();
     for rg in resource_groups_needing_bastion_lookup(vms) {
         let found = match crate::list_helpers::detect_bastion_hosts(&rg) {
@@ -355,15 +356,26 @@ pub(crate) fn insert_bastions_for_group(
             }
             std::collections::hash_map::Entry::Occupied(slot) => {
                 if slot.get() != &name {
+                    // `valid_bastion_coordinates` already allowlists `name` and
+                    // `location`, but the resource group reaches here straight
+                    // from the caller having passed no validator at all, and a
+                    // warning is not a safer place to print an escape sequence
+                    // than a table cell is. Sanitizing all four keeps that rule
+                    // true of this line without depending on which argument
+                    // happens to have been checked upstream.
+                    let (rg, loc) = (
+                        sanitize_remote_text(resource_group),
+                        sanitize_remote_text(&location),
+                    );
+                    let (kept, ignored) = (
+                        sanitize_remote_text(slot.get()),
+                        sanitize_remote_text(&name),
+                    );
                     warnings.push(format!(
                         "Warning: resource group {} has more than one bastion in {}; using {} \
                          and ignoring {}. VMs reachable only through {} will show no tmux, \
                          health or process data.",
-                        resource_group,
-                        location,
-                        slot.get(),
-                        name,
-                        name
+                        rg, loc, kept, ignored, ignored
                     ));
                 }
             }
@@ -555,21 +567,43 @@ pub(crate) fn sanitize_remote_text(raw: &str) -> String {
         .collect()
 }
 
-/// Characters that reorder or hide neighbouring text without being control
-/// characters.
+/// Characters that break a line, reorder it, or hide part of it without being
+/// control characters.
 ///
-/// `char::is_control` only covers the `Cc` category, so it strips the ESC that
-/// starts an ANSI sequence but lets `U+202E RIGHT-TO-LEFT OVERRIDE` and its
-/// relatives through — those are `Cf`. In a table cell they reverse the
-/// rendering of everything after them, so a process name can make one VM's row
-/// read as another's. Stripping them finishes the job the control-character
-/// filter starts (the "Trojan Source" class).
+/// `char::is_control` is exactly the `Cc` category. That is wider than it looks
+/// — it covers `U+0080`–`U+009F`, so the 8-bit CSI is already handled — but it
+/// is also narrower than the guarantee above needs, in two ways:
+///
+/// * **`Zl`/`Zp`.** `U+2028 LINE SEPARATOR` and `U+2029 PARAGRAPH SEPARATOR`
+///   are not `Cc`, yet terminals and downstream text consumers break a line on
+///   them. Letting them through defeats the newline rule stated one doc comment
+///   up, so they are stripped for that rule's sake.
+/// * **`Cf`.** `U+202E RIGHT-TO-LEFT OVERRIDE` and its relatives reverse the
+///   rendering of everything after them, so a process name can make one VM's
+///   row read as another's (the "Trojan Source" class); `U+00AD SOFT HYPHEN`,
+///   the word joiners and the tag block hide or fabricate text just as
+///   effectively while occupying no column.
+///
+/// The ranges below are the `Cf` block plus the two separators, listed
+/// explicitly rather than pulled from a Unicode-tables dependency: the set is
+/// small, fixed, and cheaper to audit here than to trust to a transitive crate.
 fn is_bidi_or_invisible(c: char) -> bool {
     matches!(c,
-        '\u{200B}'..='\u{200F}'   // zero-width spaces, LRM/RLM
-        | '\u{202A}'..='\u{202E}' // embedding and override
-        | '\u{2066}'..='\u{2069}' // isolates
-        | '\u{FEFF}'              // zero-width no-break space / BOM
+        '\u{00AD}'                  // soft hyphen
+        | '\u{061C}'                // arabic letter mark
+        | '\u{180E}'                // mongolian vowel separator
+        | '\u{200B}'..='\u{200F}'   // zero-width spaces, LRM/RLM
+        | '\u{2028}'..='\u{2029}'   // line and paragraph separators (Zl/Zp)
+        | '\u{202A}'..='\u{202E}'   // embedding and override
+        | '\u{2060}'..='\u{2064}'   // word joiner, invisible operators
+        | '\u{2066}'..='\u{206F}'   // isolates and deprecated formatting
+        | '\u{FEFF}'                // zero-width no-break space / BOM
+        | '\u{FFF9}'..='\u{FFFB}'   // interlinear annotation
+        | '\u{110BD}' | '\u{110CD}' // kaithi number signs
+        | '\u{13430}'..='\u{1343F}' // egyptian hieroglyph format controls
+        | '\u{1BCA0}'..='\u{1BCA3}' // shorthand format controls
+        | '\u{1D173}'..='\u{1D17A}' // musical format controls
+        | '\u{E0000}'..='\u{E007F}' // tag block (invisible ASCII mirror)
     )
 }
 
@@ -733,7 +767,9 @@ pub(crate) async fn collect_tmux_sessions(
                 if verbose {
                     eprintln!(
                         "[VERBOSE] {} has no reachable address and no bastion in {}/{}; skipping tmux collection",
-                        vm.name, vm.resource_group, vm.location
+                        sanitize_remote_text(&vm.name),
+                        sanitize_remote_text(&vm.resource_group),
+                        sanitize_remote_text(&vm.location)
                     );
                 }
             }
@@ -798,13 +834,22 @@ pub(crate) async fn collect_tmux_sessions(
         let dropped = all.len().saturating_sub(MAX_SESSIONS_PER_VM);
         let sessions: Vec<String> = all.into_iter().take(MAX_SESSIONS_PER_VM).collect();
         if dropped > 0 {
+            // On the default path and remotely triggerable: a compromised VM
+            // opens enough sessions to force this line, so the name it prints
+            // is attacker-chosen input reaching an operator's terminal.
             eprintln!(
                 "Warning: {} has more than {} tmux sessions; {} are not shown.",
-                vm_name, MAX_SESSIONS_PER_VM, dropped
+                sanitize_remote_text(&vm_name),
+                MAX_SESSIONS_PER_VM,
+                dropped
             );
         }
         if verbose {
-            eprintln!("[VERBOSE] {} -> {} sessions", vm_name, sessions.len());
+            eprintln!(
+                "[VERBOSE] {} -> {} sessions",
+                sanitize_remote_text(&vm_name),
+                sessions.len()
+            );
         }
         if !sessions.is_empty() {
             tmux_sessions.insert(vm_name, sessions);
@@ -2313,6 +2358,56 @@ mod silent_degradation_tests {
         );
     }
 
+    /// The line-break rule the module states must hold for every character a
+    /// consumer breaks a line on, not just for `Cc`. `U+2028`/`U+2029` are
+    /// `Zl`/`Zp`, so `char::is_control` lets them through and a name carrying
+    /// one still ends the row.
+    #[test]
+    fn remote_text_strips_the_unicode_line_separators_too() {
+        for sep in ['\u{2028}', '\u{2029}'] {
+            let cleaned = sanitize_remote_text(&format!("bash{sep}azt-prod  Running"));
+            assert!(
+                !cleaned.contains(sep),
+                "{:?} survived into a table cell: {:?}",
+                sep,
+                cleaned
+            );
+        }
+    }
+
+    /// The bidi/invisible filter has to cover the whole `Cf` block, not the
+    /// handful of code points the "Trojan Source" write-ups name. A mark that
+    /// occupies no column still reorders or hides the text beside it.
+    #[test]
+    fn remote_text_strips_the_rest_of_the_invisible_block() {
+        for c in [
+            '\u{061C}',  // arabic letter mark
+            '\u{00AD}',  // soft hyphen
+            '\u{2060}',  // word joiner
+            '\u{206F}',  // nominal digit shapes
+            '\u{E0041}', // tag latin capital A
+        ] {
+            let cleaned = sanitize_remote_text(&format!("azt{c}prod"));
+            assert_eq!(
+                cleaned, "aztprod",
+                "U+{:04X} survived: {:?}",
+                c as u32, cleaned
+            );
+        }
+    }
+
+    /// The C1 range is `Cc`, so `char::is_control` already covers the 8-bit
+    /// CSI. Pinned so a future rewrite of the filter cannot quietly drop it.
+    #[test]
+    fn remote_text_strips_the_eight_bit_csi() {
+        let cleaned = sanitize_remote_text("main\u{9B}2Jwiped");
+        assert!(
+            !cleaned.contains('\u{9B}'),
+            "8-bit CSI survived: {:?}",
+            cleaned
+        );
+    }
+
     /// Withholding the tmux/health/process columns is the right call for
     /// colliding names, but a blank column is exactly what the #1127 bug looked
     /// like. The warning is what separates "withheld on purpose" from
@@ -2528,16 +2623,22 @@ mod silent_degradation_tests {
                 ..vm("azt-c", "centralus", Some("4.4.4.4"), PowerState::Running)
             },
         ];
-        let first = resource_groups_needing_bastion_lookup(&vms);
-        let second = resource_groups_needing_bastion_lookup(&vms);
+        let groups = resource_groups_needing_bastion_lookup(&vms);
         assert_eq!(
-            first, second,
-            "repeat lookups differ, so one shared map cannot serve every collector"
-        );
-        assert_eq!(
-            first,
+            groups,
             vec!["rg-a".to_string(), "rg-b".to_string()],
-            "only groups holding a bastion-only VM are looked up: {first:?}"
+            "only groups holding a bastion-only VM are looked up: {groups:?}"
+        );
+
+        // Calling it twice on the same slice would prove nothing about a pure
+        // function. What the hoist actually depends on is that the answer is
+        // fixed by the *contents* of the list and nothing else -- not the order
+        // Azure returned the VMs in, and not which collector is asking.
+        let reordered: Vec<VmInfo> = vms.iter().rev().cloned().collect();
+        assert_eq!(
+            resource_groups_needing_bastion_lookup(&reordered),
+            groups,
+            "lookup set depends on VM order, so the shared map is wrong for some collector"
         );
     }
 }

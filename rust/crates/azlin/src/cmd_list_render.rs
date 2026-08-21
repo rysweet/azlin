@@ -196,9 +196,13 @@ fn color_cell(padded: &str, color_fn: fn(&str) -> String) -> String {
 /// lookups must keep using the raw name — sanitizing a key would silently miss
 /// the entry it names.
 ///
-/// JSON output does not come through here: it serializes through `serde_json`,
-/// which escapes control characters to `\uXXXX`, so a terminal never interprets
-/// them and a machine consumer keeps the exact bytes Azure returned.
+/// JSON output does not come through here, and deliberately is not sanitized:
+/// its consumer is a machine, and a machine consumer must keep the exact bytes
+/// Azure returned. Note the limit of what `serde_json` does for a human who
+/// `cat`s that JSON to a terminal anyway -- its escape table covers `0x00`
+/// through `0x1F`, `"` and `\` and nothing else, so `U+007F`, the C1 range and
+/// `U+2028` are emitted raw. Rendering JSON safely is the terminal's problem,
+/// not this module's; escaping it here would corrupt the contract.
 struct VmDisplayText {
     session: String,
     name: String,
@@ -703,9 +707,16 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
 
     for vm in data.vms {
         // Sanitized for the same reason as the table, plus one specific to this
-        // format: `sanitize_remote_text` strips newlines, and a newline in a
-        // name would otherwise end the record early and let a listed VM inject
-        // rows of its own into the CSV a script goes on to parse.
+        // format: `sanitize_remote_text` strips newlines (and `U+2028`/`U+2029`
+        // with them), and a newline in a name would otherwise end the record
+        // early and let a listed VM inject rows of its own into the CSV a
+        // script goes on to parse.
+        //
+        // Record injection is closed; *field* injection is not. Fields are
+        // still emitted unquoted, so a comma in an Azure name shifts every
+        // column after it by one. That is tracked separately (#1133) because
+        // the fix is to quote per RFC 4180, not to strip more characters --
+        // stripping would silently rename a VM in output a script parses.
         let disp = VmDisplayText::for_vm(vm);
         let tmux = data
             .tmux_sessions

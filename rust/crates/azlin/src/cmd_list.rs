@@ -134,7 +134,7 @@ pub(crate) async fn dispatch(
                         let Some(rg) = ctx.resource_group.clone() else {
                             eprintln!(
                                 "Warning: context '{}' has no resource_group, skipping.",
-                                ctx.name
+                                crate::cmd_list_data::sanitize_remote_text(&ctx.name)
                             );
                             continue;
                         };
@@ -157,15 +157,25 @@ pub(crate) async fn dispatch(
                                 };
                                 println!(
                                     "── context: {} ({}, rg: {}) — {} VMs ──",
-                                    ctx.name,
-                                    origin,
-                                    rg,
+                                    crate::cmd_list_data::sanitize_remote_text(&ctx.name),
+                                    crate::cmd_list_data::sanitize_remote_text(&origin),
+                                    crate::cmd_list_data::sanitize_remote_text(&rg),
                                     vms.len()
                                 );
                                 aggregated.extend(vms);
                             }
                             Err(e) => {
-                                eprintln!("Warning: failed to list VMs for context '{}' (subscription: {}, rg: {}): {}", ctx.name, sub, rg, e);
+                                // Sibling of the bastion-lookup warning below: the
+                                // context name is local, but the resource group,
+                                // the subscription id and the Azure error text are
+                                // not, and this line is on the default path.
+                                eprintln!(
+                                "Warning: failed to list VMs for context '{}' (subscription: {}, rg: {}): {}",
+                                crate::cmd_list_data::sanitize_remote_text(&ctx.name),
+                                crate::cmd_list_data::sanitize_remote_text(&sub),
+                                crate::cmd_list_data::sanitize_remote_text(&rg),
+                                crate::cmd_list_data::sanitize_remote_text(&format!("{e:#}"))
+                            );
                             }
                         }
                     }
@@ -318,9 +328,20 @@ pub(crate) async fn dispatch(
             // the VM list, so it happens once here — but only when a collector
             // that needs it will actually run, which is why these gates are
             // named rather than repeated.
+            //
+            // All three are subscription-scoped in exactly the same way -- they
+            // probe by ARM id built from `vm_manager.subscription_id()`, and
+            // `VmInfo` carries no subscription of its own -- so all three take
+            // the same `!cross_subscription` gate. `--show-procs` did not, and
+            // with the IaC-templated dev/prod name pairs this tool is pointed
+            // at, that meant a same-named VM in the *queried* subscription was
+            // probed and its `ps` output rendered under a row read from
+            // another, while the note above told the operator enrichment had
+            // been omitted.
             let collect_tmux = want_tmux && !cross_subscription;
             let collect_health = with_health && !cross_subscription;
-            let bastion_map = if collect_tmux || collect_health || show_procs {
+            let collect_procs = show_procs && !cross_subscription;
+            let bastion_map = if collect_tmux || collect_health || collect_procs {
                 crate::cmd_list_data::discover_bastions_async(&all_vms).await
             } else {
                 Default::default()
@@ -364,7 +385,7 @@ pub(crate) async fn dispatch(
                 std::collections::HashMap::new()
             };
 
-            let proc_data = if show_procs {
+            let proc_data = if collect_procs {
                 let pb = penguin_spinner("Collecting process data...");
                 let result = crate::cmd_list_data::collect_procs(
                     &all_vms,

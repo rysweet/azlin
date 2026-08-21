@@ -22,6 +22,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   where the `spawn_blocking` hop and the discovery-failed warning now live.
 
 ### Fixed
+- **`azlin vm list --show-procs --all-contexts` no longer attributes one
+  subscription's processes to another's VMs** — bastion, tmux and health
+  enrichment are all subscription-scoped, because they probe by an ARM id built
+  from the queried subscription and `VmInfo` carries no subscription of its own.
+  A listing spanning several subscriptions therefore skips them and says so.
+  `--show-procs` was missing that gate: it ran anyway, against ARM ids in
+  whichever subscription the CLI was on. With the IaC-templated dev/prod name
+  pairs this tool is pointed at, the `ps` output of a same-named VM in one
+  subscription rendered under a row read from another — while the note on screen
+  told the operator enrichment had been omitted. All three collectors now take
+  the same gate.
+- **A blank first line from `az` no longer suppresses the bastion-lookup
+  warning entirely** — the warning took `stderr.lines().next()`, and `az` writes
+  a leading blank line often enough that the message came out empty, failed the
+  `is_empty` check and printed nothing while still returning `Ok(empty)`. Every
+  bastion-only VM in the group then reported zero sessions with nothing on
+  screen explaining why: the exact silent degradation this series exists to
+  close, reintroduced by the fix for it. The warning now reports the first line
+  that names a failure, skipping blank lines and `az`'s own `WARNING:` banners
+  (which otherwise blamed a missing extension for what was an authorization
+  error), and falls back to the banner when that is all `az` said — an imprecise
+  cause still beats silence.
+- **`sanitize_remote_text` no longer lets `U+2028`/`U+2029` through** — they are
+  `Zl`/`Zp`, not `Cc`, so `char::is_control` missed them while every terminal
+  and text consumer still breaks a line on them, defeating the no-forged-rows
+  rule the function is built around. The invisible-character filter now covers
+  the whole `Cf` block rather than the handful of code points the Trojan Source
+  write-ups name (`U+061C`, `U+00AD`, the word joiners and the tag block were
+  all getting through). The C1 range needed no change and was verified rather
+  than assumed: it is `Cc`, so the 8-bit CSI was already handled, and there is
+  now a test pinning that.
 - **The `azlin list` table and CSV no longer print Azure-supplied names
   unsanitized** — the warnings and the bastion table were fixed above, but the
   table `azlin list` prints on every run was not: the VM name, the region, the
@@ -35,11 +66,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and CSV writers. Alignment was the second casualty: `trunc` pads a cell to an
   exact count of *visible* columns, and a control character is a `char` that
   occupies none, so an unsanitized name silently shifted every border to its
-  right. JSON output is deliberately unchanged — `serde_json` escapes control
-  characters to `\uXXXX`, so a terminal never interprets them and a machine
-  consumer keeps the exact bytes Azure returned. Found by outside-in testing
-  against the real binary, which also confirmed the pre-fix CSV really did emit
-  three records where two were correct.
+  right. JSON output is deliberately unchanged: its consumer is a machine and
+  must keep the exact bytes Azure returned, so escaping there would corrupt the
+  contract rather than protect anyone. (An earlier draft of this note claimed
+  `serde_json` escapes control characters so a terminal never interprets them.
+  That is only partly true — its escape table covers `0x00`–`0x1F`, `"` and `\`,
+  so `U+007F`, the C1 range and `U+2028` are emitted raw. Rendering JSON safely
+  is the terminal's problem, not azlin's.) CSV record injection is closed;
+  *field* injection is not — fields are still emitted unquoted, so a comma in an
+  Azure name shifts every column after it by one. That is tracked in #1133,
+  because the fix is to quote per RFC 4180, not to strip more characters.
+  Found by outside-in testing against the real binary, which also confirmed the
+  pre-fix CSV really did emit three records where two were correct.
 - **Terminal escape sequences in Azure-supplied names no longer reach the
   terminal through `azlin list` warnings or the bastion table** — session and
   process names read off remote hosts were sanitized, but resource group, VM and
@@ -57,8 +95,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and returns `Ok(empty)` when `az` exits non-zero, so *that* — not the `Err`
   arm `bastion_lookup_failure_warning` guards, which is only taken when `az`
   cannot be spawned at all — is the failure an operator actually sees, and it
-  echoed `az`'s stderr verbatim. It sanitizes the group name and the first line
-  of `az`'s stderr now.
+  echoed `az`'s stderr verbatim. It sanitizes the group name and the reported
+  line of `az`'s stderr now. Review of that change closed four more sites the
+  sweep had not reached: the duplicate-bastion warning (which interpolated a
+  resource group that passes no validator at all), the verbose
+  "no reachable address" line, the tmux session-cap warning — which is on the
+  *default* path and remotely triggerable, since a compromised VM can open
+  enough sessions to force it — and the `--all-contexts` header and
+  list-failure warnings.
 - **A non-UTF-8 SSH key path no longer reports reachable VMs as unreachable** —
   the three SSH probe sites each spelled the identity fallback
   `key.to_str().unwrap_or("")`, which hands `ssh` an empty `-i` argument rather
