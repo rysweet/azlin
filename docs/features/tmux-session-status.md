@@ -118,18 +118,36 @@ contains a running VM with no public IP:
   no collector and so performs no routing lookup, the first enrichment flag
   does take the count from zero to one per resource group that needs it.)
 
-The counts above are the *routing* sweep only. Table output runs a second,
-independent sweep to render the "Azure Bastion Hosts" table: one
-`az network bastion list` per distinct resource group in the listing, gated on
+The counts above are the *routing* sweep considered on its own. Table output
+also renders an "Azure Bastion Hosts" table, which needs one
+`az network bastion list` per distinct resource group in the listing — gated on
 table format and on the listing being attributable to the subscription probes
-use -- the same identity gate the enrichment collectors take, not a count. That sweep is not filtered by
-public IP, because the table documents the bastions in the scope the operator
-asked about — so a table listing in which every VM has a public IP still
-performs one lookup per resource group. It is, however, driven by the listing
-that survives filtering, so a resource group whose VMs are all deallocated
-contributes no lookup and its bastions are absent from the table unless
-`--show-all-vms` keeps those VMs in the listing. JSON and CSV output, which render
-no such table, perform only the routing sweep.
+use, the same identity gate the enrichment collectors take, not a count. That
+sweep is not filtered by public IP, because the table documents the bastions in
+the scope the operator asked about, so a table listing in which every VM has a
+public IP still performs one lookup per resource group. It is, however, driven
+by the listing that survives filtering, so a resource group whose VMs are all
+deallocated contributes no lookup and its bastions are absent from the table
+unless `--show-all-vms` keeps those VMs in the listing.
+
+**The two sweeps are not additive.** The groups routing needs are a subset of
+the groups the table covers, so the table's answers are carried forward and
+routing reads them rather than asking again. What an operator pays is therefore
+the larger of the two, not the sum:
+
+| Output | Enrichment | `az network bastion list` calls |
+|---|---|---|
+| table | any combination, including none | one per resource group in the listing |
+| JSON/CSV | at least one collector | one per resource group needing routing |
+| JSON/CSV | `--no-tmux`, no other flag | none |
+
+A resource group whose lookup was *refused* is carried forward as the refusal.
+Re-asking would pay a second timeout on a group that has already said no, and
+would report one failure to the operator through two different warnings.
+
+Before that sharing, an ordinary `azlin list` ran the table sweep and then
+re-ran the same lookups for routing — "once per command" was true of the three
+collectors but not of the command.
 
 Discovery used to run against the resource group of whichever VM sorted first,
 which made it the same first-iterated-wins bug as the shared tunnel, one call
