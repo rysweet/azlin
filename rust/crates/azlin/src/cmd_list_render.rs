@@ -1040,6 +1040,14 @@ mod tests {
                 _ => current.push(c),
             }
         }
+        // An unterminated quote means the writer emitted a malformed record.
+        // Without this the splitter would return the right field *values* for
+        // `"a,b` and the assertions downstream would pass, which is the one
+        // way a broken oracle hides a broken writer.
+        assert!(
+            !in_quotes,
+            "record ends inside a quoted field, which is not a valid CSV record: {record}"
+        );
         fields.push(current);
         fields
     }

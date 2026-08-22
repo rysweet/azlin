@@ -22,7 +22,7 @@ Where a rule is enforced, the enforcing test is named. Prefer reading the test
 over trusting the prose.
 
 ```bash
-cargo test -p azlin --bin azlin cmd_list
+cargo test --manifest-path rust/Cargo.toml -p azlin --bin azlin cmd_list
 ```
 
 ## Rule 1: enrichment is gated on subscription identity, not count alone
@@ -243,12 +243,12 @@ Where a fallback exists, a bastion route that fails to **carry** the command —
 transport error — retries once at the private address. A command that reached the
 VM and exited non-zero is that VM's own answer and is **never** retried: a retry
 could land on a different host and report its processes under this VM's name.
-That second half is the invariant. The fallback itself is uneven: tmux and
-procs retry the failed command at the private address; health instead marks the
-tunnel dead on first failure and sends that VM's *remaining* probes direct,
-because it runs several commands per VM and retrying a dead tunnel each time
-would pay the bastion timeout repeatedly. `collect_storage_status` is the one
-that simply gives up.
+That second half is the invariant. The fallback itself is uneven: tmux, procs
+and health all retry the failed command at the private address. Health then
+does one thing more -- it latches the tunnel as dead, so that VM's *remaining*
+probes go direct without attempting it, because it runs several commands per VM
+and paying the bastion timeout on each would cost the whole listing.
+`collect_storage_status` is the one that simply gives up.
 
 `probe_ssh_opts` builds the shared timeout, batch-mode and identity options for
 the collectors that spawn `ssh` directly. It **omits** `-i` entirely when the key
@@ -344,8 +344,10 @@ with `'`. **`-o json` is not a workaround** — see below.
 
 ### JSON applies neither property, deliberately
 
-`render_json` builds a fresh object with azlin's own field names, some of them
-computed rather than echoed from ARM, and serialises it. It applies neither
+`render_json` builds a fresh object *per VM* with azlin's own field names, some
+of them computed rather than echoed from ARM, and serialises them under the
+`vms` key of the result envelope (`#1146`; the envelope's shape is
+`docs-site/commands/vm/list.md`'s subject, not this file's). It applies neither
 `sanitize_remote_text` nor any quoting beyond what `serde_json` requires for
 well-formed JSON. Its consumer is a program that parses JSON, for which
 `serde_json`'s escaping is the correct and sufficient contract.

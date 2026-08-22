@@ -392,8 +392,9 @@ under the cap.
   `Tmux` column joins session names with `;` rather than `,` so it reads as one
   field, and *every* free-form field on the row — session, `Tmux`, VM name, OS,
   address, region, SKU and the health agent status — is quoted per RFC 4180 when
-  it contains a comma, a quote or a newline. The remaining columns are an enum
-  or computed numbers, which carry no delimiter. Remote text is sanitised on the
+  it contains a comma, a quote or a newline. The remaining columns carry no
+  delimiter to quote: `Status` is an enum, the CPU, memory, latency and health
+  figures are computed here, and `Storage` is one of a fixed set of verdicts. Remote text is sanitised on the
   way in — control characters, bidirectional overrides and zero-width characters
   are stripped by `sanitize_remote_text` — but sanitising is not escaping, and
   neither is an allowlist: `parse_session_name` is not on this path. What is

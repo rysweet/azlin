@@ -297,9 +297,12 @@ The fallback hangs off the *transport* error only. A command that reached the
 VM and exited non-zero is that VM's own answer and is reported as such: retrying
 it at the private IP could reach a different host and attribute its output to
 this VM — a confidently wrong row, which is worse than an empty one. The
-never-retry half holds everywhere; the private-IP fallback itself is wired into
-the tmux and process collectors only, so health and storage give up on a
-transport error instead of retrying.
+never-retry half holds everywhere. The fallback itself is uneven: tmux, procs
+and health all retry the failed command at the private address, and health
+additionally latches the tunnel as dead so that VM's *remaining* probes go
+direct — it runs several commands per VM, and paying the bastion timeout on
+each would cost the whole listing. `collect_storage_status` is the one
+collector that gives up instead of retrying.
 
 Latency is the deliberate exception: it is never measured through a tunnel, and
 never falls back to one, because timing a tunnel measures the tunnel and the
