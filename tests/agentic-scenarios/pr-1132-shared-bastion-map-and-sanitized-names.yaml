@@ -9,9 +9,13 @@ description: |
      `discover_bastions` for themselves, so `--with-health --show-procs` ran
      `az network bastion list` three times per resource group to compute one
      answer. Discovery is a pure function of the VM list, so the caller now does
-     it once and lends the map to every collector. The invariant an operator can
-     actually observe: the number of `az network bastion list` invocations does
-     not change when the enrichment flags are added.
+     it once and lends the map to every collector -- and on the default table
+     path it does not even do that, because drawing the "Azure Bastion Hosts"
+     table has already asked `az` the same questions and its answers are
+     carried forward. The invariants an operator can actually observe: the
+     number of `az network bastion list` invocations does not change when the
+     enrichment flags are added, and an ordinary table listing costs one
+     invocation per resource group rather than two.
 
   2. Azure-supplied text cannot rewrite the terminal. Resource group, VM and
      bastion names are chosen by anyone with write access to the subscription,
@@ -84,32 +88,59 @@ steps:
         chmod +x "$SHIM/az" "$SHIM/ssh"
         export PATH="$SHIM:$PATH" AZ_VM_JSON="$SHIM/vms.json" AZ_BASTION_JSON="$SHIM/bastions.json"
 
-        export AZ_CALL_LOG="$SHIM/plain.log"; : > "$AZ_CALL_LOG"
-        rust/target/debug/azlin list --resource-group rg-oit >/dev/null 2>&1
-        plain=$(grep -c 'network bastion list' "$AZ_CALL_LOG")
+        count() {
+          export AZ_CALL_LOG="$SHIM/l.log"; : > "$AZ_CALL_LOG"
+          rust/target/debug/azlin list --resource-group rg-oit "$@" >/dev/null 2>&1
+          grep -c 'network bastion list' "$AZ_CALL_LOG"
+        }
+        plain=$(count)
+        rich=$(count --with-health --show-procs)
+        bare=$(count --no-tmux)
+        json=$(count -o json)
+        json_bare=$(count -o json --no-tmux)
 
-        export AZ_CALL_LOG="$SHIM/rich.log"; : > "$AZ_CALL_LOG"
-        rust/target/debug/azlin list --resource-group rg-oit --with-health --show-procs >/dev/null 2>&1
-        rich=$(grep -c 'network bastion list' "$AZ_CALL_LOG")
+        echo "bastion lookups: plain=$plain rich=$rich bare=$bare json=$json json_bare=$json_bare"
 
-        export AZ_CALL_LOG="$SHIM/json.log"; : > "$AZ_CALL_LOG"
-        rust/target/debug/azlin list --resource-group rg-oit -o json >/dev/null 2>&1
-        json=$(grep -c 'network bastion list' "$AZ_CALL_LOG")
+        # Four cells, because no single count can tell "shared" from "removed".
+        # Read together they pin exactly one arrangement.
+        #
+        # History: before any of this work, table output cost 2 with tmux alone
+        # (display table + tmux collector) and 4 with --with-health --show-procs
+        # (display table + three collectors). Sharing one map among the
+        # collectors took the second number to 2. Carrying the display table's
+        # own answers forward takes both to 1.
 
-        echo "bastion lookups: plain=$plain with-health+show-procs=$rich json=$json"
-        # Before the shared map: plain=2 (display table + tmux collector),
-        # rich=4 (display table + three collectors). The claim is that the
-        # enrichment flags cost nothing extra.
-        [ "$plain" = "$rich" ] || { echo "FAIL: enrichment flags still multiply bastion discovery"; exit 1; }
-        # Exactly 2, not "at most 2". `-le` also passed when discovery was
-        # removed altogether (plain=rich=1) or when the stub stopped matching
-        # (plain=rich=0), so it could not distinguish the fix from the bug.
-        [ "$rich" = 2 ] || { echo "FAIL: expected exactly 2 lookup sites, got $rich"; exit 1; }
-        # The #1127 regression guard proper. Discovery was once gated on table
-        # output, so JSON and CSV listings collected nothing for bastion-only
-        # VMs. JSON renders no bastion table, so it performs the routing sweep
-        # alone: exactly 1. A zero here means the gate is back.
+        # (a) Enrichment flags cost nothing extra. This is the collector-sharing
+        #     claim, and it is the one that regresses if a fourth collector is
+        #     added that discovers routing for itself.
+        [ "$plain" = "$rich" ] || { echo "FAIL: enrichment flags still multiply bastion discovery ($plain vs $rich)"; exit 1; }
+
+        # (b) Table output performs exactly one lookup per resource group, not
+        #     two. Exactly, not "at most": `-le` passed just as happily when
+        #     discovery was removed altogether or when the stub stopped matching
+        #     and every count went to 0.
+        [ "$rich" = 1 ] || { echo "FAIL: expected exactly 1 lookup for table output, got $rich"; exit 1; }
+
+        # (c) ...and that one lookup is the display table's, which routing then
+        #     reuses -- not routing's, with the table skipped. A table listing
+        #     that needs no routing at all still draws its table, so it still
+        #     costs 1.
+        [ "$bare" = 1 ] || { echo "FAIL: --no-tmux table output performed $bare lookups, expected 1 for the table"; exit 1; }
+
+        # (d) The #1127 regression guard proper, and the proof that routing is
+        #     still really happening rather than quietly gone. Discovery was
+        #     once gated on table output, so JSON and CSV listings collected
+        #     nothing for bastion-only VMs. JSON draws no bastion table, so its
+        #     single lookup can only be the routing sweep. A zero here means the
+        #     output-format gate is back.
         [ "$json" = 1 ] || { echo "FAIL: JSON output performed $json routing lookups, expected 1"; exit 1; }
+
+        # (e) And routing stays demand-driven: no table to draw and no collector
+        #     to route for is the one case that should touch `az` not at all. If
+        #     this ever reads 1, discovery has stopped asking whether it is
+        #     needed.
+        [ "$json_bare" = 0 ] || { echo "FAIL: JSON --no-tmux performed $json_bare lookups, expected none"; exit 1; }
+
         echo "PASS: bastion routing is discovered once per command"
     expect:
       exit_code: 0
@@ -190,7 +221,23 @@ steps:
         rust/target/debug/azlin list --resource-group rg-oit > "$SHIM/out" 2> "$SHIM/err"
         grep -qaF $'\x1b' "$SHIM/err" && { echo "FAIL: an escape character from az stderr reached the terminal"; exit 1; }
         grep -qaF $'\r' "$SHIM/err" && { echo "FAIL: a carriage return from az stderr reached the terminal"; exit 1; }
-        grep -q "failed for resource group 'rg-oit'" "$SHIM/err" || { echo "FAIL: the lookup failure was not reported at all"; exit 1; }
+        # Both consequences of one refused lookup, in the wording this branch
+        # actually ships. An earlier draft of this step asserted the pre-fix
+        # text ("failed for resource group 'rg-oit'"), which f08045ee had
+        # already deleted -- so the step could not pass, and asserting a string
+        # nothing prints is indistinguishable from asserting nothing.
+        #
+        # The table sweep reports that its table is incomplete; routing reports
+        # that bastion-only VMs will show no enrichment. They are separate
+        # losses with separate remedies, so both must be stated.
+        grep -q "could not list bastion hosts in resource group(s) rg-oit" "$SHIM/err" \
+          || { echo "FAIL: the incomplete bastion table was not reported"; exit 1; }
+        grep -q "could not list bastion hosts in resource group rg-oit" "$SHIM/err" \
+          || { echo "FAIL: the enrichment degradation was not reported"; exit 1; }
+        # The printable remainder survives, so the operator can still read what
+        # az actually said -- stripping the escape must not blank the cause.
+        grep -q 'AuthorizationFailed' "$SHIM/err" \
+          || { echo "FAIL: the cause was dropped rather than sanitized"; exit 1; }
         echo "PASS: the bastion-lookup failure warning is sanitized"
     expect:
       exit_code: 0
