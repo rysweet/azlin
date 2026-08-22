@@ -313,9 +313,12 @@ was. It is not a default-level warning because a fleet legitimately contains
 hosts the operator cannot SSH to, and warning for each of them on every listing
 would train people to ignore the warnings that matter.
 
-Using `--show-procs` together with `--with-health` resolves the bastion map
-twice in one run; the extra `az` calls cost a few hundred milliseconds per
-resource group and have no effect on results.
+Using `--show-procs` together with `--with-health` costs no additional bastion
+lookups. Each collector used to resolve the map for itself, so the two flags
+together resolved it three times in one run — same answer, a few hundred extra
+milliseconds per resource group each time, and a spinner per repeat. Discovery
+now happens once for the whole command and the map is lent to every collector;
+see the cost table above for what a listing actually pays.
 
 **Process data does not reach JSON or CSV.** `--show-procs` fills the `Procs`
 column in table output only; the JSON and CSV renderers carry no process field.
