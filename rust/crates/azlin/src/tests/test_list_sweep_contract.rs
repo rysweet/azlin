@@ -14,26 +14,36 @@
 
 use crate::{collect_health_metrics_with, RoutedExec};
 
-/// The source of a function in this crate, from its signature to the closing
-/// brace in column zero.
+/// One file of this crate's source.
 ///
-/// Two of the three properties below are statements about what the code does
-/// *not* do -- ask Azure a question it was lent the answer to, or restate a
+/// Two of the properties below are statements about what the code does *not*
+/// do -- ask Azure a question it was lent the answer to, or restate a
 /// threshold that is already computed elsewhere. Neither is observable without
 /// a network and a subscription, and a property that can only be checked by
 /// reading the code is still worth checking mechanically: the alternative is
-/// trusting the next person resolving a conflict here to know what they are
+/// trusting whoever resolves this conflict next to recognise what they are
 /// looking at, which is precisely what failed.
-fn function_body(file: &str, signature: &str) -> String {
+fn source(file: &str) -> String {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src")
         .join(file);
-    let source = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
-    let start = source
-        .find(signature)
-        .unwrap_or_else(|| panic!("{file} no longer contains `{signature}`"));
-    let rest = &source[start..];
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+}
+
+/// The body of a top-level `fn`, from its signature to the closing brace in
+/// column zero.
+///
+/// The signature is matched at the start of a line, so a doc comment or a call
+/// site that happens to quote it cannot be mistaken for the definition -- both
+/// of these functions are named in prose elsewhere in their own file.
+fn function_body(file: &str, signature: &str) -> String {
+    let text = source(file);
+    let anchored = format!("\n{signature}");
+    let start = text
+        .find(&anchored)
+        .unwrap_or_else(|| panic!("{file} no longer defines `{signature}`"))
+        + 1;
+    let rest = &text[start..];
     let end = rest
         .find("\n}\n")
         .unwrap_or_else(|| panic!("no closing brace for `{signature}` in {file}"));
@@ -137,9 +147,23 @@ fn the_sweep_takes_the_shared_enrichment_gate_and_not_a_second_copy_of_it() {
     // already means "health was asked for and this listing can attribute it".
     // Restating that threshold as `with_health && !cross_subscription` is
     // exactly how `--show-procs` drifted out of sync with its own note.
-    let body = function_body("cmd_list.rs", "let (health_data, storage_data) = if ");
-    assert!(
-        body.starts_with("let (health_data, storage_data) = if enrichment.health {"),
-        "the health/storage sweep is gated on a second copy of the threshold:\n{body}"
+    //
+    // Only the condition is read. Slicing to the end of the enclosing function
+    // would drag in the whole of `dispatch` and report it on failure.
+    const BINDING: &str = "let (health_data, storage_data) = if ";
+    let text = source("cmd_list.rs");
+    let start = text
+        .find(BINDING)
+        .unwrap_or_else(|| panic!("cmd_list.rs no longer binds the sweep's two maps together"))
+        + BINDING.len();
+    let rest = &text[start..];
+    let condition = rest[..rest
+        .find('{')
+        .unwrap_or_else(|| panic!("no block after `{BINDING}`"))]
+        .trim();
+
+    assert_eq!(
+        condition, "enrichment.health",
+        "the health/storage sweep is gated on a second copy of the threshold"
     );
 }

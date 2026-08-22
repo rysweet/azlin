@@ -230,13 +230,30 @@ impl ProbedVm {
 /// channel a VM shapes most easily, and this message is printed once per VM in
 /// a fleet-wide sweep, immediately above the next VM's row.
 pub(crate) fn probe_failure_note(vm_name: &str, stderr: &str) -> String {
-    let clean = |s: &str| {
-        azlin_core::sanitizer::printable(&azlin_core::sanitizer::sanitize(s.trim()))
-            .trim()
-            .to_string()
-    };
-    let vm = clean(vm_name);
-    let reason = clean(stderr);
+    use azlin_core::sanitizer::{printable, sanitize};
+
+    // Redact across the whole blob, strip per line, in that order.
+    //
+    // Redaction has to see the whole thing: `sanitize`'s patterns separate a
+    // key from its value with `[\s=:]+`, and `\s` matches a newline, so a
+    // `password:` on one line and its value on the next is one match to a
+    // whole-blob pass and two non-matches to a line-by-line one.
+    //
+    // Stripping has to be per line: `printable` deletes what it strips and a
+    // newline is a control character, so a whole-blob strip welds the lines
+    // into `...password is requiredmkfs.ext4: Permission denied`. Multi-line
+    // stderr is the ordinary case here -- `sudo` and `mkfs` both produce it.
+    // The lines rejoin with a separator rather than as newlines because this
+    // is one message per VM in a fleet-wide sweep, and a probe failing on many
+    // VMs must not scroll the report off the screen.
+    let tidy = |s: &str| printable(s).trim().to_string();
+    let vm = tidy(&sanitize(vm_name.trim()));
+    let reason = sanitize(stderr.trim())
+        .lines()
+        .map(tidy)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("; ");
     if reason.is_empty() {
         // A dangling "failed: " reads as a bug in azlin rather than as silence
         // from the VM, and silence is the actual finding worth reporting.

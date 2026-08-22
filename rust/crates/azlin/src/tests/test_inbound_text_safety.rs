@@ -146,6 +146,41 @@ fn the_probe_failure_note_cleans_the_vm_name_too() {
 }
 
 #[test]
+fn a_multi_line_reason_stays_readable() {
+    // `printable` deletes what it strips, and a newline is a control
+    // character, so cleaning the whole blob at once ran the lines together.
+    // Multi-line stderr is the ordinary case: `sudo` and `mkfs` both produce
+    // it, and this is the message an operator reads to find out what happened.
+    let note = probe_failure_note(
+        "web-01",
+        "sudo: a password is required\nmkfs.ext4: Permission denied\n",
+    );
+    assert!(
+        !note.contains("requiredmkfs"),
+        "the lines were welded together: {note:?}"
+    );
+    assert!(note.contains("sudo: a password is required"), "{note:?}");
+    assert!(note.contains("mkfs.ext4: Permission denied"), "{note:?}");
+    // One line per VM: this is printed inside a fleet-wide sweep.
+    assert!(!note.contains('\n'), "the note spans lines: {note:?}");
+}
+
+#[test]
+fn a_secret_split_across_two_lines_is_still_redacted() {
+    // The reason for redacting the whole blob before splitting it. `sanitize`
+    // separates a key from its value with `[\s=:]+`, and `\s` matches a
+    // newline -- so a line-by-line pass sees "password:" with no value and a
+    // value with no key, matches neither, and prints the secret.
+    let note = probe_failure_note(
+        "web-01",
+        "az failed, password:\ndGhpcyBpcyBhIHRlc3Qga2V5IHZhbHVl\nbailing out",
+    );
+    assert!(note.contains("REDACTED"), "redaction lost: {note:?}");
+    assert!(!note.contains("dGhpcyB"), "the secret survived: {note:?}");
+    assert!(note.contains("bailing out"), "{note:?}");
+}
+
+#[test]
 fn an_empty_reason_still_produces_a_usable_note() {
     // A probe that died without saying anything must not print a dangling
     // "failed: " — the VM name is the part the operator needs.
