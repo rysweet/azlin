@@ -143,6 +143,31 @@ impl Sandbox {
             out.status.code().unwrap_or(-1),
         )
     }
+
+    /// Run `azlin <args>` with extra environment variables set.
+    ///
+    /// Exists for the diagnostics-channel tests: the only way to prove that
+    /// turning logging *on* does not corrupt stdout is to turn it on.
+    fn run_with_env(&self, args: &[&str], env: &[(&str, &str)]) -> (String, String, i32) {
+        let inherited = std::env::var("PATH").unwrap_or_default();
+        let path = format!("{}:{}", self.bin_dir().display(), inherited);
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_azlin"));
+        cmd.args(args)
+            .env("PATH", path)
+            .env("HOME", self.path().join("home"))
+            .env("AZLIN_CONFIG_DIR", self.path().join("config"))
+            .env_remove("AZURE_SUBSCRIPTION_ID")
+            .env_remove("AZURE_TENANT_ID");
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        let out = cmd.output().expect("run azlin");
+        (
+            strip_ansi(&String::from_utf8_lossy(&out.stdout)),
+            strip_ansi(&String::from_utf8_lossy(&out.stderr)),
+            out.status.code().unwrap_or(-1),
+        )
+    }
 }
 
 /// Drop ANSI SGR sequences so assertions match the words, not the colours.
@@ -618,4 +643,97 @@ fn hostile_tag_value_cannot_forge_json_structure() {
         Some(2),
         "the envelope has exactly `vms` and `filters`: {stdout}"
     );
+}
+
+// ── Diagnostics channel ──────────────────────────────────────────────
+//
+// The rest of this file pins *what* `list` discloses. This section pins the
+// channel it discloses on, from the other end: stdout is the data channel and
+// nothing but the payload may appear there.
+//
+// The three `matches!(output, Table)` gates in `cmd_list.rs` each hold that
+// line for one call site, but they are hand-written and independent -- nothing
+// holds the guarantee globally. `tracing_subscriber::fmt()` defaults its writer
+// to stdout, so for as long as that default stood, `RUST_LOG=debug` walked
+// straight past all three gates and put DEBUG records -- including the
+// subscription ID and the full `az` argv -- ahead of the JSON payload. That is
+// a confidentiality leak (identifiers land in the file the caller redirects)
+// and an integrity break (the payload no longer parses) from one line.
+//
+// These tests fail if the writer ever goes back to stdout.
+
+/// The subscription ID the stub `az` reports. Diagnostics mention it; stdout
+/// must not.
+const STUB_SUBSCRIPTION_ID: &str = "00000000-0000-0000-0000-000000000001";
+
+#[test]
+fn json_stdout_survives_rust_log_debug() {
+    let sandbox = Sandbox::new(&six_vm_pool());
+    let (stdout, stderr, code) =
+        sandbox.run_with_env(&formatted_list_args("json"), &[("RUST_LOG", "debug")]);
+    assert_eq!(code, 0, "list should succeed: {stdout}{stderr}");
+
+    // The payload still parses. Before the fix this failed on a DEBUG line.
+    let parsed: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("stdout must be pure JSON under RUST_LOG, got {e}: {stdout}"));
+    assert!(
+        parsed.get("filters").is_some(),
+        "envelope should still carry filters: {stdout}"
+    );
+
+    // And logging actually happened -- otherwise this test would pass simply
+    // because the filter swallowed everything, proving nothing.
+    assert!(
+        stderr.contains("DEBUG") || !stderr.is_empty(),
+        "expected diagnostics on stderr, got none"
+    );
+}
+
+#[test]
+fn rust_log_debug_keeps_the_subscription_id_off_stdout() {
+    let sandbox = Sandbox::new(&six_vm_pool());
+    let (stdout, _stderr, code) =
+        sandbox.run_with_env(&formatted_list_args("json"), &[("RUST_LOG", "debug")]);
+    assert_eq!(code, 0, "list should succeed");
+    assert!(
+        !stdout.contains(STUB_SUBSCRIPTION_ID),
+        "subscription ID leaked onto the data channel: {stdout}"
+    );
+}
+
+#[test]
+fn csv_stdout_survives_rust_log_debug() {
+    let sandbox = Sandbox::new(&six_vm_pool());
+    let (stdout, _stderr, code) =
+        sandbox.run_with_env(&formatted_list_args("csv"), &[("RUST_LOG", "debug")]);
+    assert_eq!(code, 0, "list should succeed");
+
+    // The header must be the very first thing on stdout -- a leading DEBUG
+    // line reads to a CSV consumer as a bogus record.
+    let first = stdout.lines().next().unwrap_or_default();
+    assert!(
+        first.starts_with("Session,"),
+        "CSV header must lead stdout, got {first:?}"
+    );
+    assert!(
+        !stdout.contains("DEBUG"),
+        "diagnostics leaked into CSV: {stdout}"
+    );
+}
+
+/// `-v` is the same channel as `RUST_LOG`, reached by a different flag.
+///
+/// It is currently quiet on this path only because the `list` pipeline happens
+/// to have no `error!`/`info!` sites. That is an accident of the call graph,
+/// not a guarantee -- adding one would silently start corrupting `-v -o json`.
+/// This test makes that regression visible instead.
+#[test]
+fn verbose_flag_keeps_json_stdout_parseable() {
+    let sandbox = Sandbox::new(&six_vm_pool());
+    let mut args = vec!["--output", "json", "-v", "list"];
+    args.extend_from_slice(&BASE);
+    let (stdout, _stderr, code) = sandbox.run_with_env(&args, &[]);
+    assert_eq!(code, 0, "list should succeed: {stdout}");
+    serde_json::from_str::<serde_json::Value>(&stdout)
+        .unwrap_or_else(|e| panic!("`-v -o json` stdout must be pure JSON, got {e}: {stdout}"));
 }

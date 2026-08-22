@@ -66,9 +66,24 @@ fn test_live_list_json() {
         "json",
     ]);
     assert_eq!(code, 0);
-    let vms: Vec<serde_json::Value> = serde_json::from_str(&stdout).expect("invalid JSON");
+    // #1142 made this an envelope: the payload was a bare top-level array until
+    // the filter counts needed somewhere to live. Asserting the old shape here
+    // left the only automated check of the live wire format testing a contract
+    // the code no longer honours -- invisible because the test is `#[ignore]`d.
+    let payload: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    let vms = payload["vms"]
+        .as_array()
+        .expect("payload should carry a `vms` array");
     assert!(!vms.is_empty(), "should have at least one VM");
     assert!(vms[0]["name"].is_string(), "VM should have name");
+
+    // `filters` is always present with all three keys, zeros included.
+    for key in ["hidden_not_running", "dropped_by_tag", "dropped_by_pattern"] {
+        assert!(
+            payload["filters"][key].is_u64(),
+            "filters.{key} should always be present"
+        );
+    }
 }
 
 #[test]
