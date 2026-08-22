@@ -254,8 +254,9 @@ that VM's *remaining* probes go direct without attempting it -- it runs several
 commands per VM, and paying the bastion timeout on each would cost the whole
 listing (with no usable address to fall back to, it retries the tunnel instead
 of inventing a failure). `collect_tmux_sessions` does not retry at all: it
-swaps in the direct address *before* the command is issued, and only when the
-tunnel failed to **open**. `collect_storage_status` simply gives up.
+swaps in the direct address *before* the command is issued, and only when no
+tunnel is open for that VM -- because opening it failed, or because the VM fell
+past `MAX_BASTION_TUNNELS_PER_RUN` and none was attempted. `collect_storage_status` simply gives up.
 
 `probe_ssh_opts` builds the shared timeout, batch-mode and identity options for
 the collectors that spawn `ssh` directly. It **omits** `-i` entirely when the key

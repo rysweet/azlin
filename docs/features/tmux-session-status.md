@@ -279,13 +279,14 @@ and uses `latency_probe_host` instead.
 | No public IP, no bastion route, has a private IP | `Direct` to the private IP — the VPN / peered-network case |
 | No public IP, no bastion route, no private IP | `Unreachable` |
 
-**A failed bastion falls back to the direct address.** When the bastion never
-carries the command — a tunnel that will not open, an expired token, a
-transport error — the collector retries at the VM's private IP, which is
-routable for an operator on a VPN or a peered network. Without that retry the
-routing would be *less* available than the code it replaced, and the VM's row
-would go blank, which reads as "nothing to report" rather than "could not
-ask". `direct_fallback_host` is the single helper that decides whether a
+**A failed bastion falls back to the direct address — where a collector has a
+fallback at all.** When the bastion never carries the command — a tunnel that
+will not open, an expired token, a transport error — a collector that has a
+fallback reaches for the VM's private IP, which is routable for an operator on
+a VPN or a peered network. Without it the routing would be *less* available
+than the code it replaced, and the VM's row would go blank, which reads as
+"nothing to report" rather than "could not ask". Which collectors have one, and
+in what shape, is the uneven part; it is enumerated below. `direct_fallback_host` is the single helper that decides whether a
 fallback address is usable; it rejects empty and whitespace-only strings,
 because the health collector flattens `Option<String>` with
 `unwrap_or_default()` and `ssh user@` is not a probe. `collect_health_metrics`
@@ -308,9 +309,11 @@ different shapes rather than two:
   fall back to, it retries the tunnel rather than inventing a failure the
   caller cannot tell from a real one.
 - `collect_tmux_sessions` does **not** retry. It substitutes the direct address
-  *before* issuing the command, and only when the tunnel failed to **open**;
-  once a tunnel is up, an `ssh` that fails or exits non-zero reports no
-  sessions for that VM under `--verbose` and stops there.
+  *before* issuing the command, and only when no tunnel is open for that VM —
+  either because opening it failed, or because the VM fell past
+  `MAX_BASTION_TUNNELS_PER_RUN` and no tunnel was ever attempted. Once a tunnel
+  is up, an `ssh` that fails or exits non-zero reports no sessions for that VM
+  under `--verbose` and stops there.
 - `collect_storage_status` has no fallback in any shape.
 
 Latency is the deliberate exception: it is never measured through a tunnel, and
