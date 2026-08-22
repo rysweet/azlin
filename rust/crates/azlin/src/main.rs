@@ -476,8 +476,9 @@ impl<'a> RoutedExec<'a> {
             // so the cost there was two columns disagreeing about whether the
             // VM had been reachable at all. No warning is printed here: the tmux collector runs by
             // default in the same invocation and already reports a failed
-            // tunnel, and an unread metric renders as an uncoloured `-`
-            // rather than a green "fine".
+            // tunnel, and an unread metric renders as an uncoloured `--`
+            // rather than a green "fine". (`--` is `UNKNOWN_CELL`; the bare
+            // `-` is the agent-status default, a different column.)
             Err(e) => {
                 self.bastion_failed.set(true);
                 match direct {

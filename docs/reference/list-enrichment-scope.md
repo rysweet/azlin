@@ -119,8 +119,10 @@ differs, so reading the flag as a count test gets the behaviour wrong.
 ## Rule 2: routing is discovered once per command
 
 Bastion routing is a pure function of the VM list. It is computed once by the
-caller and lent to every collector as a shared `BastionMap`, keyed by
-(resource group, region).
+caller and lent to every collector that needs one as a shared `BastionMap`,
+keyed by (resource group, region). "That needs one" is the three SSH collectors
+below; `collect_latencies` and `collect_disk_configs` take no map, because
+neither reaches a VM through a tunnel.
 
 `collect_tmux_sessions`, `collect_health_and_storage` and `collect_procs` each
 used to call `discover_bastions_async` for themselves, so
@@ -250,7 +252,7 @@ could land on a different host and report its processes under this VM's name.
 That second half is the invariant. The fallback itself is uneven, in two
 shapes, and among the collectors that take a bastion route
 `collect_tmux_sessions` is now the only one without a fallback. (Latency takes
-no bastion route at all and so has nothing to fall back from; see Rule 2.)
+no bastion route at all and so has nothing to fall back from; see Rule 1.)
 
 `RoutedExec::run` holds the first shape, and health and storage share it
 because #1153 gave them one route per VM: a transport failure reruns the

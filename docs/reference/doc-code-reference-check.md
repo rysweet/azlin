@@ -95,10 +95,10 @@ Requiring the match to fall outside a comment would close the hole; that is a
 change to the checker and belongs in its own change, so what this document can
 do is say the hole is there.
 
-(The symbol is deliberately described rather than named here. Naming it would
-be a citation, and it would dangle — this document does not get to make the
-exact mistake it is warning about, and `NOT_SYMBOLS` is for tokens that were
-never Rust items, not a place to park one that has been deleted.)
+(Neither symbol is named here, deliberately. Naming either would be a citation,
+and it would dangle — this document does not get to make the exact mistake it
+is warning about, and `NOT_SYMBOLS` is for tokens that were never Rust items,
+not a place to park one that has been deleted.)
 
 ## Scope
 
