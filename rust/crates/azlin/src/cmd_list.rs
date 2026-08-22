@@ -260,7 +260,13 @@ pub(crate) async fn dispatch(
             // `--show-procs` drifted out of sync with the note it was supposed
             // to obey. The note is emitted iff enrichment was withheld, so the
             // table is now withheld iff the note explains it.
-            let cross_subscription = note.is_some();
+            // Named for what it means, not for the case that motivated it: a
+            // note is also produced for a *single* subscription that merely
+            // differs from the probe subscription, and for a context pinning
+            // its subscription by name. Reading this as a count test is how a
+            // reader concludes the bastion table is withheld only across
+            // subscriptions, which is not what the code does.
+            let enrichment_withheld = note.is_some();
             if let Some(note) = note {
                 eprintln!("{note}");
             }
@@ -278,10 +284,10 @@ pub(crate) async fn dispatch(
             // sweep further down. The groups routing needs are a subset of the
             // groups the table covers, so on the default table path routing
             // asks `az` nothing at all -- it used to repeat the whole sweep,
-            // which made "once per command" true of the three collectors but
+            // which made "once per command" true of the collectors but
             // not of the command.
             let mut bastion_lookups = crate::cmd_list_data::BastionLookups::new();
-            if !cross_subscription
+            if !enrichment_withheld
                 && matches!(output, azlin_cli::OutputFormat::Table)
                 && !listing_rgs.is_empty()
             {
@@ -368,13 +374,14 @@ pub(crate) async fn dispatch(
                 eprintln!("[VERBOSE] Collecting tmux sessions via bastion SSH...");
             }
             let ssh_timeout = config.ssh_connect_timeout;
-            // The three enrichment collectors below all route through the same
+            // The enrichment collectors below all route through the same
             // bastion map, and each used to discover it for itself: with
-            // `--with-health --show-procs` that was three `az network bastion
-            // list` calls per resource group computing one answer, and three
-            // spinners spent re-deriving it. Discovery is a pure function of
-            // the VM list, so it happens once here — but only when a collector
-            // that needs it will actually run.
+            // `--with-health --show-procs` that is four of them -- tmux,
+            // health, storage and procs -- so it was one `az network bastion
+            // list` call per collector per resource group computing one
+            // answer, and a spinner apiece spent re-deriving it. Discovery is
+            // a pure function of the VM list, so it happens once here — but
+            // only when a collector that needs it will actually run.
             //
             // Hoisting it above the collectors also hoisted it above their
             // spinners, so the one `az` sweep the listing still performs ran
@@ -405,8 +412,9 @@ pub(crate) async fn dispatch(
             // the tmux collector it appeared only when tmux ran, leaving
             // `--no-tmux --with-health --show-procs` to blank the same rows
             // with nothing on screen explaining why. Printed once here, after
-            // the spinner above is cleared, it covers all four and cannot be
-            // erased mid-draw.
+            // the spinner above is cleared, it covers every collector that
+            // skips a colliding VM -- tmux, health, storage, procs and
+            // latency -- and cannot be erased mid-draw.
             if enrichment.any() || with_latency {
                 let colliding = crate::cmd_list_data::colliding_vm_names(&all_vms);
                 if !colliding.is_empty() {
@@ -446,7 +454,7 @@ pub(crate) async fn dispatch(
             // bastion to ask one more question per VM.
             //
             // Gated on `enrichment.health` rather than on `with_health &&
-            // !cross_subscription`: storage is read through an ARM id built
+            // !enrichment_withheld`: storage is read through an ARM id built
             // from the probe subscription, so it is subscription-scoped like
             // its three siblings and takes the same gate. `enrichment.health`
             // already means "health was asked for and this listing can

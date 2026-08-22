@@ -147,7 +147,7 @@ Re-asking would pay a second timeout on a group that has already said no, and
 would report one failure to the operator through two different warnings.
 
 Before that sharing, an ordinary `azlin list` ran the table sweep and then
-re-ran the same lookups for routing — "once per command" was true of the three
+re-ran the same lookups for routing — "once per command" was true of the
 collectors but not of the command.
 
 Discovery used to run against the resource group of whichever VM sorted first,
@@ -267,7 +267,7 @@ candidate list can span resource groups.
 
 **How the SSH collectors pick a route.** `probe_route` is a pure function that
 decides once, before any connection is attempted, and returns one of three
-outcomes. Three of the four collectors — tmux, health and procs — share it, so
+outcomes. Every SSH collector — tmux, health, storage and procs — shares it, so
 they cannot drift into disagreeing about how a VM is reached. Latency is the
 exception described below: it never opens a tunnel, so it takes no bastion map
 and uses `latency_probe_host` instead.
@@ -279,25 +279,54 @@ and uses `latency_probe_host` instead.
 | No public IP, no bastion route, has a private IP | `Direct` to the private IP — the VPN / peered-network case |
 | No public IP, no bastion route, no private IP | `Unreachable` |
 
-**A failed bastion falls back to the direct address.** When the bastion never
-carries the command — a tunnel that will not open, an expired token, a
-transport error — the collector retries at the VM's private IP, which is
-routable for an operator on a VPN or a peered network. Without that retry the
-routing would be *less* available than the code it replaced, and the VM's row
-would go blank, which reads as "nothing to report" rather than "could not
-ask". `direct_fallback_host` is the single helper that decides whether a
-fallback address is usable; it rejects empty and whitespace-only strings,
-because the health collector flattens `Option<String>` with
-`unwrap_or_default()` and `ssh user@` is not a probe. `collect_health_metrics`
-restates that precondition as a guard on entry — no bastion route and no
-address returns default metrics — so the rule holds even if a caller stops
-filtering unreachable VMs first.
+**A failed bastion falls back to the direct address — where a collector has a
+fallback at all.** When the bastion never carries the command — a tunnel that
+will not open, an expired token, a transport error — a collector that has a
+fallback reaches for the VM's private IP, which is routable for an operator on
+a VPN or a peered network. Without it the routing would be *less* available
+than the code it replaced, and the VM's row would go blank, which reads as
+"nothing to report" rather than "could not ask". Which collectors have one, and
+in what shape, is the uneven part; it is enumerated below.
+
+`direct_fallback_host` is the single helper that decides whether a fallback
+address is usable; it rejects empty and whitespace-only strings, because the
+health collector flattens `Option<String>` with `unwrap_or_default()` and
+`ssh user@` is not a probe. `RoutedExec::is_unroutable` restates that
+precondition, and `collect_health_metrics_with` checks it on entry — no bastion
+route and no address returns default metrics — so the rule holds even if a
+caller stops filtering unreachable VMs first. The guard sits on the `_with`
+form rather than its wrapper deliberately: the shared-executor path #1153 added
+is newer than the guard, and would otherwise have re-opened the hole it closed.
 
 The fallback hangs off the *transport* error only. A command that reached the
 VM and exited non-zero is that VM's own answer and is reported as such: retrying
 it at the private IP could reach a different host and attribute its output to
-this VM — a confidently wrong row, which is worse than an empty one. This is
-the same rule in all three collectors.
+this VM — a confidently wrong row, which is worse than an empty one. The
+never-retry half holds everywhere. The fallback itself is uneven, in two
+shapes, and one collector still has none:
+
+- **`RoutedExec::run`** is the first shape, and health and storage share it:
+  #1153 gave them a single route per VM, so both reach the host the same way.
+  A transport failure reruns the command at the private address *and* latches
+  the tunnel as dead, so that VM's *remaining* probes go direct without
+  attempting it — several commands run per VM, and paying the bastion timeout
+  on each would cost the whole listing. The latch has one escape: with no
+  usable address to fall back to, it retries the tunnel rather than inventing a
+  failure the caller cannot tell from a real one.
+- **`collect_procs`** is the second: its own rerun at the private address, with
+  no latch, because it issues one command per VM and has nothing to latch for.
+- **`collect_tmux_sessions`** does **not** retry. It substitutes the direct
+  address *before* issuing the command, and only when *this run* holds no
+  tunnel for that VM — either because opening it failed, or because the VM fell
+  past `MAX_BASTION_TUNNELS_PER_RUN` and none was planned. ("This run" is the
+  precise scope: tunnels are pooled across commands, so a capped VM may have a
+  live tunnel this run never asked for.) Once a tunnel is up, an `ssh` that
+  fails or exits non-zero reports no sessions for that VM under `--verbose` and
+  stops there.
+
+Storage used to have no fallback at all — it was handed the private address and
+never read it. Sharing health's route is what fixed that, and is why the two
+columns can no longer disagree about whether a VM was reachable.
 
 Latency is the deliberate exception: it is never measured through a tunnel, and
 never falls back to one, because timing a tunnel measures the tunnel and the

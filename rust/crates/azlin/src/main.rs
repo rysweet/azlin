@@ -461,15 +461,24 @@ impl<'a> RoutedExec<'a> {
             Ok(result) => Ok(result),
             // Transport failure: the bastion never carried the command. The
             // private IP is still routable for an operator on a VPN or peered
-            // network, and `cmd_list_data::collect_tmux_sessions` and
-            // `collect_procs` both retry there rather than blanking the VM's
-            // row. Health was the lone exception -- it was handed a fallback
-            // address and never used it, so a tunnel outage turned into empty
+            // network, so `cmd_list_data::collect_procs` reruns the failed
+            // command there rather than blanking the VM's row.
+            // `collect_tmux_sessions` reaches that address by a different
+            // route -- it demotes a VM with no open tunnel before issuing
+            // anything, and does not retry once one is up -- so this arm is
+            // not the shape it uses. Health and storage both are: they share
+            // one `RoutedExec` per VM, so this arm is the only fallback either
+            // has. Both were once handed a private address and never read it.
+            // For health that meant a tunnel outage turned into empty
             // CPU/Mem/Disk cells that read exactly like a healthy, idle
-            // machine. No warning is printed here: the tmux collector runs by
+            // machine. Storage failed differently -- it went to `--`, which
+            // `health_render::storage_verdict` is careful is never a pass --
+            // so the cost there was two columns disagreeing about whether the
+            // VM had been reachable at all. No warning is printed here: the tmux collector runs by
             // default in the same invocation and already reports a failed
-            // tunnel, and an unread metric renders as an uncoloured `-`
-            // rather than a green "fine".
+            // tunnel, and an unread metric renders as an uncoloured `--`
+            // rather than a green "fine". (`--` is `UNKNOWN_CELL`; the bare
+            // `-` is the agent-status default, a different column.)
             Err(e) => {
                 self.bastion_failed.set(true);
                 match direct {

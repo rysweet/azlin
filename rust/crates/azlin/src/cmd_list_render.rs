@@ -779,9 +779,11 @@ fn render_json(cfg: &ListRenderConfig, data: &ListRenderData) -> Result<()> {
 
 /// Quote a CSV field that could contain a delimiter, per RFC 4180.
 ///
-/// Two of the fields in this row are free-form text the renderer does not
-/// control: the session name comes from an Azure tag and the `Tmux` value comes
-/// off the listed VM itself. `sanitize_remote_text` strips control characters,
+/// Most of the fields in this row are free-form text the renderer does not
+/// control: the session name comes from an Azure tag, the `Tmux` value comes
+/// off the listed VM itself, and the VM name, OS offer, address, region and
+/// SKU are Azure-supplied strings echoed back as whoever created them typed
+/// them. `sanitize_remote_text` strips control characters,
 /// but a comma is not a control character — an unquoted session name of `a,b`
 /// therefore ends the field early and shifts every later column by one, which a
 /// consumer reads as valid data for the wrong VM. That is the same
@@ -795,8 +797,11 @@ fn csv_field(value: &str) -> String {
     }
 }
 
-fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
-    // Build headers
+/// The CSV header row, in emission order.
+///
+/// Shared with [`csv_row`] so the header count and the field count cannot
+/// drift: a test that parses a rendered row can compare the two directly.
+fn csv_headers(cfg: &ListRenderConfig) -> Vec<&'static str> {
     let mut headers = vec!["Session"];
     if cfg.show_tmux_col {
         headers.push("Tmux");
@@ -815,89 +820,121 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
     if cfg.with_health {
         headers.extend_from_slice(crate::health_render::HEALTH_COLUMNS);
     }
-    println!("{}", headers.join(","));
+    headers
+}
 
-    for vm in data.vms {
-        // Sanitized for the same reason as the table, plus one specific to this
-        // format: `sanitize_remote_text` strips newlines (and `U+2028`/`U+2029`
-        // with them), and a newline in a name would otherwise end the record
-        // early and let a listed VM inject rows of its own into the CSV a
-        // script goes on to parse.
-        //
-        // Record injection is closed; *field* injection is not. Fields are
-        // still emitted unquoted, so a comma in an Azure name shifts every
-        // column after it by one. That is tracked separately (#1133) because
-        // the fix is to quote per RFC 4180, not to strip more characters --
-        // stripping would silently rename a VM in output a script parses.
-        let disp = VmDisplayText::for_vm(vm);
-        let tmux = data
-            .tmux_sessions
-            .get(&vm.name)
-            .map(|s| s.join(";"))
-            .unwrap_or_default();
-        let (cpu, mem) = crate::display_helpers::query_vm_size_specs(&vm.vm_size, &vm.location);
-        let mut row = csv_field(&disp.session);
-        if cfg.show_tmux_col {
-            row.push_str(&format!(",{}", csv_field(&tmux)));
-        }
-        if cfg.wide {
-            row.push_str(&format!(",{}", csv_field(&disp.name)));
-        }
-        // Every free-form field, not only the three that motivated `csv_field`.
-        // The OS offer, the region and the SKU are Azure-supplied strings echoed
-        // back as whoever created them typed them, and the argument that closed
-        // the session name applies to them unchanged: sanitising strips control
-        // characters, and a comma is not one. `power_state` is an enum and the
-        // vCPU/memory figures are computed here, so they carry no delimiter to
-        // quote.
+/// One rendered CSV record for `vm`.
+///
+/// Split out of `render_csv` so the quoting rule can be pinned on the *row*
+/// rather than on `csv_field` in isolation. The earlier test drove the helper
+/// directly, so deleting a `csv_field` call from this function left it green --
+/// which is the refactor hazard the quoting was added to close.
+///
+/// `cpu`/`mem` are passed in rather than looked up here: `query_vm_size_specs`
+/// shells out to `az vm list-sizes` on a cache miss, and a row renderer that
+/// spawns a subprocess cannot be unit tested without one.
+fn csv_row(
+    cfg: &ListRenderConfig,
+    data: &ListRenderData,
+    vm: &VmInfo,
+    cpu: &str,
+    mem: &str,
+) -> String {
+    // Sanitized for the same reason as the table, plus one specific to this
+    // format: `sanitize_remote_text` strips newlines (and `U+2028`/`U+2029`
+    // with them), and a newline in a name would otherwise end the record
+    // early and let a listed VM inject rows of its own into the CSV a
+    // script goes on to parse.
+    //
+    // Record injection and field injection are both closed: every
+    // free-form field is sanitised and then quoted per RFC 4180 by
+    // `csv_field`, so a comma in an Azure name can no longer shift the
+    // columns after it. Quoting rather than stripping is deliberate --
+    // stripping would silently rename a VM in output a script parses.
+    // The residual is formula evaluation, not delimiter shifting: a value
+    // opening with `=`, `+`, `-` or `@` is still evaluated by a
+    // spreadsheet, which quoting does not address.
+    let disp = VmDisplayText::for_vm(vm);
+    let tmux = data
+        .tmux_sessions
+        .get(&vm.name)
+        .map(|s| s.join(";"))
+        .unwrap_or_default();
+    let mut row = csv_field(&disp.session);
+    if cfg.show_tmux_col {
+        row.push_str(&format!(",{}", csv_field(&tmux)));
+    }
+    if cfg.wide {
+        row.push_str(&format!(",{}", csv_field(&disp.name)));
+    }
+    // Every free-form field, not only the three that motivated `csv_field`.
+    // The OS offer, the region and the SKU are Azure-supplied strings echoed
+    // back as whoever created them typed them, and the argument that closed
+    // the session name applies to them unchanged: sanitising strips control
+    // characters, and a comma is not one. `power_state` is an enum and the
+    // vCPU/memory figures are computed here, so they carry no delimiter to
+    // quote.
+    row.push_str(&format!(
+        ",{},{},{},{}",
+        csv_field(&disp.os),
+        vm.power_state,
+        csv_field(&disp.ip),
+        csv_field(&disp.location)
+    ));
+    if cfg.wide {
+        row.push_str(&format!(",{}", csv_field(&disp.vm_size)));
+    }
+    row.push_str(&format!(",{},{}", cpu, mem));
+    if cfg.with_latency {
         row.push_str(&format!(
-            ",{},{},{},{}",
-            csv_field(&disp.os),
-            vm.power_state,
-            csv_field(&disp.ip),
-            csv_field(&disp.location)
+            ",{}",
+            data.latencies
+                .get(&vm.name)
+                .map(|l| format!("{}ms", l))
+                .unwrap_or_default()
         ));
-        if cfg.wide {
-            row.push_str(&format!(",{}", csv_field(&disp.vm_size)));
-        }
-        row.push_str(&format!(",{},{}", cpu, mem));
-        if cfg.with_latency {
+    }
+    if cfg.with_health {
+        if let Some(m) = data.health_data.get(&vm.name) {
             row.push_str(&format!(
-                ",{}",
-                data.latencies
-                    .get(&vm.name)
-                    .map(|l| format!("{}ms", l))
-                    .unwrap_or_default()
+                ",{},{},{},{}",
+                // Derived from the host's `systemctl is-active` output, but
+                // through `classify_agent_status`, which collapses it to one
+                // of "OK"/"Down"/"N/A" (or "-" when there is no reading). So
+                // this is defence in depth rather
+                // than a live hole: it cannot carry a delimiter today, and it
+                // is quoted so that it stays safe if it ever becomes
+                // free-form.
+                csv_field(&crate::cmd_list_data::sanitize_remote_text(&m.agent_status)),
+                crate::health_render::metric_csv(m.cpu_percent),
+                crate::health_render::metric_csv(m.mem_percent),
+                crate::health_render::metric_csv(m.disk_percent)
             ));
-        }
-        if cfg.with_health {
-            if let Some(m) = data.health_data.get(&vm.name) {
-                row.push_str(&format!(
-                    ",{},{},{},{}",
-                    // Read off the listed host over SSH, so this is the same
-                    // untrusted source as a session name -- the strongest case
-                    // for quoting on the row, and the one that was missed.
-                    csv_field(&crate::cmd_list_data::sanitize_remote_text(&m.agent_status)),
-                    crate::health_render::metric_csv(m.cpu_percent),
-                    crate::health_render::metric_csv(m.mem_percent),
-                    crate::health_render::metric_csv(m.disk_percent)
-                ));
-            } else {
-                // One empty field per metric column, counted from the shared
-                // column list so it cannot fall behind it.
-                for _ in 0..crate::health_render::HEALTH_COLUMNS.len() - 1 {
-                    row.push(',');
-                }
+        } else {
+            // One empty field per metric column, counted from the shared
+            // column list so it cannot fall behind it.
+            for _ in 0..crate::health_render::HEALTH_COLUMNS.len() - 1 {
+                row.push(',');
             }
-            // Empty rather than `unknown`: an empty CSV field is the
-            // conventional "no value", and this column must not claim one.
-            row.push_str(&format!(
-                ",{}",
-                crate::health_render::storage_verdict(data.storage_data.get(&vm.name).copied())
-                    .unwrap_or("")
-            ));
         }
-        println!("{}", row);
+        // Empty rather than `unknown`: an empty CSV field is the
+        // conventional "no value", and this column must not claim one.
+        // Emitted once for both arms: the column exists whenever
+        // `--with-health` does, whether or not this VM had a reading.
+        row.push_str(&format!(
+            ",{}",
+            crate::health_render::storage_verdict(data.storage_data.get(&vm.name).copied())
+                .unwrap_or("")
+        ));
+    }
+    row
+}
+
+fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
+    println!("{}", csv_headers(cfg).join(","));
+    for vm in data.vms {
+        let (cpu, mem) = crate::display_helpers::query_vm_size_specs(&vm.vm_size, &vm.location);
+        println!("{}", csv_row(cfg, data, vm, &cpu, &mem));
     }
 
     disclose_on_stderr(&data.filters);
@@ -936,14 +973,13 @@ mod tests {
         assert_eq!(csv_field("a\rb"), "\"a\rb\"");
     }
 
-    /// Every free-form field on the row, not just the three that motivated the
-    /// helper. A comma in any one of them shifts every later column by one, and
-    /// a consumer reads that as valid data for the wrong VM.
-    ///
-    /// `agent_status` matters most: it is read off the listed host over SSH, so
-    /// it is the same untrusted source as a session name.
+    /// `csv_field` in isolation, over one comma-bearing value per free-form
+    /// column. This pins the *helper*; it deliberately says nothing about
+    /// whether `csv_row` calls it -- that is
+    /// `csv_row_quotes_every_free_form_field` below, and the distinction is
+    /// the reason both tests exist.
     #[test]
-    fn csv_field_covers_every_free_form_field_on_the_row() {
+    fn csv_field_quotes_each_free_form_value_shape() {
         for value in [
             "Ubuntu 24.04 LTS, minimal", // os offer
             "East US, Zone 1",           // location as Azure may echo it
@@ -979,6 +1015,197 @@ mod tests {
              stripping them, the CSV writer's reason for quoting changes"
         );
         assert_eq!(csv_field(hostile), "\"build,agent\"");
+    }
+
+    // ── the row, not the helper ───────────────────────────────────────
+
+    /// Split one RFC 4180 record into fields, honouring quotes.
+    ///
+    /// Deliberately a separate implementation from `csv_field`: a test that
+    /// reused the writer's own notion of a field boundary could not detect the
+    /// writer producing the wrong one.
+    fn parse_csv_record(record: &str) -> Vec<String> {
+        let mut fields = Vec::new();
+        let mut current = String::new();
+        let mut in_quotes = false;
+        let mut chars = record.chars().peekable();
+        while let Some(c) = chars.next() {
+            match c {
+                '"' if in_quotes && chars.peek() == Some(&'"') => {
+                    chars.next();
+                    current.push('"');
+                }
+                '"' => in_quotes = !in_quotes,
+                ',' if !in_quotes => fields.push(std::mem::take(&mut current)),
+                _ => current.push(c),
+            }
+        }
+        // An unterminated quote means the writer emitted a malformed record.
+        // Without this the splitter would return the right field *values* for
+        // `"a,b` and the assertions downstream would pass, which is the one
+        // way a broken oracle hides a broken writer.
+        assert!(
+            !in_quotes,
+            "record ends inside a quoted field, which is not a valid CSV record: {record}"
+        );
+        fields.push(current);
+        fields
+    }
+
+    /// A VM whose every Azure-supplied field carries a comma. Nothing here is
+    /// a control character, so `sanitize_remote_text` passes all of it through
+    /// unchanged -- which is the point: only quoting can keep the row intact.
+    fn vm_with_commas_in_every_field() -> VmInfo {
+        let mut tags = std::collections::HashMap::new();
+        tags.insert("azlin-session".to_string(), "prod,staging".to_string());
+        VmInfo {
+            name: "oit-vm,decoy".to_string(),
+            resource_group: "rg-oit".to_string(),
+            location: "East US, Zone 1".to_string(),
+            vm_size: "Standard_D4s_v3, promo".to_string(),
+            power_state: azlin_core::models::PowerState::Running,
+            provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
+            os_type: azlin_core::models::OsType::Linux,
+            os_offer: Some("Ubuntu 24.04 LTS, minimal".to_string()),
+            public_ip: None,
+            // `format_ip_display` appends ` (Bast)` to this, so the rendered
+            // cell carries the comma. Without one here the `csv_field` call on
+            // the address is the identity function and deleting it would leave
+            // this test green -- which is the hole this test exists to close.
+            private_ip: Some("10.0.0.4, 10.0.0.5".to_string()),
+            admin_username: Some("azureuser".to_string()),
+            tags,
+            created_time: None,
+        }
+    }
+
+    /// **The rule this file exists to hold**: a rendered row parses into
+    /// exactly as many fields as there are headers, even when every free-form
+    /// value contains the delimiter.
+    ///
+    /// This is bound to `csv_row`, not to `csv_field`. Deleting a
+    /// `csv_field(...)` call from the writer makes the comma in that value end
+    /// its field early, the record gains a field, and this fails -- which the
+    /// helper-only tests above do not catch. Verified by mutation over every
+    /// call site in `csv_row`: each one either fails this test or fails to
+    /// compile. Widening the row with a new free-form column that forgets to
+    /// quote fails the same way.
+    ///
+    /// Note the fixture's address carries a comma. `format_ip_display` appends
+    /// ` (Bast)` but adds no delimiter of its own, so without one in the
+    /// private IP the address column would be quote-free and its `csv_field`
+    /// call would be unpinned.
+    #[test]
+    fn csv_row_quotes_every_free_form_field() {
+        let vm = vm_with_commas_in_every_field();
+        let vms = [vm.clone()];
+        let mut tmux_sessions = HashMap::new();
+        // Joined with `;` before quoting, so the cell reads as one field.
+        tmux_sessions.insert(vm.name.clone(), vec!["a,b".to_string(), "c".to_string()]);
+        let mut health_data = HashMap::new();
+        health_data.insert(
+            vm.name.clone(),
+            crate::HealthMetrics {
+                vm_name: vm.name.clone(),
+                power_state: "running".to_string(),
+                // Read off the listed host over SSH: the least trusted value
+                // on the row.
+                agent_status: "ready, degraded".to_string(),
+                error_count: None,
+                cpu_percent: Some(12.0),
+                mem_percent: Some(34.0),
+                disk_percent: Some(56.0),
+            },
+        );
+        let latencies = HashMap::new();
+        let storage_data = HashMap::new();
+        let proc_data = HashMap::new();
+
+        // `--wide --with-latency --with-health`: the widest row the writer
+        // emits, so every conditional field is exercised.
+        let cfg = ListRenderConfig {
+            output: &azlin_cli::OutputFormat::Csv,
+            show_tmux_col: true,
+            wide: true,
+            compact: false,
+            with_latency: true,
+            with_health: true,
+            show_procs: false,
+            show_all_vms: false,
+        };
+        let data = ListRenderData {
+            vms: &vms,
+            tmux_sessions: &tmux_sessions,
+            latencies: &latencies,
+            health_data: &health_data,
+            storage_data: &storage_data,
+            proc_data: &proc_data,
+            // Nothing was filtered on the way to this row, which is what
+            // all-zeros means (#1146). `csv_row` never reads it -- the
+            // disclosure #1146 added lands on stderr from `render_csv`, not
+            // in the record -- so this pins the quoting behaviour under test
+            // without dragging the disclosure into it.
+            filters: FilterCounts::default(),
+        };
+
+        let headers = csv_headers(&cfg);
+        // Literals, not `query_vm_size_specs`: this test must not spawn `az`.
+        let row = csv_row(&cfg, &data, &vm, "4", "16 GB");
+        let fields = parse_csv_record(&row);
+
+        assert_eq!(
+            fields.len(),
+            headers.len(),
+            "a comma escaped its field and shifted the columns after it.\n\
+             headers: {headers:?}\nrow: {row}\nparsed: {fields:?}"
+        );
+
+        // Field count alone could be satisfied by stripping the commas, which
+        // would silently rename a VM. Assert the values survived intact.
+        let by_header = |h: &str| -> String {
+            let i = headers
+                .iter()
+                .position(|x| *x == h)
+                .expect("header present");
+            fields[i].clone()
+        };
+        assert_eq!(by_header("Session"), "prod,staging");
+        assert_eq!(by_header("Tmux"), "a,b;c");
+        assert_eq!(by_header("VM Name"), "oit-vm,decoy");
+        assert_eq!(by_header("Region"), "East US, Zone 1");
+        assert_eq!(by_header("SKU"), "Standard_D4s_v3, promo");
+        // In production `agent_status` is one of four fixed strings, so this
+        // is defence in depth rather than a live hole -- but `csv_row` quotes
+        // it, and if it ever becomes free-form the quoting is already pinned.
+        assert_eq!(by_header("Agent"), "ready, degraded");
+        assert!(
+            by_header("OS").contains("Ubuntu 24.04 LTS, minimal"),
+            "OS was {:?}",
+            by_header("OS")
+        );
+        assert!(
+            by_header("IP").starts_with("10.0.0.4, 10.0.0.5"),
+            "IP was {:?}",
+            by_header("IP")
+        );
+    }
+
+    /// The header row is a record too: a header containing a comma would shift
+    /// the same columns. None does today, and this is what says so.
+    #[test]
+    fn csv_header_row_parses_to_one_field_per_column() {
+        let cfg = ListRenderConfig {
+            output: &azlin_cli::OutputFormat::Csv,
+            show_tmux_col: true,
+            wide: true,
+            compact: false,
+            with_latency: true,
+            with_health: true,
+            show_procs: false,
+            show_all_vms: false,
+        };
+        let headers = csv_headers(&cfg);
+        assert_eq!(parse_csv_record(&headers.join(",")).len(), headers.len());
     }
 
     // ── format_tmux_plain ─────────────────────────────────────────────
