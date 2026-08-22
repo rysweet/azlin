@@ -27,6 +27,7 @@ This directory contains comprehensive documentation for azlin - Azure VM provisi
 - **[backup-disaster-recovery.md](backup-disaster-recovery.md)** - Automated backup scheduling, cross-region replication, and DR testing
 - **[features/azure-cli-wsl2-detection.md](features/azure-cli-wsl2-detection.md)** - Azure CLI WSL2 detection feature overview
 - **[features/tmux-session-status.md](features/tmux-session-status.md)** - Visual tmux session connection status in VM listings
+- **[Filter Disclosure](https://rysweet.github.io/azlin/vm-lifecycle/filter-disclosure/)** - How `azlin list` reports the VMs its filters hid, in table, JSON, and CSV output (published docs site)
 - **[features/memory-latency.md](features/memory-latency.md)** - Memory allocation and network latency monitoring
 - **[features/session-restore.md](features/session-restore.md)** - Automatic session restore feature overview and architecture
 - **[features/credential-forwarding.md](features/credential-forwarding.md)** - Automatic credential forwarding (gh, az, Copilot, Claude) to new VMs

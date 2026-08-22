@@ -200,7 +200,10 @@ pub(crate) async fn dispatch(
 
             // Filter stopped VMs unless --all/--include-stopped,
             // then by tag and name pattern.
-            crate::list_helpers::apply_filters(
+            // Capture what was removed. Every listing path -- default, `-a`,
+            // `--all-contexts` -- converges on this one already-aggregated
+            // vec, so a single report covers all of them (#1142).
+            let filters = crate::list_helpers::apply_filters(
                 &mut all_vms,
                 include_all,
                 tag.as_deref(),
@@ -494,6 +497,7 @@ pub(crate) async fn dispatch(
                     health_data: &health_data,
                     storage_data: &storage_data,
                     proc_data: &proc_data,
+                    filters,
                 },
             )?;
 

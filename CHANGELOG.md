@@ -46,6 +46,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   again. They are built once and shared, which also removes the possibility of
   sizing a column against text other than the text that gets printed.
 
+- **BREAKING: `azlin -o json list` now emits an object instead of a bare
+  array.** The VM array moved under a `vms` key, and a sibling `filters` object
+  carries the counts of rows each filter removed:
+  ```json
+  {
+    "filters": {
+      "dropped_by_pattern": 0,
+      "dropped_by_tag": 0,
+      "hidden_not_running": 4
+    },
+    "vms": [ /* per-VM objects, unchanged */ ]
+  }
+  ```
+  Per-VM objects keep the same keys, types, and values — only the top level
+  changed. **Migration:** replace `jq '.[]'` with `jq '.vms[]'` (and
+  `jq 'length'` with `jq '.vms | length'`). The envelope is the only shape that
+  lets a consumer see the hidden count when the result set is empty, which is
+  exactly the case a bare array cannot express. `filters` is always present with
+  all three keys, including when every count is zero, so consumers never have to
+  distinguish a missing key from `0` (#1142)
+- `azlin -o csv list` stdout is unchanged — same header, same rows, no trailer
+  and no comment line. When a filter removed rows, the disclosure is written to
+  **stderr**, so `-o csv` redirected to a file is byte-identical to before. This
+  is the only output surface with an unconditional byte-identical guarantee.
+  `-o json` writes the same lines to stderr for the same reason: stdout belongs
+  to the consumer, and the `filters` envelope there is the machine-readable
+  answer (#1142)
+
 ### Fixed
 - **`azlin list --show-procs --all-contexts` no longer attributes one
   subscription's processes to another's VMs** — bastion, tmux and health
@@ -203,6 +231,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mode and identity options now come from one `probe_ssh_opts` helper, which
   omits `-i` entirely when the path is not usable — the same state as having no
   key at all.
+- **`azlin list` no longer hides VMs without saying so** — the default listing
+  filters out everything that is not Running or Starting, which is the right
+  default, but it did so silently. A resource group with two running VMs and
+  four deallocated ones printed `Total: 2 VMs | 2 running` and nothing else;
+  there was no signal in the output that four more VMs existed, and no hint as
+  to which flag would reveal them. Deallocated VMs keep their attached managed
+  disks and those disks bill at full rate, so the silence was a cost-visibility
+  defect as much as a display one — an operator could pay for terabytes of
+  Premium SSD attached to machines the tool had decided not to mention.
+  `apply_filters` now returns a `FilterCounts` of stage-local drop counts, and
+  every output format reports them (#1142)
+  - The table extends its `Total:` footer with one clause per filter that
+    actually dropped rows — `Total: 2 VMs | 2 running | 4 hidden
+    (stopped/deallocated)` — followed by `Hidden VMs still bill for attached
+    storage. Run 'azlin list --all' to include them.` when the running filter
+    was the cause. The counts go on the footer because that is the line an
+    operator reads, and it is the line that was misleading
+  - `--tag` and `--vm-pattern` get the same treatment. A pattern that matched
+    nothing previously rendered an empty table indistinguishable from an empty
+    resource group; it now says `{n} excluded by --vm-pattern`
+  - The disclosure is omitted entirely when no rows were dropped, so the
+    message cannot be trained away by firing when there is nothing to report.
+    Note the precise scope of that: **`-o csv` stdout is byte-identical to the
+    previous release in every case**, hidden rows or not. The table is unchanged
+    apart from the hints block, which is reworded on every run. `-o json`
+    changes shape unconditionally — the `filters` envelope is emitted even when
+    all three counts are zero
+  - The disclosure reports counts only, never the name, tag, IP, or pattern of
+    a hidden VM. `--tag` and `--vm-pattern` are how a listing gets narrowed
+    before it is pasted into an issue; echoing the excluded names into the
+    footer would undo that narrowing
+  - The hints block gained `azlin list --all  Include stopped/deallocated VMs`,
+    and the existing `-a` hint now reads
+    `Scan all resource groups (not the same as --all)`. `-a`/`--show-all-vms`
+    scans resource groups and does not include stopped VMs; its old description
+    read close enough to `--all` to send an operator to a wider listing with the
+    same blind spot
+  - The hidden count is not derivable from the summary line: the filter keeps
+    `Running` *and* `Starting` while the footer counts `Running` only, so a VM
+    mid-boot makes `total - running` nonzero with nothing hidden. The count comes
+    from the filter itself
+  - The default is unchanged. `azlin list` still shows running VMs only, and
+    `azlin cleanup` is untouched — disks attached to a deallocated VM have a
+    populated `managedBy` and are correctly not treated as orphans
 - **`azlin list` no longer reports zero tmux sessions for every bastion-only VM
   but one** (the tunnel keying shipped in `v2.6.126-rust.12ccf60`; recorded
   retroactively together with the gaps found reviewing it) — an Azure Bastion

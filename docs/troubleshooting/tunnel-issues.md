@@ -39,12 +39,21 @@ Common causes and fixes:
 this username, but if your VM was provisioned differently:
 
 ```bash
-# Check what username the VM expects
-azlin list -o json | jq '.[] | select(.name=="myvm") | .admin_username'
+# Capture the VM's resource group from the listing
+rg=$(azlin list --all -o json | jq -r '.vms[] | select(.name=="myvm") | .resource_group')
+
+# Read the admin username straight from the VM's Azure metadata
+az vm show -g "$rg" -n myvm --query osProfile.adminUsername -o tsv
 
 # Override explicitly
 azlin tunnel open myvm 8080 --user ubuntu
 ```
+
+`azlin list` does not emit the admin username in its JSON payload, so the
+username comes from `az vm show`. Pass `--all` to the listing — a VM you cannot
+reach is often a VM that is not running, and the default listing hides those
+(it reports how many it hid; see
+[Filter Disclosure](https://rysweet.github.io/azlin/vm-lifecycle/filter-disclosure/)).
 
 Azlin resolves the username from VM metadata when available, so this override
 is rarely needed for azlin-provisioned VMs.

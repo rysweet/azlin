@@ -192,6 +192,7 @@ nav:
   - VM Lifecycle:
     - Creating VMs: vm-lifecycle/creating.md
     - Listing VMs: vm-lifecycle/listing.md
+    - Filter Disclosure: vm-lifecycle/filter-disclosure.md
     - Connecting: vm-lifecycle/connecting.md
     - Session Management: vm-lifecycle/sessions.md
     - Start/Stop: vm-lifecycle/start-stop.md

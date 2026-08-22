@@ -547,12 +547,13 @@ azlin list
 # List VMs in specific resource group
 azlin list --resource-group my-custom-rg
 
-# Show ALL VMs (including stopped)
+# Show ALL VMs (including stopped/deallocated)
 azlin list --all
+azlin list --include-stopped  # alias
 
-# List ALL VMs across all resource groups (expensive operation)
+# List VMs across all resource groups (expensive operation; still running-only)
 azlin list --show-all-vms
-azlin list -a  # Short form
+azlin list -a  # Short form -- NOT the same as --all
 
 # Filter by tag
 azlin list --tag env=dev
@@ -581,9 +582,31 @@ azlin list -w --tag env=prod
 
 **Filtering:**
 - Default: Shows only running VMs
-- `--all`: Shows stopped/deallocated VMs
+- `--all` (or `--include-stopped`): Shows stopped/deallocated VMs
 - `--tag KEY=VALUE`: Filter by specific tag value
 - `--tag KEY`: Filter by tag key existence
+- `--vm-pattern GLOB`: Filter by VM name
+
+**Filtering is never silent.** When any of those filters removes rows, `azlin
+list` says how many and how to get them back:
+
+```
+Total: 2 VMs | 2 running | 4 hidden (stopped/deallocated)
+Hidden VMs still bill for attached storage. Run 'azlin list --all' to include them.
+```
+
+Nothing extra is printed when nothing was hidden. The same counts are available
+to scripts: `-o json` includes a `filters` object alongside `vms`. Both `-o json`
+and `-o csv` keep stdout free of prose and write the disclosure to stderr.
+
+> **Breaking:** `-o json` used to emit a bare array. The VM array now lives under
+> `vms`, so `jq '.[]'` becomes `jq '.vms[]'`. Per-VM objects are unchanged.
+> `-o csv` stdout is unchanged.
+
+See [Filter Disclosure](docs-site/vm-lifecycle/filter-disclosure.md).
+
+> `-a` / `--show-all-vms` scans **all resource groups**. It is not `--all` and
+> does not reveal stopped VMs.
 
 **Output example**:
 ```

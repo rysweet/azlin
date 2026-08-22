@@ -25,6 +25,10 @@ pub(crate) struct ListRenderData<'a> {
     pub health_data: &'a HashMap<String, crate::HealthMetrics>,
     pub storage_data: &'a HashMap<String, azlin_azure::disk_layout::StorageStatus>,
     pub proc_data: &'a HashMap<String, String>,
+    /// What `apply_filters` removed on the way here. Carried by value (it is
+    /// three `usize`s) so every renderer can disclose it -- the whole point of
+    /// #1142 is that no output surface gets to stay silent about it.
+    pub filters: crate::list_helpers::FilterCounts,
 }
 
 /// Render the list output in the configured format.
@@ -623,12 +627,37 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
     } else {
         format!("Total: {} VMs | {} running", total, running)
     };
+    // The disclosure (#1142). It extends the summary line rather than starting
+    // a new one, because the footer is the line an operator actually reads --
+    // and it is the line that used to say `Total: 2 VMs | 2 running` while four
+    // VMs quietly billed for 11.7 TB of disk. `summary_suffix` is empty when
+    // nothing was filtered, so an unfiltered listing is unchanged.
+    //
+    // Both lines are coloured as a whole, never mid-string, so the message text
+    // stays contiguous for anything grepping captured output.
+    let summary = format!(
+        "{}{}",
+        summary,
+        crate::list_disclosure::summary_suffix(&data.filters)
+    );
     println!("{}", bold(&summary));
+    if let Some(remedy) = crate::list_disclosure::remedy_line(&data.filters) {
+        println!("{}", dim(remedy));
+    }
     if !cfg.show_all_vms {
         println!();
         println!("{}", dim("Hints:"));
-        for (flag, desc) in [
-            ("azlin list -a", "Show all VMs across all resource groups"),
+        // `--all` leads, because it is the flag the disclosure above points at.
+        // `-a` used to read "Show all VMs across all resource groups", which is
+        // near enough to "show all VMs" to be read as the stopped-VM reveal --
+        // a plausible contributor to the original incident. It now says what it
+        // is and what it is not.
+        let hints = [
+            ("azlin list --all", "Include stopped/deallocated VMs"),
+            (
+                "azlin list -a",
+                "Scan all resource groups (not the same as --all)",
+            ),
             ("azlin list -w", "Wide mode (show VM Name, SKU columns)"),
             (
                 "azlin list -r",
@@ -636,8 +665,19 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
             ),
             ("azlin list -q", "Show quota usage (slower)"),
             ("azlin list -v", "Verbose mode (show tunnel/SSH details)"),
-        ] {
-            println!("  {}  {}", cyan(flag), dim(desc));
+        ];
+        // Pad against the *plain* flag: `format!("{:<16}", cyan(flag))` would
+        // count the ANSI escape bytes and pad every row short. Before `--all`
+        // joined the block every flag was 13 characters and the column aligned
+        // by accident.
+        let width = hints.iter().map(|(f, _)| f.len()).max().unwrap_or(0);
+        for (flag, desc) in hints {
+            println!(
+                "  {}{}  {}",
+                cyan(flag),
+                " ".repeat(width - flag.len()),
+                dim(desc)
+            );
         }
     }
 }
@@ -713,7 +753,32 @@ fn render_json(cfg: &ListRenderConfig, data: &ListRenderData) -> Result<()> {
             obj
         })
         .collect();
-    println!("{}", serde_json::to_string_pretty(&json_vms)?);
+    // BREAKING (#1142): this was a bare top-level array. A bare array has
+    // nowhere to put result-level metadata, and the filter counts have to reach
+    // machine consumers -- a monitor that reads `azlin list` and sees two VMs
+    // is exactly the reader the silent filter misled. `.[]` becomes `.vms[]`.
+    //
+    // `filters` is always present with all three keys, zeros included. The
+    // "say nothing when nothing was hidden" rule governs human output; a key
+    // that appears only sometimes would force every consumer to tell `null`
+    // from `0`, which is a defect generator.
+    //
+    // Built as one `Value` and serialised once -- no fragment splicing.
+    let payload = serde_json::json!({
+        "vms": json_vms,
+        "filters": {
+            "hidden_not_running": data.filters.hidden_not_running,
+            "dropped_by_tag": data.filters.dropped_by_tag,
+            "dropped_by_pattern": data.filters.dropped_by_pattern,
+        },
+    });
+    println!("{}", serde_json::to_string_pretty(&payload)?);
+    // The payload is the machine-readable answer; a human running `-o json` at
+    // a terminal still needs to be told what was left out. stderr says it
+    // without putting a single byte of prose into the piped stdout.
+    for line in crate::list_disclosure::stderr_lines(&data.filters) {
+        eprintln!("{line}");
+    }
     Ok(())
 }
 
@@ -842,6 +907,15 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
             ));
         }
         println!("{}", row);
+    }
+
+    // stdout stays exactly header-plus-rows: no trailer, no `#` comment (a
+    // bogus record to Python's `csv`), no extra column (which would vanish
+    // precisely when the result set is empty -- the case that most needs
+    // explaining). CSV has no metadata channel, so the disclosure goes to
+    // stderr, the channel `azlin list` already uses for out-of-band notes.
+    for line in crate::list_disclosure::stderr_lines(&data.filters) {
+        eprintln!("{line}");
     }
 }
 

@@ -24,22 +24,98 @@ pub fn filter_by_pattern(vms: &mut Vec<VmInfo>, pattern: &str) {
     vms.retain(|vm| vm.name.contains(&pat));
 }
 
+/// How many VMs each filter stage removed.
+///
+/// `azlin list` defaults to running-only, which is the right default. What it
+/// did wrong was drop the other rows without saying so: six VMs in the pool,
+/// two on the screen, and ~11.7 TB of Premium SSD billing against machines the
+/// listing had decided not to mention (#1142). These counters exist so every
+/// renderer can say what it left out.
+///
+/// The counts are **stage-local and order-dependent**. [`apply_filters`] runs
+/// running -> tag -> pattern, and each field records what *that* stage removed
+/// from whatever survived the stages before it. They are not independent
+/// "would have been excluded" figures: a deallocated VM that also fails the tag
+/// filter is counted once, under `hidden_not_running`, because that is the
+/// stage that actually removed it. So the three fields sum to the number of
+/// rows that vanished, and never double-count.
+///
+/// A stage that does not run reports `0` — with `--all`, `hidden_not_running`
+/// is always `0` because the running filter never executed.
+///
+/// # This is not derivable from `total - running`
+///
+/// It is tempting to compute the hidden count from the summary footer and
+/// delete this struct. That is wrong in both directions:
+///
+/// - [`filter_running`] keeps `Running` **and** `Starting`, while the
+///   `Total: N VMs | M running` footer counts `Running` only. A VM mid-boot
+///   makes `M < N` with nothing hidden at all.
+/// - With `--all`, nothing was filtered, so `total - running` counts VMs that
+///   are present in the output.
+///
+/// Only the filter knows what the filter removed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FilterCounts {
+    /// Removed by the default running-only filter (stopped, deallocated, ...).
+    pub hidden_not_running: usize,
+    /// Removed by `--tag`, from what survived the running filter.
+    pub dropped_by_tag: usize,
+    /// Removed by `--vm-pattern`, from what survived the tag filter.
+    pub dropped_by_pattern: usize,
+}
+
+impl FilterCounts {
+    /// Total rows removed across all stages.
+    pub fn total_dropped(&self) -> usize {
+        self.hidden_not_running + self.dropped_by_tag + self.dropped_by_pattern
+    }
+
+    /// Whether any stage removed anything, i.e. whether there is something to
+    /// disclose. When this is false the human-facing surfaces must stay
+    /// completely silent: a warning that fires on every run teaches people to
+    /// skip the footer, which is how the original defect stayed invisible.
+    pub fn any(&self) -> bool {
+        self.total_dropped() > 0
+    }
+}
+
 /// Apply all three optional filters in order: stopped, tag, pattern.
+///
+/// Returns what each stage removed. Filtering behaviour is unchanged; the
+/// return value is new (#1142).
+///
+/// Deliberately **not** `#[must_use]`: several existing tests call this purely
+/// for its effect on `vms` and discard the result, and CI runs
+/// `clippy -D warnings`. Adding a return type on its own is source-compatible;
+/// `#[must_use]` would not be.
 pub fn apply_filters(
     vms: &mut Vec<VmInfo>,
     include_all: bool,
     tag: Option<&str>,
     pattern: Option<&str>,
-) {
+) -> FilterCounts {
+    let mut counts = FilterCounts::default();
+    // `saturating_sub` rather than `-`: the subtraction is only sound while
+    // every stage is a `retain`, and an underflow here would not panic in
+    // release — it would wrap to 18446744073709551615 and print that at the
+    // operator, and feed it to JSON consumers.
     if !include_all {
+        let before = vms.len();
         filter_running(vms);
+        counts.hidden_not_running = before.saturating_sub(vms.len());
     }
     if let Some(t) = tag {
+        let before = vms.len();
         filter_by_tag(vms, t);
+        counts.dropped_by_tag = before.saturating_sub(vms.len());
     }
     if let Some(p) = pattern {
+        let before = vms.len();
         filter_by_pattern(vms, p);
+        counts.dropped_by_pattern = before.saturating_sub(vms.len());
     }
+    counts
 }
 
 #[cfg(test)]
@@ -203,6 +279,183 @@ mod tests {
         apply_filters(&mut vms, true, Some("env=dev"), Some("dev*"));
         assert_eq!(vms.len(), 1);
         assert_eq!(vms[0].name, "dev-1");
+    }
+
+    // ── Filter disclosure counts (#1142) ──────────────────────────────
+    //
+    // The filtering was never the defect; the silence was. Six VMs existed
+    // in the pool, `azlin list` showed two, and the four it removed --
+    // holding ~11.7 TB of Premium SSD billed at full rate -- left no trace
+    // in the output at all. Every test below exists so that a row removed
+    // by a filter stays *countable*, which is the precondition for any
+    // renderer being able to say it out loud.
+
+    /// A VM with a caller-chosen tag, for separating the tag filter's drops
+    /// from the power-state filter's. [`make_vm`] hardcodes `env=dev`, so a
+    /// tag test written against it can only ever drop nothing or everything.
+    fn make_vm_tagged(name: &str, state: PowerState, key: &str, val: &str) -> VmInfo {
+        let mut vm = make_vm(name, state);
+        vm.tags = HashMap::from([(key.to_string(), val.to_string())]);
+        vm
+    }
+
+    #[test]
+    fn counts_vms_hidden_because_not_running() {
+        // The live pool that exposed this: azt1 + dev running, deva2/deva3/ia2
+        // deallocated, test-lifecycle-vm stopped.
+        let mut vms = vec![
+            make_vm("azt1", PowerState::Running),
+            make_vm("dev", PowerState::Running),
+            make_vm("deva2", PowerState::Deallocated),
+            make_vm("deva3", PowerState::Deallocated),
+            make_vm("ia2", PowerState::Deallocated),
+            make_vm("test-lifecycle-vm", PowerState::Stopped),
+        ];
+        let counts = apply_filters(&mut vms, false, None, None);
+        assert_eq!(
+            vms.len(),
+            2,
+            "the default view still shows only running VMs"
+        );
+        assert_eq!(
+            counts.hidden_not_running, 4,
+            "all four non-running VMs must be counted, not just silently dropped"
+        );
+        assert_eq!(counts.dropped_by_tag, 0);
+        assert_eq!(counts.dropped_by_pattern, 0);
+        assert_eq!(counts.total_dropped(), 4);
+        assert!(
+            counts.any(),
+            "something was hidden, so there is something to disclose"
+        );
+    }
+
+    #[test]
+    fn counts_are_zero_when_nothing_was_filtered() {
+        let mut vms = vec![
+            make_vm("a", PowerState::Running),
+            make_vm("b", PowerState::Starting),
+        ];
+        let counts = apply_filters(&mut vms, false, None, None);
+        assert_eq!(vms.len(), 2);
+        assert_eq!(counts, FilterCounts::default());
+        assert_eq!(counts.total_dropped(), 0);
+        assert!(
+            !counts.any(),
+            "nothing was hidden: renderers must stay quiet, not print a scary zero"
+        );
+    }
+
+    #[test]
+    fn counts_no_hidden_vms_when_include_all_is_set() {
+        let mut vms = vec![
+            make_vm("a", PowerState::Running),
+            make_vm("b", PowerState::Deallocated),
+        ];
+        let counts = apply_filters(&mut vms, true, None, None);
+        assert_eq!(vms.len(), 2);
+        assert_eq!(
+            counts.hidden_not_running, 0,
+            "--all hides nothing, so there is nothing to disclose"
+        );
+        assert!(!counts.any());
+    }
+
+    #[test]
+    fn counts_every_non_running_state_as_hidden() {
+        // Anything filter_running removes is hidden, including the states an
+        // operator is least likely to expect to vanish.
+        let mut vms = vec![
+            make_vm("run", PowerState::Running),
+            make_vm("start", PowerState::Starting),
+            make_vm("stop", PowerState::Stopped),
+            make_vm("dealloc", PowerState::Deallocated),
+            make_vm("stopping", PowerState::Stopping),
+            make_vm("unknown", PowerState::Unknown),
+        ];
+        let counts = apply_filters(&mut vms, false, None, None);
+        assert_eq!(vms.len(), 2, "Running and Starting survive");
+        assert_eq!(counts.hidden_not_running, 4);
+    }
+
+    #[test]
+    fn counts_rows_dropped_by_the_tag_filter() {
+        let mut vms = vec![
+            make_vm_tagged("a", PowerState::Running, "env", "dev"),
+            make_vm_tagged("b", PowerState::Running, "env", "prod"),
+            make_vm_tagged("c", PowerState::Running, "env", "prod"),
+        ];
+        let counts = apply_filters(&mut vms, false, Some("env=dev"), None);
+        assert_eq!(vms.len(), 1);
+        assert_eq!(counts.dropped_by_tag, 2);
+        assert_eq!(counts.hidden_not_running, 0);
+        assert_eq!(counts.dropped_by_pattern, 0);
+    }
+
+    #[test]
+    fn counts_rows_dropped_by_the_pattern_filter() {
+        let mut vms = vec![
+            make_vm("dev-vm-1", PowerState::Running),
+            make_vm("prod-vm-1", PowerState::Running),
+            make_vm("prod-vm-2", PowerState::Running),
+        ];
+        let counts = apply_filters(&mut vms, false, None, Some("dev*"));
+        assert_eq!(vms.len(), 1);
+        assert_eq!(counts.dropped_by_pattern, 2);
+        assert_eq!(counts.total_dropped(), 2);
+    }
+
+    #[test]
+    fn counts_a_pattern_that_matched_nothing() {
+        // An empty table is the least informative thing azlin can print. The
+        // count is what lets the renderer say "3 VMs did not match" instead.
+        let mut vms = vec![
+            make_vm("dev-vm-1", PowerState::Running),
+            make_vm("dev-vm-2", PowerState::Running),
+            make_vm("dev-vm-3", PowerState::Running),
+        ];
+        let counts = apply_filters(&mut vms, false, None, Some("staging*"));
+        assert!(vms.is_empty());
+        assert_eq!(counts.dropped_by_pattern, 3);
+        assert!(counts.any());
+    }
+
+    #[test]
+    fn counts_attribute_each_drop_to_the_filter_that_made_it() {
+        // dev-2 is dropped by the power-state filter and would *also* have
+        // failed the pattern; it must be counted once, against the filter
+        // that actually removed it. Otherwise the disclosure over-reports and
+        // the numbers stop adding up against the fetched total.
+        let mut vms = vec![
+            make_vm_tagged("dev-1", PowerState::Running, "env", "dev"),
+            make_vm_tagged("dev-2", PowerState::Deallocated, "env", "dev"),
+            make_vm_tagged("prod-1", PowerState::Running, "env", "prod"),
+        ];
+        let counts = apply_filters(&mut vms, false, Some("env=dev"), Some("nomatch"));
+        assert!(vms.is_empty());
+        assert_eq!(counts.hidden_not_running, 1, "dev-2, and only dev-2");
+        assert_eq!(counts.dropped_by_tag, 1, "prod-1, from the surviving two");
+        assert_eq!(
+            counts.dropped_by_pattern, 1,
+            "dev-1, from the surviving one"
+        );
+        assert_eq!(
+            counts.total_dropped(),
+            3,
+            "the three drops must sum to the three VMs that vanished"
+        );
+    }
+
+    #[test]
+    fn total_dropped_sums_all_three_filters() {
+        let counts = FilterCounts {
+            hidden_not_running: 4,
+            dropped_by_tag: 2,
+            dropped_by_pattern: 1,
+        };
+        assert_eq!(counts.total_dropped(), 7);
+        assert!(counts.any());
+        assert!(!FilterCounts::default().any());
     }
 }
 
