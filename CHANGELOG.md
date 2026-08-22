@@ -89,15 +89,24 @@ only ever auto-increments the patch within the `MAJOR.MINOR` it reads from
   consumer, and the `filters` envelope there is the machine-readable answer
   (#1142)
 - **`azlin list` no longer writes human prose to stdout in the machine formats.**
-  Two call sites predate the `-o json` / `-o csv` split and printed
-  unconditionally: the `── context: … — N VMs ──` banner on the `--all-contexts`
-  path, and the `vCPU Quota:` heading plus the `az vm list-usage` table on the
-  `--quota` path. Both corrupted the payload — `azlin -o json list --quota`
-  emitted a valid document followed by an ASCII table and so failed to parse in
-  `jq`, and `-o csv` grew records that were not VMs. Both now go to stderr when
-  the output format is not `Table`, which is the rule the new filter disclosure
+  Three call sites predate the `-o json` / `-o csv` split and printed
+  unconditionally:
+  - the `── context: … — N VMs ──` banner on the `--all-contexts` path;
+  - the `vCPU Quota:` heading plus the `az vm list-usage` table on `--quota`;
+  - the `Restoring tmux sessions...` / `Opening tab:` / `Session restore
+    initiated.` narration on `--restore`.
+
+  All three corrupted the payload — `azlin -o json list --quota` emitted a valid
+  document followed by an ASCII table and so failed to parse in `jq`, and
+  `-o csv` grew records that were not VMs. All three now go to stderr when the
+  output format is not `Table`, which is the rule the new filter disclosure
   already follows: stdout belongs to the consumer, stderr carries anything a
-  human needs. Table output is unchanged. (#1142)
+  human needs.
+
+  **Only the narration moved.** `--restore` still opens terminal tabs in every
+  output format, `--quota` still queries and reports your quota, and
+  `--all-contexts` still lists every context. Table output is unchanged in all
+  three cases. (#1142)
 
 ### Fixed
 - **`azlin list --show-procs --all-contexts` no longer attributes one

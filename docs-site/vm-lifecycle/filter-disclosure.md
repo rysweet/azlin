@@ -327,12 +327,23 @@ stdout stays a clean payload for `jq`; stderr carries the sentence. Nothing is
 written to stderr when all counters are zero — the envelope on stdout is the
 machine-readable answer either way.
 
-That guarantee required fixing two older call sites that wrote to stdout without
-checking the output format: the `── context: … ──` banner on `--all-contexts`,
-and the `vCPU Quota:` heading and `az vm list-usage` table on `--quota`. Before
-this change `azlin -o json list --quota` emitted a valid JSON document followed
-by an ASCII table, which `jq` rejects. Both now follow the same rule and go to
-stderr whenever the format is not `Table`.
+That guarantee required fixing three older call sites that wrote to stdout
+without checking the output format:
+
+- the `── context: … ──` banner on `--all-contexts`;
+- the `vCPU Quota:` heading and `az vm list-usage` table on `--quota`;
+- the `Restoring tmux sessions...`, `Opening tab:` and `Session restore
+  initiated.` narration on `--restore`.
+
+Before this change `azlin -o json list --quota` emitted a valid JSON document
+followed by an ASCII table, which `jq` rejects. All three now follow the same
+rule and go to stderr whenever the format is not `Table`.
+
+**Only the narration moved, never the behaviour.** `azlin -o json list --restore`
+still opens a terminal tab per session — the restore is the side effect you asked
+for, and suppressing it because you also asked for JSON would be a different bug.
+What changed is that its progress lines no longer land in the middle of your
+payload.
 
 ### CSV
 
