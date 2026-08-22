@@ -120,29 +120,6 @@ It appears **only when `hidden_not_running` is greater than zero**. A run where
 `--all`, so it gets the count clauses and no remedy — pointing at `--all` there
 would be wrong advice.
 
-### The hints block must pad the flag column
-
-The current renderer is:
-
-```rust
-println!("  {}  {}", cyan(flag), dim(desc));
-```
-
-There is no padding. Today's five hint flags are all exactly 13 characters, so
-they align *by accident*. `azlin list --all` is 16 characters, so adding it to
-an unpadded block makes every row ragged.
-
-Pad to the widest flag in the block. Pad the **plain** string, not the coloured
-one — `format!("{:<16}", cyan(flag))` measures the ANSI escape bytes and pads by
-the wrong amount:
-
-```rust
-let width = hints.iter().map(|(f, _)| f.len()).max().unwrap_or(0);
-for (flag, desc) in hints {
-    println!("  {}{}  {}", cyan(flag), " ".repeat(width - flag.len()), dim(desc));
-}
-```
-
 ### The disclosure never names a VM
 
 The disclosure is counts. It never prints a hidden VM's name, tag value, IP, or
@@ -407,14 +384,15 @@ string.
 A stronger signal is not part of this feature: no per-VM deallocation age, no
 attached-disk capacity or price estimate, no cost column, no `--stale` threshold.
 Those need disk SKU lookups and pricing data, which is a separate design with its
-own Azure API surface and its own failure modes. It is tracked as a follow-up
-rather than bolted onto a display fix.
+own Azure API surface and its own failure modes. It is tracked in
+[#1144](https://github.com/rysweet/azlin/issues/1144) rather than bolted onto a
+display fix.
 
 One known inconsistency is also left alone: under `--all-contexts`, the
 per-context headers (`── context: X … — N VMs ──`) count VMs *before* filtering,
 so they can disagree with the post-filter footer. Reconciling them requires
-filtering per-context, which changes aggregation order. It is tracked with the
-same follow-up.
+filtering per-context, which changes aggregation order. It is tracked in the same
+issue, [#1144](https://github.com/rysweet/azlin/issues/1144).
 
 `azlin cleanup` is unaffected. Disks attached to a deallocated VM have a
 populated `managedBy` field, so they are not orphans and cleanup is right to

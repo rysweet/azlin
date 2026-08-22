@@ -76,7 +76,11 @@ only rendered in the table — see [Limitations](#limitations).
     `jq '.vms | length'`.
 
 `-o csv` is unaffected: stdout keeps the same header and rows. When a filter
-dropped rows, one compact `{"filters":{…}}` line is written to **stderr**.
+dropped rows, the disclosure is written to **stderr** — the same
+`Note: {n} hidden (stopped/deallocated).` line the `-o json` run writes, plus
+the `--all` remedy when the running filter was the cause. Nothing is written
+when nothing was dropped. A consumer that needs the counts as data should read
+them from the `-o json` `filters` envelope rather than parse stderr.
 
 See [Filter Disclosure](../../vm-lifecycle/filter-disclosure.md) for the full
 contract, counter semantics, and migration table.

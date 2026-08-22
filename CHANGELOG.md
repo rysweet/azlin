@@ -275,6 +275,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The default is unchanged. `azlin list` still shows running VMs only, and
     `azlin cleanup` is untouched — disks attached to a deallocated VM have a
     populated `managedBy` and are correctly not treated as orphans
+  - The cost signal is one clause of prose, not a figure. Quantifying it —
+    attached-disk capacity, SKU, a price estimate, deallocation age, a `--stale`
+    threshold — needs disk and pricing lookups, which is a separate design; it
+    is tracked in #1144 along with the `--all-contexts` per-context headers,
+    which count VMs before filtering and so can disagree with the footer
 - **`azlin list` no longer reports zero tmux sessions for every bastion-only VM
   but one** (the tunnel keying shipped in `v2.6.126-rust.12ccf60`; recorded
   retroactively together with the gaps found reviewing it) — an Azure Bastion

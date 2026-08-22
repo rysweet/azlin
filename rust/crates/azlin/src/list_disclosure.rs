@@ -65,11 +65,7 @@ fn clauses(counts: &FilterCounts) -> Vec<String> {
 /// summary rather than starting a new line, because that footer is the line an
 /// operator actually reads, and it is the line that lied.
 pub fn summary_suffix(counts: &FilterCounts) -> String {
-    clauses(counts)
-        .iter()
-        .map(|c| format!(" | {c}"))
-        .collect::<Vec<_>>()
-        .join("")
+    clauses(counts).iter().map(|c| format!(" | {c}")).collect()
 }
 
 /// The remedy line, when there is anything `--all` would actually reveal.

@@ -434,3 +434,93 @@ fn csv_stays_quiet_when_nothing_is_hidden() {
         "nothing was filtered, so stderr must stay quiet: {stderr}"
     );
 }
+
+// ── Envelope safety (SR-1) ───────────────────────────────────────────
+
+/// A VM whose `azlin-session` tag is a JSON-breaking string.
+///
+/// Azure resource tags are writable by anyone holding Contributor on the
+/// resource group, who is not necessarily the person running `azlin list`.
+/// So every tag value is untrusted input that reaches a JSON document another
+/// program parses.
+fn vm_with_hostile_session_tag(session: &str) -> String {
+    format!(
+        r#"[{{
+          "name": "azt1",
+          "resourceGroup": "rysweet-linux-vm-pool",
+          "location": "eastus",
+          "powerState": "VM running",
+          "provisioningState": "Succeeded",
+          "hardwareProfile": {{ "vmSize": "Standard_D4s_v3" }},
+          "storageProfile": {{
+            "osDisk": {{ "osType": "Linux" }},
+            "imageReference": {{ "offer": "ubuntu-24_04-lts" }}
+          }},
+          "osProfile": {{ "adminUsername": "azureuser" }},
+          "publicIps": "",
+          "privateIps": "10.0.0.1",
+          "tags": {{ "azlin-session": {} }}
+        }}]"#,
+        serde_json::Value::String(session.to_string())
+    )
+}
+
+/// The envelope must be built as one `serde_json::Value` and serialised once --
+/// never by `format!`-ing a pre-serialised array into a string template.
+///
+/// The `filters` object added by #1142 holds only integers, so it cannot be
+/// forged. The surface that *can* is the one that was always there: `session`
+/// carries a tenant-controlled tag value straight into the payload. This test
+/// pins that a value chosen to close the string and open a sibling key stays a
+/// single opaque string -- so a future refactor that reaches for string
+/// concatenation to bolt metadata onto the envelope fails here rather than in
+/// somebody's automation.
+#[test]
+fn hostile_tag_value_cannot_forge_json_structure() {
+    // Closes `"session": "`, opens a fake `injected` key, and leaves the
+    // document balanced if -- and only if -- the value was not escaped.
+    const HOSTILE: &str = r#"a","injected":"x"#;
+
+    let sandbox = Sandbox::new(&vm_with_hostile_session_tag(HOSTILE));
+    let (stdout, _stderr, code) = sandbox.run(&formatted_list_args("json"));
+    assert_eq!(code, 0, "json list should succeed: {stdout}");
+
+    let payload: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("stdout must still be valid JSON ({e}): {stdout}"));
+
+    let vms = payload["vms"]
+        .as_array()
+        .unwrap_or_else(|| panic!("payload must have a `vms` array: {stdout}"));
+    assert_eq!(vms.len(), 1, "{stdout}");
+
+    let vm = vms[0].as_object().expect("VM entry must be an object");
+    assert_eq!(
+        vm["session"], HOSTILE,
+        "the tag value must survive as one literal string: {stdout}"
+    );
+    assert!(
+        !vm.contains_key("injected"),
+        "a tag value must not be able to add a key: {stdout}"
+    );
+
+    // And it must not have escaped into the result-level metadata either.
+    let filters = payload["filters"]
+        .as_object()
+        .unwrap_or_else(|| panic!("payload must have a `filters` object: {stdout}"));
+    assert_eq!(
+        filters.len(),
+        3,
+        "`filters` carries exactly three integer counts: {stdout}"
+    );
+    for (key, value) in filters {
+        assert!(
+            value.is_u64(),
+            "`filters.{key}` must be an integer, never a caller-controlled string: {stdout}"
+        );
+    }
+    assert_eq!(
+        payload.as_object().map(serde_json::Map::len),
+        Some(2),
+        "the envelope has exactly `vms` and `filters`: {stdout}"
+    );
+}
