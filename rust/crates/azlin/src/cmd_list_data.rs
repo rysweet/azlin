@@ -2770,8 +2770,9 @@ mod probe_route_tests {
         );
     }
 
-    /// `collect_health_data` used to skip any VM with no recorded IP, which
-    /// dropped bastion-only VMs that were in fact reachable through a tunnel.
+    /// The health sweep, now `collect_health_and_storage`, used to skip any VM
+    /// with no recorded IP, which dropped bastion-only VMs that were in fact
+    /// reachable through a tunnel.
     #[test]
     fn a_vm_with_no_recorded_ip_is_still_reachable_through_its_bastion() {
         let vm = VmInfo {
@@ -2863,7 +2864,7 @@ mod silent_degradation_tests {
         assert_eq!(direct_fallback_host(Some("fd00::4")), Some("fd00::4"));
     }
 
-    /// `collect_health_data` flattens the address with `unwrap_or_default()`,
+    /// `collect_health_and_storage` flattens the address with `unwrap_or_default()`,
     /// so "this VM has no private IP" reaches the fallback as `""`. Treating
     /// that as an address builds `ssh user@`, which is not a probe: it fails
     /// slowly and for a reason that has nothing to do with the VM.

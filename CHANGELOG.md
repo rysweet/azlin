@@ -20,8 +20,8 @@ only ever auto-increments the patch within the `MAJOR.MINOR` it reads from
 
 ### Changed
 - **`azlin list` discovers bastion routing once per command instead of once per
-  enrichment collector** — `collect_tmux_sessions`, `collect_health_data` and
-  `collect_procs` each discovered routing for themselves, so
+  enrichment collector** — `collect_tmux_sessions`, `collect_health_and_storage`
+  and `collect_procs` each discovered routing for themselves, so
   `azlin list --with-health --show-procs` ran `az network bastion list` three
   times per resource group to compute the same `BastionMap` three times, and the
   operator watched three spinners re-derive one answer. `az` costs about 0.9s of
@@ -440,7 +440,7 @@ only ever auto-increments the patch within the `MAJOR.MINOR` it reads from
   `collect_procs` only ever tried direct SSH to `public_ip` or `private_ip`, so
   for a bastion-only VM on a network the operator could not route to, the
   `Procs` column was permanently empty with no indication why. It now takes
-  the same bastion path `collect_health_data` uses, via `bastion_ssh_exec`. The
+  the same bastion path the health sweep uses, via `bastion_ssh_exec`. The
   routing decision is a pure `probe_route` function returning
   `ProbeRoute::Bastion`, `ProbeRoute::Direct` or `ProbeRoute::Unreachable`,
   decided before any connection is attempted, so it is unit-tested
@@ -463,7 +463,7 @@ only ever auto-increments the patch within the `MAJOR.MINOR` it reads from
   target VM, plus the SSH key). The command remains restricted to the executable
   path (`awk '{print $11}'`) and never emits process arguments
 - **`azlin list --with-health` no longer skips VMs that have no IP address at
-  all** — `collect_health_data` bailed out of each VM before consulting the
+  all** — the health sweep bailed out of each VM before consulting the
   bastion map unless the VM had a public or private IP recorded, so a
   bastion-only VM whose private IP was absent from the listing was dropped
   even though it was reachable through its bastion. A VM is now skipped only
@@ -539,7 +539,7 @@ only ever auto-increments the patch within the `MAJOR.MINOR` it reads from
   arbitrarily now that the candidate list can span resource groups
 - **`azlin list --with-health` now falls back to the direct address when the
   bastion fails** — the health collector was the one collector that computed a
-  fallback address and never used it. `collect_health_data` resolved the VM's
+  fallback address and never used it. The sweep resolved the VM's
   private IP into `ip` and passed it to `collect_health_metrics`, but that
   function ignores `ip` entirely whenever a bastion route is present, so a
   tunnel outage blanked the `CPU%`, `Mem%` and `Disk%` cells instead of
