@@ -454,9 +454,14 @@ pub(crate) fn failed_sections(output: &str) -> Vec<String> {
         .find_map(|line| line.strip_prefix("azlin_failed_sections:"))
         .unwrap_or("")
         .split(',')
-        .map(str::trim)
-        .map(azlin_core::sanitizer::printable)
-        .filter(|s| !s.is_empty())
+        // Trim after stripping as well as before: a leading `\u{202e}` is not
+        // whitespace, so it survives the first trim and leaves the space
+        // behind it when it is removed. `probe_failure_note` orders the two
+        // the same way, and the same rule applied two ways in two readers is
+        // the drift this shared predicate exists to end.
+        .map(|name| azlin_core::sanitizer::printable(name.trim()))
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
         .collect()
 }
 

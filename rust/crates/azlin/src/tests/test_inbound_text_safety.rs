@@ -77,6 +77,14 @@ fn a_section_name_stripped_to_nothing_is_dropped_not_printed_blank() {
 }
 
 #[test]
+fn a_stripped_section_name_does_not_keep_the_space_behind_it() {
+    // The order-of-operations trap. `\u{202e}` is not whitespace, so it
+    // survives a trim; removing it afterwards leaves the space it was hiding.
+    let output = "status: azlin-degraded\nazlin_failed_sections: \u{202e} disk-home ,\u{200f}apt\n";
+    assert_eq!(failed_sections(output), vec!["disk-home", "apt"]);
+}
+
+#[test]
 fn no_failed_sections_line_is_no_sections() {
     assert!(failed_sections("status: azlin-ok\n").is_empty());
     assert!(failed_sections("status: azlin-ok\nazlin_failed_sections: \n").is_empty());
