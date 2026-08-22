@@ -147,33 +147,39 @@ azlin  # Uses my-dev-rg automatically
 
 ### 2. List VMs
 
-**List all VMs:**
+**List running VMs (the default):**
 ```bash
 azlin list
 ```
 
 **Output:**
 ```
-Listing VMs in resource group: my-dev-rg
+┌─────────────┬────────────────────────┬────────────────┬─────────┬───────────────────┬────────────────┬─────┬────────┐
+│ Session     │ Tmux                   │ OS             │ Status  │ IP                │ Region         │ CPU │    Mem │
+├─────────────┼────────────────────────┼────────────────┼─────────┼───────────────────┼────────────────┼─────┼────────┤
+│ my-project  │ main, debug            │ Ubuntu 24.04   │ Running │ 20.12.34.56 (Pub) │ eastus         │   2 │   8 GB │
+│ -           │ -                      │ Ubuntu 24.04   │ Running │ 10.0.0.4 (Bast)   │ westus2        │   4 │  16 GB │
+└─────────────┴────────────────────────┴────────────────┴─────────┴───────────────────┴────────────────┴─────┴────────┘
 
-====================================================================================================
-NAME                      STATUS    IP              REGION    SIZE              TMUX SESSIONS
-====================================================================================================
-azlin-20241009-120000     Running   1.2.3.4         eastus    Standard_D2s_v3   main, debug
-azlin-20241008-180000     Stopped   N/A             westus2   Standard_B2s      (no sessions)
-====================================================================================================
-
-Total: 2 VMs
+Total: 2 VMs | 2 running | 4 hidden (stopped/deallocated)
+Hidden VMs still bill for attached storage. Run 'azlin list --all' to include them.
 ```
 
 **Visual Styling**: Connected tmux sessions appear in **bold** text, disconnected sessions appear dim. This helps you quickly identify where your active work is located.
 
 **Example**: If session "main" is connected (bold) and "debug" is disconnected (dim), you know someone is actively using the main session.
 
+**Hidden VMs**: `azlin list` shows running VMs only, and reports how many it hid.
+Stopped and deallocated VMs keep their managed disks, which bill either way — see
+[Filter Disclosure](https://rysweet.github.io/azlin/vm-lifecycle/filter-disclosure/).
+
 **List all including stopped:**
 ```bash
-azlin list --all
+azlin list --all            # or: azlin list --include-stopped
 ```
+
+Note: `-a` / `--show-all-vms` scans all resource groups. It is a different flag
+and does not reveal stopped VMs.
 
 **List specific resource group:**
 ```bash

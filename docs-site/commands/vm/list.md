@@ -26,7 +26,7 @@ azlin list [OPTIONS]
 |--------|------|-------------|
 | `--resource-group, --rg TEXT` | Name | Resource group to list VMs from (default: from config) |
 | `--config PATH` | File | Path to custom config file (default: `~/.azlin/config.toml`) |
-| `--all` | Flag | Show all VMs including stopped/deallocated ones (default: running only) |
+| `--all`, `--include-stopped` | Flag | Include stopped/deallocated VMs in the listed resource group (default: running only). Not the same as `-a` |
 | `--tag TEXT` | Key or Key=Value | Filter VMs by tag (format: `key` or `key=value`) |
 | `-q, --quota` | Flag | Append a `vCPU Quota:` section: the region's `az vm list-usage` vCPU rows, printed as `az` formats them (default: off) |
 | `--show-tmux [true\|false]` | Flag | Show/hide active tmux sessions (default: show). `--no-tmux` is shorthand for `--show-tmux false` |
@@ -36,7 +36,7 @@ azlin list [OPTIONS]
 | `--vm-pattern TEXT` | Glob Pattern | Filter VMs by name pattern |
 | `-c, --compact` | Flag | Narrower columns for constrained terminals |
 | `--no-cache` | Flag | Skip the cache and fetch fresh data |
-| `-a, --show-all-vms` | Flag | List ALL VMs across ALL resource groups (expensive operation) |
+| `-a, --show-all-vms` | Flag | Scan ALL resource groups (expensive operation). Still running-only — combine with `--all` for stopped VMs too |
 | `--all-contexts` | Flag | List VMs across all configured contexts (requires context setup) |
 | `--contexts TEXT` | Glob Pattern | List VMs from contexts matching pattern (e.g., `prod*`, `dev-*`) |
 | `-w, --wide` | Flag | **NEW in v0.3.2** - Prevent VM name truncation in output |
@@ -46,6 +46,44 @@ azlin list [OPTIONS]
 `azlin -o json list`. Tmux and health data are *collected* in every output
 format and *emitted* in all three. Process data is collected in every format but
 only rendered in the table — see [Limitations](#limitations).
+
+### JSON is an object, not an array
+
+!!! warning "Breaking change"
+    `azlin -o json list` previously emitted a bare array of VM objects. It now
+    emits an object: the VM array moved under a `vms` key, alongside a `filters`
+    object reporting how many rows each filter removed.
+
+    ```json
+    {
+      "filters": {
+        "dropped_by_pattern": 0,
+        "dropped_by_tag": 0,
+        "hidden_not_running": 4
+      },
+      "vms": [ /* per-VM objects, unchanged */ ]
+    }
+    ```
+
+    **Migrate `jq '.[]'` to `jq '.vms[]'`.** Per-VM objects are unchanged — same
+    keys, same types, same values. Keys serialise alphabetically.
+
+    `filters` is **always present with all three keys**, including when nothing
+    was hidden, so a consumer never has to distinguish a missing key from `0`.
+
+    Watch for `jq 'length'`, which returns `2` against the envelope — the key
+    count, not a VM count. It exits `0`, so nothing flags it. Use
+    `jq '.vms | length'`.
+
+`-o csv` is unaffected: stdout keeps the same header and rows. When a filter
+dropped rows, the disclosure is written to **stderr** — the same
+`Note: {n} hidden (stopped/deallocated).` line the `-o json` run writes, plus
+the `--all` remedy when the running filter was the cause. Nothing is written
+when nothing was dropped. A consumer that needs the counts as data should read
+them from the `-o json` `filters` envelope rather than parse stderr.
+
+See [Filter Disclosure](../../vm-lifecycle/filter-disclosure.md) for the full
+contract, counter semantics, and migration table.
 
 ## Examples
 
@@ -171,7 +209,12 @@ The `azlin list` command displays a table with the following columns:
 
 **Footer:** a one-line summary — `Total: <N> VMs | <M> running`, with
 `| <K> tmux sessions` appended when any sessions were found. It counts VMs, not
-vCPUs.
+vCPUs. When a filter dropped rows, the line gains one clause per filter that
+actually dropped something, e.g.
+`Total: 2 VMs | 2 running | 4 hidden (stopped/deallocated)`, followed by
+`Hidden VMs still bill for attached storage. Run 'azlin list --all' to include them.`
+when the running-only default was the cause. See
+[Filter Disclosure](../../vm-lifecycle/filter-disclosure.md).
 
 ### Example Output
 
@@ -447,21 +490,30 @@ See [`azlin context`](../context/index.md) for context management.
 
 ### No VMs Listed
 
-**Symptoms:** Empty table or "No VMs found" message.
+**Symptoms:** Empty table, or fewer VMs than you expected.
 
-**Solutions:**
+**Check the footer first.** `azlin list` reports what its filters removed, which
+separates "the resource group is empty" from "everything was filtered out":
+
+```
+Total: 0 VMs | 0 running | 2 excluded by --vm-pattern | 4 hidden (stopped/deallocated)
+```
+
+| Footer clause | Fix |
+|---------------|-----|
+| `{n} excluded by --tag` | Drop or correct `--tag` |
+| `{n} excluded by --vm-pattern` | Widen or drop `--vm-pattern` |
+| `{n} hidden (stopped/deallocated)` | `azlin list --all` |
+| No extra clause on the `Total:` line | Nothing was filtered — check the resource group and your login |
+
 ```bash
-# Verify resource group is correct
+# Nothing was hidden, so verify where you are pointed
 azlin list --rg <your-rg>
-
-# Check if VMs are stopped
-azlin list --all
-
-# Verify authentication
 az account show
 
-# Try cross-RG scan
-azlin list --show-all-vms
+# Scan every resource group (still running-only; add --all for stopped VMs)
+azlin list -a
+azlin list -a --all
 ```
 
 ### Quota Section Is Empty
@@ -649,3 +701,4 @@ link to no longer exist.
 - [Context Management](../context/index.md)
 - [Tag Management](tag.md)
 - [Native Bastion Tunnel](../../bastion/native-tunnel.md) - How VMs with no public IP are reached, and why each one needs its own tunnel
+- [Filter Disclosure](../../vm-lifecycle/filter-disclosure.md) - How `azlin list` reports the VMs its filters hid, in table, JSON and CSV

@@ -155,13 +155,27 @@ pub(crate) async fn dispatch(
                                 } else {
                                     format!("subscription: {sub}")
                                 };
-                                println!(
+                                // This banner is a human grouping marker for
+                                // the table. On stdout it corrupts the machine
+                                // formats: it makes `-o json --all-contexts`
+                                // unparseable and grows `-o csv` a bogus
+                                // record. Same rule as the filter disclosure --
+                                // stdout belongs to the consumer, so in those
+                                // formats the banner goes to stderr, where an
+                                // operator still reads it and `jq` never sees
+                                // it (#1142).
+                                let banner = format!(
                                     "── context: {} ({}, rg: {}) — {} VMs ──",
                                     crate::cmd_list_data::sanitize_remote_text(&ctx.name),
                                     crate::cmd_list_data::sanitize_remote_text(&origin),
                                     crate::cmd_list_data::sanitize_remote_text(&rg),
                                     vms.len()
                                 );
+                                if matches!(output, azlin_cli::OutputFormat::Table) {
+                                    println!("{banner}");
+                                } else {
+                                    eprintln!("{banner}");
+                                }
                                 aggregated.extend(vms);
                             }
                             Err(e) => {
@@ -200,7 +214,10 @@ pub(crate) async fn dispatch(
 
             // Filter stopped VMs unless --all/--include-stopped,
             // then by tag and name pattern.
-            crate::list_helpers::apply_filters(
+            // Capture what was removed. Every listing path -- default, `-a`,
+            // `--all-contexts` -- converges on this one already-aggregated
+            // vec, so a single report covers all of them (#1142).
+            let filters = crate::list_helpers::apply_filters(
                 &mut all_vms,
                 include_all,
                 tag.as_deref(),
@@ -494,17 +511,39 @@ pub(crate) async fn dispatch(
                     health_data: &health_data,
                     storage_data: &storage_data,
                     proc_data: &proc_data,
+                    filters,
                 },
             )?;
 
+            // The restore still runs in every format -- it opens terminal
+            // tabs, which is what was asked for. Only its narration is gated:
+            // on stdout it landed after the payload and made
+            // `azlin -o json list --restore` unparseable (#1142).
             if restore && !tmux_sessions.is_empty() {
-                crate::cmd_list_data::restore_tmux_sessions(&tmux_sessions, true);
+                crate::cmd_list_data::restore_tmux_sessions_reporting(
+                    &tmux_sessions,
+                    true,
+                    matches!(output, azlin_cli::OutputFormat::Table),
+                );
             }
 
-            // Show quota summary if requested
+            // Show quota summary if requested.
+            //
+            // `az vm list-usage --output table` returns a rendered ASCII table,
+            // and there is no JSON or CSV shape for it here. Printed to stdout
+            // it appended prose to the payload, so `azlin -o json list --quota`
+            // emitted a valid document followed by an `az` table and failed to
+            // parse. It goes to stderr in the machine formats for the same
+            // reason the filter disclosure does: a human at a terminal still
+            // reads it, and a parser never sees it (#1142).
+            let quota_to_stdout = matches!(output, azlin_cli::OutputFormat::Table);
             if quota {
                 let _rg = resolve_rg()?;
-                println!("\nvCPU Quota:");
+                if quota_to_stdout {
+                    println!("\nvCPU Quota:");
+                } else {
+                    eprintln!("\nvCPU Quota:");
+                }
                 // Quota is per-region, so it must be read for the region the
                 // active context selects — not the global config default.
                 let quota_location = &crate::active_context::resolve_region(
@@ -525,7 +564,12 @@ pub(crate) async fn dispatch(
                     ])
                     .output()?;
                 if output.status.success() {
-                    print!("{}", String::from_utf8_lossy(&output.stdout));
+                    let table = String::from_utf8_lossy(&output.stdout);
+                    if quota_to_stdout {
+                        print!("{table}");
+                    } else {
+                        eprint!("{table}");
+                    }
                 }
             }
         }

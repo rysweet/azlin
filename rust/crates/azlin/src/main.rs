@@ -1300,6 +1300,9 @@ mod health_render;
 /// Pure helpers for filtering VMs in the list handler.
 mod list_helpers;
 
+/// Wording for the disclosure that says what `azlin list` filtered out.
+mod list_disclosure;
+
 /// Pure helpers for validating repository URLs against shell injection.
 #[allow(dead_code)]
 mod repo_helpers;

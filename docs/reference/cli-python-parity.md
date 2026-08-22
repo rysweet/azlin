@@ -178,7 +178,7 @@ azlin list [OPTIONS]
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--resource-group`, `--rg` | `TEXT` | config default | Azure resource group |
-| `--all` | flag | `false` | Show all VMs including stopped |
+| `--all` | flag | `false` | Include stopped/deallocated VMs (default is running-only) |
 | `--tag` | `TEXT` | — | Filter VMs by tag (format: key or key=value) |
 | `--show-tmux` | flag | `true` | Show active tmux sessions (use `--no-tmux` to disable) |
 | `--no-tmux` | flag | `false` | Disable tmux session checking |
@@ -189,7 +189,7 @@ azlin list [OPTIONS]
 | `-c`, `--compact` | flag | `false` | Compact output |
 | `--no-cache` | flag | `false` | Skip cache, fetch fresh data |
 | `-q`, `--quota` | flag | `false` | Show vCPU quota summary |
-| `-a`, `--show-all-vms` | flag | `false` | Scan all resource groups |
+| `-a`, `--show-all-vms` | flag | `false` | Scan all resource groups — **not** the same as `--all`, and does not include stopped VMs |
 | `--vm-pattern` | `TEXT` | — | Filter VMs by name pattern (glob) |
 | `--include-stopped` | flag | `false` | Include stopped/deallocated VMs (alias for `--all`) |
 | `--all-contexts` | flag | `false` | List VMs across all contexts |
@@ -213,6 +213,39 @@ azlin list --vm-pattern "dev-*" --verbose
 # List VMs in a specific resource group
 azlin list --rg production-rg
 ```
+
+### Filter disclosure
+
+`azlin list` shows running VMs by default. Whenever the default filter, `--tag`,
+or `--vm-pattern` removes rows, the command reports how many it removed:
+
+```
+Total: 2 VMs | 2 running | 4 hidden (stopped/deallocated)
+Hidden VMs still bill for attached storage. Run 'azlin list --all' to include them.
+```
+
+Nothing extra is printed when no rows were removed.
+
+The same counts reach machine-readable output. `--output json` wraps the VM
+array in an envelope carrying a `filters` object; `--output csv` leaves stdout
+untouched and writes the disclosure to stderr when a count is nonzero.
+
+```json
+{
+  "filters": {
+    "dropped_by_pattern": 0,
+    "dropped_by_tag": 0,
+    "hidden_not_running": 4
+  },
+  "vms": [ /* unchanged per-VM objects */ ]
+}
+```
+
+> **Breaking:** `--output json` previously emitted a bare array. Replace
+> `jq '.[]'` with `jq '.vms[]'`.
+
+See [Filter Disclosure in `azlin list`](https://rysweet.github.io/azlin/vm-lifecycle/filter-disclosure/)
+for counter semantics, the `--all` vs `-a` distinction, and scripting recipes.
 
 ---
 

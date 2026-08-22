@@ -47,6 +47,7 @@
 - [Auto-Detect Resource Group](./features/auto-detect-rg.md)
 - [NAT Gateway Egress for Private VMs](./features/nat-gateway-egress.md)
 - [Health TUI Dashboard](./features/health-tui-dashboard.md)
+- [Filter Disclosure in `azlin list`](https://rysweet.github.io/azlin/vm-lifecycle/filter-disclosure/) — why `azlin list` hides VMs, and how it now tells you (published docs site)
 - [Session Restore](./features/session-restore.md)
 - [Tmux Session Status](./features/tmux-session-status.md)
 - [VM Lifecycle Automation](./features/vm-lifecycle-automation.md)

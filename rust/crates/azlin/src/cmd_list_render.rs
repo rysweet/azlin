@@ -1,9 +1,25 @@
 //! Rendering logic for the list command (table, JSON, CSV output).
 #![allow(dead_code)]
 
+use crate::list_disclosure;
+use crate::list_helpers::FilterCounts;
 use anyhow::Result;
 use azlin_core::models::VmInfo;
 use std::collections::HashMap;
+
+/// Write the filter disclosure (#1142) to stderr, or nothing if nothing was
+/// filtered.
+///
+/// `-o json` and `-o csv` own their stdout: prose there would corrupt a payload
+/// piped into `jq` or Python's `csv`, and CSV has no metadata channel at all (a
+/// `#` comment is a bogus record; an extra column vanishes precisely when the
+/// result set is empty). stderr reaches the operator at a terminal and never
+/// reaches the parser -- the channel `azlin list` already uses for such notes.
+fn disclose_on_stderr(filters: &FilterCounts) {
+    for line in list_disclosure::stderr_lines(filters) {
+        eprintln!("{line}");
+    }
+}
 
 /// Configuration for list rendering.
 pub(crate) struct ListRenderConfig<'a> {
@@ -25,6 +41,10 @@ pub(crate) struct ListRenderData<'a> {
     pub health_data: &'a HashMap<String, crate::HealthMetrics>,
     pub storage_data: &'a HashMap<String, azlin_azure::disk_layout::StorageStatus>,
     pub proc_data: &'a HashMap<String, String>,
+    /// What `apply_filters` removed on the way here. Carried by value (it is
+    /// three `usize`s) so every renderer can disclose it -- the whole point of
+    /// #1142 is that no output surface gets to stay silent about it.
+    pub filters: FilterCounts,
 }
 
 /// Render the list output in the configured format.
@@ -615,7 +635,7 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
         .count();
     let total_tmux: usize = data.tmux_sessions.values().map(|v| v.len()).sum();
     println!();
-    let summary = if total_tmux > 0 {
+    let mut summary = if total_tmux > 0 {
         format!(
             "Total: {} VMs | {} running | {} tmux sessions",
             total, running, total_tmux
@@ -623,12 +643,31 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
     } else {
         format!("Total: {} VMs | {} running", total, running)
     };
+    // The disclosure (#1142) extends the summary line rather than starting a new
+    // one: the footer is the line an operator actually reads, and it is the line
+    // that used to say `Total: 2 VMs | 2 running` while four VMs quietly billed
+    // for 11.7 TB of disk. The suffix is empty when nothing was filtered, so an
+    // unfiltered listing is byte-for-byte unchanged. Both lines are coloured as
+    // a whole, never mid-string, so the text stays greppable in captured output.
+    summary.push_str(&list_disclosure::summary_suffix(&data.filters));
     println!("{}", bold(&summary));
+    if let Some(remedy) = list_disclosure::remedy_line(&data.filters) {
+        println!("{}", dim(remedy));
+    }
     if !cfg.show_all_vms {
         println!();
         println!("{}", dim("Hints:"));
-        for (flag, desc) in [
-            ("azlin list -a", "Show all VMs across all resource groups"),
+        // `--all` leads, because it is the flag the disclosure above points at.
+        // `-a` used to read "Show all VMs across all resource groups", which is
+        // near enough to "show all VMs" to be read as the stopped-VM reveal --
+        // a plausible contributor to the original incident. It now says what it
+        // is and what it is not.
+        let hints = [
+            ("azlin list --all", "Include stopped/deallocated VMs"),
+            (
+                "azlin list -a",
+                "Scan all resource groups (not the same as --all)",
+            ),
             ("azlin list -w", "Wide mode (show VM Name, SKU columns)"),
             (
                 "azlin list -r",
@@ -636,8 +675,19 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
             ),
             ("azlin list -q", "Show quota usage (slower)"),
             ("azlin list -v", "Verbose mode (show tunnel/SSH details)"),
-        ] {
-            println!("  {}  {}", cyan(flag), dim(desc));
+        ];
+        // Pad against the *plain* flag: `format!("{:<16}", cyan(flag))` would
+        // count the ANSI escape bytes and pad every row short. Before `--all`
+        // joined the block every flag was 13 characters and the column aligned
+        // by accident.
+        let width = hints.iter().map(|(f, _)| f.len()).max().unwrap_or(0);
+        for (flag, desc) in hints {
+            println!(
+                "  {}{}  {}",
+                cyan(flag),
+                " ".repeat(width.saturating_sub(flag.len())),
+                dim(desc)
+            );
         }
     }
 }
@@ -713,7 +763,27 @@ fn render_json(cfg: &ListRenderConfig, data: &ListRenderData) -> Result<()> {
             obj
         })
         .collect();
-    println!("{}", serde_json::to_string_pretty(&json_vms)?);
+    // BREAKING (#1142): this was a bare top-level array. A bare array has
+    // nowhere to put result-level metadata, and the filter counts have to reach
+    // machine consumers -- a monitor that reads `azlin list` and sees two VMs
+    // is exactly the reader the silent filter misled. `.[]` becomes `.vms[]`.
+    //
+    // `filters` is always present with all three keys, zeros included. The
+    // "say nothing when nothing was hidden" rule governs human output; a key
+    // that appears only sometimes would force every consumer to tell `null`
+    // from `0`, which is a defect generator.
+    //
+    // Built as one `Value` and serialised once -- no fragment splicing.
+    let payload = serde_json::json!({
+        "vms": json_vms,
+        "filters": {
+            "hidden_not_running": data.filters.hidden_not_running,
+            "dropped_by_tag": data.filters.dropped_by_tag,
+            "dropped_by_pattern": data.filters.dropped_by_pattern,
+        },
+    });
+    println!("{}", serde_json::to_string_pretty(&payload)?);
+    disclose_on_stderr(&data.filters);
     Ok(())
 }
 
@@ -843,6 +913,8 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
         }
         println!("{}", row);
     }
+
+    disclose_on_stderr(&data.filters);
 }
 
 #[cfg(test)]

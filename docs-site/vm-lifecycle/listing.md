@@ -26,6 +26,7 @@ The `azlin list` command provides a comprehensive view of your VMs with:
 - **Tmux sessions** - Active tmux sessions per VM
 - **Session names** - Custom labels for VMs
 - **Tag filtering** - Filter by Azure tags
+- **Filter disclosure** - Reports how many VMs its filters hid, and how to see them
 - **Multi-context support** - View VMs across multiple Azure contexts
 
 ## Command Reference
@@ -82,6 +83,51 @@ azlin list --wide
 NAME                      STATUS    IP ADDRESS       REGION    SIZE    vCPUs
 very-long-vm-name-dev-01  Running   20.51.23.145     eastus    l       32
 ```
+
+## What the Default Listing Hides
+
+`azlin list` shows **running VMs only** by default. It reports what it left out.
+
+```bash
+azlin list
+```
+
+```
+Total: 2 VMs | 2 running | 4 hidden (stopped/deallocated)
+Hidden VMs still bill for attached storage. Run 'azlin list --all' to include them.
+```
+
+The `Total:` line gains a clause for each filter that dropped rows — the default
+running-only filter, `--tag`, or `--vm-pattern`:
+
+```
+Total: 0 VMs | 0 running | 2 excluded by --vm-pattern | 4 hidden (stopped/deallocated)
+```
+
+When nothing was dropped the footer is exactly what it always was, and the
+remedy line is not printed at all.
+
+This matters for cost, not just for completeness. A deallocated VM stops billing
+for compute but **keeps its attached managed disks**, and those disks bill at
+full rate indefinitely. Before this disclosure existed, a resource group could
+hold terabytes of Premium SSD attached to machines the default listing never
+mentioned.
+
+To see them:
+
+```bash
+azlin list --all
+```
+
+!!! warning "`--all` and `-a` are different flags"
+    `--all` includes **stopped and deallocated VMs** in the current resource
+    group. `-a` / `--show-all-vms` scans **all resource groups** and is still
+    running-only. Reaching for `-a` when you meant `--all` gives you a wider
+    listing with the same blind spot. Combine them (`azlin list --all -a`) for
+    every VM in every resource group.
+
+**See:** [Filter Disclosure](filter-disclosure.md) for the JSON and CSV
+representations, the exact counter semantics, and scripting recipes.
 
 ## Common Usage Patterns
 
@@ -347,15 +393,32 @@ azlin list --all > vm-inventory.txt
 
 ### No VMs Shown
 
+**Read the footer first.** If a filter dropped rows, the listing says so and
+tells you which filter did it:
+
+```
+Total: 0 VMs | 0 running | 2 excluded by --vm-pattern | 4 hidden (stopped/deallocated)
+```
+
+That line distinguishes the two cases that used to look identical — an empty
+resource group, and a resource group whose VMs were all filtered out. Match the
+clause to the fix:
+
+| Footer clause | Cause | Fix |
+|---------------|-------|-----|
+| `{n} excluded by --tag` | The tag filter matched nothing | Drop `--tag`, or check the tag with `azlin list --all` |
+| `{n} excluded by --vm-pattern` | The name pattern matched nothing | Widen or drop `--vm-pattern` |
+| `{n} hidden (stopped/deallocated)` | The VMs exist but are stopped or deallocated | `azlin list --all` |
+| No extra clause on the `Total:` line | Nothing was filtered — the resource group really is empty, or you are pointed at the wrong one | Check the resource group and your Azure login |
+
 ```bash
-# Check resource group
+# Nothing was hidden, so check where you are pointed
 azlin list --rg <your-rg>
+az account show
 
-# Include stopped VMs
-azlin list --all
-
-# Check all resource groups
-azlin list --show-all-vms
+# Look in every resource group (still running-only — add --all for stopped VMs)
+azlin list -a
+azlin list -a --all
 ```
 
 ### Quota Not Showing
@@ -397,6 +460,10 @@ azlin list --contexts "production"
 - [`azlin status`](start-stop.md) - Check VM status
 - [`azlin session`](sessions.md) - Manage session names
 - [`azlin tag`](../commands/vm/tag.md) - Manage VM tags
+
+## Related Guides
+
+- [Filter Disclosure](filter-disclosure.md) - How `azlin list` reports the VMs its filters hid
 
 ## Source Code
 
