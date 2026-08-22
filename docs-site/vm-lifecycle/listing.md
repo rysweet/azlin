@@ -101,7 +101,7 @@ The `Total:` line gains a clause for each filter that dropped rows — the defau
 running-only filter, `--tag`, or `--vm-pattern`:
 
 ```
-Total: 0 VMs | 0 running | 4 hidden (stopped/deallocated) | 2 excluded by --vm-pattern
+Total: 0 VMs | 0 running | 2 excluded by --vm-pattern | 4 hidden (stopped/deallocated)
 ```
 
 When nothing was dropped the footer is exactly what it always was, and the
@@ -397,7 +397,7 @@ azlin list --all > vm-inventory.txt
 tells you which filter did it:
 
 ```
-Total: 0 VMs | 0 running | 4 hidden (stopped/deallocated) | 2 excluded by --vm-pattern
+Total: 0 VMs | 0 running | 2 excluded by --vm-pattern | 4 hidden (stopped/deallocated)
 ```
 
 That line distinguishes the two cases that used to look identical — an empty
@@ -406,9 +406,9 @@ clause to the fix:
 
 | Footer clause | Cause | Fix |
 |---------------|-------|-----|
-| `{n} hidden (stopped/deallocated)` | The VMs exist but are stopped or deallocated | `azlin list --all` |
 | `{n} excluded by --tag` | The tag filter matched nothing | Drop `--tag`, or check the tag with `azlin list --all` |
 | `{n} excluded by --vm-pattern` | The name pattern matched nothing | Widen or drop `--vm-pattern` |
+| `{n} hidden (stopped/deallocated)` | The VMs exist but are stopped or deallocated | `azlin list --all` |
 | No extra clause on the `Total:` line | Nothing was filtered — the resource group really is empty, or you are pointed at the wrong one | Check the resource group and your Azure login |
 
 ```bash

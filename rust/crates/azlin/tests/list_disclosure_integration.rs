@@ -218,8 +218,20 @@ fn default_table_discloses_hidden_non_running_vms() {
         stdout.contains("stopped/deallocated"),
         "the disclosure must say *why* they are hidden: {stdout}"
     );
+    // Assert the *remedy sentence*, not just the flag name. `azlin list --all`
+    // on its own is a useless assertion: the hints block prints that exact
+    // string on every run, so this test passed with the remedy `println!`
+    // deleted from `render_table` entirely -- i.e. with the cost message the
+    // whole incident was about missing from the screen. The literal below
+    // appears nowhere but the disclosure.
     assert!(
-        stdout.contains("azlin list --all"),
+        stdout.contains("Hidden VMs still bill for attached storage."),
+        "the disclosure must state the cost consequence, which is the reason \
+         #1142 mattered -- 11.7 TB of Premium SSD billed against machines the \
+         listing did not mention: {stdout}"
+    );
+    assert!(
+        stdout.contains("Run 'azlin list --all' to include them."),
         "the disclosure must name the flag that reveals them -- note `-a` is \
          --show-all-vms (scan all resource groups), a different flag: {stdout}"
     );
@@ -289,13 +301,60 @@ fn table_discloses_rows_excluded_by_vm_pattern() {
         "unexpected summary: {stdout}"
     );
     assert!(
-        stdout.contains("2 excluded") && stdout.contains("--vm-pattern"),
-        "an empty result must name the pattern that emptied it: {stdout}"
+        stdout.contains("6 excluded") && stdout.contains("--vm-pattern"),
+        "an empty result must name the pattern that emptied it, and the count \
+         is all six -- the pattern runs before the running-only default, so it \
+         sees the whole fetched set: {stdout}"
     );
-    // The power-state filter still ran first and still dropped four.
+    // The pattern removed everything before the running filter ran, so nothing
+    // was hidden *from this listing*. Claiming otherwise would be a lie about
+    // the operator's query, and would drag in a remedy that does not apply.
     assert!(
-        stdout.contains("4 hidden"),
-        "the power-state disclosure must survive alongside the pattern one: {stdout}"
+        !stdout.contains("hidden"),
+        "nothing was hidden from a listing the pattern had already emptied: {stdout}"
+    );
+    assert!(
+        !stdout.contains("bill for attached storage"),
+        "`--all` would not bring back rows the pattern excluded, so advising it \
+         here would send the operator to a different question's answer: {stdout}"
+    );
+}
+
+/// The hidden count must describe *the operator's query*, not the resource
+/// group. This is the case that made group-wide counting indefensible: the
+/// remedy says "run `azlin list --all`", and the number next to it has to be
+/// what that command would actually add back to *this* listing.
+#[test]
+fn hidden_count_is_scoped_to_the_pattern_the_operator_typed() {
+    let sandbox = Sandbox::new(&six_vm_pool());
+    let (stdout, _stderr, code) = sandbox.run(&list_args(&["--vm-pattern", "dev*"]));
+    assert_eq!(code, 0, "list --vm-pattern should succeed: {stdout}");
+
+    // Pool: azt1, dev (Running); deva2, deva3, ia2 (Deallocated);
+    // test-lifecycle-vm (Stopped). `dev*` matches dev, deva2, deva3.
+    assert!(
+        stdout.contains("Total: 1 VMs"),
+        "only the running `dev` matches the pattern: {stdout}"
+    );
+    assert!(
+        stdout.contains("3 excluded") && stdout.contains("--vm-pattern"),
+        "azt1, ia2 and test-lifecycle-vm do not match `dev*`: {stdout}"
+    );
+    assert!(
+        stdout.contains("2 hidden"),
+        "deva2 and deva3 -- the two hidden machines `--all` would add to THIS \
+         listing. The pool holds four non-running VMs, but ia2 and \
+         test-lifecycle-vm do not match the pattern and are not what the \
+         remedy is offering: {stdout}"
+    );
+    assert!(
+        !stdout.contains("4 hidden"),
+        "reporting the resource group's four would misattribute two machines \
+         the operator did not ask about: {stdout}"
+    );
+    assert!(
+        stdout.contains("Hidden VMs still bill for attached storage."),
+        "two of the operator's own dev machines are billing; say so: {stdout}"
     );
 }
 

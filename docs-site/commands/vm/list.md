@@ -496,14 +496,14 @@ See [`azlin context`](../context/index.md) for context management.
 separates "the resource group is empty" from "everything was filtered out":
 
 ```
-Total: 0 VMs | 0 running | 4 hidden (stopped/deallocated) | 2 excluded by --vm-pattern
+Total: 0 VMs | 0 running | 2 excluded by --vm-pattern | 4 hidden (stopped/deallocated)
 ```
 
 | Footer clause | Fix |
 |---------------|-----|
-| `{n} hidden (stopped/deallocated)` | `azlin list --all` |
 | `{n} excluded by --tag` | Drop or correct `--tag` |
 | `{n} excluded by --vm-pattern` | Widen or drop `--vm-pattern` |
+| `{n} hidden (stopped/deallocated)` | `azlin list --all` |
 | No extra clause on the `Total:` line | Nothing was filtered — check the resource group and your login |
 
 ```bash

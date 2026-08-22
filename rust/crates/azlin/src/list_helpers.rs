@@ -33,12 +33,27 @@ pub fn filter_by_pattern(vms: &mut Vec<VmInfo>, pattern: &str) {
 /// renderer can say what it left out.
 ///
 /// The counts are **stage-local and order-dependent**. [`apply_filters`] runs
-/// running -> tag -> pattern, and each field records what *that* stage removed
+/// tag -> pattern -> running, and each field records what *that* stage removed
 /// from whatever survived the stages before it. They are not independent
 /// "would have been excluded" figures: a deallocated VM that also fails the tag
-/// filter is counted once, under `hidden_not_running`, because that is the
-/// stage that actually removed it. So the three fields sum to the number of
-/// rows that vanished, and never double-count.
+/// filter is counted once, under `dropped_by_tag`, because that is the stage
+/// that actually removed it. So the three fields sum to the number of rows that
+/// vanished, and never double-count.
+///
+/// # Why the running filter runs *last*
+///
+/// Every stage is an independent [`Vec::retain`], so the surviving set is the
+/// same whatever order they run in. The *attribution* is not. Running the
+/// explicit filters first scopes `hidden_not_running` to the query the operator
+/// actually typed: `azlin list --vm-pattern dev` reports how many **dev**
+/// machines are hidden, not how many machines are hidden in the resource group.
+///
+/// That matters because `hidden_not_running` is what triggers the
+/// `Run 'azlin list --all' to include them.` advice. Counting group-wide made
+/// that advice wrong in the common case -- in a 100-VM group with 90 stopped,
+/// `--vm-pattern dev` would report "90 hidden" and point at a command that
+/// discards the pattern. Scoped to the query, the count is the number `--all`
+/// would actually add back to *this* listing.
 ///
 /// A stage that does not run reports `0` — with `--all`, `hidden_not_running`
 /// is always `0` because the running filter never executed.
@@ -57,9 +72,11 @@ pub fn filter_by_pattern(vms: &mut Vec<VmInfo>, pattern: &str) {
 /// Only the filter knows what the filter removed.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FilterCounts {
-    /// Removed by the default running-only filter (stopped, deallocated, ...).
+    /// Removed by the default running-only filter (stopped, deallocated, ...),
+    /// from what survived `--tag` and `--vm-pattern` -- so this counts VMs
+    /// hidden *from the operator's query*, not from the whole resource group.
     pub hidden_not_running: usize,
-    /// Removed by `--tag`, from what survived the running filter.
+    /// Removed by `--tag`, from the full set the listing fetched.
     pub dropped_by_tag: usize,
     /// Removed by `--vm-pattern`, from what survived the tag filter.
     pub dropped_by_pattern: usize,
@@ -80,10 +97,13 @@ impl FilterCounts {
     }
 }
 
-/// Apply all three optional filters in order: stopped, tag, pattern.
+/// Apply all three optional filters in order: tag, pattern, stopped.
 ///
-/// Returns what each stage removed. Filtering behaviour is unchanged; the
-/// return value is new (#1142).
+/// Returns what each stage removed. The surviving set is unchanged -- every
+/// stage is an independent `retain`, so order does not affect *which* VMs
+/// remain, only which stage gets the credit for removing them. The running
+/// filter runs last so `hidden_not_running` is scoped to the operator's query;
+/// see [`FilterCounts`]. The return value is new (#1142).
 ///
 /// Deliberately **not** `#[must_use]`: several existing tests call this purely
 /// for its effect on `vms` and discard the result, and CI runs
@@ -100,11 +120,6 @@ pub fn apply_filters(
     // every stage is a `retain`, and an underflow here would not panic in
     // release — it would wrap to 18446744073709551615 and print that at the
     // operator, and feed it to JSON consumers.
-    if !include_all {
-        let before = vms.len();
-        filter_running(vms);
-        counts.hidden_not_running = before.saturating_sub(vms.len());
-    }
     if let Some(t) = tag {
         let before = vms.len();
         filter_by_tag(vms, t);
@@ -114,6 +129,13 @@ pub fn apply_filters(
         let before = vms.len();
         filter_by_pattern(vms, p);
         counts.dropped_by_pattern = before.saturating_sub(vms.len());
+    }
+    // Last, so the count is "hidden from what you asked for" rather than
+    // "hidden in the resource group". See `FilterCounts`.
+    if !include_all {
+        let before = vms.len();
+        filter_running(vms);
+        counts.hidden_not_running = before.saturating_sub(vms.len());
     }
     counts
 }
@@ -422,10 +444,10 @@ mod tests {
 
     #[test]
     fn counts_attribute_each_drop_to_the_filter_that_made_it() {
-        // dev-2 is dropped by the power-state filter and would *also* have
-        // failed the pattern; it must be counted once, against the filter
-        // that actually removed it. Otherwise the disclosure over-reports and
-        // the numbers stop adding up against the fetched total.
+        // A VM that would fail more than one stage is counted once, against
+        // the stage that actually removed it. Otherwise the disclosure
+        // over-reports and the numbers stop adding up against the fetched
+        // total. Stage order is tag -> pattern -> running.
         let mut vms = vec![
             make_vm_tagged("dev-1", PowerState::Running, "env", "dev"),
             make_vm_tagged("dev-2", PowerState::Deallocated, "env", "dev"),
@@ -433,16 +455,84 @@ mod tests {
         ];
         let counts = apply_filters(&mut vms, false, Some("env=dev"), Some("nomatch"));
         assert!(vms.is_empty());
-        assert_eq!(counts.hidden_not_running, 1, "dev-2, and only dev-2");
-        assert_eq!(counts.dropped_by_tag, 1, "prod-1, from the surviving two");
+        assert_eq!(counts.dropped_by_tag, 1, "prod-1, from the fetched three");
         assert_eq!(
-            counts.dropped_by_pattern, 1,
-            "dev-1, from the surviving one"
+            counts.dropped_by_pattern, 2,
+            "dev-1 and dev-2, from the surviving two"
+        );
+        assert_eq!(
+            counts.hidden_not_running, 0,
+            "the pattern already removed dev-2; the running filter saw nothing"
         );
         assert_eq!(
             counts.total_dropped(),
             3,
             "the three drops must sum to the three VMs that vanished"
+        );
+    }
+
+    /// The reason the running filter runs last (#1146 review).
+    ///
+    /// `hidden_not_running` drives the `Run 'azlin list --all'` advice, so it
+    /// has to mean "hidden from the listing you asked for". Counting the whole
+    /// resource group made that advice wrong: the operator asked about `dev`
+    /// and was told about machines `--all` would not have shown them either.
+    #[test]
+    fn hidden_count_is_scoped_to_the_operators_query_not_the_resource_group() {
+        let mut vms = vec![
+            make_vm("dev-1", PowerState::Running),
+            make_vm("dev-2", PowerState::Deallocated),
+            // Nine unrelated stopped machines elsewhere in the group.
+            make_vm("prod-1", PowerState::Deallocated),
+            make_vm("prod-2", PowerState::Deallocated),
+            make_vm("prod-3", PowerState::Stopped),
+        ];
+        let counts = apply_filters(&mut vms, false, None, Some("dev*"));
+
+        assert_eq!(vms.len(), 1, "only the running dev machine survives");
+        assert_eq!(
+            counts.hidden_not_running, 1,
+            "dev-2 only -- the three stopped prod machines are not something \
+             `--all` would add to a --vm-pattern dev listing"
+        );
+        assert_eq!(counts.dropped_by_pattern, 3, "the prod machines");
+        assert_eq!(counts.total_dropped(), 4);
+    }
+
+    /// Reordering the stages must not change *which* VMs survive -- only which
+    /// stage is credited. Every stage is an independent `retain`, so this is a
+    /// property, not a coincidence.
+    #[test]
+    fn stage_order_does_not_change_the_surviving_set() {
+        let fixture = || {
+            vec![
+                make_vm_tagged("dev-1", PowerState::Running, "env", "dev"),
+                make_vm_tagged("dev-2", PowerState::Deallocated, "env", "dev"),
+                make_vm_tagged("prod-1", PowerState::Running, "env", "prod"),
+                make_vm_tagged("prod-2", PowerState::Stopped, "env", "prod"),
+            ]
+        };
+
+        let mut via_apply = fixture();
+        let counts = apply_filters(&mut via_apply, false, Some("env=dev"), Some("dev*"));
+
+        // The old order, applied by hand: running -> tag -> pattern.
+        let mut by_hand = fixture();
+        filter_running(&mut by_hand);
+        filter_by_tag(&mut by_hand, "env=dev");
+        filter_by_pattern(&mut by_hand, "dev*");
+
+        let names = |v: &[VmInfo]| v.iter().map(|x| x.name.clone()).collect::<Vec<_>>();
+        assert_eq!(
+            names(&via_apply),
+            names(&by_hand),
+            "reordering the stages changed the result set, which means one of \
+             them is not a pure predicate"
+        );
+        assert_eq!(
+            counts.total_dropped(),
+            3,
+            "and the counts still account for every vanished row"
         );
     }
 

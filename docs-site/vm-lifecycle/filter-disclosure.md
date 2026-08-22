@@ -54,8 +54,13 @@ Two consequences that are easy to get backwards:
   flag — *not* `--all`. So a plain `azlin list` and an `azlin list --all` both
   render the new hints.
 
-**CSV stdout is the only surface with an unconditional byte-identical
-guarantee.** That is the one anything already parsing `azlin list` depends on.
+**CSV stdout is the only surface that still matches the previous release
+byte for byte.** That is the one anything already parsing `azlin list` depends
+on. Note the "stdout" — the guarantee does not survive `2>&1`. `azlin list -o
+csv > out.csv 2>&1` merges the disclosure into the file and yields two records
+that are not VMs. That shape is not hypothetical: `rust/scripts/capture_golden.sh`
+used it and had to be changed. Redirect stdout alone, or send stderr to
+`/dev/null`.
 
 ## What the table shows
 
@@ -93,9 +98,9 @@ and only when that counter is nonzero:
 
 | Counter              | Clause                             |
 | -------------------- | ---------------------------------- |
-| `hidden_not_running` | `{n} hidden (stopped/deallocated)` |
 | `dropped_by_tag`     | `{n} excluded by --tag`            |
 | `dropped_by_pattern` | `{n} excluded by --vm-pattern`     |
+| `hidden_not_running` | `{n} hidden (stopped/deallocated)` |
 
 `hidden` for the first and `excluded` for the other two is deliberate. The
 running filter removes rows nobody asked it to remove — that is the incident.
@@ -151,14 +156,18 @@ azlin list --vm-pattern "staging-"
 ```
 
 ```
-Total: 0 VMs | 0 running | 4 hidden (stopped/deallocated) | 2 excluded by --vm-pattern
-Hidden VMs still bill for attached storage. Run 'azlin list --all' to include them.
+Total: 0 VMs | 0 running | 6 excluded by --vm-pattern
 ```
 
 The table still renders with headers and an empty body. Previously an empty
 table was indistinguishable from an empty resource group; now the footer says
-which filters emptied it — here, the running filter took four and the pattern
-took the two that were left.
+which filter emptied it — here the pattern matched none of the six VMs, so it
+took all of them.
+
+Note what is *absent*: no `hidden` clause and no `--all` remedy. Nothing was
+hidden from this listing by the running-only default, because the pattern had
+already removed everything before that stage ran. Advising `--all` here would be
+wrong — it would drop your pattern and show you a different question's answer.
 
 ### Several filters at once
 
@@ -167,12 +176,12 @@ azlin list --tag env=prod --vm-pattern "web-"
 ```
 
 ```
-Total: 1 VMs | 1 running | 4 hidden (stopped/deallocated) | 1 excluded by --tag
-Hidden VMs still bill for attached storage. Run 'azlin list --all' to include them.
+Total: 0 VMs | 0 running | 5 excluded by --tag | 1 excluded by --vm-pattern
 ```
 
-Here `--vm-pattern` contributed no clause: after the running and tag filters ran,
-every surviving VM matched `web-`, so its counter was zero.
+Clauses appear in the order the stages ran: `--tag` took five of the six, and
+`--vm-pattern` took the one that was left. The running-only default then had
+nothing to consider, so there is no `hidden` clause and no remedy line.
 
 ### Nothing was hidden
 
@@ -296,6 +305,13 @@ stdout stays a clean payload for `jq`; stderr carries the sentence. Nothing is
 written to stderr when all counters are zero — the envelope on stdout is the
 machine-readable answer either way.
 
+That guarantee required fixing two older call sites that wrote to stdout without
+checking the output format: the `── context: … ──` banner on `--all-contexts`,
+and the `vCPU Quota:` heading and `az vm list-usage` table on `--quota`. Before
+this change `azlin -o json list --quota` emitted a valid JSON document followed
+by an ASCII table, which `jq` rejects. Both now follow the same rule and go to
+stderr whenever the format is not `Table`.
+
 ### CSV
 
 CSV stdout is untouched: same header row, same data rows, no trailer, no comment
@@ -340,22 +356,37 @@ pub struct FilterCounts {
 }
 ```
 
-Filters run in a fixed order: **running → tag → pattern** (`list_helpers.rs`,
+Filters run in a fixed order: **tag → pattern → running** (`list_helpers.rs`,
 `apply_filters`). Each counter records how many VMs *that stage* removed, from
 whatever survived the previous stages. They are stage-local deltas, not
 independent "would have been dropped" figures.
+
+Every stage is an independent `Vec::retain`, so the order does not change *which*
+VMs survive — only which stage is credited with removing them. The running filter
+runs **last** on purpose. That scopes `hidden_not_running` to the query you
+actually typed: `azlin list --vm-pattern dev` tells you how many *dev* machines
+are hidden, not how many machines are hidden in the resource group. Since
+`hidden_not_running` is what triggers the `--all` advice, group-wide counting
+made that advice wrong in the common case — in a 100-VM group with 90 stopped,
+`--vm-pattern dev` would have reported "90 hidden" and pointed at a command that
+discards your pattern.
 
 Consider three VMs: `web-1` (Running, `env=prod`), `web-2` (Deallocated,
 `env=prod`), `db-1` (Deallocated, `env=dev`). Running `azlin list --tag env=dev`
 reports:
 
-- `hidden_not_running: 2` — `web-2` and `db-1` are removed first
-- `dropped_by_tag: 1` — only `web-1` reached the tag stage, and it does not match
+- `dropped_by_tag: 2` — `web-1` and `web-2` are `env=prod`, removed first
 - `dropped_by_pattern: 0` — no pattern was given
+- `hidden_not_running: 1` — only `db-1` reached the running stage, and it is
+  Deallocated
 
-`db-1` is counted once, under `hidden_not_running`, even though the tag filter
-would also have excluded it. The counters sum to the number of rows removed, and
+`web-2` is counted once, under `dropped_by_tag`, even though the running filter
+would also have removed it. The counters sum to the number of rows removed, and
 never double-count.
+
+The `hidden_not_running: 1` is the useful number here: it says one of *your*
+`env=dev` machines is hidden and billing, which is exactly what `--all` would
+add back to this listing.
 
 A stage that does not run reports `0`. `--all` therefore always reports
 `hidden_not_running: 0`, because the running filter did not execute.

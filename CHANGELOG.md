@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Release lineage
+
+This release is **2.7.0**, a minor bump rather than the usual patch. `azlin -o
+json list` changes shape (see below), and this file claims SemVer adherence, so
+a breaking wire-format change cannot ship inside 2.6.x. The release workflow
+only ever auto-increments the patch within the `MAJOR.MINOR` it reads from
+`rust/Cargo.toml`, so the minor is moved by hand here — in `rust/Cargo.toml`,
+`rust/pyproject.toml`, `src/azlin/__init__.py` and `rust/Cargo.lock`. The root
+`pyproject.toml` is deliberately untouched: it is a separate version lineage.
+(#1142)
+
 ### Changed
 - **`azlin list` discovers bastion routing once per command instead of once per
   enrichment collector** — `collect_tmux_sessions`, `collect_health_data` and
@@ -66,13 +77,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exactly the case a bare array cannot express. `filters` is always present with
   all three keys, including when every count is zero, so consumers never have to
   distinguish a missing key from `0` (#1142)
-- `azlin -o csv list` stdout is unchanged — same header, same rows, no trailer
-  and no comment line. When a filter removed rows, the disclosure is written to
-  **stderr**, so `-o csv` redirected to a file is byte-identical to before. This
-  is the only output surface with an unconditional byte-identical guarantee.
-  `-o json` writes the same lines to stderr for the same reason: stdout belongs
-  to the consumer, and the `filters` envelope there is the machine-readable
-  answer (#1142)
+- `azlin -o csv list` **stdout** is unchanged — same header, same rows, no
+  trailer and no comment line. When a filter removed rows, the disclosure is
+  written to **stderr**. The guarantee is on stdout specifically, and it is not
+  unconditional across redirections: `azlin list -o csv > out.csv 2>&1` merges
+  the disclosure into the file and produces two bogus records. That shape is not
+  hypothetical — `rust/scripts/capture_golden.sh` used it, and had to be changed
+  in this branch. Redirect stdout alone (`> out.csv`), or discard stderr
+  (`2>/dev/null`), and the bytes match the previous release exactly. `-o json`
+  writes the same lines to stderr for the same reason: stdout belongs to the
+  consumer, and the `filters` envelope there is the machine-readable answer
+  (#1142)
+- **`azlin list` no longer writes human prose to stdout in the machine formats.**
+  Two call sites predate the `-o json` / `-o csv` split and printed
+  unconditionally: the `── context: … — N VMs ──` banner on the `--all-contexts`
+  path, and the `vCPU Quota:` heading plus the `az vm list-usage` table on the
+  `--quota` path. Both corrupted the payload — `azlin -o json list --quota`
+  emitted a valid document followed by an ASCII table and so failed to parse in
+  `jq`, and `-o csv` grew records that were not VMs. Both now go to stderr when
+  the output format is not `Table`, which is the rule the new filter disclosure
+  already follows: stdout belongs to the consumer, stderr carries anything a
+  human needs. Table output is unchanged. (#1142)
 
 ### Fixed
 - **`azlin list --show-procs --all-contexts` no longer attributes one

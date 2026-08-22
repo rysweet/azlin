@@ -35,17 +35,6 @@ pub const HIDDEN_REMEDY: &str =
 /// ran. Empty when nothing was removed.
 fn clauses(counts: &FilterCounts) -> Vec<String> {
     let mut out = Vec::new();
-    if counts.hidden_not_running > 0 {
-        // "hidden" rather than "excluded": these rows were removed by a default
-        // the operator never asked for, which is a different thing from a
-        // filter they typed. The parenthetical says which states qualify,
-        // because "not running" alone reads as "broken" rather than "costing
-        // you money while switched off".
-        out.push(format!(
-            "{} hidden (stopped/deallocated)",
-            counts.hidden_not_running
-        ));
-    }
     if counts.dropped_by_tag > 0 {
         out.push(format!("{} excluded by --tag", counts.dropped_by_tag));
     }
@@ -53,6 +42,21 @@ fn clauses(counts: &FilterCounts) -> Vec<String> {
         out.push(format!(
             "{} excluded by --vm-pattern",
             counts.dropped_by_pattern
+        ));
+    }
+    if counts.hidden_not_running > 0 {
+        // "hidden" rather than "excluded": these rows were removed by a default
+        // the operator never asked for, which is a different thing from a
+        // filter they typed. The parenthetical says which states qualify,
+        // because "not running" alone reads as "broken" rather than "costing
+        // you money while switched off".
+        //
+        // Last, matching the stage order in `apply_filters`: the filters you
+        // typed narrowed the set, and this is what the default then removed
+        // from what was left.
+        out.push(format!(
+            "{} hidden (stopped/deallocated)",
+            counts.hidden_not_running
         ));
     }
     out
@@ -163,10 +167,13 @@ mod tests {
 
     #[test]
     fn clauses_appear_in_stage_order() {
+        // tag -> pattern -> running, matching `apply_filters`. The filters the
+        // operator typed come first; what the default then removed from the
+        // remainder comes last.
         assert_eq!(
             summary_suffix(&counts(4, 3, 2)),
-            " | 4 hidden (stopped/deallocated) | 3 excluded by --tag \
-             | 2 excluded by --vm-pattern"
+            " | 3 excluded by --tag | 2 excluded by --vm-pattern \
+             | 4 hidden (stopped/deallocated)"
         );
     }
 
@@ -176,7 +183,7 @@ mod tests {
         assert_eq!(
             lines,
             [
-                "Note: 4 hidden (stopped/deallocated), 2 excluded by --vm-pattern.",
+                "Note: 2 excluded by --vm-pattern, 4 hidden (stopped/deallocated).",
                 HIDDEN_REMEDY,
             ]
         );
