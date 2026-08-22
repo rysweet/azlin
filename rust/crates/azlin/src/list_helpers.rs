@@ -226,13 +226,23 @@ pub(crate) fn first_reportable_line(stderr: &str) -> &str {
     }
 }
 
-/// [`detect_bastion_hosts`] for callers that have no spinner to clear and no
-/// better message to give than the failure itself.
+/// [`detect_bastion_hosts`] for callers with no better message to give than the
+/// failure itself.
 ///
 /// Degrades to an empty list, exactly as before, but says so. Without this the
 /// `unwrap_or_default()` these callers used to write turned an authorization
 /// failure into "this group has no bastion", and every private VM they went on
 /// to build an SSH target for failed later with a cause the operator never saw.
+///
+/// Prints immediately, so it is only fully effective for a caller with no
+/// spinner live at the time. Most have none, and `cmd_monitoring` moves its
+/// lookup above the spinner for exactly this reason. Two do not: `azlin batch`
+/// holds a spinner across `resolve_fleet_targets`, which reaches here, so
+/// `indicatif` erases the line before it can be read. Those two are still
+/// better off than the silent `unwrap_or_default()` they replaced, and fixing
+/// them properly means changing how `azlin batch` reports progress rather than
+/// anything here -- tracked in #1143. Do not read the absence of a warning on
+/// that path as the absence of a failure.
 ///
 /// Both halves are sanitized: the resource group name is chosen by whoever
 /// created it and `az` quotes it back into its own error text, so an escape
