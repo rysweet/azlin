@@ -9,7 +9,7 @@ The `azlin list` command displays all azlin-managed VMs in table format, showing
 **Key features:**
 - Fast listing of VMs in configured resource group (default)
 - Filter by tags for organizational queries
-- Show quota usage and remaining capacity with `-q`
+- Show the region's vCPU usage and quota limits with `-q` (azlin prints Azure's own figures; it does not compute remaining capacity for you)
 - Display active tmux sessions per VM
 - Multi-context support for complex Azure setups
 - Prevent VM name truncation with `--wide` flag
@@ -468,7 +468,8 @@ azlin list --show-all-vms
 
 **Symptoms:** `-q` prints the `vCPU Quota:` heading and nothing under it, which
 means the underlying `az vm list-usage` call failed or returned no vCPU rows for
-the region.
+the region. azlin does not currently distinguish the two — the failure is not
+reported (tracked in #1145) — so run the command yourself to see the cause.
 
 **Solutions:**
 ```bash
