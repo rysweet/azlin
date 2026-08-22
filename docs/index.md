@@ -17,6 +17,8 @@
 - [Configuration: Terminal/Restore](./reference/configuration-reference.md) — Terminal launcher and restore settings
 - [Azure CLI Detection](./reference/azure-cli-detection.md) — WSL2 az CLI detection logic
 - [NAT Gateway Provisioning](./reference/nat-gateway-provisioning.md) — Egress detection, commands, and module API
+- [`azlin list` Enrichment and Output Safety](./reference/list-enrichment-scope.md) — Subscription gating, bastion lookup budget, sanitisation and CSV quoting
+- [Doc-Code Reference Check](./reference/doc-code-reference-check.md) — The CI gate that fails when docs cite symbols that do not exist
 
 ## How-To Guides
 

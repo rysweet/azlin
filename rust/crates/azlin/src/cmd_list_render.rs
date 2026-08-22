@@ -824,11 +824,14 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
         // early and let a listed VM inject rows of its own into the CSV a
         // script goes on to parse.
         //
-        // Record injection is closed; *field* injection is not. Fields are
-        // still emitted unquoted, so a comma in an Azure name shifts every
-        // column after it by one. That is tracked separately (#1133) because
-        // the fix is to quote per RFC 4180, not to strip more characters --
+        // Record injection and field injection are both closed: every
+        // free-form field is sanitised and then quoted per RFC 4180 by
+        // `csv_field`, so a comma in an Azure name can no longer shift the
+        // columns after it. Quoting rather than stripping is deliberate --
         // stripping would silently rename a VM in output a script parses.
+        // The residual is formula evaluation, not delimiter shifting: a value
+        // opening with `=`, `+`, `-` or `@` is still evaluated by a
+        // spreadsheet, which quoting does not address.
         let disp = VmDisplayText::for_vm(vm);
         let tmux = data
             .tmux_sessions
