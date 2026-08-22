@@ -1132,6 +1132,12 @@ mod tests {
             health_data: &health_data,
             storage_data: &storage_data,
             proc_data: &proc_data,
+            // Nothing was filtered on the way to this row, which is what
+            // all-zeros means (#1146). `csv_row` never reads it -- the
+            // disclosure #1146 added lands on stderr from `render_csv`, not
+            // in the record -- so this pins the quoting behaviour under test
+            // without dragging the disclosure into it.
+            filters: FilterCounts::default(),
         };
 
         let headers = csv_headers(&cfg);
