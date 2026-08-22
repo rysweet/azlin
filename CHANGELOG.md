@@ -57,19 +57,20 @@ only ever auto-increments the patch within the `MAJOR.MINOR` it reads from
 - **`azlin list` discovers bastion routing once per command instead of once per
   enrichment collector** — `collect_tmux_sessions`, `collect_health_and_storage`
   and `collect_procs` each discovered routing for themselves, so
-  `azlin list --with-health --show-procs` ran `az network bastion list` three
-  times per resource group to compute the same `BastionMap` three times, and the
-  operator watched three spinners re-derive one answer. `az` costs about 0.9s of
-  process start alone before the ARM round-trip, so a five-resource-group
-  listing spent at least nine seconds on ten redundant lookups. Discovery is a
-  pure function of the VM list, so it is now done once by the caller and lent to
-  every collector. Callers that run a single collector go through the new
-  `discover_bastions_async`, which is also where the `spawn_blocking` hop and
-  the discovery-failed warning now live.
-- **…and on the default path it costs no `az` call at all** — collapsing three
-  collector sweeps into one still left that one sweep next to another. Table
-  output draws an "Azure Bastion Hosts" table, which looks bastions up across
-  every resource group in the listing, and the groups routing needs are a
+  `azlin list --with-health --show-procs` ran `az network bastion list` once per
+  collector per resource group to compute the same `BastionMap` three times
+  over, and the operator watched the spinners re-derive one answer. Each call
+  pays process start plus an ARM round trip, so the waste scaled with the number
+  of resource groups in the listing. Discovery is a pure function of the VM
+  list, so it is now done once by the caller and lent to every collector.
+  Callers that run a single collector go through the new
+  `discover_bastions_async`, which starts from an empty cache and delegates to
+  `discover_bastions_async_reusing` — the shared body, and where the
+  `spawn_blocking` hop and the discovery-failed warning now live.
+- **…and on the default path it costs no `az` call at all** — collapsing the
+  three collector sweeps into one still left that one sweep next to another.
+  Table output draws an "Azure Bastion Hosts" table, which looks bastions up
+  across every resource group in the listing, and the groups routing needs are a
   *subset* of those — so the ordinary `azlin list`, with no flags, ran the table
   sweep and then asked `az` the same questions again for routing. The table's
   answers are now carried forward through `BastionLookups` and routing reads
@@ -191,20 +192,22 @@ only ever auto-increments the patch within the `MAJOR.MINOR` it reads from
   something that in fact ran nor stay silent about something that did not.
 - **SSH probes are bounded, and a failed process probe says so under
   `--verbose`** — the probe `JoinSet` had no limit: one `ssh` child per listed
-  VM, three pipe fds each, so a subscription with a few hundred running VMs ran
-  into the default 1024-fd limit and `cmd.output()` returned `EMFILE`. That was
-  reported only under `--verbose`, so on the default path those VMs rendered as
-  having no sessions -- silent degradation that worsens with fleet size, which
-  is the direction a fleet tool is used. At most 64 probes are now in flight.
+  VM, each holding a piped stdout and stderr, so a wide enough listing
+  exhausted the process descriptor limit and `cmd.output()` returned `EMFILE`.
+  That was reported only under `--verbose`, so on the default path those VMs
+  rendered as having no sessions -- silent degradation that worsens with fleet
+  size, which is the direction a fleet tool is used. At most 64 probes are now
+  in flight.
   Separately, the process probe collapsed spawn failure, timeout, refused auth
   and non-zero exit into a blank cell with no diagnostic at all, leaving no way
   to tell an idle VM from an unreachable one; the tmux probe had said this
   under `--verbose` all along.
 - **The `Storage` column shares the one bastion map and takes the same
   subscription gate** — it arrived (with the column itself) discovering routing
-  for itself, which is the cost this change exists to stop paying: a fifth
-  `az network bastion list` per resource group to recompute a map the caller
-  already holds, and a lookup failure with nowhere to report itself now that
+  for itself, which is the cost this change exists to stop paying: on a table
+  listing that is a fifth `az network bastion list` per resource group — the
+  table sweep plus one per collector — to recompute a map the caller already
+  holds, and a lookup failure with nowhere to report itself now that
   discovery hands its warnings back. It is read through an ARM id built from
   the probe subscription like its three siblings, so it is gated with them
   rather than on a second copy of the threshold.

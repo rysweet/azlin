@@ -65,6 +65,16 @@ this is a grep.
 *incorrectly* still passes. This check bounds one failure mode — dangling names
 — and makes no claim about the rest.
 
+**And it does not bound even that one completely.** The match is a fixed
+*substring*, not a whole-word one, so a citation that is a prefix of some other
+surviving symbol resolves against it. A document citing `discover_bastions`
+passes on `discover_bastions_async` long after `discover_bastions` itself is
+gone. Renaming by *extending* a name — appending a suffix such as "_async" is
+the common shape — is therefore the rename this check is least able to see.
+Tightening the match to
+a word boundary would catch it, at the cost of failing citations that name a
+method through its type or a macro-generated item.
+
 ## Scope
 
 Every document that describes Rust internals is checked. The scope is a list of
@@ -113,12 +123,15 @@ Add an entry here when a token is *permanently* not a Rust symbol.
 
 ### `STALE_DOCS` — document level
 
-Documents in scope that cite code deleted in the Python-to-Rust migration.
-Their citations do not resolve because the functions are gone, not because they
-were renamed — there is nothing to update the reference *to*. Each needs a
-rewrite against the Rust implementation, and each carries a reason saying so.
+Whole documents whose dangling citations cannot be fixed by correcting a name.
+Most entries cite code deleted in the Python-to-Rust migration: the functions
+are gone, so there is nothing to update the reference *to*, and the document
+needs a rewrite against the Rust implementation. Not all of them — one entry
+backticks hook keys from a planned config schema, names that were never Rust
+items in any language.
 
-Add an entry here only for a document awaiting that rewrite.
+Add an entry here only for a document that is wrong throughout, and say in its
+reason which case it is.
 
 ### The ratchet turns one way
 
@@ -131,9 +144,11 @@ that stopped being true. The list cannot outlive the problem it describes.
 
 ## The vacuous-pass guard
 
-The run fails if **no document anywhere named a Rust symbol**.
+The run fails if **no checked document named a Rust symbol**. Symbols in
+`STALE_DOCS` documents do not count towards it: a default run skips those
+documents, so their citations cannot satisfy the guard on their own.
 
-This is evaluated per run, not per document. Most pages in scope name no Rust
+This is evaluated per run, not per document. Many pages in scope name no Rust
 items at all, and that is normal — a how-to about `--show-all-vms` should not
 have to cite an internal function to satisfy a linter. But a run that finds a
 citation nowhere means the extraction has drifted from the documents, and the
@@ -153,7 +168,7 @@ python scripts/check_doc_code_references.py docs/features/tmux-session-status.md
 | Exit code | Meaning |
 |---|---|
 | `0` | Every citation in every checked document resolves |
-| `1` | At least one citation dangles, an exemption is stale, a named document is missing, or no symbol was found anywhere |
+| `1` | At least one citation dangles, an exemption is stale, a named document is missing, or no checked document named a symbol |
 
 Passing paths explicitly changes two behaviours, so that you can inspect a
 document the default run skips:
@@ -161,9 +176,17 @@ document the default run skips:
 - `STALE_DOCS` entries are **checked**, not skipped.
 - The `STALE_DOCS` ratchet is **not** evaluated.
 
-Successful output is one line per checked document: its path, then either the
-resolved-over-total ratio or `skipped` followed by that document's exemption
-reason verbatim.
+The vacuous-pass guard still applies, and it is scoped to the documents you
+named. Running the checker on a single in-scope document that cites no Rust
+symbol therefore exits 1 with the "no document named a Rust symbol" error —
+there, it means only that none of the named documents cited one, which is not a
+defect in that document.
+
+Output on a passing run is one line per document that was skipped or that cited
+at least one symbol: its path, then either the resolved-over-total ratio or
+`skipped` followed by that document's exemption reason verbatim. A document
+that was checked and cited nothing prints no line at all, so silence means
+"checked, cited nothing" rather than "not in scope".
 
 The ratios are deliberately not reproduced here — they move whenever any checked
 document is edited, and a hand-copied number going stale is the failure this
@@ -213,9 +236,12 @@ error: no document named a Rust symbol — the extraction in this script has
 drifted from the documents it checks
 ```
 
-The extraction is broken, or scope has collapsed. Do not silence this by adding
-a citation somewhere — check that the globs still match real files and that the
-symbol pattern still matches real names.
+On a default run, the extraction is broken or scope has collapsed. Do not
+silence this by adding a citation somewhere — check that the globs still match
+real files and that the symbol pattern still matches real names.
+
+When paths were passed explicitly it means only that none of those documents
+cited a symbol; re-run without arguments before treating it as a defect.
 
 ## CI wiring
 

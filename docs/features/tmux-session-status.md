@@ -267,7 +267,7 @@ candidate list can span resource groups.
 
 **How the SSH collectors pick a route.** `probe_route` is a pure function that
 decides once, before any connection is attempted, and returns one of three
-outcomes. Three of the four collectors — tmux, health and procs — share it, so
+outcomes. Every SSH collector — tmux, health, storage and procs — shares it, so
 they cannot drift into disagreeing about how a VM is reached. Latency is the
 exception described below: it never opens a tunnel, so it takes no bastion map
 and uses `latency_probe_host` instead.
@@ -296,8 +296,10 @@ filtering unreachable VMs first.
 The fallback hangs off the *transport* error only. A command that reached the
 VM and exited non-zero is that VM's own answer and is reported as such: retrying
 it at the private IP could reach a different host and attribute its output to
-this VM — a confidently wrong row, which is worse than an empty one. This is
-the same rule in all three collectors.
+this VM — a confidently wrong row, which is worse than an empty one. The
+never-retry half holds everywhere; the private-IP fallback itself is wired into
+the tmux and process collectors only, so health and storage give up on a
+transport error instead of retrying.
 
 Latency is the deliberate exception: it is never measured through a tunnel, and
 never falls back to one, because timing a tunnel measures the tunnel and the

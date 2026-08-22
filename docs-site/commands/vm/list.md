@@ -390,14 +390,26 @@ under the cap.
   parser will see.
 - **`-o csv` quotes its free-form fields but does not defuse formulas.** The
   `Tmux` column joins session names with `;` rather than `,` so it reads as one
-  field, and the session, `Tmux` and VM-name fields are quoted per RFC 4180 when
-  they contain a comma, a quote or a newline. Remote text is sanitised on the way
-  in — control characters, bidirectional overrides and zero-width characters are
-  stripped by `sanitize_remote_text` — but sanitising is not escaping, and
+  field, and *every* free-form field on the row — session, `Tmux`, VM name, OS,
+  address, region, SKU and the health agent status — is quoted per RFC 4180 when
+  it contains a comma, a quote or a newline. The remaining columns are an enum
+  or computed numbers, which carry no delimiter. Remote text is sanitised on the
+  way in — control characters, bidirectional overrides and zero-width characters
+  are stripped by `sanitize_remote_text` — but sanitising is not escaping, and
   neither is an allowlist: `parse_session_name` is not on this path. What is
   *not* handled is spreadsheet formula injection: a value beginning with `=`,
-  `+`, `-` or `@` is still evaluated on open. Prefer `-o json` for anything you
-  will open in a spreadsheet.
+  `+`, `-` or `@` is still evaluated on open. Quoting does not address it — a
+  quoted `"=1+1"` is still evaluated by Excel and Google Sheets. If you are
+  opening the file in a spreadsheet, import it as text rather than opening it
+  directly, or prefix suspect values with `'`.
+
+    Note that `-o json` is **not** a workaround for this: it does not apply
+    `sanitize_remote_text`, so Azure-supplied names reach JSON as Azure holds
+    them. `serde_json` escapes what JSON syntax requires — `0x00`–`0x1F`, `"`
+    and `\` — but `U+007F`, the C1 range and `U+2028` are emitted raw, so a
+    pipeline that prints a field to a terminal is printing unsanitised text.
+    JSON is the right choice for a program that parses it, not for a
+    spreadsheet.
 
 ## Performance Considerations
 
