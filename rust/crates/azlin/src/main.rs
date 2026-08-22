@@ -466,10 +466,11 @@ impl<'a> RoutedExec<'a> {
             // `collect_tmux_sessions` reaches that address by a different
             // route -- it demotes a VM with no open tunnel before issuing
             // anything, and does not retry once one is up -- so this arm is
-            // not the shape it uses. Health used to be handed a fallback
-            // address and never use it (`collect_storage_status` still is,
-            // and still does not), so a tunnel outage turned into empty
-            // CPU/Mem/Disk cells that read exactly like a healthy, idle
+            // not the shape it uses. Health and storage both are: they share
+            // one `RoutedExec` per VM, so this arm is the only fallback either
+            // has. Both were once handed a private address and never read it,
+            // and a tunnel outage turned into empty CPU/Mem/Disk cells and a
+            // blank `Storage` that read exactly like a healthy, idle
             // machine. No warning is printed here: the tmux collector runs by
             // default in the same invocation and already reports a failed
             // tunnel, and an unread metric renders as an uncoloured `-`

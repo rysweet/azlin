@@ -1061,11 +1061,13 @@ pub(crate) async fn collect_tmux_sessions(
             continue;
         }
         let route = probe_route(vm, bastion_map, subscription_id);
-        // A tunnel that failed to open is not the end of the road. The VM's
-        // private IP is routable for an operator on a VPN or peered network,
-        // and a listed session beats a blank cell that reads as "no sessions"
-        // — which is the #1127 symptom this module exists to remove. Demote
-        // such a plan to a direct probe instead of dropping the VM.
+        // No tunnel for this VM is not the end of the road, and there are two
+        // ways to have none: opening it failed, or the VM fell past
+        // `MAX_BASTION_TUNNELS_PER_RUN` and none was planned. Either way the
+        // VM's private IP is routable for an operator on a VPN or peered
+        // network, and a listed session beats a blank cell that reads as "no
+        // sessions" — which is the #1127 symptom this module exists to
+        // remove. Demote to a direct probe instead of dropping the VM.
         let route = match route {
             ProbeRoute::Bastion {
                 target,

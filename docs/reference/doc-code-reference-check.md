@@ -75,6 +75,23 @@ Tightening the match to
 a word boundary would catch it, at the cost of failing citations that name a
 method through its type or a macro-generated item.
 
+**A comment counts as an occurrence.** The grep does not distinguish code from
+comments, so a deleted symbol still resolves for as long as *any* `//` line
+under `rust/crates/` still names it — including a comment that is stale for the
+same reason the citation is. This is not hypothetical. While #1148 was open, #1153
+deleted the storage collector that four of this repository's documents cited by
+name. Every one of those citations went on resolving, because a single stale
+comment on the branch still spelled the deleted name — and the check stayed
+green until that comment was removed, at which point all four failed at once.
+Requiring the match to fall outside a comment would close the hole; that is a
+change to the checker and belongs in its own change, so what this document can
+do is say the hole is there.
+
+(The symbol is deliberately described rather than named here. Naming it would
+be a citation, and it would dangle — this document does not get to make the
+exact mistake it is warning about, and `NOT_SYMBOLS` is for tokens that were
+never Rust items, not a place to park one that has been deleted.)
+
 ## Scope
 
 Every document that describes Rust internals is checked. The scope is a list of

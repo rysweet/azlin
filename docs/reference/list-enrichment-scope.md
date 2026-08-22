@@ -122,8 +122,8 @@ Bastion routing is a pure function of the VM list. It is computed once by the
 caller and lent to every collector as a shared `BastionMap`, keyed by
 (resource group, region).
 
-`collect_tmux_sessions`, `collect_health_data`, `collect_storage_status` and
-`collect_procs` each used to call `discover_bastions_async` for themselves, so
+`collect_tmux_sessions`, `collect_health_and_storage` and `collect_procs` each
+used to call `discover_bastions_async` for themselves, so
 `azlin list --with-health --show-procs` re-derived the same answer once per
 collector per resource group and the operator watched the spinners repeat it.
 Each `az` invocation costs process start plus an ARM round trip, so the waste
@@ -201,18 +201,18 @@ report.**
   when that is all `az` said. An imprecise cause beats silence; a multi-line
   error blob that lets an extension warning be read as the cause of an
   authorization failure does not.
-- `collect_storage_status` ignores the probe only when it exited non-zero **and
-  printed nothing** — the same verdict `probe_vm_storage` reaches for the same
-  script under `azlin disk check`. A non-zero code alone is deliberately not
-  enough: on the bastion route that code belongs to `az network bastion ssh`,
-  not to the remote script, so a wrapper that exits non-zero after delivering
-  complete output would blank the `Storage` column here while the per-VM
-  command still reported a verdict for the same machine. That per-VM-versus-
-  fleet split is the failure `disk_layout` is shared to prevent. Nothing is
-  lost by parsing anyway: `parse_disk_probe` returns `Unknown` unless it finds
-  the trailing provisioning line *and* the expected number of disk lines, and
-  the probe emits that line last — so a script that died early yields no
-  verdict on its own.
+- `probe_storage` **discards the probe's exit code** and parses whatever it
+  printed. That is deliberate, not an oversight: on the bastion route the code
+  belongs to `az network bastion ssh`, not to the remote script, so treating a
+  non-zero code as disqualifying would blank the `Storage` column for a VM
+  whose probe in fact ran and printed a complete answer. Nothing is lost by
+  parsing regardless, because the parser carries the check instead —
+  `parse_disk_probe` returns `Unknown` unless it finds the trailing
+  provisioning line *and* the expected number of disk lines, and the probe
+  emits that line last, so a script that died early yields no verdict of its
+  own. `azlin disk check` reaches the same verdict for the same script through
+  `probe_vm_storage`; one function decides storage state, which is what stops
+  the per-VM command and the fleet column disagreeing about one machine.
 
 **Where this rule is not yet met.** `collect_procs` reports unevenly, and the
 two routes disagree about what a failure even is.
@@ -247,16 +247,25 @@ Where a fallback exists, a bastion route that fails to **carry** the command —
 transport error — retries once at the private address. A command that reached the
 VM and exited non-zero is that VM's own answer and is **never** retried: a retry
 could land on a different host and report its processes under this VM's name.
-That second half is the invariant. The fallback itself is uneven, and in three
-shapes. `collect_procs` reruns the failed command at the private address.
-`collect_health_metrics` does that too and then latches the tunnel as dead, so
-that VM's *remaining* probes go direct without attempting it -- it runs several
-commands per VM, and paying the bastion timeout on each would cost the whole
-listing (with no usable address to fall back to, it retries the tunnel instead
-of inventing a failure). `collect_tmux_sessions` does not retry at all: it
-swaps in the direct address *before* the command is issued, and only when no
-tunnel is open for that VM -- because opening it failed, or because the VM fell
-past `MAX_BASTION_TUNNELS_PER_RUN` and none was attempted. `collect_storage_status` simply gives up.
+That second half is the invariant. The fallback itself is uneven, in two
+shapes, and `collect_tmux_sessions` is now the only collector without one.
+
+`RoutedExec::run` holds the first shape, and health and storage share it
+because #1153 gave them one route per VM: a transport failure reruns the
+command at the private address and latches the tunnel dead, so that VM's
+*remaining* probes go direct without attempting it. Several commands run per
+VM, and paying the bastion timeout on each would cost the whole listing. The
+latch has one escape -- with no usable address to fall back to it retries the
+tunnel rather than inventing a failure the caller cannot tell from a real one.
+`collect_procs` has the second shape: its own copy of the rerun, without the
+latch, because it issues one command per VM and has nothing to latch for.
+
+`collect_tmux_sessions` does not retry at all. It swaps in the direct address
+*before* the command is issued, and only when *this run* holds no tunnel for
+that VM -- because opening it failed, or because the VM fell past
+`MAX_BASTION_TUNNELS_PER_RUN` and none was planned. Tunnels are pooled across
+commands, so that is narrower than "no tunnel exists". Once a tunnel is up, an
+`ssh` that fails or exits non-zero reports no sessions and stops.
 
 `probe_ssh_opts` builds the shared timeout, batch-mode and identity options for
 the collectors that spawn `ssh` directly. It **omits** `-i` entirely when the key
@@ -431,7 +440,7 @@ on a bare `azlin list` are not the one that is easiest to notice:
 - `collect_disk_configs` passes each VM's resource group straight into an
   `az vm list --resource-group` invocation, also with no validator. This one is
   **not** on the default path: it is reached only through
-  `collect_storage_status`, which is gated on `enrichment.health`. (It is also
+  `collect_health_and_storage`, which is gated on `enrichment.health`. (It is also
   why `--with-health` costs ARM queries as well as SSH probes — storage reads
   disk layout out of ARM before probing the host.)
 
