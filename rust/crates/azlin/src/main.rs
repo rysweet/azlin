@@ -1081,10 +1081,19 @@ Startup time ({:.1}ms) exceeds the <15ms target.",
         return Ok(());
     }
 
-    // Initialize tracing lazily -- only when verbose or RUST_LOG is set
+    // Initialize tracing lazily -- only when verbose or RUST_LOG is set.
+    //
+    // Diagnostics go to stderr, never stdout. stdout is the data channel: it
+    // carries the JSON/CSV payload a consumer parses, and `azlin list` now
+    // treats that purity as a contract rather than an accident. The default
+    // `tracing_subscriber::fmt()` writer is stdout, which put DEBUG lines --
+    // including the subscription ID and the full `az` argv -- ahead of the
+    // payload, so `RUST_LOG=debug azlin -o json list | jq` failed to parse and
+    // leaked identifiers onto the channel the caller redirects to a file.
     if cli.verbose || std::env::var("RUST_LOG").is_ok() {
         tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
+            .with_writer(std::io::stderr)
             .init();
     }
 
