@@ -133,7 +133,8 @@ unless `--show-all-vms` keeps those VMs in the listing.
 **The two sweeps are not additive.** The groups routing needs are a subset of
 the groups the table covers, so the table's answers are carried forward and
 routing reads them rather than asking again. What an operator pays is therefore
-the larger of the two, not the sum:
+the larger of the two, not the sum (a listing the identity gate withholds pays
+neither, because it renders no table and runs no collector):
 
 | Output | Enrichment | `az network bastion list` calls |
 |---|---|---|

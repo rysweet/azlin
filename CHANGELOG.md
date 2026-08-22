@@ -32,7 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A resource group whose lookup was *refused* is carried forward too: re-asking
   pays a second timeout on a group that has already said no, and reports one
   failure through two different warnings. `-o json` and `-o csv` draw no table,
-  so they still sweep once, for routing only.
+  so they sweep for routing alone — one lookup per resource group holding a
+  bastion-only running VM, and none at all when no collector was asked for.
 - **Bastion discovery no longer deep-clones the VM list to name a few resource
   groups** — `discover_bastions_async` cloned the whole `Vec<VmInfo>`, tags map
   and all, across the `spawn_blocking` boundary in order to derive the deduped
