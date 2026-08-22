@@ -201,14 +201,18 @@ report.**
   when that is all `az` said. An imprecise cause beats silence; a multi-line
   error blob that lets an extension warning be read as the cause of an
   authorization failure does not.
-- `collect_storage_status` checks the probe's **exit code** before parsing its
-  output. This is defence in depth rather than a fix for an observed wrong
-  verdict: `parse_disk_probe` already returns `Unknown` unless it finds the
-  trailing provisioning line *and* the expected number of disk lines, and the
-  probe emits that line last — so a script that died early yields no verdict
-  anyway. Checking the code stops a non-zero exit reaching the parser at all,
-  which is where the "did it fail, or is there nothing to report" distinction
-  belongs.
+- `collect_storage_status` ignores the probe only when it exited non-zero **and
+  printed nothing** — the same verdict `probe_vm_storage` reaches for the same
+  script under `azlin disk check`. A non-zero code alone is deliberately not
+  enough: on the bastion route that code belongs to `az network bastion ssh`,
+  not to the remote script, so a wrapper that exits non-zero after delivering
+  complete output would blank the `Storage` column here while the per-VM
+  command still reported a verdict for the same machine. That per-VM-versus-
+  fleet split is the failure `disk_layout` is shared to prevent. Nothing is
+  lost by parsing anyway: `parse_disk_probe` returns `Unknown` unless it finds
+  the trailing provisioning line *and* the expected number of disk lines, and
+  the probe emits that line last — so a script that died early yields no
+  verdict on its own.
 
 **Where this rule is not yet met.** `collect_procs` reports unevenly, and the
 two routes disagree about what a failure even is.
@@ -243,12 +247,15 @@ Where a fallback exists, a bastion route that fails to **carry** the command —
 transport error — retries once at the private address. A command that reached the
 VM and exited non-zero is that VM's own answer and is **never** retried: a retry
 could land on a different host and report its processes under this VM's name.
-That second half is the invariant. The fallback itself is uneven: tmux, procs
-and health all retry the failed command at the private address. Health then
-does one thing more -- it latches the tunnel as dead, so that VM's *remaining*
-probes go direct without attempting it, because it runs several commands per VM
-and paying the bastion timeout on each would cost the whole listing.
-`collect_storage_status` is the one that simply gives up.
+That second half is the invariant. The fallback itself is uneven, and in three
+shapes. `collect_procs` reruns the failed command at the private address.
+`collect_health_metrics` does that too and then latches the tunnel as dead, so
+that VM's *remaining* probes go direct without attempting it -- it runs several
+commands per VM, and paying the bastion timeout on each would cost the whole
+listing (with no usable address to fall back to, it retries the tunnel instead
+of inventing a failure). `collect_tmux_sessions` does not retry at all: it
+swaps in the direct address *before* the command is issued, and only when the
+tunnel failed to **open**. `collect_storage_status` simply gives up.
 
 `probe_ssh_opts` builds the shared timeout, batch-mode and identity options for
 the collectors that spawn `ssh` directly. It **omits** `-i` entirely when the key

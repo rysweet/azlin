@@ -297,12 +297,21 @@ The fallback hangs off the *transport* error only. A command that reached the
 VM and exited non-zero is that VM's own answer and is reported as such: retrying
 it at the private IP could reach a different host and attribute its output to
 this VM — a confidently wrong row, which is worse than an empty one. The
-never-retry half holds everywhere. The fallback itself is uneven: tmux, procs
-and health all retry the failed command at the private address, and health
-additionally latches the tunnel as dead so that VM's *remaining* probes go
-direct — it runs several commands per VM, and paying the bastion timeout on
-each would cost the whole listing. `collect_storage_status` is the one
-collector that gives up instead of retrying.
+never-retry half holds everywhere. The fallback itself is uneven, and in three
+different shapes rather than two:
+
+- `collect_procs` reruns the failed command at the private address.
+- `collect_health_metrics` does that too, and additionally latches the tunnel
+  as dead so that VM's *remaining* probes go direct without attempting it — it
+  runs several commands per VM, and paying the bastion timeout on each would
+  cost the whole listing. The latch has one escape: with no usable address to
+  fall back to, it retries the tunnel rather than inventing a failure the
+  caller cannot tell from a real one.
+- `collect_tmux_sessions` does **not** retry. It substitutes the direct address
+  *before* issuing the command, and only when the tunnel failed to **open**;
+  once a tunnel is up, an `ssh` that fails or exits non-zero reports no
+  sessions for that VM under `--verbose` and stops there.
+- `collect_storage_status` has no fallback in any shape.
 
 Latency is the deliberate exception: it is never measured through a tunnel, and
 never falls back to one, because timing a tunnel measures the tunnel and the

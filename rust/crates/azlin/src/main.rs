@@ -461,10 +461,14 @@ impl<'a> RoutedExec<'a> {
             Ok(result) => Ok(result),
             // Transport failure: the bastion never carried the command. The
             // private IP is still routable for an operator on a VPN or peered
-            // network, and `cmd_list_data::collect_tmux_sessions` and
-            // `collect_procs` both retry there rather than blanking the VM's
-            // row. Health was the lone exception -- it was handed a fallback
-            // address and never used it, so a tunnel outage turned into empty
+            // network, so `cmd_list_data::collect_procs` reruns the failed
+            // command there rather than blanking the VM's row.
+            // `collect_tmux_sessions` reaches that address by a different
+            // route -- it demotes a tunnel that failed to *open* before
+            // issuing anything, and does not retry once one is up -- so this
+            // arm is not the shape it uses. Health was the lone collector
+            // handed a fallback address that never used it at all, so a
+            // tunnel outage turned into empty
             // CPU/Mem/Disk cells that read exactly like a healthy, idle
             // machine. No warning is printed here: the tmux collector runs by
             // default in the same invocation and already reports a failed
