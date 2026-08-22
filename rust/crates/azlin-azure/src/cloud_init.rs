@@ -711,7 +711,15 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
             needs_network: false,
             body: format!("chmod 1777 /tmp && TMUX_UID=$(id -u {u}) && mkdir -p /tmp/tmux-$TMUX_UID && chmod 700 /tmp/tmux-$TMUX_UID && chown {u}:{u} /tmp/tmux-$TMUX_UID"),
         },
-        // Claude Code AI Assistant
+        // Claude Code AI Assistant.
+        //
+        // This is a required tool for an azlin development VM. Like every other
+        // section its failure is isolated so later sections can record their
+        // own outcomes, but the failed ledger row makes the terminal
+        // provisioning status `degraded`.
+        //
+        // Anthropic's installer is a Bash program (it uses arrays), so invoking
+        // it through Ubuntu's /bin/sh (dash) fails before installation starts.
         // Download, then execute. NOT `curl ... | bash` inside `su -c`: the
         // generated script sets `pipefail`, but that is a per-shell option and
         // the fresh login shell `su -` starts does not inherit it. Verified:
@@ -723,11 +731,13 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
             name: "setup-claude-code".to_string(),
             needs_network: true,
             body: warn_and_fail(
-                &format!("su - {u} -c 'curl -fsSL https://claude.ai/install.sh -o /tmp/claude-install.sh && sh /tmp/claude-install.sh; rc=$?; rm -f /tmp/claude-install.sh; exit $rc'"),
+                &format!("su - {u} -c 'curl -fsSL https://claude.ai/install.sh -o /tmp/claude-install.sh && bash /tmp/claude-install.sh; rc=$?; rm -f /tmp/claude-install.sh; exit $rc'"),
                 "Claude Code installation failed",
             ),
         },
-        // Rust
+        // Rust. rustup's installer is deliberately invoked with `sh`: unlike
+        // Anthropic's installer, https://sh.rustup.rs is POSIX-sh compatible
+        // (`dash -n` succeeds).
         // Download, then execute -- same `su -c` pipefail reasoning as above.
         Section {
             name: "setup-rust".to_string(),
@@ -864,7 +874,7 @@ chmod 755 /usr/local/bin/chromium"#.to_string(),
         Section {
             name: "setup-verify".to_string(),
             needs_network: false,
-            body: format!("echo '[AZLIN] Verifying installed toolchains' && which gh && gh --version && which az && az --version > /dev/null && which node && node --version && su - {u} -c 'which rustc && rustc --version && which amplihack && amplihack --version && which azlin && azlin --version && which azdoit && azdoit --version && which ay && ay --version' && which dotnet && dotnet --version"),
+            body: format!("echo '[AZLIN] Verifying installed toolchains' && which gh && gh --version && which az && az --version > /dev/null && which node && node --version && su - {u} -c 'which claude && claude --version && which rustc && rustc --version && which amplihack && amplihack --version && which azlin && azlin --version && which azdoit && azdoit --version && which ay && ay --version' && which dotnet && dotnet --version"),
         },
     ]
 }
@@ -2178,6 +2188,7 @@ mod tests {
             if !cmd.contains("su - ") {
                 continue;
             }
+
             let pipes_to_shell = (cmd.contains("| bash") || cmd.contains("| sh"))
                 && (cmd.contains("curl ") || cmd.contains("wget "));
             assert!(
@@ -2186,6 +2197,84 @@ mod tests {
                  (pipefail is not inherited); download to a file and execute it: {cmd}"
             );
         }
+    }
+
+    /// Execute the generated Claude payload against an installer that uses a
+    /// Bash array. Ubuntu dash rejects that syntax; Bash runs it and writes the
+    /// marker. This tests the command's behavior, not merely its spelling.
+    #[cfg(unix)]
+    #[test]
+    fn generated_claude_install_command_runs_a_bash_installer() {
+        use std::process::Command;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let command = default_dev_setup_commands("azureuser")
+            .into_iter()
+            .find(|command| command.contains("claude.ai/install.sh"))
+            .expect("Claude installer command");
+        let payload = command
+            .strip_prefix("su - azureuser -c '")
+            .and_then(|rest| rest.split_once("' || {").map(|(payload, _)| payload))
+            .expect("single-quoted su payload");
+
+        let root = std::env::temp_dir().join(format!(
+            "azlin-claude-installer-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock before unix epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("create scratch directory");
+        let fixture = root.join("installer.sh");
+        let downloaded = root.join("downloaded.sh");
+        let marker = root.join("installed");
+        std::fs::write(
+            &fixture,
+            format!(
+                "#!/usr/bin/env bash\nvalues=(claude installed)\nprintf '%s\\n' \"${{values[*]}}\" > '{}'\n",
+                marker.display()
+            ),
+        )
+        .expect("write Bash-only installer");
+
+        let dash = Command::new("dash")
+            .arg(&fixture)
+            .output()
+            .expect("run fixture with dash");
+        assert!(
+            !dash.status.success(),
+            "the fixture must reproduce the Ubuntu dash failure or the test \
+             cannot distinguish `sh` from `bash`"
+        );
+        assert!(
+            !marker.exists(),
+            "the Bash-only installer unexpectedly ran under /bin/sh"
+        );
+
+        let runnable = payload
+            .replace(
+                "curl -fsSL https://claude.ai/install.sh -o /tmp/claude-install.sh",
+                &format!("cp '{}' '{}'", fixture.display(), downloaded.display()),
+            )
+            .replace(
+                "/tmp/claude-install.sh",
+                downloaded.to_str().expect("utf-8 path"),
+            );
+        let output = Command::new("bash")
+            .arg("-c")
+            .arg(&runnable)
+            .output()
+            .expect("run generated Claude payload");
+        let installed = std::fs::read_to_string(&marker).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert!(
+            output.status.success(),
+            "generated payload failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(installed.trim(), "claude installed");
     }
 
     /// Every dev-setup step that can fail should say so, and none may swallow
