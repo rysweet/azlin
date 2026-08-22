@@ -102,10 +102,10 @@ and only when that counter is nonzero:
 | `dropped_by_pattern` | `{n} excluded by --vm-pattern`     |
 | `hidden_not_running` | `{n} hidden (stopped/deallocated)` |
 
-`hidden` for the first and `excluded` for the other two is deliberate. The
-running filter removes rows nobody asked it to remove — that is the incident.
-`--tag` and `--vm-pattern` remove rows you typed a flag to remove, which is a
-different thing and should not read as an alarm.
+`hidden` for `hidden_not_running` and `excluded` for the other two is
+deliberate. The running filter removes rows nobody asked it to remove — that is
+the incident. `--tag` and `--vm-pattern` remove rows you typed a flag to remove,
+which is a different thing and should not read as an alarm.
 
 When every counter is zero the suffix is empty and the footer is byte-identical
 to what it printed before.
@@ -172,6 +172,27 @@ wrong — it would drop your pattern and show you a different question's answer.
 ### Several filters at once
 
 ```bash
+azlin list --tag env=dev --vm-pattern "dev"
+```
+
+```
+Total: 1 VMs | 1 running | 1 excluded by --tag | 2 excluded by --vm-pattern | 2 hidden (stopped/deallocated)
+Hidden VMs still bill for attached storage. Run 'azlin list --all' to include them.
+```
+
+Clauses appear in the order the stages ran. Against the six-VM pool: `--tag`
+took `ia2` (the only `env=prod` machine), `--vm-pattern` took the two survivors
+whose names do not contain `dev`, and the running-only default then took
+`deva2` and `deva3` from the three that were left.
+
+The `2 hidden` is the number that matters, and it is the number `--all` would
+add back to *this* listing — not the four non-running VMs in the resource group,
+two of which this query excluded anyway. That is the whole reason the running
+filter runs last.
+
+A filter that removed nothing contributes no clause:
+
+```bash
 azlin list --tag env=prod --vm-pattern "web-"
 ```
 
@@ -179,9 +200,10 @@ azlin list --tag env=prod --vm-pattern "web-"
 Total: 0 VMs | 0 running | 5 excluded by --tag | 1 excluded by --vm-pattern
 ```
 
-Clauses appear in the order the stages ran: `--tag` took five of the six, and
-`--vm-pattern` took the one that was left. The running-only default then had
-nothing to consider, so there is no `hidden` clause and no remedy line.
+Here `--tag` took five of the six and `--vm-pattern` took the one that was left,
+so the running-only default had nothing to consider — no `hidden` clause, and no
+remedy line, because `--all` would not bring back a single row either filter
+removed.
 
 ### Nothing was hidden
 

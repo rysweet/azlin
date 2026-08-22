@@ -482,7 +482,7 @@ mod tests {
         let mut vms = vec![
             make_vm("dev-1", PowerState::Running),
             make_vm("dev-2", PowerState::Deallocated),
-            // Nine unrelated stopped machines elsewhere in the group.
+            // Unrelated stopped machines elsewhere in the group.
             make_vm("prod-1", PowerState::Deallocated),
             make_vm("prod-2", PowerState::Deallocated),
             make_vm("prod-3", PowerState::Stopped),

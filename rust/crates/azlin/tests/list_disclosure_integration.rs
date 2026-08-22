@@ -451,6 +451,42 @@ fn json_keeps_prose_off_stdout_and_discloses_on_stderr() {
     );
 }
 
+/// The disclosure was not the only thing writing prose to stdout. Three older
+/// call sites did it unconditionally, and each one turned a valid `-o json`
+/// document into something `jq` rejects: the `vCPU Quota:` heading and the
+/// `az vm list-usage` table (`--quota`), the `── context:` banner
+/// (`--all-contexts`), and the `Restoring tmux sessions...` narration
+/// (`--restore`).
+///
+/// `--quota` is the one this harness can drive end to end: the stub `az`
+/// answers `vm list-usage`, so the heading and table are reached for real.
+/// Before the fix this test failed with
+/// `parse error: Invalid numeric literal at line 43`.
+#[test]
+fn json_stays_parseable_when_quota_narration_is_requested() {
+    let sandbox = Sandbox::new(&six_vm_pool());
+    let mut args = formatted_list_args("json");
+    args.push("--quota");
+    let (stdout, stderr, code) = sandbox.run(&args);
+    assert_eq!(code, 0, "json list --quota should succeed: {stdout}");
+
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|e| {
+        panic!("`-o json --quota` stdout must still parse as JSON ({e}): {stdout}")
+    });
+    assert!(
+        parsed.get("vms").is_some() && parsed.get("filters").is_some(),
+        "the envelope must survive the quota path: {stdout}"
+    );
+    assert!(
+        !stdout.contains("vCPU Quota"),
+        "quota narration belongs on stderr, not in the payload: {stdout}"
+    );
+    assert!(
+        stderr.contains("vCPU Quota"),
+        "a human who asked for quota must still get it: {stderr}"
+    );
+}
+
 // ── CSV output ───────────────────────────────────────────────────────
 
 /// CSV has nowhere to carry metadata without corrupting itself: a `#` comment

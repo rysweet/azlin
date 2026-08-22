@@ -515,8 +515,16 @@ pub(crate) async fn dispatch(
                 },
             )?;
 
+            // The restore still runs in every format -- it opens terminal
+            // tabs, which is what was asked for. Only its narration is gated:
+            // on stdout it landed after the payload and made
+            // `azlin -o json list --restore` unparseable (#1142).
             if restore && !tmux_sessions.is_empty() {
-                crate::cmd_list_data::restore_tmux_sessions(&tmux_sessions, true);
+                crate::cmd_list_data::restore_tmux_sessions_reporting(
+                    &tmux_sessions,
+                    true,
+                    matches!(output, azlin_cli::OutputFormat::Table),
+                );
             }
 
             // Show quota summary if requested.

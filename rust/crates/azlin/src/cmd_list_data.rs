@@ -1655,13 +1655,48 @@ pub(crate) fn build_wt_restore_args(
     args
 }
 
-/// Restore tmux sessions by connecting to each VM.
+/// Restore tmux sessions by connecting to each VM, reporting progress on stdout.
 ///
 /// `multi_tab` is the inverse of `--no-multi-tab`: when false no terminal is
 /// spawned at all and the `azlin connect` commands are printed instead, so the
 /// user stays in the tab they are already in.
+///
+/// Callers that may be emitting a machine-readable payload on stdout must use
+/// [`restore_tmux_sessions_reporting`] instead. See its docs for why.
 pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>, multi_tab: bool) {
-    println!("\nRestoring tmux sessions...");
+    restore_tmux_sessions_reporting(tmux_sessions, multi_tab, true);
+}
+
+/// [`restore_tmux_sessions`], with control over where progress lines go.
+///
+/// The restore itself is a side effect -- it opens terminal tabs -- so it must
+/// still happen in every output format. Only the *narration* is negotiable.
+/// `azlin -o json list --restore` used to print `Restoring tmux sessions...`
+/// and an `Opening tab:` line per VM to stdout, directly after the JSON
+/// document, so the payload no longer parsed. Same defect as the `--quota` and
+/// `--all-contexts` banners (#1142): stdout belongs to the consumer, and
+/// anything a human needs goes to stderr.
+///
+/// `progress_to_stdout` is `true` for table output, which is unchanged, and
+/// `false` for `-o json` / `-o csv`.
+pub(crate) fn restore_tmux_sessions_reporting(
+    tmux_sessions: &HashMap<String, Vec<String>>,
+    multi_tab: bool,
+    progress_to_stdout: bool,
+) {
+    // One switch, applied at every narration site, so a new progress line
+    // cannot be added on the stdout-only path by accident.
+    macro_rules! progress {
+        ($($arg:tt)*) => {
+            if progress_to_stdout {
+                println!($($arg)*);
+            } else {
+                eprintln!($($arg)*);
+            }
+        };
+    }
+
+    progress!("\nRestoring tmux sessions...");
 
     let plan = crate::restore_helpers::plan_restore(tmux_sessions);
     for warning in &plan.warnings {
@@ -1672,9 +1707,10 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
     // opening windows on the developer's screen during cargo test.
     if cfg!(test) || std::env::var("AZLIN_TEST_MODE").is_ok() {
         for target in &plan.targets {
-            println!(
+            progress!(
                 "  [dry-run] Would connect to {} (session: {})",
-                target.vm, target.session
+                target.vm,
+                target.session
             );
         }
         return;
@@ -1719,7 +1755,7 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
         let vm_name = &target.vm;
         let session = &target.session;
         if use_wt {
-            println!("  Opening tab: {} (session: {})", vm_name, session);
+            progress!("  Opening tab: {} (session: {})", vm_name, session);
             let wsl_distro = std::env::var("WSL_DISTRO_NAME").unwrap_or_else(|_| "".to_string());
             let wt_args =
                 build_wt_restore_args(&wsl_distro, &self_exe, vm_name, session, restore_mode);
@@ -1751,7 +1787,7 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
             // spawns prevents lost tabs.
             std::thread::sleep(std::time::Duration::from_millis(500));
         } else if use_macos {
-            println!("  Opening window: {} (session: {})", vm_name, session);
+            progress!("  Opening window: {} (session: {})", vm_name, session);
             let connect_cmd = escape_for_applescript(&format!(
                 "{} connect {} --tmux-session {}",
                 self_exe, vm_name, session
@@ -1768,7 +1804,7 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
                 crate::dispatch_helpers::shell_escape(session),
             );
             if let Some(term) = detect_linux_terminal() {
-                println!("  Opening terminal: {} (session: {})", vm_name, session);
+                progress!("  Opening terminal: {} (session: {})", vm_name, session);
                 if let Err(e) = open_linux_terminal(&term, &connect_cmd) {
                     eprintln!("  Warning: failed to open terminal for {}: {}", vm_name, e);
                 }
@@ -1782,7 +1818,7 @@ pub(crate) fn restore_tmux_sessions(tmux_sessions: &HashMap<String, Vec<String>>
             }
         }
     }
-    println!("Session restore initiated.");
+    progress!("Session restore initiated.");
 }
 
 /// Supported macOS terminal emulators.
