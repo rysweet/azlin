@@ -134,13 +134,11 @@ Plan:
   home  copied with rsync -aAXH
   home  verified 48213 entries, rsync dry run clean
   home  bound /mnt/home-data/azureuser onto /home/azureuser, original kept at /home/azureuser.old
-  home  /etc/fstab entries written and verified
-  home  healthy
+  home  /etc/fstab entries written; verified as far as is possible without a reboot
   tmp   formatting (no filesystem found)
   tmp   mounted /dev/sdc on /mnt/tmp-data
   tmp   bound /mnt/tmp-data/tmp onto /tmp
-  tmp   /etc/fstab entries written and verified
-  tmp   healthy
+  tmp   /etc/fstab entries written; verified as far as is possible without a reboot
 
 Storage: ok
 

@@ -463,10 +463,14 @@ pub fn build_disk_probe_script(config: &DiskConfig, username: &str) -> Result<St
          # azlin storage probe (read-only). See docs-site/storage/data-disk-layout.md\n\
          azlin_source_of() {\n  \
            if command -v findmnt >/dev/null 2>&1; then\n    \
-             azlin_src=\"$(findmnt -rno SOURCE \"$1\" 2>/dev/null | head -1)\"\n    \
+             # -T resolves the effective filesystem for a path. A positional lookup\n    \
+             # can return every stacked layer, including a hidden tmpfs.\n    \
+             azlin_src=\"$(findmnt -rn -T \"$1\" -o SOURCE 2>/dev/null)\"\n    \
              if [ -n \"$azlin_src\" ]; then printf '%s\\n' \"$azlin_src\"; return 0; fi\n  \
            fi\n  \
-           awk -v t=\"$1\" '$2==t {print $1; exit}' /proc/mounts 2>/dev/null\n\
+           # /proc/mounts is ordered bottom-to-top for overmounts, so retain\n  \
+           # the last matching source rather than the hidden first layer.\n  \
+           awk -v t=\"$1\" '$2==t {source=$1} END {if(source!=\"\") print source}' /proc/mounts 2>/dev/null\n\
          }\n",
     );
 
@@ -1049,8 +1053,7 @@ unwritable for everyone but its owner' >&2\n  \
          fi\n\
          {sticky_check}\
          echo 'azlin: /etc/fstab entries written; verified as far as is possible \
-without a reboot'\n\
-         echo 'azlin: healthy'\n",
+without a reboot'\n",
         ext4 = ext4,
         bind = bind,
         backing = role.backing,
