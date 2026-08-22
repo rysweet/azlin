@@ -340,10 +340,17 @@ under the cap.
   - Depends on number of configured contexts
   - Authenticates to each context separately
 
-- Listings containing VMs with no public IP add one `az network bastion list`
-  per distinct resource group, plus one tunnel per bastion-only VM. Tunnels are
-  opened sequentially; the SSH probes that follow run concurrently. Use
-  `--no-tmux` to skip all of it.
+- Bastion lookups cost one `az network bastion list` per distinct resource
+  group, and a listing pays for them once rather than once per consumer. Table
+  output pays for every resource group in the listing, because that is what the
+  `Azure Bastion Hosts` table documents, and routing then reuses those answers
+  at no further cost — so enrichment flags add no lookups. `-o json` and
+  `-o csv` draw no table, so they pay only for the resource groups that
+  actually contain a bastion-only running VM, and nothing at all under
+  `--no-tmux` with no other enrichment flag.
+- Bastion-only VMs additionally cost one tunnel each. Tunnels are opened
+  sequentially; the SSH probes that follow run concurrently. Use `--no-tmux` to
+  skip the probes.
 
 **Tip:** For frequently-used multi-RG queries, use tags instead:
 ```bash

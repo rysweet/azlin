@@ -152,6 +152,48 @@ mod tests {
         assert_eq!(vms.len(), 2);
     }
 
+    /// `az` writes a blank line before its error often enough that taking the
+    /// literally-first line dropped this warning entirely: empty after
+    /// trimming, so nothing printed, so every bastion-only VM in the group
+    /// reported zero sessions with no visible cause -- the silent degradation
+    /// this path exists to end.
+    #[test]
+    fn a_leading_blank_line_cannot_suppress_the_bastion_warning() {
+        assert_eq!(
+            first_reportable_line("\n\nERROR: (AuthorizationFailed) no access\n"),
+            "ERROR: (AuthorizationFailed) no access"
+        );
+    }
+
+    /// `az` prefixes stderr with its own advisories. Reporting one of those as
+    /// the cause sends the operator after a missing extension when the real
+    /// failure was authorization.
+    #[test]
+    fn az_advisory_banners_are_not_reported_as_the_cause() {
+        let stderr = "WARNING: The command requires the extension bastion.\n\
+                      WARNING: Extension is experimental.\n\
+                      ERROR: (SubscriptionNotFound) not found\n";
+        assert_eq!(
+            first_reportable_line(stderr),
+            "ERROR: (SubscriptionNotFound) not found"
+        );
+    }
+
+    /// When the banner is all `az` said, an imprecise cause still beats
+    /// printing nothing: nothing reads as "this group has no bastion".
+    #[test]
+    fn a_banner_only_stderr_still_reports_something() {
+        assert_eq!(
+            first_reportable_line("\nWARNING: The command requires the extension bastion.\n"),
+            "WARNING: The command requires the extension bastion."
+        );
+    }
+
+    #[test]
+    fn empty_stderr_reports_nothing() {
+        assert_eq!(first_reportable_line("\n  \n\t\n"), "");
+    }
+
     #[test]
     fn test_apply_filters_combined() {
         let mut vms = vec![
@@ -164,15 +206,80 @@ mod tests {
     }
 }
 
+/// Pick the one line of an `az` stderr blob worth showing an operator.
+///
+/// Skips blank lines and `az`'s own advisory banners (`WARNING: ...`, which is
+/// how it announces a missing extension or a deprecated argument) to reach the
+/// line that names the failure. Falls back to the first non-blank line when the
+/// banners are all there is, so the warning is never silently dropped -- an
+/// imprecise cause still tells the operator the lookup failed, whereas printing
+/// nothing tells them the group has no bastion.
+pub(crate) fn first_reportable_line(stderr: &str) -> &str {
+    let mut lines = stderr.lines().map(str::trim).filter(|l| !l.is_empty());
+    let Some(first) = lines.next() else {
+        return "";
+    };
+    if first.starts_with("WARNING:") {
+        lines.find(|l| !l.starts_with("WARNING:")).unwrap_or(first)
+    } else {
+        first
+    }
+}
+
+/// [`detect_bastion_hosts`] for callers with no better message to give than the
+/// failure itself.
+///
+/// Degrades to an empty list, exactly as before, but says so. Without this the
+/// `unwrap_or_default()` these callers used to write turned an authorization
+/// failure into "this group has no bastion", and every private VM they went on
+/// to build an SSH target for failed later with a cause the operator never saw.
+///
+/// Prints immediately, so it is only fully effective for a caller with no
+/// spinner live at the time. Most have none, and `cmd_monitoring` moves its
+/// lookup above the spinner for exactly this reason. Two do not: `azlin batch`
+/// holds a spinner across `resolve_fleet_targets`, which reaches here, so
+/// `indicatif` erases the line before it can be read. Those two are still
+/// better off than the silent `unwrap_or_default()` they replaced, and fixing
+/// them properly means changing how `azlin batch` reports progress rather than
+/// anything here -- tracked in #1143. Do not read the absence of a warning on
+/// that path as the absence of a failure.
+///
+/// Both halves are sanitized: the resource group name is chosen by whoever
+/// created it and `az` quotes it back into its own error text, so an escape
+/// sequence in either would rewrite the line that reports the failure.
+pub fn detect_bastion_hosts_or_warn(resource_group: &str) -> Vec<(String, String, String)> {
+    match detect_bastion_hosts(resource_group) {
+        Ok(found) => found,
+        Err(e) => {
+            eprintln!(
+                "Warning: could not list bastion hosts in resource group '{}': {}. \
+                 VMs there that are only reachable through a bastion may be unreachable.",
+                crate::cmd_list_data::sanitize_remote_text(resource_group),
+                crate::cmd_list_data::strip_one_trailing_period(
+                    &crate::cmd_list_data::sanitize_remote_text(&e.to_string())
+                )
+            );
+            Vec::new()
+        }
+    }
+}
+
 /// Detect Azure Bastion hosts for a resource group.
 /// Returns Vec of (name, location, sku).
 ///
-/// On `az` CLI failure, returns an empty list rather than an error (bastion
-/// support is optional), but prints a diagnostic to stderr so a transient
-/// failure (auth, throttling, network) isn't silently indistinguishable from
-/// "no bastion configured" -- this was previously swallowed entirely, which
-/// caused `azlin list`/`connect` to intermittently and silently drop tmux
-/// session data for bastion-only (private) VMs with no visible cause.
+/// Every failure is an `Err`, including `az` merely exiting non-zero. Bastion
+/// support is still optional -- callers are expected to degrade rather than
+/// abort, and none of them propagate this error -- but the degradation has to
+/// be *narrated*, because an empty list is indistinguishable from "no bastion
+/// configured" and that silence is what made `azlin list`/`connect`
+/// intermittently drop tmux session data for bastion-only (private) VMs with
+/// no visible cause.
+///
+/// Reporting is the caller's job rather than this function's: the callers that
+/// run inside a spinner must print after clearing it (see
+/// [`crate::cmd_list_data::discover_bastions_async_reusing`]), and a line printed from in
+/// here would be erased before it could be read. Callers with no spinner and
+/// nothing useful to add should use [`detect_bastion_hosts_or_warn`].
 pub fn detect_bastion_hosts(resource_group: &str) -> anyhow::Result<Vec<(String, String, String)>> {
     let output = std::process::Command::new("az")
         .args([
@@ -190,18 +297,79 @@ pub fn detect_bastion_hosts(resource_group: &str) -> anyhow::Result<Vec<(String,
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let stderr = stderr.trim();
-        if !stderr.is_empty() {
-            eprintln!(
-                "Warning: 'az network bastion list' failed for resource group '{}': {}",
-                resource_group, stderr
-            );
-        }
-        return Ok(Vec::new()); // Bastion not available, not a fatal error
+        // `az` exiting non-zero is the *common* way a bastion lookup fails --
+        // no authorization on the resource, a missing extension, a subscription
+        // the credential cannot see. Reporting it is this function's whole
+        // contribution to the caller, so it leaves as an `Err` rather than as a
+        // line printed from in here.
+        //
+        // Printing it here instead was the silent-degradation bug wearing a
+        // different hat. Every caller runs this inside `spawn_blocking` beneath
+        // an `indicatif` spinner that erases and redraws its line on each tick,
+        // so the warning was overwritten before it could be read -- and because
+        // the old `Ok(Vec::new())` looks exactly like "this group has no
+        // bastion", the returned warning list came back empty and the caller
+        // had nothing to print once its spinner cleared. Every bastion-only VM
+        // in the group then showed no tmux, health or process data with nothing
+        // on screen explaining why. Returning `Err` routes the common case
+        // through `bastion_lookup_failure_warning`, which the caller prints
+        // after `finish_and_clear()`, where it survives.
+        //
+        // The text is returned unsanitized on purpose: every caller sanitizes
+        // at the point of printing (`bastion_lookup_failure_warning` and the
+        // bastion-table sweep both do), and sanitizing twice would be the kind
+        // of redundancy that rots when one side moves. One line only, so a
+        // multi-line `az` error cannot fabricate a second warning; blank lines
+        // and `az`'s own `WARNING:` advisory banners are skipped so the line
+        // that names the failure is the line reported.
+        let detail = first_reportable_line(&stderr);
+        let detail = if detail.is_empty() {
+            format!(
+                "az exited with {} and wrote nothing to stderr",
+                output.status
+            )
+        } else {
+            detail.to_string()
+        };
+        return Err(anyhow::anyhow!("{detail}"));
     }
 
-    let bastions: Vec<serde_json::Value> =
-        serde_json::from_slice(&output.stdout).unwrap_or_default();
+    // A zero exit whose stdout is not a JSON array is a lookup that did not
+    // answer the question, and `unwrap_or_default()` turned it into "this
+    // group has no bastion" -- the same silent degradation as a swallowed
+    // error, reaching the operator the same way: blank tmux, health and
+    // process columns with nothing on screen to explain them.
+    //
+    // No specific cause is claimed here. `--output json` is on the argv, so
+    // `az configure`'s output default cannot override it, and `az`'s own
+    // advisories go to stderr; this guards the residue -- a wrapper or shim
+    // named `az` earlier in PATH, a truncated write, a future change in the
+    // shape ARM returns. The point is that an answer we cannot read must not
+    // be recorded as an answer of "none".
+    //
+    // Genuinely empty stdout stays benign: it carries no contradicting claim,
+    // and reporting it would make a quiet success look like a failure.
+    let bastions: Vec<serde_json::Value> = if output.stdout.iter().all(u8::is_ascii_whitespace) {
+        Vec::new()
+    } else {
+        // `Option<Vec<_>>`, not `Vec<_>`: a JSON `null` is how several `az`
+        // commands spell an empty result, and it means the same thing as `[]`
+        // here. Rejecting it would turn the most ordinary case there is -- a
+        // resource group with no bastion -- into a warning claiming the lookup
+        // failed, which is the mirror image of the bug this arm exists to fix
+        // and would train operators to ignore the line.
+        //
+        // Everything else still fails loudly. A table-formatted or
+        // banner-prefixed stdout (`az configure --defaults output=table`, an
+        // extension greeting on stdout) is a lookup that did not answer the
+        // question, and reading it as "no bastion" degrades every
+        // bastion-only VM in the group in silence.
+        serde_json::from_slice::<Option<Vec<serde_json::Value>>>(&output.stdout)
+            .map_err(|e| {
+                anyhow::anyhow!("az exited successfully but its bastion list did not parse: {e}")
+            })?
+            .unwrap_or_default()
+    };
 
     Ok(bastions
         .iter()

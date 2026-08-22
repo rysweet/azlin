@@ -60,7 +60,14 @@ pub fn health_cells(
 ) -> Vec<String> {
     let mut cells = match metrics {
         Some(m) => vec![
-            m.agent_status.clone(),
+            // Sanitized here rather than at each render site: the agent status
+            // is read off the listed host over SSH, so it is text this machine
+            // did not author, and it lands directly in the operator's
+            // terminal. An escape sequence in it can end the row and print
+            // rows of its own invention, which is why the session and process
+            // columns have had this treatment all along. Doing it at the
+            // source covers every consumer of these cells at once.
+            crate::cmd_list_data::sanitize_remote_text(&m.agent_status),
             metric_cell_rounded(m.cpu_percent),
             metric_cell_rounded(m.mem_percent),
             metric_cell_rounded(m.disk_percent),

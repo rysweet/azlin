@@ -79,7 +79,7 @@ pub(crate) async fn handle_runner_enable(
     // creating either. Asked here too, and only about what is actually
     // missing: a second pool in a region that is already set up asks nothing.
     let ip_tags = config_defaults.bastion_pip_ip_tags();
-    let bastions = crate::list_helpers::detect_bastion_hosts(&rg).unwrap_or_default();
+    let bastions = crate::list_helpers::detect_bastion_hosts_or_warn(&rg);
     let needs_bastion = !crate::bastion_helpers::bastion_exists_in_region(&bastions, &region);
     let needs_nat = !matches!(
         crate::nat_helpers::detect_nat_status(&rg, &region),

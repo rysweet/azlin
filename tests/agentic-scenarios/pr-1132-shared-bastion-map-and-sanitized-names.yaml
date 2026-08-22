@@ -1,0 +1,351 @@
+name: "azlin list discovers bastion routing once per command, and never prints an Azure-supplied escape sequence"
+description: |
+  Verifies PR #1132 from outside the process, through the real `azlin` binary.
+
+  Two user-visible claims are under test.
+
+  1. Enrichment flags no longer multiply bastion discovery. `azlin list`'s three
+     enrichment collectors — tmux, health, procs — each used to call
+     `discover_bastions` for themselves, so `--with-health --show-procs` ran
+     `az network bastion list` three times per resource group to compute one
+     answer. Discovery is a pure function of the VM list, so the caller now does
+     it once and lends the map to every collector -- and on the default table
+     path it does not even do that, because drawing the "Azure Bastion Hosts"
+     table has already asked `az` the same questions and its answers are
+     carried forward. The invariants an operator can actually observe: the
+     number of `az network bastion list` invocations does not change when the
+     enrichment flags are added, and an ordinary table listing costs one
+     invocation per resource group rather than two.
+
+  2. Azure-supplied text cannot rewrite the terminal. Resource group, VM and
+     bastion names are chosen by anyone with write access to the subscription,
+     and `az` quotes them back into its own error text. A name carrying
+     `ESC [ 2 K CR` erases the line that reports it and prints a reassuring one
+     in its place. The bastion table and every `azlin list` warning sanitize now.
+
+  These steps need neither Azure nor the network: `az` and `ssh` are replaced by
+  stubs on PATH, which is also what makes the `az` call count observable at all.
+  `azlin`'s VM listing and bastion lookup both shell out to `az`, so the stub is
+  a complete fleet, not a partial mock.
+
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 30000
+
+steps:
+  - name: "Build the binary under test (never assert against a stale build)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo build -p azlin 2>&1 | tail -1
+        test -x target/debug/azlin && echo "PASS: fresh azlin binary present"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "Adding --with-health and --show-procs does not multiply bastion discovery"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        set -u
+        SHIM=$(mktemp -d); export AZLIN_CONFIG_DIR=$(mktemp -d)
+        # A fleet of two bastion-only VMs: no public IP is what makes routing
+        # necessary, and two VMs is what makes a per-collector lookup visible.
+        cat > "$SHIM/vms.json" <<'JSON'
+        [{"name":"oit-vm-a","resourceGroup":"rg-oit","location":"eastus",
+          "hardwareProfile":{"vmSize":"Standard_D4s_v3"},"powerState":"VM running",
+          "provisioningState":"Succeeded","storageProfile":{"osDisk":{"osType":"Linux"}},
+          "publicIps":"","privateIps":"10.0.0.4","osProfile":{"adminUsername":"azureuser"},"tags":{}},
+         {"name":"oit-vm-b","resourceGroup":"rg-oit","location":"eastus",
+          "hardwareProfile":{"vmSize":"Standard_D4s_v3"},"powerState":"VM running",
+          "provisioningState":"Succeeded","storageProfile":{"osDisk":{"osType":"Linux"}},
+          "publicIps":"","privateIps":"10.0.0.5","osProfile":{"adminUsername":"azureuser"},"tags":{}}]
+        JSON
+        printf '[{"name":"bast-oit","location":"eastus","sku":{"name":"Standard"}}]\n' > "$SHIM/bastions.json"
+        cat > "$SHIM/az" <<'AZ'
+        #!/usr/bin/env bash
+        printf '%s\n' "$*" >> "$AZ_CALL_LOG"
+        case "$1 $2 $3" in
+          "account show"*)            echo '{"id":"00000000-0000-0000-0000-000000000000","name":"stub","tenantId":"11111111-1111-1111-1111-111111111111","state":"Enabled","user":{"name":"t@e","type":"user"}}'; exit 0 ;;
+          "vm list --resource-group") cat "$AZ_VM_JSON"; exit 0 ;;
+          "network bastion list")     cat "$AZ_BASTION_JSON"; exit 0 ;;
+        esac
+        echo "stub: unsupported az invocation" >&2; exit 1
+        AZ
+        printf '#!/usr/bin/env bash\necho "ssh: connect failed (stub)" >&2; exit 255\n' > "$SHIM/ssh"
+        chmod +x "$SHIM/az" "$SHIM/ssh"
+        export PATH="$SHIM:$PATH" AZ_VM_JSON="$SHIM/vms.json" AZ_BASTION_JSON="$SHIM/bastions.json"
+
+        count() {
+          export AZ_CALL_LOG="$SHIM/l.log"; : > "$AZ_CALL_LOG"
+          rust/target/debug/azlin list --resource-group rg-oit "$@" >/dev/null 2>&1
+          grep -c 'network bastion list' "$AZ_CALL_LOG"
+        }
+        plain=$(count)
+        rich=$(count --with-health --show-procs)
+        bare=$(count --no-tmux)
+        json=$(count -o json)
+        json_bare=$(count -o json --no-tmux)
+
+        echo "bastion lookups: plain=$plain rich=$rich bare=$bare json=$json json_bare=$json_bare"
+
+        # Four cells, because no single count can tell "shared" from "removed".
+        # Read together they pin exactly one arrangement.
+        #
+        # History: before any of this work, table output cost 2 with tmux alone
+        # (display table + tmux collector) and 4 with --with-health --show-procs
+        # (display table + three collectors). Sharing one map among the
+        # collectors took the second number to 2. Carrying the display table's
+        # own answers forward takes both to 1.
+
+        # (a) Enrichment flags cost nothing extra. This is the collector-sharing
+        #     claim, and it is the one that regresses if a fourth collector is
+        #     added that discovers routing for itself.
+        [ "$plain" = "$rich" ] || { echo "FAIL: enrichment flags still multiply bastion discovery ($plain vs $rich)"; exit 1; }
+
+        # (b) Table output performs exactly one lookup per resource group, not
+        #     two. Exactly, not "at most": `-le` passed just as happily when
+        #     discovery was removed altogether or when the stub stopped matching
+        #     and every count went to 0.
+        [ "$rich" = 1 ] || { echo "FAIL: expected exactly 1 lookup for table output, got $rich"; exit 1; }
+
+        # (c) ...and that one lookup is the display table's, which routing then
+        #     reuses -- not routing's, with the table skipped. A table listing
+        #     that needs no routing at all still draws its table, so it still
+        #     costs 1.
+        [ "$bare" = 1 ] || { echo "FAIL: --no-tmux table output performed $bare lookups, expected 1 for the table"; exit 1; }
+
+        # (d) The #1127 regression guard proper, and the proof that routing is
+        #     still really happening rather than quietly gone. Discovery was
+        #     once gated on table output, so JSON and CSV listings collected
+        #     nothing for bastion-only VMs. JSON draws no bastion table, so its
+        #     single lookup can only be the routing sweep. A zero here means the
+        #     output-format gate is back.
+        [ "$json" = 1 ] || { echo "FAIL: JSON output performed $json routing lookups, expected 1"; exit 1; }
+
+        # (e) And routing stays demand-driven: no table to draw and no collector
+        #     to route for is the one case that should touch `az` not at all. If
+        #     this ever reads 1, discovery has stopped asking whether it is
+        #     needed.
+        [ "$json_bare" = 0 ] || { echo "FAIL: JSON --no-tmux performed $json_bare lookups, expected none"; exit 1; }
+
+        echo "PASS: bastion routing is discovered once per command"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 120000
+
+  - name: "An escape sequence in an Azure bastion name never reaches the terminal"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        set -u
+        SHIM=$(mktemp -d); export AZLIN_CONFIG_DIR=$(mktemp -d)
+        cat > "$SHIM/vms.json" <<'JSON'
+        [{"name":"oit-vm-a","resourceGroup":"rg-oit","location":"eastus",
+          "hardwareProfile":{"vmSize":"Standard_D4s_v3"},"powerState":"VM running",
+          "provisioningState":"Succeeded","storageProfile":{"osDisk":{"osType":"Linux"}},
+          "publicIps":"","privateIps":"10.0.0.4","osProfile":{"adminUsername":"azureuser"},"tags":{}}]
+        JSON
+        # ESC [ 2 K erases the line and CR returns to its start: a bastion named
+        # this way makes the row that names it read "ALL-CLEAR".
+        printf '[{"name":"bast\\u001b[2K\\rALL-CLEAR","location":"eastus","sku":{"name":"Standard"}}]\n' > "$SHIM/bastions.json"
+        cat > "$SHIM/az" <<'AZ'
+        #!/usr/bin/env bash
+        case "$1 $2 $3" in
+          "account show"*)            echo '{"id":"00000000-0000-0000-0000-000000000000","name":"stub","tenantId":"11111111-1111-1111-1111-111111111111","state":"Enabled","user":{"name":"t@e","type":"user"}}'; exit 0 ;;
+          "vm list --resource-group") cat "$AZ_VM_JSON"; exit 0 ;;
+          "network bastion list")     cat "$AZ_BASTION_JSON"; exit 0 ;;
+        esac
+        echo "stub: unsupported az invocation" >&2; exit 1
+        AZ
+        printf '#!/usr/bin/env bash\necho "ssh: connect failed (stub)" >&2; exit 255\n' > "$SHIM/ssh"
+        chmod +x "$SHIM/az" "$SHIM/ssh"
+        export PATH="$SHIM:$PATH" AZ_VM_JSON="$SHIM/vms.json" AZ_BASTION_JSON="$SHIM/bastions.json"
+
+        rust/target/debug/azlin list --resource-group rg-oit > "$SHIM/out" 2> "$SHIM/err"
+        # The planted sequence must not survive anywhere, and the printable
+        # remainder must still be visible so the operator can see the real name.
+        grep -qaF $'bast\x1b[2K\r' "$SHIM/out" "$SHIM/err" && { echo "FAIL: the planted escape sequence reached the terminal"; exit 1; }
+        grep -q 'bast\[2KALL-CLEAR' "$SHIM/out" || { echo "FAIL: the bastion name was dropped rather than sanitized"; exit 1; }
+        grep -qaF $'\r' "$SHIM/err" && { echo "FAIL: a carriage return reached stderr"; exit 1; }
+        echo "PASS: the bastion table shows the name without its escape sequence"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 120000
+
+  - name: "An escape sequence in az error text never reaches the terminal through the lookup warning"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        set -u
+        SHIM=$(mktemp -d); export AZLIN_CONFIG_DIR=$(mktemp -d)
+        cat > "$SHIM/vms.json" <<'JSON'
+        [{"name":"oit-vm-a","resourceGroup":"rg-oit","location":"eastus",
+          "hardwareProfile":{"vmSize":"Standard_D4s_v3"},"powerState":"VM running",
+          "provisioningState":"Succeeded","storageProfile":{"osDisk":{"osType":"Linux"}},
+          "publicIps":"","privateIps":"10.0.0.4","osProfile":{"adminUsername":"azureuser"},"tags":{}}]
+        JSON
+        # `az` exiting non-zero is the reachable failure: `detect_bastion_hosts`
+        # returns `Ok(empty)` and prints this warning itself, so this — not the
+        # `Err` arm — is the warning an operator sees, and it quotes `az`'s own
+        # stderr, which quotes the names `az` was given.
+        cat > "$SHIM/az" <<'AZ'
+        #!/usr/bin/env bash
+        case "$1 $2 $3" in
+          "account show"*)            echo '{"id":"00000000-0000-0000-0000-000000000000","name":"stub","tenantId":"11111111-1111-1111-1111-111111111111","state":"Enabled","user":{"name":"t@e","type":"user"}}'; exit 0 ;;
+          "vm list --resource-group") cat "$AZ_VM_JSON"; exit 0 ;;
+          "network bastion list")     printf 'ERROR: (AuthorizationFailed) not authorized on \x1b[2K\rall clear\n' >&2; exit 1 ;;
+        esac
+        echo "stub: unsupported az invocation" >&2; exit 1
+        AZ
+        printf '#!/usr/bin/env bash\necho "ssh: connect failed (stub)" >&2; exit 255\n' > "$SHIM/ssh"
+        chmod +x "$SHIM/az" "$SHIM/ssh"
+        export PATH="$SHIM:$PATH" AZ_VM_JSON="$SHIM/vms.json"
+
+        rust/target/debug/azlin list --resource-group rg-oit > "$SHIM/out" 2> "$SHIM/err"
+        grep -qaF $'\x1b' "$SHIM/err" && { echo "FAIL: an escape character from az stderr reached the terminal"; exit 1; }
+        grep -qaF $'\r' "$SHIM/err" && { echo "FAIL: a carriage return from az stderr reached the terminal"; exit 1; }
+        # Both consequences of one refused lookup, in the wording this branch
+        # actually ships. An earlier draft of this step asserted the pre-fix
+        # text ("failed for resource group 'rg-oit'"), which f08045ee had
+        # already deleted -- so the step could not pass, and asserting a string
+        # nothing prints is indistinguishable from asserting nothing.
+        #
+        # The table sweep reports that its table is incomplete; routing reports
+        # that bastion-only VMs will show no enrichment. They are separate
+        # losses with separate remedies, so both must be stated.
+        grep -q "could not list bastion hosts in resource group(s) rg-oit" "$SHIM/err" \
+          || { echo "FAIL: the incomplete bastion table was not reported"; exit 1; }
+        grep -q "could not list bastion hosts in resource group rg-oit" "$SHIM/err" \
+          || { echo "FAIL: the enrichment degradation was not reported"; exit 1; }
+        # The printable remainder survives, so the operator can still read what
+        # az actually said -- stripping the escape must not blank the cause.
+        grep -q 'AuthorizationFailed' "$SHIM/err" \
+          || { echo "FAIL: the cause was dropped rather than sanitized"; exit 1; }
+        echo "PASS: the bastion-lookup failure warning is sanitized"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 120000
+
+  - name: "No probe hands ssh an empty -i argument"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        # `key.to_str().unwrap_or("")` passes `-i ""` for a key path that is not
+        # valid UTF-8, so ssh fails on a missing identity file and the probe is
+        # indistinguishable from an unreachable VM. Omitting the flag is the
+        # same state as having no key at all.
+        # Code lines only: the doc comments deliberately quote the old spelling
+        # to explain why it was wrong.
+        grep -nE '^[[:space:]]*[^/[:space:]].*to_str\(\)\.unwrap_or\(""\)' rust/crates/azlin/src/cmd_list_data.rs \
+          && { echo "FAIL: a probe still spells the identity fallback as an empty string"; exit 1; }
+        grep -q 'fn probe_ssh_opts' rust/crates/azlin/src/cmd_list_data.rs \
+          || { echo "FAIL: the shared probe options helper is gone"; exit 1; }
+        echo "PASS: probe ssh options come from one helper that omits -i when there is no usable key"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 30000
+
+  # ── Added by Step 16b outside-in testing ────────────────────────────
+  #
+  # The steps above test the bastion table and the bastion-lookup warning.
+  # They do not test the table `azlin list` actually prints on every run.
+  # That gap was real: the VM name, the `azlin-session` tag, the region, the
+  # SKU and the OS offer all reached the terminal unsanitized, and the tag
+  # is in the DEFAULT table -- no `-w` needed to be exposed. This step
+  # covers every Azure-supplied display field, in all three output formats.
+  - name: "No Azure-supplied display field can rewrite the terminal or forge a record"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        set -u
+        SHIM=$(mktemp -d); export AZLIN_CONFIG_DIR=$(mktemp -d)
+        ERASE=$(printf '\033[2K'); CR=$(printf '\015')
+        # Build the payload with python so no raw control byte is ever typed
+        # into this file. Every Azure-supplied display field carries
+        # ESC [ 2 K + CR, and the session tag additionally carries a newline.
+        python3 - "$SHIM" <<'PY'
+        import json, sys, os
+        ESC, CR, NL = chr(27), chr(13), chr(10)
+        P = ESC + "[2K" + CR + "ALL-CLEAR"
+        vms = [{"name": "oit-vm" + P, "resourceGroup": "rg-oit",
+                "location": "eastus" + P,
+                "hardwareProfile": {"vmSize": "Standard_D4s_v3" + P},
+                "powerState": "VM running", "provisioningState": "Succeeded",
+                "storageProfile": {"osDisk": {"osType": "Linux"}},
+                "publicIps": "", "privateIps": "10.0.0.4",
+                "osProfile": {"adminUsername": "azureuser"},
+                "tags": {"azlin-session": "prod" + P + NL + "injected-row"}}]
+        json.dump(vms, open(os.path.join(sys.argv[1], "vms.json"), "w"))
+        open(os.path.join(sys.argv[1], "bastions.json"), "w").write("[]")
+        PY
+        cat > "$SHIM/az" <<'AZ'
+        #!/usr/bin/env bash
+        case "$1 $2 $3" in
+          "account show"*)            echo '{"id":"00000000-0000-0000-0000-000000000000","name":"stub","tenantId":"11111111-1111-1111-1111-111111111111","state":"Enabled","user":{"name":"t@e","type":"user"}}'; exit 0 ;;
+          "vm list --resource-group") cat "$AZ_VM_JSON"; exit 0 ;;
+          "network bastion list")     cat "$AZ_BASTION_JSON"; exit 0 ;;
+        esac
+        echo "stub: unsupported az invocation" >&2; exit 1
+        AZ
+        printf '#!/usr/bin/env bash\necho "ssh: connect failed (stub)" >&2; exit 255\n' > "$SHIM/ssh"
+        chmod +x "$SHIM/az" "$SHIM/ssh"
+        export PATH="$SHIM:$PATH" AZ_VM_JSON="$SHIM/vms.json" AZ_BASTION_JSON="$SHIM/bastions.json"
+        BIN=rust/target/debug/azlin
+
+        # azlin emits its own SGR colour codes (ESC [ ... m), so those are not
+        # the signal. It never emits an erase-line nor a bare CR: those two are
+        # the planted payload and nothing else.
+        check() {
+          grep -qaF "$ERASE" "$2" && { echo "FAIL: $1 let ESC[2K through"; exit 1; }
+          grep -qaF "$CR"    "$2" && { echo "FAIL: $1 let CR through"; exit 1; }
+          echo "ok: $1"
+        }
+
+        # The session tag is in the default table, so -w is not needed here.
+        $BIN list --resource-group rg-oit          > "$SHIM/o1" 2>&1; check "default table" "$SHIM/o1"
+        $BIN list --resource-group rg-oit -w       > "$SHIM/o2" 2>&1; check "wide table"    "$SHIM/o2"
+        $BIN list --resource-group rg-oit -w -o csv > "$SHIM/o3" 2>&1; check "csv"          "$SHIM/o3"
+
+        # A newline in a name ends a CSV record early and forges a row in
+        # output a script goes on to parse. Header + one VM is exactly 2.
+        rows=$(grep -c . "$SHIM/o3")
+        [ "$rows" = 2 ] || { echo "FAIL: csv has $rows records, expected 2 (a name forged one)"; exit 1; }
+        echo "ok: csv record count is 2"
+
+        # JSON is safe by construction -- serde_json escapes control characters
+        # to \uXXXX -- and must stay both escaped and parseable.
+        $BIN list --resource-group rg-oit -o json > "$SHIM/o4" 2>/dev/null
+        check "json" "$SHIM/o4"
+        python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$SHIM/o4" \
+          || { echo "FAIL: json output does not parse"; exit 1; }
+        echo "ok: json parses"
+
+        # The name must be sanitized, not dropped: the operator still has to be
+        # able to read which VM the row is about.
+        grep -q 'oit-vm' "$SHIM/o2" || { echo "FAIL: the VM name was dropped rather than sanitized"; exit 1; }
+        echo "PASS: no Azure-supplied display field reaches the terminal unsanitized"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 120000

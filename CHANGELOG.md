@@ -7,7 +7,202 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`azlin list` discovers bastion routing once per command instead of once per
+  enrichment collector** — `collect_tmux_sessions`, `collect_health_data` and
+  `collect_procs` each discovered routing for themselves, so
+  `azlin list --with-health --show-procs` ran `az network bastion list` three
+  times per resource group to compute the same `BastionMap` three times, and the
+  operator watched three spinners re-derive one answer. `az` costs about 0.9s of
+  process start alone before the ARM round-trip, so a five-resource-group
+  listing spent at least nine seconds on ten redundant lookups. Discovery is a
+  pure function of the VM list, so it is now done once by the caller and lent to
+  every collector. Callers that run a single collector go through the new
+  `discover_bastions_async`, which is also where the `spawn_blocking` hop and
+  the discovery-failed warning now live.
+- **…and on the default path it costs no `az` call at all** — collapsing three
+  collector sweeps into one still left that one sweep next to another. Table
+  output draws an "Azure Bastion Hosts" table, which looks bastions up across
+  every resource group in the listing, and the groups routing needs are a
+  *subset* of those — so the ordinary `azlin list`, with no flags, ran the table
+  sweep and then asked `az` the same questions again for routing. The table's
+  answers are now carried forward through `BastionLookups` and routing reads
+  them, so a default listing performs one sweep rather than two and the counts
+  above become honest about the command rather than about the collectors alone.
+  A resource group whose lookup was *refused* is carried forward too: re-asking
+  pays a second timeout on a group that has already said no, and reports one
+  failure through two different warnings. `-o json` and `-o csv` draw no table,
+  so they sweep for routing alone — one lookup per resource group holding a
+  bastion-only running VM, and none at all when no collector was asked for.
+- **Bastion discovery no longer deep-clones the VM list to name a few resource
+  groups** — `discover_bastions_async` cloned the whole `Vec<VmInfo>`, tags map
+  and all, across the `spawn_blocking` boundary in order to derive the deduped
+  `Vec<String>` of groups that is the only thing discovery reads from it. The
+  group list is computed before the hop and only it crosses. Same answer,
+  proportional to the number of resource groups instead of the number of VMs.
+- **The list table sanitizes each VM's display text once instead of twice** —
+  under `-w` the column-width pass built a `VmDisplayText` per VM to measure the
+  widest name, dropped it, and the row loop built the same six sanitized strings
+  again. They are built once and shared, which also removes the possibility of
+  sizing a column against text other than the text that gets printed.
+
 ### Fixed
+- **`azlin list --show-procs --all-contexts` no longer attributes one
+  subscription's processes to another's VMs** — bastion, tmux and health
+  enrichment are all subscription-scoped, because they probe by an ARM id built
+  from the queried subscription and `VmInfo` carries no subscription of its own.
+  A listing spanning several subscriptions therefore skips them and says so.
+  `--show-procs` was missing that gate: it ran anyway, against ARM ids in
+  whichever subscription the CLI was on. With the IaC-templated dev/prod name
+  pairs this tool is pointed at, the `ps` output of a same-named VM in one
+  subscription rendered under a row read from another — while the note on screen
+  told the operator enrichment had been omitted. All three collectors now take
+  the same gate -- and the gate and the note are returned from one call
+  (`resolve_enrichment`), because they were written separately and that is
+  exactly how they drifted. The note now names what was actually withheld
+  rather than reciting a fixed string, so it can neither claim to have omitted
+  something that in fact ran nor stay silent about something that did not.
+- **SSH probes are bounded, and a failed process probe says so under
+  `--verbose`** — the probe `JoinSet` had no limit: one `ssh` child per listed
+  VM, three pipe fds each, so a subscription with a few hundred running VMs ran
+  into the default 1024-fd limit and `cmd.output()` returned `EMFILE`. That was
+  reported only under `--verbose`, so on the default path those VMs rendered as
+  having no sessions -- silent degradation that worsens with fleet size, which
+  is the direction a fleet tool is used. At most 64 probes are now in flight.
+  Separately, the process probe collapsed spawn failure, timeout, refused auth
+  and non-zero exit into a blank cell with no diagnostic at all, leaving no way
+  to tell an idle VM from an unreachable one; the tmux probe had said this
+  under `--verbose` all along.
+- **The `Storage` column shares the one bastion map and takes the same
+  subscription gate** — it arrived (with the column itself) discovering routing
+  for itself, which is the cost this change exists to stop paying: a fifth
+  `az network bastion list` per resource group to recompute a map the caller
+  already holds, and a lookup failure with nowhere to report itself now that
+  discovery hands its warnings back. It is read through an ARM id built from
+  the probe subscription like its three siblings, so it is gated with them
+  rather than on a second copy of the threshold.
+- **Enrichment is gated on which subscription probes can reach, not on how many
+  the listing read** — the gate counted subscriptions, and probes are built from
+  the subscription the CLI is on rather than the one a context named. A single
+  context pinning another subscription therefore gave a count of one and passed:
+  every probe then ran against an ARM id in the CLI's subscription. Reachable
+  three ordinary ways — `azlin context create` does not make the new context
+  active, `--contexts` can select a single non-active context, and a partial
+  listing failure collapses a two-subscription run to one. Where the resource
+  group and VM name exist in both, which shared IaC naming makes ordinary, the
+  probe succeeds against the *wrong machine* and its sessions, health and
+  processes render under this listing's rows. The gate now compares identity,
+  and the note names both subscriptions. (The note also read "bastion routing
+  are subscription-scoped" whenever nothing else was withheld.)
+- **A failed bastion lookup is no longer erased by the spinner that was drawn
+  over it** — `detect_bastion_hosts` printed its own warning and returned
+  `Ok(empty)` whenever `az` merely exited non-zero, which is how a bastion
+  lookup actually fails: no authorization on the resource, a missing extension,
+  a subscription the credential cannot see. Two things followed. The line was
+  written from inside `spawn_blocking` while `indicatif` redrew its spinner
+  every 120ms, so it was overwritten before it could be read; and because
+  `Ok(empty)` is indistinguishable from "this group has no bastion", the
+  warning list the caller prints after clearing that spinner came back empty.
+  The aggregated "could not list bastion hosts in resource group(s) …" notice
+  was unreachable for the same reason — it was fed only by the `Err` arm, which
+  `az` reached only when it could not be spawned at all. Every bastion-only VM
+  in the group showed no tmux, health or process data with nothing on screen
+  explaining why. A non-zero exit is now an `Err`, so the report travels to the
+  caller and is printed where it survives.
+- **A bastion lookup that `az` answers with something other than a JSON array
+  is no longer read as "no bastion"** — a zero exit with unparseable stdout was
+  swallowed by `unwrap_or_default()`, degrading the whole group silently. An
+  answer that cannot be read is now reported rather than recorded as an answer
+  of "none". A JSON `null` and an empty stdout both still mean "no bastion
+  here", because they are how that is ordinarily spelled.
+- **A bastion Azure reports at an unusable location is named instead of
+  dropped** — the coordinate allowlist admits only ASCII alphanumerics in a
+  region, so an ARM response giving a location in display form ("East US")
+  removed the group's only route while the adjacent duplicate-bastion branch
+  warned about far less. Losing a route is now narrated like every other
+  degradation on this path.
+- **The same-name collision warning covers every enrichment column, not just
+  tmux** — it was printed from the tmux collector, so `--no-tmux --with-health
+  --show-procs` withheld exactly the same VMs from three other collectors and
+  said nothing. It is now printed once by the listing, after its spinner is
+  cleared, and covers tmux, health, processes and latency alike.
+- **The bastion-lookup warning reports one line, and the line that names the
+  failure** — it previously printed the whole trimmed `stderr` blob, so a
+  multi-line `az` error could occupy the screen, and `az`'s own `WARNING:`
+  advisory banners could be read as the cause (blaming a missing extension for
+  what was an authorization error). It now skips blank lines and banners to
+  reach the line that names the failure, falling back to the banner when that
+  is all `az` said — an imprecise cause still beats silence.
+- **`sanitize_remote_text` no longer lets `U+2028`/`U+2029` through** — they are
+  `Zl`/`Zp`, not `Cc`, so `char::is_control` missed them while every terminal
+  and text consumer still breaks a line on them, defeating the no-forged-rows
+  rule the function is built around. The invisible-character filter now covers
+  the whole `Cf` block rather than the handful of code points the Trojan Source
+  write-ups name (`U+061C`, `U+00AD`, the word joiners and the tag block were
+  all getting through). The C1 range needed no change and was verified rather
+  than assumed: it is `Cc`, so the 8-bit CSI was already handled, and there is
+  now a test pinning that. Coverage was then checked exhaustively against
+  Unicode 16 rather than asserted: every assigned `Cf` code point is stripped,
+  and nothing outside `Cf`/`Zl`/`Zp`/unassigned is caught, so no legitimate
+  name loses a character.
+- **The `azlin list` table and CSV no longer print Azure-supplied names
+  unsanitized** — the warnings and the bastion table were fixed above, but the
+  table `azlin list` prints on every run was not: the VM name, the region, the
+  SKU, the OS offer and the `azlin-session` tag all reached the terminal exactly
+  as Azure returned them. The tag is in the *default* table, so no `-w` was
+  needed to be exposed. A name carrying `ESC [ 2 K` and a carriage return erases
+  the row that reports it and prints whatever follows in its place, so the
+  operator reads a fleet that does not exist; in CSV a newline in a name ended
+  the record early and forged an extra row in output a script goes on to parse.
+  All of them are sanitized once now, in one place per VM, shared by the table
+  and CSV writers. Alignment was the second casualty: `trunc` pads a cell to an
+  exact count of *visible* columns, and a control character is a `char` that
+  occupies none, so an unsanitized name silently shifted every border to its
+  right. JSON output is deliberately unchanged: its consumer is a machine and
+  must keep the exact bytes Azure returned, so escaping there would corrupt the
+  contract rather than protect anyone. (An earlier draft of this note claimed
+  `serde_json` escapes control characters so a terminal never interprets them.
+  That is only partly true — its escape table covers `0x00`–`0x1F`, `"` and `\`,
+  so `U+007F`, the C1 range and `U+2028` are emitted raw. Rendering JSON safely
+  is the terminal's problem, not azlin's.) CSV record injection is closed;
+  *field* injection is not — fields are still emitted unquoted, so a comma in an
+  Azure name shifts every column after it by one. That is tracked in #1133,
+  because the fix is to quote per RFC 4180, not to strip more characters.
+  Found by outside-in testing against the real binary, which also confirmed the
+  pre-fix CSV really did emit three records where two were correct.
+- **Terminal escape sequences in Azure-supplied names no longer reach the
+  terminal through `azlin list` warnings or the bastion table** — session and
+  process names read off remote hosts were sanitized, but resource group, VM and
+  bastion names, and the `az` error text that quotes them back, were not.
+  Resource names are chosen by anyone with write access to the subscription, and
+  `--verbose` printed the whole `anyhow` chain of a tunnel failure raw. Taking
+  the first line of an error blocks a *fabricated second warning*; it does
+  nothing about a cursor-movement sequence rewriting the line that is printed.
+  `bastion_lookup_failure_warning`, `tunnel_failure_warning`,
+  `collision_warning`, the verbose tunnel-error line, the "Azure Bastion Hosts"
+  table and the failed-resource-group warning all sanitize now. A warning is not
+  a safer place to print an escape sequence than a table cell is. Outside-in
+  testing against the real binary then found the one site the audit had missed
+  and the one that matters most: `detect_bastion_hosts` prints its own warning
+  and returns `Ok(empty)` when `az` exits non-zero, so *that* — not the `Err`
+  arm `bastion_lookup_failure_warning` guards, which is only taken when `az`
+  cannot be spawned at all — is the failure an operator actually sees, and it
+  echoed `az`'s stderr verbatim. It sanitizes the group name and the reported
+  line of `az`'s stderr now. Review of that change closed four more sites the
+  sweep had not reached: the duplicate-bastion warning (which interpolated a
+  resource group that passes no validator at all), the verbose
+  "no reachable address" line, the tmux session-cap warning — which is on the
+  *default* path and remotely triggerable, since a compromised VM can open
+  enough sessions to force it — and the `--all-contexts` header and
+  list-failure warnings.
+- **A non-UTF-8 SSH key path no longer reports reachable VMs as unreachable** —
+  the three SSH probe sites each spelled the identity fallback
+  `key.to_str().unwrap_or("")`, which hands `ssh` an empty `-i` argument rather
+  than omitting the flag. `ssh` then failed on a missing identity file and the
+  probe was indistinguishable from an unreachable VM. The shared timeout, batch
+  mode and identity options now come from one `probe_ssh_opts` helper, which
+  omits `-i` entirely when the path is not usable — the same state as having no
+  key at all.
 - **`azlin list` no longer reports zero tmux sessions for every bastion-only VM
   but one** (the tunnel keying shipped in `v2.6.126-rust.12ccf60`; recorded
   retroactively together with the gaps found reviewing it) — an Azure Bastion

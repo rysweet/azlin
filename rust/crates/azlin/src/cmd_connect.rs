@@ -187,7 +187,7 @@ pub(crate) async fn dispatch(
                         .into_iter()
                         .filter(|v| v.power_state == azlin_core::models::PowerState::Running)
                         .collect();
-                    let lookup = crate::cmd_list_data::find_vm_by_tmux_session(
+                    let (lookup, bastion_warnings) = crate::cmd_list_data::find_vm_by_tmux_session(
                         &running,
                         vm_manager.subscription_id(),
                         config.ssh_connect_timeout,
@@ -196,6 +196,15 @@ pub(crate) async fn dispatch(
                     )
                     .await;
                     pb2.finish_and_clear();
+                    // After the spinner is cleared, not before: it erases and
+                    // redraws its line every tick, so a warning printed while
+                    // it runs is wiped before it can be read -- and a lost
+                    // bastion warning means a session on a bastion-only VM is
+                    // reported "not found" with nothing on screen saying the
+                    // search could not reach that VM at all.
+                    for warning in &bastion_warnings {
+                        eprintln!("{warning}");
+                    }
                     match lookup {
                         crate::cmd_list_data::SessionLookup::Found { vm_name } => {
                             eprintln!("Resolved tmux session '{}' to VM '{}'.", name, vm_name);
@@ -299,12 +308,18 @@ pub(crate) async fn dispatch(
             loop {
                 let status = if use_bastion {
                     // Route through Azure Bastion via native WebSocket tunnel
+                    // `_or_warn`, not `if let Ok(..)`: discarding the error
+                    // here leaves "No bastion host found for region 'X'" as
+                    // the whole story when the truth is that the lookup was
+                    // refused, and sends the operator to check a region that
+                    // is fine. No spinner is live on this path -- the last one
+                    // is cleared well above -- so the line reaches a clean
+                    // terminal.
                     let bastion_map: std::collections::HashMap<String, String> =
-                        if let Ok(bastions) = crate::list_helpers::detect_bastion_hosts(&rg) {
-                            bastions.into_iter().map(|(n, l, _)| (l, n)).collect()
-                        } else {
-                            std::collections::HashMap::new()
-                        };
+                        crate::list_helpers::detect_bastion_hosts_or_warn(&rg)
+                            .into_iter()
+                            .map(|(n, l, _)| (l, n))
+                            .collect();
                     let bastion_name = bastion_map.get(&vm.location).ok_or_else(|| {
                         anyhow::anyhow!(
                             "No bastion host found for region '{}'. Cannot connect to private VM.",

@@ -106,9 +106,49 @@ are held in a `BastionMap` keyed by `(resource group, region)`, built by running
 `az network bastion list` once per distinct resource group that actually
 contains a running VM with no public IP:
 
-- A listing where every VM has a public IP performs no bastion lookup at all.
-- The common single-resource-group listing performs exactly one, as before.
+- A listing where every VM has a public IP performs no routing lookup at all.
+- The common single-resource-group listing performs exactly one routing lookup,
+  as before.
 - A `--show-all-vms` listing performs one per resource group that needs it.
+- Adding `--with-health` or `--show-procs` to a listing that already collects
+  tmux sessions does not change the count. Discovery happens once per command
+  and the map is shared by every enrichment collector; each collector used to
+  discover routing for itself, so combining the flags spent three lookups per
+  resource group to compute one answer. (Starting from `--no-tmux`, which runs
+  no collector and so performs no routing lookup, the first enrichment flag
+  does take the count from zero to one per resource group that needs it.)
+
+The counts above are the *routing* sweep considered on its own. Table output
+also renders an "Azure Bastion Hosts" table, which needs one
+`az network bastion list` per distinct resource group in the listing — gated on
+table format and on the listing being attributable to the subscription probes
+use, the same identity gate the enrichment collectors take, not a count. That
+sweep is not filtered by public IP, because the table documents the bastions in
+the scope the operator asked about, so a table listing in which every VM has a
+public IP still performs one lookup per resource group. It is, however, driven
+by the listing that survives filtering, so a resource group whose VMs are all
+deallocated contributes no lookup and its bastions are absent from the table
+unless `--show-all-vms` keeps those VMs in the listing.
+
+**The two sweeps are not additive.** The groups routing needs are a subset of
+the groups the table covers, so the table's answers are carried forward and
+routing reads them rather than asking again. What an operator pays is therefore
+the larger of the two, not the sum (a listing the identity gate withholds pays
+neither, because it renders no table and runs no collector):
+
+| Output | Enrichment | `az network bastion list` calls |
+|---|---|---|
+| table | any combination, including none | one per resource group in the listing |
+| JSON/CSV | at least one collector | one per resource group needing routing |
+| JSON/CSV | `--no-tmux`, no other flag | none |
+
+A resource group whose lookup was *refused* is carried forward as the refusal.
+Re-asking would pay a second timeout on a group that has already said no, and
+would report one failure to the operator through two different warnings.
+
+Before that sharing, an ordinary `azlin list` ran the table sweep and then
+re-ran the same lookups for routing — "once per command" was true of the three
+collectors but not of the command.
 
 Discovery used to run against the resource group of whichever VM sorted first,
 which made it the same first-iterated-wins bug as the shared tunnel, one call
@@ -273,9 +313,12 @@ was. It is not a default-level warning because a fleet legitimately contains
 hosts the operator cannot SSH to, and warning for each of them on every listing
 would train people to ignore the warnings that matter.
 
-Using `--show-procs` together with `--with-health` resolves the bastion map
-twice in one run; the extra `az` calls cost a few hundred milliseconds per
-resource group and have no effect on results.
+Using `--show-procs` together with `--with-health` costs no additional bastion
+lookups. Each collector used to resolve the map for itself, so the two flags
+together resolved it three times in one run — same answer, a few hundred extra
+milliseconds per resource group each time, and a spinner per repeat. Discovery
+now happens once for the whole command and the map is lent to every collector;
+see the cost table above for what a listing actually pays.
 
 **Process data does not reach JSON or CSV.** `--show-procs` fills the `Procs`
 column in table output only; the JSON and CSV renderers carry no process field.

@@ -382,8 +382,7 @@ pub(crate) async fn resolve_vm_ssh_target(
     let rg = resolve_resource_group(resource_group)?;
     let vm = vm_manager.get_vm(&rg, vm_name)?;
     let bastion_map: std::collections::HashMap<String, String> =
-        list_helpers::detect_bastion_hosts(&rg)
-            .unwrap_or_default()
+        list_helpers::detect_bastion_hosts_or_warn(&rg)
             .into_iter()
             .map(|(name, location, _)| (location, name))
             .collect();
@@ -414,8 +413,7 @@ pub(crate) async fn resolve_fleet_targets(
     let auth = create_auth()?;
     let vm_manager = azlin_azure::VmManager::new(&auth);
     let bastion_map: std::collections::HashMap<String, String> =
-        list_helpers::detect_bastion_hosts(rg)
-            .unwrap_or_default()
+        list_helpers::detect_bastion_hosts_or_warn(rg)
             .into_iter()
             .map(|(name, location, _)| (location, name))
             .collect();
@@ -461,8 +459,7 @@ pub(crate) async fn resolve_vm_targets(
         let rg = resolve_resource_group(resource_group)?;
         let vm = vm_manager.get_vm(&rg, vm_name)?;
         let bastion_map: std::collections::HashMap<String, String> =
-            list_helpers::detect_bastion_hosts(&rg)
-                .unwrap_or_default()
+            list_helpers::detect_bastion_hosts_or_warn(&rg)
                 .into_iter()
                 .map(|(name, location, _)| (location, name))
                 .collect();
@@ -478,8 +475,7 @@ pub(crate) async fn resolve_vm_targets(
     let vm_manager = azlin_azure::VmManager::new(&auth);
     let rg = resolve_resource_group(resource_group)?;
     let bastion_map: std::collections::HashMap<String, String> =
-        list_helpers::detect_bastion_hosts(&rg)
-            .unwrap_or_default()
+        list_helpers::detect_bastion_hosts_or_warn(&rg)
             .into_iter()
             .map(|(name, location, _)| (location, name))
             .collect();

@@ -172,12 +172,87 @@ fn color_cell(padded: &str, color_fn: fn(&str) -> String) -> String {
     color_fn(padded)
 }
 
+// ── Azure-supplied text, sanitized for display ───────────────────────
+
+/// The Azure-supplied strings of one VM, sanitized once for display.
+///
+/// A VM name, an `azlin-session` tag value, a region, a SKU and an OS offer are
+/// all echoed back from Azure exactly as whoever created them typed them, and
+/// anyone with write access to the subscription chooses them. A name carrying
+/// `ESC [ 2 K` and a carriage return erases the row that reports it and prints
+/// whatever follows in its place, so the operator reads a fleet that does not
+/// exist. This is the same treatment, and the same reasoning, that the "Azure
+/// Bastion Hosts" table applies to a bastion's name, location and SKU.
+///
+/// Alignment is the second reason. [`trunc`] pads a cell to an exact count of
+/// *visible* columns, but a control character is one `char` that occupies no
+/// column, so an unsanitized name silently breaks every border to its right.
+/// Sanitizing before the width is measured is what keeps the two in step.
+///
+/// Built once per VM and shared by the table and CSV writers, so neither can
+/// forget a field the other remembers.
+///
+/// This deliberately holds *display* copies only. `vm.name` is also the key of
+/// `tmux_sessions`, `latencies`, `health_data` and `proc_data`, and those
+/// lookups must keep using the raw name — sanitizing a key would silently miss
+/// the entry it names.
+///
+/// JSON output does not come through here, and deliberately is not sanitized:
+/// its consumer is a machine, and a machine consumer must keep the exact bytes
+/// Azure returned. Note the limit of what `serde_json` does for a human who
+/// `cat`s that JSON to a terminal anyway -- its escape table covers `0x00`
+/// through `0x1F`, `"` and `\` and nothing else, so `U+007F`, the C1 range and
+/// `U+2028` are emitted raw. Rendering JSON safely is the terminal's problem,
+/// not this module's; escaping it here would corrupt the contract.
+struct VmDisplayText {
+    session: String,
+    name: String,
+    os: String,
+    ip: String,
+    location: String,
+    vm_size: String,
+}
+
+impl VmDisplayText {
+    fn for_vm(vm: &VmInfo) -> Self {
+        use crate::cmd_list_data::sanitize_remote_text;
+        Self {
+            session: vm
+                .tags
+                .get("azlin-session")
+                .map(|s| sanitize_remote_text(s))
+                .unwrap_or_else(|| "-".to_string()),
+            name: sanitize_remote_text(&vm.name),
+            // `format_os_display` echoes the offer back for Ubuntu, so the
+            // rendered string is Azure text even though the fallback is an enum.
+            os: sanitize_remote_text(&crate::display_helpers::format_os_display(
+                vm.os_offer.as_deref(),
+                &vm.os_type,
+            )),
+            ip: sanitize_remote_text(&crate::display_helpers::format_ip_display(
+                vm.public_ip.as_deref(),
+                vm.private_ip.as_deref(),
+            )),
+            location: sanitize_remote_text(&vm.location),
+            vm_size: sanitize_remote_text(&vm.vm_size),
+        }
+    }
+}
+
 // ── Table renderer ───────────────────────────────────────────────────
 
 fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
     let term_width = crossterm::terminal::size()
         .map(|(w, _)| w as usize)
         .unwrap_or(120);
+
+    // Sanitized once per VM, up front, because the width pass and the row pass
+    // both need it and each used to build its own copy -- six sanitized
+    // `String`s allocated per VM, measured, thrown away, and allocated again a
+    // hundred lines below. Sizing a column against text other than the text
+    // that will be printed is also how a border ends up in the wrong place, so
+    // sharing one value is the safer arrangement as well as the cheaper one.
+    let display: Vec<VmDisplayText> = data.vms.iter().map(VmDisplayText::for_vm).collect();
 
     // Build column definitions based on config and terminal width.
     // Start with minimum columns, then allocate remaining space.
@@ -205,10 +280,12 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
     if cfg.wide {
         // Size VM Name to fit the widest entry so names are never truncated
         // (this is the main reason users pass -w).
-        let vm_name_w = data
-            .vms
+        // Measured on the sanitized name, which is what actually gets printed.
+        // Measuring the raw one would size the column for characters that
+        // occupy no columns, padding every row past the border.
+        let vm_name_w = display
             .iter()
-            .map(|vm| vm.name.len())
+            .map(|d| d.name.chars().count())
             .max()
             .unwrap_or(7)
             .max(7); // minimum = header width
@@ -382,18 +459,12 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
     println!("{}", border_line(&widths, '├', '┼', '┤', '─'));
 
     // Data rows
-    for vm in data.vms {
-        let session = vm
-            .tags
-            .get("azlin-session")
-            .map(|s| s.as_str())
-            .unwrap_or("-");
-
+    for (vm, disp) in data.vms.iter().zip(&display) {
         let mut cells: Vec<String> = Vec::new();
         let mut col_i = 0;
 
         // Session
-        cells.push(cyan(&trunc(session, cols[col_i].width)));
+        cells.push(cyan(&trunc(&disp.session, cols[col_i].width)));
         col_i += 1;
 
         // Tmux — show all session names; pad or truncate to exact column width
@@ -419,13 +490,12 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
 
         // VM Name
         if cfg.wide {
-            cells.push(trunc(&vm.name, cols[col_i].width));
+            cells.push(trunc(&disp.name, cols[col_i].width));
             col_i += 1;
         }
 
         // OS
-        let os_str = crate::display_helpers::format_os_display(vm.os_offer.as_deref(), &vm.os_type);
-        cells.push(trunc(&os_str, cols[col_i].width));
+        cells.push(trunc(&disp.os, cols[col_i].width));
         col_i += 1;
 
         // Status (colored)
@@ -436,20 +506,16 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
         col_i += 1;
 
         // IP
-        let ip_str = crate::display_helpers::format_ip_display(
-            vm.public_ip.as_deref(),
-            vm.private_ip.as_deref(),
-        );
-        cells.push(dim_yellow(&trunc(&ip_str, cols[col_i].width)));
+        cells.push(dim_yellow(&trunc(&disp.ip, cols[col_i].width)));
         col_i += 1;
 
         // Region
-        cells.push(dim(&trunc(&vm.location, cols[col_i].width)));
+        cells.push(dim(&trunc(&disp.location, cols[col_i].width)));
         col_i += 1;
 
         // SKU
         if cfg.wide {
-            cells.push(dim(&trunc(&vm.vm_size, cols[col_i].width)));
+            cells.push(dim(&trunc(&disp.vm_size, cols[col_i].width)));
             col_i += 1;
         }
 
@@ -676,36 +742,37 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
     println!("{}", headers.join(","));
 
     for vm in data.vms {
-        let session = vm
-            .tags
-            .get("azlin-session")
-            .map(|s| s.as_str())
-            .unwrap_or("-");
+        // Sanitized for the same reason as the table, plus one specific to this
+        // format: `sanitize_remote_text` strips newlines (and `U+2028`/`U+2029`
+        // with them), and a newline in a name would otherwise end the record
+        // early and let a listed VM inject rows of its own into the CSV a
+        // script goes on to parse.
+        //
+        // Record injection is closed; *field* injection is not. Fields are
+        // still emitted unquoted, so a comma in an Azure name shifts every
+        // column after it by one. That is tracked separately (#1133) because
+        // the fix is to quote per RFC 4180, not to strip more characters --
+        // stripping would silently rename a VM in output a script parses.
+        let disp = VmDisplayText::for_vm(vm);
         let tmux = data
             .tmux_sessions
             .get(&vm.name)
             .map(|s| s.join(";"))
             .unwrap_or_default();
-        let ip_display = crate::display_helpers::format_ip_display(
-            vm.public_ip.as_deref(),
-            vm.private_ip.as_deref(),
-        );
-        let os_display =
-            crate::display_helpers::format_os_display(vm.os_offer.as_deref(), &vm.os_type);
         let (cpu, mem) = crate::display_helpers::query_vm_size_specs(&vm.vm_size, &vm.location);
-        let mut row = session.to_string();
+        let mut row = disp.session.clone();
         if cfg.show_tmux_col {
             row.push_str(&format!(",{}", tmux));
         }
         if cfg.wide {
-            row.push_str(&format!(",{}", vm.name));
+            row.push_str(&format!(",{}", disp.name));
         }
         row.push_str(&format!(
             ",{},{},{},{}",
-            os_display, vm.power_state, ip_display, vm.location
+            disp.os, vm.power_state, disp.ip, disp.location
         ));
         if cfg.wide {
-            row.push_str(&format!(",{}", vm.vm_size));
+            row.push_str(&format!(",{}", disp.vm_size));
         }
         row.push_str(&format!(",{},{}", cpu, mem));
         if cfg.with_latency {
@@ -721,7 +788,7 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
             if let Some(m) = data.health_data.get(&vm.name) {
                 row.push_str(&format!(
                     ",{},{},{},{}",
-                    m.agent_status,
+                    crate::cmd_list_data::sanitize_remote_text(&m.agent_status),
                     crate::health_render::metric_csv(m.cpu_percent),
                     crate::health_render::metric_csv(m.mem_percent),
                     crate::health_render::metric_csv(m.disk_percent)
@@ -945,5 +1012,121 @@ mod tests {
             tmux_col.width, 50,
             "Tmux column should not be shrunk when other columns can absorb the excess"
         );
+    }
+
+    // ── Azure-supplied text is sanitized for display ──────────────────
+
+    /// `ESC [ 2 K` erases the line and `CR` returns to its start, so a name
+    /// carrying both makes the row that reports it render as whatever follows.
+    const ERASE_LINE_THEN_RETURN: &str = "\x1b[2K\rALL-CLEAR";
+
+    fn vm_with_hostile_names() -> VmInfo {
+        let mut tags = std::collections::HashMap::new();
+        tags.insert(
+            "azlin-session".to_string(),
+            format!("prod{}\ninjected", ERASE_LINE_THEN_RETURN),
+        );
+        VmInfo {
+            name: format!("oit-vm{}", ERASE_LINE_THEN_RETURN),
+            resource_group: "rg-oit".to_string(),
+            location: format!("eastus{}", ERASE_LINE_THEN_RETURN),
+            vm_size: format!("Standard_D4s_v3{}", ERASE_LINE_THEN_RETURN),
+            power_state: azlin_core::models::PowerState::Running,
+            provisioning_state: azlin_core::models::ProvisioningState::Succeeded,
+            os_type: azlin_core::models::OsType::Linux,
+            os_offer: Some(format!("ubuntu-24_04{}", ERASE_LINE_THEN_RETURN)),
+            public_ip: None,
+            private_ip: Some("10.0.0.4".to_string()),
+            admin_username: Some("azureuser".to_string()),
+            tags,
+            created_time: None,
+        }
+    }
+
+    /// Every Azure-supplied cell, not just the ones a reviewer happened to
+    /// think of. If a field is added to `VmDisplayText` without sanitizing it,
+    /// this is the test that should fail.
+    #[test]
+    fn display_text_strips_control_characters_from_every_field() {
+        let vm = vm_with_hostile_names();
+        let d = VmDisplayText::for_vm(&vm);
+
+        for (field, value) in [
+            ("session", &d.session),
+            ("name", &d.name),
+            ("os", &d.os),
+            ("ip", &d.ip),
+            ("location", &d.location),
+            ("vm_size", &d.vm_size),
+        ] {
+            assert!(
+                !value.chars().any(|c| c.is_control()),
+                "{} still carries a control character: {:?}",
+                field,
+                value
+            );
+        }
+    }
+
+    /// Sanitizing must not blank the cell: an operator still has to be able to
+    /// read which VM the row is about. Stripping the escape and keeping the
+    /// printable remainder is the whole point.
+    #[test]
+    fn display_text_keeps_the_printable_remainder() {
+        let vm = vm_with_hostile_names();
+        let d = VmDisplayText::for_vm(&vm);
+        assert!(d.name.starts_with("oit-vm"), "name was {:?}", d.name);
+        assert!(d.name.contains("ALL-CLEAR"), "name was {:?}", d.name);
+        assert!(d.location.starts_with("eastus"), "loc was {:?}", d.location);
+        assert!(d.session.starts_with("prod"), "session {:?}", d.session);
+    }
+
+    /// A newline in a name would end a CSV record early and let a listed VM
+    /// inject rows of its own into output a script goes on to parse.
+    #[test]
+    fn display_text_strips_newlines_that_would_forge_a_csv_record() {
+        let vm = vm_with_hostile_names();
+        let d = VmDisplayText::for_vm(&vm);
+        assert!(!d.session.contains('\n'), "session {:?}", d.session);
+        assert!(d.session.contains("injected"), "session {:?}", d.session);
+    }
+
+    /// A VM with no session tag reads as `-`, not as an empty cell.
+    #[test]
+    fn display_text_missing_session_tag_renders_dash() {
+        let mut vm = vm_with_hostile_names();
+        vm.tags.clear();
+        assert_eq!(VmDisplayText::for_vm(&vm).session, "-");
+    }
+
+    /// The sanitized name is what gets printed, so it is what the column must
+    /// be measured against. Measuring the raw name reserves columns for
+    /// characters that occupy none, pushing every border right.
+    #[test]
+    fn display_name_is_shorter_than_the_raw_name_it_came_from() {
+        let vm = vm_with_hostile_names();
+        let d = VmDisplayText::for_vm(&vm);
+        assert!(
+            d.name.chars().count() < vm.name.chars().count(),
+            "sanitized {:?} should be shorter than raw {:?}",
+            d.name,
+            vm.name
+        );
+    }
+
+    /// Ordinary names must survive untouched — sanitizing is not allowed to
+    /// mangle the 99.9% case, including non-ASCII names Azure accepts.
+    #[test]
+    fn display_text_leaves_ordinary_names_alone() {
+        let mut vm = vm_with_hostile_names();
+        vm.name = "oit-vm-a".to_string();
+        vm.location = "eastus".to_string();
+        vm.vm_size = "Standard_D4s_v3".to_string();
+        vm.tags.insert("azlin-session".into(), "café-prod".into());
+        let d = VmDisplayText::for_vm(&vm);
+        assert_eq!(d.name, "oit-vm-a");
+        assert_eq!(d.location, "eastus");
+        assert_eq!(d.vm_size, "Standard_D4s_v3");
+        assert_eq!(d.session, "café-prod");
     }
 }

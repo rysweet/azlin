@@ -268,7 +268,7 @@ async fn open_bastion_tunnels(
     entries: &mut Vec<TunnelEntry>,
 ) -> Result<()> {
     // Locate the bastion for this VM's region
-    let bastions = crate::list_helpers::detect_bastion_hosts(rg).unwrap_or_default();
+    let bastions = crate::list_helpers::detect_bastion_hosts_or_warn(rg);
     let bastion_map: HashMap<String, String> =
         bastions.into_iter().map(|(n, l, _)| (l, n)).collect();
     let bastion_name = bastion_map.get(&vm.location).ok_or_else(|| {

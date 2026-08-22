@@ -122,15 +122,21 @@ pub(crate) async fn dispatch(
             let vm_manager = azlin_azure::VmManager::new(&auth);
             let rg = resolve_resource_group(resource_group)?;
 
-            let pb = penguin_spinner("Collecting health metrics...");
-
-            // Detect bastion hosts for private-IP-only VMs
+            // Detect bastion hosts for private-IP-only VMs.
+            //
+            // Before the spinner, deliberately. This warns on failure, and the
+            // spinner below is held live across all SSH probing with a 120ms
+            // steady tick, which erases and redraws its line -- a warning
+            // written under it is wiped before it can be read, leaving every
+            // bastion-only VM reporting no health data with nothing on screen
+            // saying the lookup was refused.
             let bastion_map: std::collections::HashMap<String, String> =
-                crate::list_helpers::detect_bastion_hosts(&rg)
-                    .unwrap_or_default()
+                crate::list_helpers::detect_bastion_hosts_or_warn(&rg)
                     .into_iter()
                     .map(|(name, location, _)| (location, name))
                     .collect();
+
+            let pb = penguin_spinner("Collecting health metrics...");
 
             // Resolve SSH key path for bastion tunnelling
             let ssh_key_path = dirs::home_dir()
