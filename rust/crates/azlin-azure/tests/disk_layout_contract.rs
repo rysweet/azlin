@@ -314,6 +314,90 @@ fn the_probe_refuses_a_username_it_would_have_to_interpolate_unsafely() {
     assert!(build_disk_probe_script(&both(), "azureuser").is_ok());
 }
 
+/// `findmnt <mountpoint>` can print every layer at a stacked mountpoint. Taking
+/// its first row reads the hidden tmpfs instead of the bind mounted over it.
+/// `findmnt -T` asks the kernel-facing lookup for the one mount that currently
+/// serves the path.
+#[cfg(unix)]
+#[test]
+fn a_stacked_tmp_mount_uses_the_effective_data_disk_and_needs_no_repair() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let script = build_disk_probe_script(&tmp_only(), USER).expect("probe builds");
+    let function_start = script.find("azlin_source_of() {").expect("source helper");
+    let function_end = script[function_start..]
+        .find("\n}\n")
+        .map(|at| function_start + at + 3)
+        .expect("source helper end");
+    let helper = &script[function_start..function_end];
+
+    let root = std::env::temp_dir().join(format!(
+        "azlin-stacked-mount-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before unix epoch")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).expect("create scratch directory");
+    let findmnt = root.join("findmnt");
+    std::fs::write(
+        &findmnt,
+        r#"#!/bin/sh
+case " $* " in
+  *" -T /tmp "*) printf '%s\n' '/dev/sdc[/tmp]' ;;
+  *" /tmp "*) printf '%s\n' 'tmpfs' '/dev/sdc[/tmp]' ;;
+  *) printf '%s\n' '/dev/sdc' ;;
+esac
+"#,
+    )
+    .expect("write findmnt shim");
+    let mut permissions = std::fs::metadata(&findmnt)
+        .expect("findmnt metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&findmnt, permissions).expect("chmod findmnt shim");
+
+    let run = format!("{helper}\nazlin_source_of /tmp\n");
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(run)
+        .env("PATH", format!("{}:/usr/bin:/bin", root.display()))
+        .output()
+        .expect("run generated mount lookup");
+    let source = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let _ = std::fs::remove_dir_all(&root);
+
+    assert!(output.status.success(), "{:?}", output.status);
+    assert_eq!(
+        source, "/dev/sdc[/tmp]",
+        "the effective bind must win over the hidden tmpfs"
+    );
+
+    let transcript = format!(
+        "azlin-disk lun=0 role=tmp dev=/dev/sdc size=214748364800 \
+fstype=ext4 label=azlin-tmp backing=yes bind={}\n\
+azlin-provisioning complete=yes status=ok ledger=yes failed=\n",
+        if source.starts_with("/dev/sdc") {
+            "yes"
+        } else {
+            "no"
+        }
+    );
+    let report = parse_disk_probe(&transcript, &tmp_only());
+    assert_eq!(report.status, StorageStatus::Ok, "{report:?}");
+    assert_eq!(report.disks[0].stage, DiskStage::Healthy, "{report:?}");
+
+    let repair = build_disk_repair_script(&report.disks[0], USER, false)
+        .expect("an already healthy disk is not an error");
+    assert!(
+        repair.is_empty(),
+        "repairing the effective healthy mount must execute no mount or fstab operation:\n{repair}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // The parser, against captured probe output
 // ---------------------------------------------------------------------------
@@ -596,12 +680,90 @@ fn repairing_a_backing_mounted_disk_never_formats() {
 /// nothing at all.
 #[test]
 fn repairing_a_healthy_disk_is_a_no_op() {
+    use std::process::Command;
+
     let script = build_disk_repair_script(&finding("home", 0, DiskStage::Healthy), USER, false)
         .expect("healthy is not an error");
     assert!(
         script.trim().is_empty(),
         "a healthy disk must produce no script:\n{script}"
     );
+
+    let output = Command::new("bash")
+        .arg("-c")
+        .arg(format!(
+            "mount() {{ echo mount; }}\n\
+             tee() {{ echo fstab-write; }}\n\
+             {script}"
+        ))
+        .output()
+        .expect("execute healthy repair plan");
+    assert!(output.status.success(), "{:?}", output.status);
+    assert!(
+        output.stdout.is_empty(),
+        "an already-healthy repair executed a mount or fstab operation:\n{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+/// Execute a generated repair step and then model its authoritative re-probe as
+/// degraded. Even on that failure path, the combined run cannot contain a
+/// premature per-step `healthy` claim followed by the final degraded verdict.
+#[cfg(unix)]
+#[test]
+fn repair_progress_cannot_contradict_a_degraded_final_reprobe() {
+    let script =
+        build_disk_repair_script(&finding("tmp", 1, DiskStage::BackingMounted), USER, false)
+            .expect("repair plan");
+    let harness = format!(
+        "readlink() {{ printf '%s\\n' /dev/sdc; }}\n\
+         sudo() {{\n  \
+           case \"$1\" in\n    \
+             blkid) printf '%s\\n' test-uuid ;;\n    \
+             tee) cat >/dev/null ;;\n    \
+             *) return 0 ;;\n  \
+           esac\n\
+         }}\n\
+         mountpoint() {{ return 0; }}\n\
+         findmnt() {{ return 0; }}\n\
+         grep() {{ return 0; }}\n\
+         {script}"
+    )
+    .replace(
+        "if [ -z \"$DEV\" ] || [ ! -b \"$DEV\" ]; then",
+        "if false; then",
+    );
+    let output = std::process::Command::new("bash")
+        .arg("-c")
+        .arg(harness)
+        .output()
+        .expect("execute repair step");
+    assert!(
+        output.status.success(),
+        "repair harness failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let after = parse_disk_probe(
+        "azlin-disk lun=0 role=tmp dev=/dev/sdc size=214748364800 \
+         fstype=ext4 label=azlin-tmp backing=yes bind=no\n\
+         azlin-provisioning complete=yes status=ok ledger=yes failed=\n",
+        &tmp_only(),
+    );
+    assert_eq!(after.status, StorageStatus::Degraded);
+
+    let transcript = format!(
+        "{}\nStorage: {}\nError: still not fully repaired",
+        String::from_utf8_lossy(&output.stdout),
+        after.status
+    );
+    assert!(
+        !transcript
+            .lines()
+            .any(|line| line.trim_end() == "azlin: healthy"),
+        "one repair run emitted both healthy and not-repaired:\n{transcript}"
+    );
+    assert!(transcript.contains("Storage: degraded"), "{transcript}");
 }
 
 /// A missing LUN is an Azure attach problem. Emitting a filesystem repair for

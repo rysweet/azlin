@@ -533,7 +533,6 @@ mod real_shell {
         "curl",
         "wget",
         "snap",
-        "su",
         "systemctl",
         "usermod",
         "loginctl",
@@ -608,7 +607,11 @@ mod real_shell {
         let mut out = format!(
             "azlin_test_log() {{ printf '%s\\n' \"$1\" >> '{log}'; }}\n\
              command_not_found_handle() {{ azlin_test_log \"$1\"; return 0; }}\n\
-             apt-get() {{ azlin_test_log apt-get; return {apt_rc}; }}\n"
+             apt-get() {{ azlin_test_log apt-get; return {apt_rc}; }}\n\
+             su() {{\n  \
+               azlin_test_log su\n  \
+               case \"$*\" in *claude-install.sh*) return 17 ;; *) return 0 ;; esac\n\
+             }}\n"
         );
         for cmd in SHIMMED {
             // `sleep` must be instant: the LUN retry loop is 12 × 5s and the
@@ -912,6 +915,34 @@ mod real_shell {
             );
         }
         assert!(outcome.sentinel_present);
+    }
+
+    /// Claude is required for an agent VM, but aborting at its section would
+    /// hide the state of everything after it. Its failure therefore degrades
+    /// the terminal result while later sections still run and report.
+    #[test]
+    fn a_claude_failure_degrades_provisioning_without_hiding_later_sections() {
+        let Some(outcome) = run_generated_script(&DiskConfig::default(), 0) else {
+            eprintln!("skipping: bash unavailable");
+            return;
+        };
+
+        assert_eq!(
+            outcome.ledger_status("setup-claude-code").as_deref(),
+            Some("failed"),
+            "Claude's required section must not swallow failure:\n{}",
+            outcome.ledger
+        );
+        assert!(
+            outcome.ledger_status("setup-rust").is_some(),
+            "a required Claude failure must not prevent later sections from recording:\n{}",
+            outcome.ledger
+        );
+        assert_eq!(
+            outcome.provisioning_status.as_deref(),
+            Some("degraded"),
+            "a VM without Claude must not finish provisioning as successful"
+        );
     }
 }
 
