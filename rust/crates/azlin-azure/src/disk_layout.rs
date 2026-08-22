@@ -4,12 +4,18 @@
 //! block sat behind `apt-get install` under `set -euo pipefail`, so on a
 //! bastion-only VM with no outbound route the script died before reaching it.
 //! Detecting that condition afterwards and repairing it in place means encoding
-//! "what a correctly provisioned VM looks like" a second and a third time — and
-//! a detector that drifts from the generator reports *healthy* VMs as broken,
-//! forever, and silently.
+//! "what a correctly provisioned VM looks like" a second and a third time.
 //!
-//! So the layout lives here, once, and the cloud-init generator, `azlin disk
-//! check` and `azlin disk repair` all read it from this module.
+//! **The drift rule.** Every layout fact — the LUN, the device path, the
+//! filesystem label, the backing mount, the bind pair, the disk name — has one
+//! spelling, here. A second copy of any of them is not a duplication that costs
+//! a little maintenance; it is a detector that can disagree with the generator,
+//! and the failure that produces is the worst one available: every correctly
+//! provisioned VM in the fleet reporting `degraded` forever, with `azlin disk
+//! repair` standing by to "fix" them — or its mirror image, a fleet-wide false
+//! pass. The cloud-init generator, the probe, the parser, the repairer and
+//! `azlin disk add --mount` therefore all read this module, and the sites that
+//! do point back here rather than re-arguing it.
 //!
 //! The part that is most often misread: nothing is ever mounted directly on
 //! `/home` or `/tmp`. The disk is mounted at a *backing* path and a *bind*
@@ -17,6 +23,11 @@
 //! `docs-site/storage/data-disk-layout.md`.
 
 use crate::cloud_init::DiskConfig;
+// Applied at the parse boundary, once, so no rendering surface downstream has
+// to remember to do it. Shared with `auth_forward` and the storage probe's
+// stderr bail rather than copied: this rule had one reader when it was written
+// and three by the time the copies were noticed.
+use azlin_core::sanitizer::printable;
 
 // ---------------------------------------------------------------------------
 // The layout
@@ -90,7 +101,7 @@ pub fn roles(config: &DiskConfig) -> Vec<DiskRole> {
 ///
 /// `azlin disk repair` receives a finding rather than a config, and has to get
 /// back to the layout without re-deriving it.
-pub fn role_by_name(name: &str, lun: u32) -> Option<DiskRole> {
+fn role_by_name(name: &str, lun: u32) -> Option<DiskRole> {
     match name {
         "home" => Some(DiskRole { lun, ..HOME_ROLE }),
         "tmp" => Some(DiskRole { lun, ..TMP_ROLE }),
@@ -112,16 +123,36 @@ pub fn bind_pair(role: &DiskRole, username: &str) -> (String, String) {
     }
 }
 
+/// Where `azlin disk repair` records how far its home copy got.
+///
+/// On the data disk, so a `mkfs` clears it and a disk carried to another VM
+/// carries it — and in the backing mount's root rather than in the bind source,
+/// so it never appears inside the user's home and never perturbs the entry
+/// count the copy is verified against.
+fn copy_state_path(role: &DiskRole, username: &str) -> String {
+    format!("{}/.azlin-copy-{}", role.backing, username)
+}
+
 /// The name `azlin new` gives the managed disk for one role.
 ///
 /// The convention is the only thing that says which role a disk was created
-/// for, so it has one spelling. Two independent copies of it — which is what
-/// `azlin disk check` and the `Storage` column each grew — can drift apart
-/// silently, and the failure they drift into is `NoDisks`: exit 0 and a `--`
-/// cell for every VM in the fleet, which is precisely the false pass this whole
+/// for. `azlin disk check` and the `Storage` column each grew a copy of it, and
+/// the failure two copies drift into is specifically `NoDisks` — exit 0 and a
+/// `--` cell for every VM in the fleet, which is the false pass this whole
 /// issue is about.
-pub fn data_disk_name(vm_name: &str, role: &DiskRole) -> String {
+fn data_disk_name(vm_name: &str, role: &DiskRole) -> String {
     format!("{}_{}", vm_name, role.name)
+}
+
+/// Every backing mount azlin can create, whatever the disk configuration is.
+///
+/// The provisioning preamble reports on all of them unconditionally, including
+/// on a VM with no data disks: "both absent" is the answer to "where did my
+/// /home go". It needs the paths without a `DiskConfig` to derive them from,
+/// which is why they are reachable without one — see the drift rule in the
+/// module header.
+pub fn all_backing_paths() -> [&'static str; 2] {
+    [HOME_ROLE.backing, TMP_ROLE.backing]
 }
 
 /// The Azure udev symlink for a LUN.
@@ -196,11 +227,31 @@ pub fn fstab_line(spec: &FstabSpec) -> String {
 /// device looks unusual, proceed?" — interactively. These scripts run over SSH
 /// with stdin closed, so a prompt is not a safety net; it is a hang followed by
 /// an unexplained non-zero exit.
+///
+/// **The guard fails closed.** `if blkid …; then skip; else format; fi` reads
+/// as "format when there is no filesystem", and it is not: it formats on *any*
+/// non-zero exit, including the ones that mean the question was never answered
+/// — `blkid` absent from the image, `sudo` denied, an I/O error on the device.
+/// Those are exactly the conditions under which the caller's own filesystem
+/// detection is most likely to have misread the disk as blank, so the two
+/// failures are correlated and the "independent" guard was not independent.
+/// `blkid` exits `2` for "nothing found", and only `2` is taken as a licence to
+/// format; anything else stops the script instead of destroying what it could
+/// not read.
 pub fn blkid_guarded_mkfs(dev_var: &str, label: Option<&str>, privilege: &str) -> String {
     let label_arg = label.map(|l| format!("-L {} ", l)).unwrap_or_default();
     format!(
-        "if {privilege}blkid \"${dev_var}\" >/dev/null 2>&1; then\n  \
+        // `|| azlin_blkid_rc=$?` rather than `; azlin_blkid_rc=$?`: these
+        // scripts run under `set -e`, where a bare non-zero `blkid` would end
+        // the script before its status could be looked at.
+        "azlin_blkid_rc=0\n\
+         {privilege}blkid \"${dev_var}\" >/dev/null 2>&1 || azlin_blkid_rc=$?\n\
+         if [ \"$azlin_blkid_rc\" -eq 0 ]; then\n  \
            echo 'azlin: filesystem already present, not reformatting'\n\
+         elif [ \"$azlin_blkid_rc\" -ne 2 ]; then\n  \
+           echo \"azlin: blkid could not examine ${dev_var} (exit $azlin_blkid_rc), so \
+whether it holds a filesystem is unknown; refusing to format it\" >&2\n  \
+           exit 1\n\
          else\n  \
            echo 'azlin: formatting (no filesystem found)'\n  \
            {privilege}mkfs.ext4 -F {label_arg}\"${dev_var}\"\n\
@@ -232,16 +283,6 @@ pub enum DiskStage {
 }
 
 impl DiskStage {
-    /// Whether a disk at this stage can contain data.
-    ///
-    /// Only these stages need `--force` before a `mkfs`. `raw` — the common
-    /// case, and the one #1131 produced — is safe to format without one, and
-    /// making the common repair require a scary flag is how operators learn to
-    /// pass `--force` by habit.
-    pub fn holds_data(&self) -> bool {
-        *self >= DiskStage::Formatted
-    }
-
     /// The wire/JSON spelling.
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -406,9 +447,16 @@ pub fn config_from_attached_disks(
 /// — and there is a test asserting exactly that, by forbidden substring.
 ///
 /// It prints facts and has no opinion; [`parse_disk_probe`] decides the verdict.
+///
+/// `fsdet=` is the one field that is not a fact about the disk but a fact about
+/// the *probe*: whether the filesystem question was answered at all. An empty
+/// `fstype=` used to mean two different things — "this disk is blank" and
+/// "`lsblk` is missing and `sudo -n blkid` was denied" — and the parser read
+/// both as `raw`, the stage a repair formats without `--force`. They are
+/// separated here so the second can be an [`StorageStatus::Unknown`] instead.
 pub fn build_disk_probe_script(config: &DiskConfig, username: &str) -> Result<String, String> {
     let user = checked_username(username)?;
-    let mut s = String::with_capacity(2048);
+    let mut s = String::with_capacity(4096);
 
     s.push_str(
         "#!/bin/sh\n\
@@ -430,12 +478,18 @@ pub fn build_disk_probe_script(config: &DiskConfig, username: &str) -> Result<St
         let lun = role.lun;
         s.push_str(&format!(
             "\nD=\"$(readlink -f {device} 2>/dev/null)\"\n\
-             SZ=\"\"; FS=\"\"; LB=\"\"; PT=\"\"\n\
+             SZ=\"\"; FS=\"\"; FSR=\"\"; LB=\"\"; PT=\"\"; FSDET=no\n\
              if [ -n \"$D\" ] && [ -b \"$D\" ]; then\n  \
                SZ=\"$(lsblk -bdno SIZE \"$D\" 2>/dev/null | head -1 | tr -d ' ')\"\n  \
-               FS=\"$(lsblk -dno FSTYPE \"$D\" 2>/dev/null | head -1 | tr -d ' ')\"\n  \
+               if FSR=\"$(lsblk -dno FSTYPE \"$D\" 2>/dev/null)\"; then FSDET=yes; fi\n  \
+               FS=\"$(printf '%s\\n' \"$FSR\" | head -1 | tr -d ' ')\"\n  \
                LB=\"$(lsblk -dno LABEL \"$D\" 2>/dev/null | head -1 | tr -d ' ')\"\n  \
-               if [ -z \"$FS\" ]; then FS=\"$(sudo -n blkid -s TYPE -o value \"$D\" 2>/dev/null)\"; fi\n  \
+               if [ -z \"$FS\" ]; then\n    \
+                 FS=\"$(sudo -n blkid -s TYPE -o value \"$D\" 2>/dev/null)\"\n    \
+                 BRC=$?\n    \
+                 if [ \"$BRC\" -eq 0 ] || [ \"$BRC\" -eq 2 ]; then FSDET=yes; fi\n    \
+                 FS=\"$(printf '%s' \"$FS\" | tr -d ' ')\"\n  \
+               fi\n  \
                if [ -z \"$LB\" ]; then LB=\"$(sudo -n blkid -s LABEL -o value \"$D\" 2>/dev/null)\"; fi\n  \
                PT=\"$(lsblk -dno PTTYPE \"$D\" 2>/dev/null | head -1 | tr -d ' ')\"\n  \
                if [ -z \"$PT\" ]; then PT=\"$(sudo -n blkid -s PTTYPE -o value \"$D\" 2>/dev/null)\"; fi\n\
@@ -447,7 +501,7 @@ pub fn build_disk_probe_script(config: &DiskConfig, username: &str) -> Result<St
                case \"$(azlin_source_of {backing})\" in \"$D\") BK=yes ;; esac\n  \
                case \"$(azlin_source_of {bind_target})\" in \"$D\"*) BD=yes ;; esac\n\
              fi\n\
-             echo \"azlin-disk lun={lun} role={role} dev=$D size=$SZ fstype=$FS label=$LB backing=$BK bind=$BD pttype=$PT\"\n",
+             echo \"azlin-disk lun={lun} role={role} dev=$D size=$SZ fstype=$FS label=$LB backing=$BK bind=$BD pttype=$PT fsdet=$FSDET\"\n",
             device = lun_device_path(lun),
             backing = role.backing,
             bind_target = bind_target,
@@ -487,10 +541,8 @@ fn field<'a>(line: &'a str, key: &str) -> Option<&'a str> {
 }
 
 fn nonempty(value: Option<&str>) -> Option<String> {
-    match value {
-        Some(v) if !v.is_empty() => Some(v.to_string()),
-        _ => None,
-    }
+    let cleaned = printable(value?);
+    (!cleaned.is_empty()).then_some(cleaned)
 }
 
 fn stage_detail(role: &DiskRole, stage: DiskStage, bind_target: &str) -> String {
@@ -543,14 +595,14 @@ pub fn parse_disk_probe(output: &str, config: &DiskConfig) -> DiskReport {
 
     let provisioning = ProvisioningInfo {
         complete: field(prov_line, "complete=") == Some("yes"),
-        status: field(prov_line, "status=").unwrap_or("unknown").to_string(),
+        status: printable(field(prov_line, "status=").unwrap_or("unknown")),
         ledger_present: field(prov_line, "ledger=") == Some("yes"),
         failed_sections: field(prov_line, "failed=")
             .unwrap_or("")
             .split(',')
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .map(str::to_string)
+            .map(printable)
             .collect(),
     };
 
@@ -582,15 +634,26 @@ pub fn parse_disk_probe(output: &str, config: &DiskConfig) -> DiskReport {
 
         // A whole disk carrying a partition table reports no `fstype` — the
         // filesystem is inside a partition, one level down. Calling that `raw`
-        // would put it below `holds_data()` and let a repair format it with no
+        // would put it below `formatted` and let a repair format it with no
         // `--force`, which is the one thing the stage ladder exists to prevent.
         // `formatted` is the honest classification: something is on it, and
         // this tool cannot see what.
         let partitioned = nonempty(field(line, "pttype=")).is_some();
 
+        // Whether the probe could answer the filesystem question at all. An
+        // empty `fstype=` from a probe that could not run `lsblk` and was
+        // denied `sudo -n blkid` is not evidence of a blank disk, and `raw` is
+        // the stage a repair formats with no `--force`. A probe that predates
+        // the field does not say `no`, so it keeps its old reading rather than
+        // turning every VM unknown on an upgrade.
+        let fs_determined = field(line, "fsdet=") != Some("no");
+
         let stage = if device.is_none() {
             DiskStage::Absent
         } else if fstype.is_none() && !partitioned {
+            if !fs_determined {
+                return unknown(Vec::new(), Some(provisioning));
+            }
             DiskStage::Raw
         } else if !backing {
             DiskStage::Formatted
@@ -634,6 +697,18 @@ pub fn parse_disk_probe(output: &str, config: &DiskConfig) -> DiskReport {
 // ---------------------------------------------------------------------------
 // Repair
 // ---------------------------------------------------------------------------
+
+/// Whether repairing this finding with `force` would run `mkfs` over a
+/// filesystem that is already there.
+///
+/// The only destructive thing `azlin disk repair` can do, and the caller has to
+/// be able to ask *before* running the plan so it can confirm. Spelled here,
+/// once, because [`build_disk_repair_script`] decides it from the same
+/// expression: a CLI that re-derived the rule would eventually prompt for a
+/// repair that does not reformat, or run one that does without asking.
+pub fn reformats_existing_filesystem(finding: &DiskFinding, force: bool) -> bool {
+    force && finding.stage == DiskStage::Formatted
+}
 
 /// The script that brings one disk up to the layout, starting from the stage it
 /// is actually at.
@@ -691,12 +766,12 @@ pub fn build_disk_repair_script(
     // stops `azlin disk repair --force` — issued for a `formatted` home disk —
     // from also emitting `mkfs` against a `backing-mounted` tmp disk that is
     // mounted and in use. Only `mke2fs`'s own refusal stood in the way of that.
-    let needs_mkfs =
-        finding.stage < DiskStage::Formatted || (force && finding.stage == DiskStage::Formatted);
+    let reformats = reformats_existing_filesystem(finding, force);
+    let needs_mkfs = finding.stage < DiskStage::Formatted || reformats;
     let needs_backing_mount = finding.stage < DiskStage::BackingMounted;
     let home = role.bind_kind == BindKind::UserHome;
 
-    let mut s = String::with_capacity(2048);
+    let mut s = String::with_capacity(4096);
     s.push_str("set -euo pipefail\n");
     s.push_str(&format!(
         "DEV=\"$(readlink -f {} 2>/dev/null || true)\"\n\
@@ -709,7 +784,7 @@ pub fn build_disk_repair_script(
     ));
 
     if needs_mkfs {
-        if force && finding.stage == DiskStage::Formatted {
+        if reformats {
             // --force is the only route past the guard, and it has to actually
             // get past it, so this is the one unguarded mkfs on this path.
             s.push_str(&format!(
@@ -741,30 +816,70 @@ pub fn build_disk_repair_script(
 
     if home {
         // Whether to copy is decided on the VM, not from the stage, because
-        // only the VM can see both sides.
+        // only the VM can see both sides — and "the destination is not empty"
+        // is not enough to decide it.
         //
-        // The rule is: copy only into an empty destination. That is exactly the
-        // freshly-formatted case, and it is the *only* case where copying is
-        // safe. A `backing-mounted` disk already holds the real home; rsyncing
-        // the OS-disk directory over it would overwrite live files with stale
-        // ones — and, because rsync has no `--delete` here, the entry counts
-        // could then never match, so every subsequent repair aborted with
-        // "nothing was moved" after having already moved something.
+        // It used to be. The rule was: copy only into an empty destination,
+        // because a `backing-mounted` disk already holds the real home and
+        // rsyncing the OS-disk directory over it would overwrite live files
+        // with stale ones. That reasoning is sound for a genuine
+        // `backing-mounted` disk and wrong for a repair that was interrupted
+        // *during* the copy — and on the wire the two are indistinguishable.
+        // The interrupted case left the disk formatted, the backing mounted,
+        // the bind never made and the destination half-populated, which the
+        // probe reads as `backing-mounted`. The re-run then skipped the copy
+        // and, with it, the count check and the rsync dry run — the two things
+        // that would have caught the shortfall — bound the partial directory
+        // over the real home, and printed "remove them once you have confirmed
+        // the new mount". If `.ssh/authorized_keys` was in the not-yet-copied
+        // set, the operator could not do the confirming: sshd reads `~` through
+        // the new bind.
+        //
+        // So the copy leaves a record of itself. `in-progress` is written
+        // before the first byte and promoted to `complete` only after the copy
+        // verifies, and it lives on the data disk outside the bind source, so
+        // it neither appears in the user's home nor perturbs the entry count.
+        // Three states, three different right answers:
+        //
+        // * no marker, empty destination  → copy (the freshly-formatted case)
+        // * `in-progress`                 → an interrupted copy: resume it
+        // * `complete`, or data with no marker → do not copy
+        //
+        // The last line is the original rule, now applied only to data this
+        // repair did not put there.
         //
         // `rsync` lives in `default_dev_packages()`, not in the base image, and
         // repair exists for VMs where the package install failed — so the tool
         // is chosen at runtime, and `cp -a` (= `-dR --preserve=all`) covers the
-        // same xattr/ACL intent.
+        // same xattr/ACL intent. `cp -a src/. dst/` does not set the
+        // destination *root*'s attributes the way rsync does, which silently
+        // widened a `0750` home to the `0755` that `mkdir` had just given it,
+        // so that branch copies the mode across explicitly.
         s.push_str(&format!(
-            "if [ -n \"$(sudo ls -A {src} 2>/dev/null)\" ]; then\n  \
-               echo 'azlin: {src} already holds data; keeping it and not copying over it'\n\
+            "COPY_STATE={state}\n\
+             COPY_DO=no\n\
+             COPY_WAS=\"$(sudo cat \"$COPY_STATE\" 2>/dev/null || true)\"\n\
+             if [ -z \"$(sudo ls -A {src} 2>/dev/null)\" ]; then\n  \
+               COPY_DO=yes\n\
+             elif [ \"$COPY_WAS\" = in-progress ]; then\n  \
+               echo 'azlin: an earlier repair was interrupted while copying into {src}; \
+resuming it rather than binding a partial home'\n  \
+               COPY_DO=yes\n\
+             elif [ \"$COPY_WAS\" = complete ]; then\n  \
+               echo 'azlin: {src} holds a copy an earlier repair verified; not copying again'\n\
              else\n  \
+               echo 'azlin: {src} already holds data this repair did not put there; \
+keeping it and not copying over it'\n\
+             fi\n\
+             if [ \"$COPY_DO\" = yes ]; then\n  \
+               printf 'in-progress\\n' | sudo tee \"$COPY_STATE\" >/dev/null\n  \
                if command -v rsync >/dev/null 2>&1; then\n    \
                  COPY_MODE='rsync -aAXH'\n    \
                  sudo rsync -aAXH {target}/ {src}/\n  \
                else\n    \
                  COPY_MODE='cp -a'\n    \
-                 sudo cp -a {target}/. {src}/\n  \
+                 sudo cp -a {target}/. {src}/\n    \
+                 sudo chmod --reference={target} {src}\n  \
                fi\n  \
                echo \"azlin: copied with $COPY_MODE\"\n  \
                SRC_N=\"$(sudo find {target} -mindepth 1 | wc -l)\"\n  \
@@ -781,10 +896,12 @@ pub fn build_disk_repair_script(
                  echo \"azlin: verified $SRC_N entries, rsync dry run clean\"\n  \
                else\n    \
                  echo \"azlin: verified $SRC_N entries by count only (rsync absent)\"\n  \
-               fi\n\
+               fi\n  \
+               printf 'complete\\n' | sudo tee \"$COPY_STATE\" >/dev/null\n\
              fi\n",
             target = bind_target,
             src = bind_src,
+            state = copy_state_path(&role, user),
         ));
 
         // The `.old` rename is only needed when there is something to preserve.
@@ -795,8 +912,29 @@ pub fn build_disk_repair_script(
         // there *is* something to preserve and `.old` is already taken, this
         // stops rather than shadowing a populated directory under the bind: two
         // copies with one name is not a state to invent silently.
+        //
+        // Between the `mv` and a verified bind there is a window in which the
+        // user's home is a name that resolves to nothing: the real directory is
+        // at `.old` and the mount that was supposed to replace it has not
+        // happened. A dropped SSH session delivers SIGHUP into exactly that
+        // window and nothing here would have said so. The trap covers it, and
+        // covers the bind-failure path too, so there is one restore rule rather
+        // than one per way of failing. It is cleared once the bind is verified;
+        // after that the original *should* stay at `.old`, which is what the
+        // command tells the operator.
         s.push_str(&format!(
             "AZLIN_MOVED=no\n\
+             azlin_restore_target() {{\n  \
+               if [ \"$AZLIN_MOVED\" = yes ] && ! mountpoint -q {target} 2>/dev/null; then\n    \
+                 if sudo rmdir {target} 2>/dev/null && sudo mv {target}.old {target}; then\n      \
+                   echo 'azlin: {target} was restored from {target}.old' >&2\n    \
+                 else\n      \
+                   echo 'azlin: {target} could not be restored automatically; the original \
+is at {target}.old' >&2\n    \
+                 fi\n  \
+               fi\n\
+             }}\n\
+             trap azlin_restore_target EXIT HUP INT TERM\n\
              if [ -n \"$(sudo ls -A {target} 2>/dev/null)\" ]; then\n  \
                if [ -e {target}.old ]; then\n    \
                  echo 'azlin: {target}.old is left over from an earlier repair and \
@@ -804,18 +942,14 @@ pub fn build_disk_repair_script(
                  exit 1\n  \
                fi\n  \
                sudo mv {target} {target}.old\n  \
-               AZLIN_MOVED=yes\n  \
-               sudo mkdir -p {target}\n\
+               AZLIN_MOVED=yes\n\
              fi\n\
+             sudo mkdir -p {target}\n\
              if ! sudo mount --bind {src} {target} || ! mountpoint -q {target}; then\n  \
-               if [ \"$AZLIN_MOVED\" = yes ] && sudo rmdir {target} 2>/dev/null; then\n    \
-                 sudo mv {target}.old {target}\n    \
-                 echo 'azlin: bind mount failed; the original directory was restored' >&2\n  \
-               else\n    \
-                 echo 'azlin: bind mount failed; nothing was moved' >&2\n  \
-               fi\n  \
+               echo 'azlin: bind mount failed' >&2\n  \
                exit 1\n\
              fi\n\
+             trap - EXIT HUP INT TERM\n\
              sudo chown {user}:{user} {src}\n\
              if [ \"$AZLIN_MOVED\" = yes ]; then\n  \
                echo 'azlin: bound {src} onto {target}, original kept at {target}.old'\n\
@@ -866,6 +1000,27 @@ else sudo cp -a {target}/. {src}/; fi ; }} || true\n\
         source: bind_src.clone(),
         target: bind_target.clone(),
     });
+    // `/tmp` has to come back out of `mount -a` writable by everyone.
+    //
+    // The sticky bit is set on the *backing* directory, because a boot mounts
+    // that directory over `/tmp` and `/tmp` then shows whatever mode the
+    // backing inode carries. That is the reasoning cloud-init uses too, and it
+    // is one indirection away from obvious — so it is asserted rather than
+    // argued: an unwritable `/tmp` breaks tmux, ssh-agent forwarding and most
+    // build tools, and it breaks them a reboot later, far from this command.
+    let sticky_check = if home {
+        String::new()
+    } else {
+        format!(
+            "if [ ! -k {target} ]; then\n  \
+               echo 'azlin: {target} came back without the sticky bit; it would be \
+unwritable for everyone but its owner' >&2\n  \
+               exit 1\n\
+             fi\n",
+            target = bind_target,
+        )
+    };
+
     s.push_str(&format!(
         "FS_UUID=\"$(sudo blkid -s UUID -o value \"$DEV\")\"\n\
          if [ -z \"$FS_UUID\" ]; then\n  \
@@ -892,6 +1047,7 @@ else sudo cp -a {target}/. {src}/; fi ; }} || true\n\
              exit 1\n  \
            fi\n\
          fi\n\
+         {sticky_check}\
          echo 'azlin: /etc/fstab entries written; verified as far as is possible \
 without a reboot'\n\
          echo 'azlin: healthy'\n",
@@ -899,6 +1055,7 @@ without a reboot'\n\
         bind = bind,
         backing = role.backing,
         target = bind_target,
+        sticky_check = sticky_check,
     ));
 
     Ok(s)

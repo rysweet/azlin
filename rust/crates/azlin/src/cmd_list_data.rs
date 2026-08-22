@@ -1244,15 +1244,135 @@ pub(crate) fn collect_latencies(vms: &[VmInfo]) -> HashMap<String, u64> {
     latencies
 }
 
-/// Collect detailed health metrics (CPU, Mem, Disk, Agent) for running VMs via SSH.
-pub(crate) fn collect_health_data(
+/// The data-disk roles each VM was created with, from one `az vm list` per
+/// resource group.
+///
+/// The name-to-role convention and the LUN agreement check both live in
+/// `disk_layout`, under that module's drift rule — the concrete cost of two
+/// copies here was the per-VM command and the fleet column giving contradictory
+/// verdicts for the same machine. One query per resource group rather than one
+/// per VM keeps `azlin list --with-health` from paying an Azure round trip per
+/// row.
+///
+/// A VM whose LUNs disagree with the layout is absent from the map, so it
+/// renders `--` rather than a verdict the probe could not have reached.
+///
+/// Every way this can fail says so on stderr. The fleet column and the per-VM
+/// `azlin disk check` reach the same `--` for the same reasons, and `check`
+/// printed its reason while this printed nothing at all — so a whole resource
+/// group could drop out of the `Storage` column because `az` was not logged in,
+/// and the table would look exactly as it does for a fleet with no data disks.
+/// A column that exists to make an invisible failure visible cannot itself fail
+/// invisibly.
+pub(crate) fn collect_disk_configs(vms: &[VmInfo]) -> HashMap<String, DiskConfig> {
+    let mut out = HashMap::new();
+    let mut groups: Vec<&str> = vms.iter().map(|v| v.resource_group.as_str()).collect();
+    groups.sort_unstable();
+    groups.dedup();
+
+    for rg in groups {
+        let unanswered = |reason: String| {
+            eprintln!(
+                "Storage: could not read the disk layout of resource group '{}', so its \
+                 VMs report '{}': {}",
+                rg,
+                crate::health_render::UNKNOWN_CELL,
+                reason
+            );
+        };
+        let output = match std::process::Command::new("az")
+            .args([
+                "vm",
+                "list",
+                "--resource-group",
+                rg,
+                "--query",
+                "[].{name:name,disks:storageProfile.dataDisks[].{name:name,lun:lun}}",
+                "-o",
+                "json",
+            ])
+            .output()
+        {
+            Ok(output) => output,
+            Err(e) => {
+                unanswered(format!("`az vm list` could not be run: {}", e));
+                continue;
+            }
+        };
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            unanswered(format!(
+                "`az vm list` failed: {}",
+                azlin_core::sanitizer::sanitize(stderr.trim())
+            ));
+            continue;
+        }
+        let parsed = match serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                unanswered(format!("`az vm list` returned invalid JSON: {}", e));
+                continue;
+            }
+        };
+        for entry in parsed.as_array().map(Vec::as_slice).unwrap_or_default() {
+            let Some(name) = entry.get("name").and_then(|v| v.as_str()) else {
+                unanswered("an entry in `az vm list` had no name".to_string());
+                continue;
+            };
+            let attached = crate::cmd_disk_ops::disks_from_json(entry.get("disks"));
+            match config_from_attached_disks(name, &attached) {
+                Ok(config) => {
+                    out.insert(name.to_string(), config);
+                }
+                // The same message `azlin disk check` prints for the same VM.
+                Err(reason) => eprintln!("{}", reason),
+            }
+        }
+    }
+    out
+}
+
+/// Collect detailed health metrics and storage status for running VMs, in one
+/// sweep.
+///
+/// This is also the collector behind the `Storage` column. #1131 was invisible
+/// precisely because no list surface asked this question: the VM reported
+/// Running and healthy for weeks while both its data disks sat unformatted.
+///
+/// A VM that cannot be reached, or whose output cannot be parsed, is left out
+/// of the storage map entirely and renders as `--`. It is never recorded as
+/// `ok`.
+///
+/// Health and storage used to be two separate passes over the same fleet: each
+/// rediscovered the bastions (`az network bastion list` per resource group),
+/// each re-resolved the SSH key, and each opened its own connection per VM.
+/// Worse, they did not share the bastion-failure memo, so a VM behind a dead
+/// tunnel paid `BASTION_EXEC_TIMEOUT_SECS` twice -- once per collector --
+/// before either fell back to the private IP. One sweep, one
+/// [`crate::RoutedExec`] per VM, so the sixth probe costs a round trip and not
+/// a rediscovery.
+///
+/// Bastion routing is lent by the caller, like every other collector here. The
+/// storage pass arrived discovering it for itself, which is the cost this
+/// module was reorganised to stop paying: another `az network bastion list`
+/// per resource group to recompute a map the caller already holds, and --
+/// since discovery returns its warnings for the caller to print -- a lookup
+/// failure that no longer had anywhere to report itself.
+pub(crate) fn collect_health_and_storage(
     vms: &[VmInfo],
     bastion_map: &BastionMap,
     subscription_id: &str,
-) -> HashMap<String, crate::HealthMetrics> {
+) -> (
+    HashMap<String, crate::HealthMetrics>,
+    HashMap<String, StorageStatus>,
+) {
     let mut health_data = HashMap::new();
+    let mut storage_data = HashMap::new();
     let ssh_key_path = resolve_ssh_key();
     let colliding = colliding_vm_names(vms);
+    // One `az vm list` per resource group: the layout is the same for every VM
+    // in the group, so asking per VM would pay an ARM round trip per row.
+    let configs = collect_disk_configs(vms);
 
     for vm in vms {
         if colliding.contains(&vm.name) {
@@ -1263,6 +1383,17 @@ pub(crate) fn collect_health_data(
             .admin_username
             .as_deref()
             .unwrap_or(DEFAULT_ADMIN_USERNAME);
+
+        // "This VM has no data disks" is answerable from Azure metadata, so it
+        // is answered before the route is worked out: a VM with no disks and
+        // no address is not an unknown, and reporting it as one would send an
+        // operator to look at storage that does not exist.
+        let disk_config = configs.get(&vm.name);
+        if let Some(config) = disk_config {
+            if !config.home_disk && !config.tmp_disk {
+                storage_data.insert(vm.name.clone(), StorageStatus::NoDisks);
+            }
+        }
 
         // A bastion-only VM with no recorded private IP is still reachable
         // through its tunnel; it used to be skipped for having no address.
@@ -1287,159 +1418,54 @@ pub(crate) fn collect_health_data(
             .as_ref()
             .map(|(bn, rg_b, rid, key)| (bn.as_str(), rg_b.as_str(), rid.as_str(), key.as_deref()));
 
-        let metrics = crate::collect_health_metrics(&vm.name, &ip, user, &state, bastion_ref);
+        let exec_route = crate::RoutedExec::new(&ip, user, bastion_ref);
+
+        let metrics = crate::collect_health_metrics_with(&exec_route, &vm.name, &state);
         health_data.insert(vm.name.clone(), metrics);
+
+        if let Some(status) = probe_storage(
+            vm.power_state == PowerState::Running,
+            user,
+            disk_config,
+            &exec_route,
+        ) {
+            storage_data.insert(vm.name.clone(), status);
+        }
     }
-    health_data
+    (health_data, storage_data)
 }
 
-/// The data-disk roles each VM was created with, from one `az vm list` per
-/// resource group.
+/// Ask one VM the read-only storage question, over a route the caller has
+/// already established.
 ///
-/// The name-to-role convention and the LUN agreement check both live in
-/// `disk_layout`, shared with `azlin disk check`: two copies of them is how the
-/// per-VM command and the fleet column came to give contradictory verdicts for
-/// the same machine. One query per resource group rather than one per VM keeps
-/// `azlin list --with-health` from paying an Azure round trip per row.
+/// This is the probe behind the `Storage` column. #1131 was invisible
+/// precisely because no list surface asked it: the VM reported Running and
+/// healthy for weeks while both its data disks sat unformatted.
 ///
-/// A VM whose LUNs disagree with the layout is absent from the map, so it
-/// renders `--` rather than a verdict the probe could not have reached.
-pub(crate) fn collect_disk_configs(vms: &[VmInfo]) -> HashMap<String, DiskConfig> {
-    let mut out = HashMap::new();
-    let mut groups: Vec<&str> = vms.iter().map(|v| v.resource_group.as_str()).collect();
-    groups.sort_unstable();
-    groups.dedup();
-
-    for rg in groups {
-        let Ok(output) = std::process::Command::new("az")
-            .args([
-                "vm",
-                "list",
-                "--resource-group",
-                rg,
-                "--query",
-                "[].{name:name,disks:storageProfile.dataDisks[].{name:name,lun:lun}}",
-                "-o",
-                "json",
-            ])
-            .output()
-        else {
-            continue;
-        };
-        if !output.status.success() {
-            continue;
-        }
-        let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
-            continue;
-        };
-        for entry in parsed.as_array().map(Vec::as_slice).unwrap_or_default() {
-            let Some(name) = entry.get("name").and_then(|v| v.as_str()) else {
-                continue;
-            };
-            let attached: Vec<(String, u32)> = entry
-                .get("disks")
-                .and_then(|v| v.as_array())
-                .map(|disks| {
-                    disks
-                        .iter()
-                        .map(|d| {
-                            (
-                                d.get("name")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or_default()
-                                    .to_string(),
-                                d.get("lun").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                            )
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            if let Ok(config) = config_from_attached_disks(name, &attached) {
-                out.insert(name.to_string(), config);
-            }
-        }
+/// `None` means the question could not be answered — unreachable, unparseable,
+/// or a LUN layout that disagrees with what the VM was created with. The
+/// column renders `--`. It is never recorded as `ok`.
+///
+/// `azlin health` asks it too, over its own route. Both surfaces name the same
+/// storage state for the same VM because there is one function that decides it,
+/// not one per table.
+pub(crate) fn probe_storage(
+    running: bool,
+    user: &str,
+    config: Option<&DiskConfig>,
+    exec_route: &crate::RoutedExec<'_>,
+) -> Option<StorageStatus> {
+    if !running {
+        return None;
     }
-    out
-}
-
-/// Run the read-only storage probe against every VM that has data disks.
-///
-/// This is the collector behind the `Storage` column. #1131 was invisible
-/// precisely because no list surface asked this question: the VM reported
-/// Running and healthy for weeks while both its data disks sat unformatted.
-///
-/// A VM that cannot be reached, or whose output cannot be parsed, is left out
-/// of the map entirely and renders as `--`. It is never recorded as `ok`.
-/// Bastion routing is lent by the caller, like every other collector here.
-/// This one arrived discovering it for itself, which is the cost this module
-/// was reorganised to stop paying: a fifth `az network bastion list` per
-/// resource group to recompute a map the caller already holds, and -- since
-/// discovery returns its warnings for the caller to print -- a lookup failure
-/// that no longer had anywhere to report itself.
-pub(crate) fn collect_storage_status(
-    vms: &[VmInfo],
-    bastion_map: &BastionMap,
-    subscription_id: &str,
-) -> HashMap<String, StorageStatus> {
-    let mut out = HashMap::new();
-    let configs = collect_disk_configs(vms);
-    let ssh_key_path = resolve_ssh_key();
-    let colliding = colliding_vm_names(vms);
-
-    for vm in vms {
-        if colliding.contains(&vm.name) || vm.power_state != PowerState::Running {
-            continue;
-        }
-        let Some(config) = configs.get(&vm.name) else {
-            continue;
-        };
-        if !config.home_disk && !config.tmp_disk {
-            out.insert(vm.name.clone(), StorageStatus::NoDisks);
-            continue;
-        }
-        let user = vm
-            .admin_username
-            .as_deref()
-            .unwrap_or(DEFAULT_ADMIN_USERNAME);
-        let Ok(script) = build_disk_probe_script(config, user) else {
-            continue;
-        };
-
-        let (ip, bastion_info_owned) = match probe_route(vm, bastion_map, subscription_id) {
-            ProbeRoute::Direct { host } => (host, None),
-            ProbeRoute::Bastion {
-                target,
-                fallback_host,
-            } => (
-                fallback_host.unwrap_or_default(),
-                Some((
-                    target.bastion_name,
-                    target.resource_group,
-                    target.vm_resource_id,
-                    ssh_key_path.clone(),
-                )),
-            ),
-            ProbeRoute::Unreachable => continue,
-        };
-
-        let result = match &bastion_info_owned {
-            Some((bastion_name, rg, vm_rid, key)) => crate::bastion_ssh_exec(
-                bastion_name,
-                rg,
-                vm_rid,
-                user,
-                key.as_deref(),
-                &script,
-                crate::BASTION_EXEC_TIMEOUT_SECS,
-            ),
-            None => crate::ssh_exec(&ip, user, &script, None, true),
-        };
-        let Ok((_, stdout, _)) = result else {
-            continue;
-        };
-        out.insert(vm.name.clone(), parse_disk_probe(&stdout, config).status);
+    let config = config?;
+    // Already recorded from metadata by the caller; there is nothing to ask.
+    if !config.home_disk && !config.tmp_disk {
+        return None;
     }
-    out
+    let script = build_disk_probe_script(config, user).ok()?;
+    let (_, stdout, _) = exec_route.run(&script).ok()?;
+    Some(parse_disk_probe(&stdout, config).status)
 }
 
 /// Collect top process data for running VMs.
@@ -2744,8 +2770,9 @@ mod probe_route_tests {
         );
     }
 
-    /// `collect_health_data` used to skip any VM with no recorded IP, which
-    /// dropped bastion-only VMs that were in fact reachable through a tunnel.
+    /// The health sweep, now `collect_health_and_storage`, used to skip any VM
+    /// with no recorded IP, which dropped bastion-only VMs that were in fact
+    /// reachable through a tunnel.
     #[test]
     fn a_vm_with_no_recorded_ip_is_still_reachable_through_its_bastion() {
         let vm = VmInfo {
@@ -2837,7 +2864,7 @@ mod silent_degradation_tests {
         assert_eq!(direct_fallback_host(Some("fd00::4")), Some("fd00::4"));
     }
 
-    /// `collect_health_data` flattens the address with `unwrap_or_default()`,
+    /// `collect_health_and_storage` flattens the address with `unwrap_or_default()`,
     /// so "this VM has no private IP" reaches the fallback as `""`. Treating
     /// that as an address builds `ssh user@`, which is not a probe: it fails
     /// slowly and for a reason that has nothing to do with the VM.

@@ -261,7 +261,7 @@ candidate list can span resource groups.
 | Flag | Column(s) | Bastion-only VMs |
 |------|-----------|------------------|
 | `--show-tmux` (default) | `Tmux` | Supported — one tunnel per VM, as described above |
-| `--with-health` | `Agent`, `CPU%`, `Mem%`, `Disk%` | Supported — `collect_health_data` uses the bastion path per VM. A VM is skipped only when it has neither a routable address nor a bastion route; it used to be skipped whenever no IP was recorded, which dropped bastion-only VMs that were in fact reachable |
+| `--with-health` | `Agent`, `CPU%`, `Mem%`, `Disk%` | Supported — `collect_health_and_storage` uses the bastion path per VM. A VM is skipped only when it has neither a routable address nor a bastion route; it used to be skipped whenever no IP was recorded, which dropped bastion-only VMs that were in fact reachable |
 | `--show-procs` | `Procs` (table output only) | Supported — `collect_procs` takes the bastion path. Skipped, like tmux and health, when the listing spans more than one subscription |
 | `--with-latency` | `Latency` | Measured only when the VM's address is routable from this machine (a public IP, or a private IP over VPN or peering). Latency is never measured through the tunnel, which would time the tunnel rather than the host |
 

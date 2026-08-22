@@ -173,3 +173,124 @@ fn a_degraded_report_names_the_repair_command_for_that_vm() {
          they have looked at the disk: {hint}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// `azlin health`
+// ---------------------------------------------------------------------------
+
+/// The requirement names `azlin health`, and only `azlin list --with-health`
+/// implemented it.
+///
+/// The dashboard whose entire subject is "is this VM well" was silent about the
+/// failure that started #1131 — 1.2 TB of attached, billed, unformatted disk
+/// behind a green row — while the probe's own doc comment claimed to feed it.
+#[test]
+fn the_health_dashboard_has_a_storage_column() {
+    assert!(
+        crate::HEALTH_TABLE_COLUMNS.contains(&"Storage"),
+        "columns: {:?}",
+        crate::HEALTH_TABLE_COLUMNS
+    );
+}
+
+/// Every row fills every column, whatever the storage probe returned.
+///
+/// The `debug_assert_eq!` inside the row builder is what enforces this, and it
+/// only runs when a row is actually built — so a row is actually built, once
+/// per storage state including the states that produce `--`.
+#[test]
+fn a_health_row_fills_every_column_for_every_storage_state() {
+    let metrics = vec![
+        crate::HealthMetrics {
+            vm_name: "measured".to_string(),
+            power_state: "Running".to_string(),
+            agent_status: "OK".to_string(),
+            error_count: Some(0),
+            cpu_percent: Some(12.0),
+            mem_percent: Some(41.0),
+            disk_percent: Some(98.0),
+        },
+        crate::HealthMetrics {
+            vm_name: "unmeasured".to_string(),
+            power_state: "Deallocated".to_string(),
+            agent_status: "-".to_string(),
+            error_count: None,
+            cpu_percent: None,
+            mem_percent: None,
+            disk_percent: None,
+        },
+    ];
+
+    for status in [
+        None,
+        Some(StorageStatus::Ok),
+        Some(StorageStatus::Degraded),
+        Some(StorageStatus::NoDisks),
+        Some(StorageStatus::Unknown),
+    ] {
+        let mut storage = std::collections::HashMap::new();
+        if let Some(status) = status {
+            storage.insert("measured".to_string(), status);
+        }
+        crate::render_health_table(&metrics, &storage);
+    }
+}
+
+/// A VM the storage probe could not reach is absent from the map, and absent
+/// must render as `--` rather than as the previous VM's verdict or as a pass.
+#[test]
+fn a_vm_missing_from_the_storage_map_renders_unknown() {
+    let storage: std::collections::HashMap<String, StorageStatus> =
+        [("other".to_string(), StorageStatus::Ok)]
+            .into_iter()
+            .collect();
+    assert_eq!(storage_cell(storage.get("missing").copied()), UNKNOWN_CELL);
+}
+
+// ---------------------------------------------------------------------------
+// The provisioning ledger: three readers, one rule
+// ---------------------------------------------------------------------------
+
+/// `/var/lib/azlin/provisioning.tsv` records `ok`, `skipped` or `failed`, and
+/// three separate pieces of shell read it back: the cloud-init `azlin_finalize`
+/// trap that decides `ok` vs `degraded`, the storage probe that lists failed
+/// sections for `azlin disk check`, and the readiness query `azlin new` runs
+/// while it waits.
+///
+/// The readiness query used to select with `$2!="ok"`, which also matches
+/// `skipped` — so on a degraded create `azlin new` announced `failed section:
+/// setup-rust` for a section the ledger had deliberately recorded as skipped
+/// because its dependency failed. `azlin_record` goes to the trouble of telling
+/// the two apart precisely so a reader does not have to guess; two of the three
+/// readers honoured that and one did not.
+///
+/// This is the drift class `disk_layout` exists to prevent, reproduced one
+/// layer down in shell where no type checks it — so it is checked here.
+#[test]
+fn every_reader_of_the_provisioning_ledger_selects_the_same_rows() {
+    let probe = azlin_azure::disk_layout::build_disk_probe_script(
+        &azlin_azure::cloud_init::DiskConfig {
+            home_disk: true,
+            tmp_disk: true,
+        },
+        "azureuser",
+    )
+    .expect("probe builds");
+    let generator = azlin_azure::cloud_init::render_dev_cloud_init_script("azureuser");
+    let readiness = crate::auth_forward::PROVISIONING_STATUS_QUERY;
+
+    for (reader, text) in [
+        ("the storage probe", probe.as_str()),
+        ("cloud-init's azlin_finalize", generator.as_str()),
+        ("the readiness query", readiness),
+    ] {
+        assert!(
+            text.contains(r#"$2=="failed""#),
+            "{reader} must select failed rows by the one rule"
+        );
+        assert!(
+            !text.contains(r#"$2!="ok""#),
+            "{reader} must not treat a skipped section as a failed one"
+        );
+    }
+}

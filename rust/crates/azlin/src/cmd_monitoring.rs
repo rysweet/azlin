@@ -145,9 +145,25 @@ pub(crate) async fn dispatch(
 
             let sub_id = vm_manager.subscription_id().to_string();
 
+            // The storage verdict, asked over the same connection as the
+            // metrics.
+            //
+            // `azlin health` is named in this feature's requirement and in the
+            // probe's own doc comment, and until now only `azlin list
+            // --with-health` implemented it: the dashboard whose whole subject
+            // is "is this VM well" was silent about the failure that started
+            // #1131 — 1.2 TB of attached, billed, unformatted disk behind a
+            // green row. A VM that could not be asked renders `--`, never `ok`.
+            let mut storage_data: std::collections::HashMap<
+                String,
+                azlin_azure::disk_layout::StorageStatus,
+            > = std::collections::HashMap::new();
+
             let mut metrics: Vec<HealthMetrics> = if let Some(vm_name) = vm {
                 // Single VM — no need to parallelize
                 let vm_info = vm_manager.get_vm(&rg, &vm_name)?;
+                let disk_configs =
+                    crate::cmd_list_data::collect_disk_configs(std::slice::from_ref(&vm_info));
                 let target = build_ssh_target(&vm_info, &sub_id, &bastion_map, &ssh_key_path);
                 if target.ip.is_empty() {
                     anyhow::bail!("No IP found for VM '{}'", vm_name);
@@ -168,18 +184,29 @@ pub(crate) async fn dispatch(
                     (bn.as_str(), rg_b.as_str(), rid.as_str(), key.as_deref())
                 });
 
-                vec![collect_health_metrics(
-                    &vm_name,
-                    &ip,
+                let exec_route = crate::RoutedExec::new(&ip, &user, bastion_ref);
+                let metrics = crate::collect_health_metrics_with(&exec_route, &vm_name, &state);
+                if let Some(status) = crate::cmd_list_data::probe_storage(
+                    vm_info.power_state == azlin_core::models::PowerState::Running,
                     &user,
-                    &state,
-                    bastion_ref,
-                )]
+                    // Keyed by the Azure VM name, which is what the disk
+                    // naming convention is built from -- `vm_name` here may be
+                    // a session alias.
+                    disk_configs.get(&vm_info.name),
+                    &exec_route,
+                ) {
+                    storage_data.insert(vm_name.clone(), status);
+                }
+                vec![metrics]
             } else {
                 // Multiple VMs — collect health in parallel with per-VM timeout.
                 // SSH exec uses std::process::Command (blocking I/O), so each
                 // VM is wrapped in spawn_blocking inside a tokio::spawn task.
                 let vms = vm_manager.list_vms(&rg)?;
+                // One `az vm list` for the whole group, before the fan-out:
+                // the layout is the same for every VM in it, so asking per task
+                // would pay an ARM round trip per row.
+                let disk_configs = crate::cmd_list_data::collect_disk_configs(&vms);
 
                 // Build owned parameter sets for each VM so they can be moved
                 // into spawn_blocking closures without lifetime issues.
@@ -195,6 +222,7 @@ pub(crate) async fn dispatch(
                         let user = target.user.clone();
                         let state = vm_info.power_state.to_string();
                         let name = target.vm_name.clone();
+                        let config = disk_configs.get(&vm_info.name).cloned();
 
                         let bastion_owned = target.bastion.map(|b| {
                             (
@@ -205,7 +233,7 @@ pub(crate) async fn dispatch(
                             )
                         });
 
-                        Some((name, ip, user, state, bastion_owned))
+                        Some((name, ip, user, state, bastion_owned, config))
                     })
                     .collect();
 
@@ -214,7 +242,7 @@ pub(crate) async fn dispatch(
                 // still produces a row: dropping it made the table silently
                 // short, and short in exactly the rows that mattered.
                 let mut handles = Vec::with_capacity(tasks.len());
-                for (name, ip, user, state, bastion_owned) in tasks {
+                for (name, ip, user, state, bastion_owned, config) in tasks {
                     let row_name = name.clone();
                     let row_state = state.clone();
                     let handle = tokio::spawn(async move {
@@ -225,7 +253,20 @@ pub(crate) async fn dispatch(
                                     bastion_owned.as_ref().map(|(bn, rg_b, rid, key)| {
                                         (bn.as_str(), rg_b.as_str(), rid.as_str(), key.as_deref())
                                     });
-                                collect_health_metrics(&name, &ip, &user, &state, bastion_ref)
+                                // One executor for both probes, so the storage
+                                // question reuses this VM's bastion-failure
+                                // memo instead of paying the tunnel timeout a
+                                // second time.
+                                let exec_route = crate::RoutedExec::new(&ip, &user, bastion_ref);
+                                let metrics =
+                                    crate::collect_health_metrics_with(&exec_route, &name, &state);
+                                let storage = crate::cmd_list_data::probe_storage(
+                                    state == "Running",
+                                    &user,
+                                    config.as_ref(),
+                                    &exec_route,
+                                );
+                                (metrics, storage)
                             }),
                         )
                         .await
@@ -246,7 +287,12 @@ pub(crate) async fn dispatch(
                         crate::health_parse_helpers::default_metrics(&name, &state)
                     };
                     match handle.await {
-                        Ok(Ok(Ok(m))) => results.push(m),
+                        Ok(Ok(Ok((m, storage)))) => {
+                            if let Some(status) = storage {
+                                storage_data.insert(m.vm_name.clone(), status);
+                            }
+                            results.push(m);
+                        }
                         Ok(Ok(Err(join_err))) => {
                             // spawn_blocking panicked
                             results.push(unmeasured(&format!(
@@ -431,7 +477,7 @@ pub(crate) async fn dispatch(
                 }
             } else {
                 println!("Health Dashboard — Four Golden Signals ({})", rg);
-                render_health_table(&metrics);
+                render_health_table(&metrics, &storage_data);
             }
         }
         _ => unreachable!(),

@@ -42,11 +42,13 @@ To sweep a fleet — the disks are named `<vm>_home` and `<vm>_tmp`, so a VM in
 this state is rarely the only one:
 
 ```bash
-azlin list --with-health
+azlin list --with-health   # or: azlin health
 ```
 
-The `Storage` column reports `ok`, `degraded`, or `--` per VM. `--` means the
-probe could not run; it is not a pass.
+Both carry a `Storage` column reporting `ok`, `degraded`, or `--` per VM. `--`
+means the probe could not run; it is not a pass. When a whole resource group
+reads `--`, the reason is on stderr — most often that `az` could not list the
+VMs at all.
 
 ## 2. Why it happens
 
@@ -101,7 +103,13 @@ azlin disk repair dev
 Repair formats each `raw` disk, copies the existing contents onto it, verifies
 the copy, bind-mounts it into place, writes the fstab entries, and runs
 `mount -a` to confirm the entries actually mount. It refuses to format a disk
-that already holds a filesystem unless you pass `--force`.
+that already holds a filesystem unless you pass `--force`, and with `--force` it
+names the disks it would reformat and asks before doing it.
+
+If a repair is interrupted part-way through the copy, re-run the same command.
+It resumes the copy and re-verifies rather than binding what it managed to copy
+— see [Resuming an interrupted
+repair](../storage/data-disk-layout.md#resuming-an-interrupted-repair).
 
 Preview first if you would rather read the commands:
 

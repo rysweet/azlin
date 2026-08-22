@@ -16,7 +16,8 @@
 use azlin_azure::cloud_init::DiskConfig;
 use azlin_azure::disk_layout::{
     bind_pair, blkid_guarded_mkfs, build_disk_probe_script, build_disk_repair_script, fstab_line,
-    parse_disk_probe, roles, DiskFinding, DiskStage, FstabSpec, StorageStatus,
+    parse_disk_probe, reformats_existing_filesystem, roles, DiskFinding, DiskStage, FstabSpec,
+    StorageStatus,
 };
 
 const USER: &str = "azureuser";
@@ -25,6 +26,13 @@ fn both() -> DiskConfig {
     DiskConfig {
         home_disk: true,
         tmp_disk: true,
+    }
+}
+
+fn home_only() -> DiskConfig {
+    DiskConfig {
+        home_disk: true,
+        tmp_disk: false,
     }
 }
 
@@ -517,16 +525,6 @@ fn the_stages_are_ordered() {
     assert!(DiskStage::BackingMounted < DiskStage::Healthy);
 }
 
-/// Only `formatted` and later can hold data, so only those need `--force`.
-#[test]
-fn only_formatted_and_later_can_hold_data() {
-    assert!(!DiskStage::Absent.holds_data());
-    assert!(!DiskStage::Raw.holds_data());
-    assert!(DiskStage::Formatted.holds_data());
-    assert!(DiskStage::BackingMounted.holds_data());
-    assert!(DiskStage::Healthy.holds_data());
-}
-
 // ---------------------------------------------------------------------------
 // Repair composition
 // ---------------------------------------------------------------------------
@@ -719,21 +717,21 @@ fn force_does_not_reach_a_disk_whose_stage_needs_no_mkfs() {
     }
 }
 
-/// The copy must never run over a destination that already holds data.
+/// The copy must never run over data this repair did not put there.
 ///
-/// At stage `backing-mounted` the data disk already holds the real home and
+/// At stage `backing-mounted` the data disk may already hold the real home and
 /// only the bind is missing. Copying `/home/<user>` — which at that point is
 /// the empty mount point, or a stale OS-disk stub — over it would overwrite
 /// live files with older ones. And because the copy has no `--delete`, the
 /// entry counts could then never match, so every subsequent repair aborted
 /// with "nothing was moved" *after* having already moved something.
 #[test]
-fn the_copy_is_skipped_when_the_destination_already_holds_data() {
+fn the_copy_is_skipped_when_the_destination_holds_data_from_elsewhere() {
     for stage in [DiskStage::Raw, DiskStage::BackingMounted] {
         let script = build_disk_repair_script(&finding("home", 0, stage), USER, false).unwrap();
         let guard = script
-            .find("if [ -n \"$(sudo ls -A /mnt/home-data/azureuser 2>/dev/null)\" ]; then")
-            .unwrap_or_else(|| panic!("no emptiness guard before the copy:\n{script}"));
+            .find("if [ -z \"$(sudo ls -A /mnt/home-data/azureuser 2>/dev/null)\" ]; then")
+            .unwrap_or_else(|| panic!("no emptiness test before the copy:\n{script}"));
         let copy = script
             .find("rsync -aAXH /home/azureuser/")
             .unwrap_or_else(|| panic!("no copy step:\n{script}"));
@@ -741,7 +739,149 @@ fn the_copy_is_skipped_when_the_destination_already_holds_data() {
             guard < copy,
             "{stage:?}: the copy must sit behind the guard, not beside it:\n{script}"
         );
+        assert!(
+            script.contains("already holds data this repair did not put there"),
+            "{stage:?}: a skipped copy must say why:\n{script}"
+        );
     }
+}
+
+/// An interrupted copy must be **resumed**, never mistaken for a finished one.
+///
+/// This is the path that binds a partial home over the real one. Interrupt a
+/// `raw` repair during the copy — Ctrl-C, a dropped SSH session, a reboot — and
+/// the VM is left with the disk formatted, the backing mounted, the bind never
+/// made and `/mnt/home-data/<user>` half populated. The probe reads that as
+/// `backing-mounted`, which is indistinguishable on the wire from a genuinely
+/// provisioned disk whose bind was lost.
+///
+/// The old rule — "the destination is not empty, so do not copy" — then skipped
+/// the copy *and with it the count check and the rsync dry run*, the two steps
+/// that would have caught the shortfall, bound the partial directory over
+/// `/home/<user>`, and told the operator to remove the original once they had
+/// confirmed the new mount. If `.ssh/authorized_keys` was in the not-yet-copied
+/// set they could not confirm anything: sshd reads `~` through the new bind.
+///
+/// So the copy records itself. Three states, three answers.
+#[test]
+fn an_interrupted_copy_is_resumed_rather_than_treated_as_complete() {
+    let script =
+        build_disk_repair_script(&finding("home", 0, DiskStage::BackingMounted), USER, false)
+            .unwrap();
+
+    let marker = script
+        .find("COPY_STATE=/mnt/home-data/.azlin-copy-azureuser")
+        .unwrap_or_else(|| panic!("no copy-state marker:\n{script}"));
+    let in_progress = script
+        .find("elif [ \"$COPY_WAS\" = in-progress ]; then")
+        .unwrap_or_else(|| panic!("no resume branch:\n{script}"));
+    let complete = script
+        .find("elif [ \"$COPY_WAS\" = complete ]; then")
+        .unwrap_or_else(|| panic!("no completed-copy branch:\n{script}"));
+
+    assert!(marker < in_progress && in_progress < complete, "{script}");
+    assert!(
+        script[in_progress..complete].contains("COPY_DO=yes"),
+        "an interrupted copy must be resumed, not skipped:\n{script}"
+    );
+    assert!(
+        !script[complete..].starts_with("COPY_DO=yes"),
+        "a verified copy must not be repeated:\n{script}"
+    );
+}
+
+/// `in-progress` before the first byte, `complete` only after the verification.
+///
+/// Written the other way round the marker would say a copy finished that was
+/// interrupted a moment later — which is precisely the claim it exists to stop
+/// the repair from making.
+#[test]
+fn the_copy_marker_brackets_the_copy_and_its_verification() {
+    let script =
+        build_disk_repair_script(&finding("home", 0, DiskStage::Raw), USER, false).unwrap();
+
+    let started = script
+        .find("printf 'in-progress\\n' | sudo tee \"$COPY_STATE\"")
+        .unwrap_or_else(|| panic!("the copy must record that it started:\n{script}"));
+    let copy = script.find("sudo rsync -aAXH /home/azureuser/").unwrap();
+    let verified = script.find("copy verification failed").unwrap();
+    let finished = script
+        .find("printf 'complete\\n' | sudo tee \"$COPY_STATE\"")
+        .unwrap_or_else(|| panic!("the copy must record that it finished:\n{script}"));
+
+    assert!(started < copy, "the marker goes down first:\n{script}");
+    assert!(copy < verified, "{script}");
+    assert!(
+        verified < finished,
+        "`complete` must come after the verification, not before it:\n{script}"
+    );
+}
+
+/// The marker lives on the data disk but outside the bind source.
+///
+/// Inside it, it would appear in the user's home as a stray dotfile *and* it
+/// would be one more entry on the destination side of the `SRC_N`/`DST_N` count
+/// the copy is verified against — so every verified copy would fail its own
+/// verification by exactly one.
+#[test]
+fn the_copy_marker_is_not_inside_the_users_home() {
+    let script =
+        build_disk_repair_script(&finding("home", 0, DiskStage::Raw), USER, false).unwrap();
+    assert!(
+        script.contains("COPY_STATE=/mnt/home-data/.azlin-copy-azureuser"),
+        "{script}"
+    );
+    assert!(
+        !script.contains("COPY_STATE=/mnt/home-data/azureuser/"),
+        "the marker must not sit inside the directory whose entries are \
+         counted:\n{script}"
+    );
+}
+
+/// The window between the rename and a verified bind has a restore path.
+///
+/// Between `mv /home/<user> /home/<user>.old` and a `mount --bind` that took,
+/// the user's home is a name that resolves to nothing. A dropped SSH session
+/// delivers SIGHUP into exactly that window, and nothing said so afterwards.
+#[test]
+fn the_rename_is_covered_by_a_trap_until_the_bind_is_verified() {
+    let script =
+        build_disk_repair_script(&finding("home", 0, DiskStage::Raw), USER, false).unwrap();
+
+    let trap = script
+        .find("trap azlin_restore_target EXIT HUP INT TERM")
+        .unwrap_or_else(|| panic!("no trap over the rename:\n{script}"));
+    let rename = script
+        .find("sudo mv /home/azureuser /home/azureuser.old")
+        .unwrap();
+    let bind = script
+        .find("sudo mount --bind /mnt/home-data/azureuser /home/azureuser")
+        .unwrap();
+    let cleared = script
+        .find("trap - EXIT HUP INT TERM")
+        .unwrap_or_else(|| panic!("the trap must be cleared once the bind holds:\n{script}"));
+
+    assert!(trap < rename, "the trap must precede the rename:\n{script}");
+    assert!(rename < bind && bind < cleared, "{script}");
+}
+
+/// The bind target is recreated whether or not the rename happened.
+///
+/// `mkdir -p {target}` used to live inside the `AZLIN_MOVED` branch, so on the
+/// path where the target was empty and never renamed — a resumed repair, or a
+/// home that had already been moved aside — the bind ran against a directory
+/// nobody had made.
+#[test]
+fn the_bind_target_exists_on_every_path_into_the_bind() {
+    let script =
+        build_disk_repair_script(&finding("home", 0, DiskStage::Raw), USER, false).unwrap();
+    let mkdir = script
+        .find("\nsudo mkdir -p /home/azureuser\n")
+        .unwrap_or_else(|| panic!("the mkdir must be unconditional:\n{script}"));
+    let bind = script
+        .find("sudo mount --bind /mnt/home-data/azureuser /home/azureuser")
+        .unwrap();
+    assert!(mkdir < bind, "{script}");
 }
 
 /// Binding over an empty directory loses nothing, so the `.old` rename is only
@@ -773,7 +913,7 @@ fn the_original_is_only_renamed_when_there_is_something_to_preserve() {
 
 /// A whole disk carrying a partition table has no `fstype` of its own — the
 /// filesystem is one level down, inside a partition. Calling that `raw` puts it
-/// below `holds_data()` and lets a repair format it with no `--force`.
+/// below `formatted` and lets a repair format it with no `--force`.
 #[test]
 fn a_partitioned_disk_is_not_reported_as_blank() {
     let t = "\
@@ -789,7 +929,7 @@ azlin-provisioning complete=yes status=ok ledger=yes failed=
     );
     assert_eq!(report.disks[0].stage, DiskStage::Formatted, "{report:?}");
     assert!(
-        report.disks[0].stage.holds_data(),
+        report.disks[0].stage >= DiskStage::Formatted,
         "a partitioned disk must require --force before any mkfs: {report:?}"
     );
 }
@@ -836,4 +976,174 @@ fn the_probe_and_repair_scripts_parse_as_shell() {
             String::from_utf8_lossy(&out.stderr)
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Failing closed
+// ---------------------------------------------------------------------------
+
+/// `blkid` failing is not the same statement as `blkid` finding nothing.
+///
+/// The guard used to be `if blkid …; then skip; else format; fi`, which formats
+/// on *any* non-zero status — `blkid` missing from the image, `sudo` denied, an
+/// I/O error on the device. Those are the same conditions under which the
+/// caller's own filesystem detection is most likely to have misread the disk as
+/// blank, so the "independent" guard was correlated with the thing it guarded.
+/// `blkid` spells "nothing found" as exit 2, and only exit 2 is a licence to
+/// format.
+#[test]
+fn the_blkid_guard_refuses_to_format_when_it_could_not_look() {
+    let script = blkid_guarded_mkfs("DEV", Some("azlin-home"), "sudo ");
+    assert!(
+        script.contains("azlin_blkid_rc"),
+        "the guard must look at the status, not merely at success:\n{script}"
+    );
+    assert!(
+        script.contains("-ne 2"),
+        "only `blkid`'s \"nothing found\" (exit 2) may lead to a format:\n{script}"
+    );
+    let refusal = script
+        .find("refusing to format it")
+        .unwrap_or_else(|| panic!("an undetermined disk must be refused:\n{script}"));
+    let mkfs = script.find("mkfs.ext4").unwrap();
+    assert!(refusal < mkfs, "{script}");
+    assert!(
+        script[refusal..mkfs].contains("exit 1"),
+        "the refusal must stop the script, not fall through to the format:\n{script}"
+    );
+}
+
+/// The same refusal reaches the repair script for every stage that formats.
+#[test]
+fn the_repair_inherits_the_fail_closed_guard() {
+    let script =
+        build_disk_repair_script(&finding("home", 0, DiskStage::Raw), USER, false).unwrap();
+    assert!(script.contains("refusing to format it"), "{script}");
+}
+
+/// The probe says whether it could answer the filesystem question at all.
+///
+/// An empty `fstype=` meant two different things — "this disk is blank" and
+/// "`lsblk` is missing and `sudo -n blkid` was denied" — and both read as
+/// `raw`, the stage a repair formats without `--force`. Paired with a `blkid`
+/// guard that also failed open, the two correlated failures reformatted a disk
+/// nobody could read.
+#[test]
+fn an_unanswerable_filesystem_question_is_unknown_never_raw() {
+    let out = "\
+azlin-disk lun=0 role=home dev=/dev/sdb size=1 fstype= label= backing=no bind=no pttype= fsdet=no
+azlin-provisioning complete=yes status=ok ledger=yes failed=
+";
+    let report = parse_disk_probe(out, &home_only());
+    assert_eq!(
+        report.status,
+        StorageStatus::Unknown,
+        "a probe that could not look must not report a blank disk: {report:?}"
+    );
+
+    // And the same line with the question answered is still `raw`.
+    let answered = out.replace("fsdet=no", "fsdet=yes");
+    let report = parse_disk_probe(&answered, &home_only());
+    assert_eq!(report.status, StorageStatus::Degraded);
+    assert_eq!(report.disks[0].stage, DiskStage::Raw);
+}
+
+/// A probe that predates `fsdet=` keeps its old reading.
+///
+/// Upgrading the client must not turn every VM in the fleet unknown; the field
+/// has to be an explicit `no` to withhold the verdict.
+#[test]
+fn a_probe_without_the_field_is_read_as_before() {
+    let out = "\
+azlin-disk lun=0 role=home dev=/dev/sdb size=1 fstype= label= backing=no bind=no pttype=
+azlin-provisioning complete=yes status=ok ledger=yes failed=
+";
+    let report = parse_disk_probe(out, &home_only());
+    assert_eq!(report.status, StorageStatus::Degraded);
+    assert_eq!(report.disks[0].stage, DiskStage::Raw);
+}
+
+/// The probe emits the field it is parsed against.
+#[test]
+fn the_probe_reports_whether_it_could_read_the_filesystem() {
+    let script = build_disk_probe_script(&both(), USER).expect("probe builds");
+    assert_eq!(
+        script.matches("fsdet=$FSDET").count(),
+        2,
+        "one per disk line:\n{script}"
+    );
+    assert!(
+        script.contains("FSDET=yes"),
+        "something has to be able to set it:\n{script}"
+    );
+}
+
+/// Nothing a VM says can move an operator's cursor.
+///
+/// The device path, the provisioning status and the failed-section names are
+/// all read off the machine being diagnosed and printed into a table. They are
+/// root-controlled on the VM, so this defends against no privilege boundary —
+/// what it stops is one machine's output rewriting the rows of the machines
+/// listed after it in a fleet sweep.
+#[test]
+fn remote_text_cannot_rewrite_the_report_around_it() {
+    let out = "\
+azlin-disk lun=0 role=home dev=/dev/sdb\u{1b}[2J size=1 fstype=ext4 label=azlin-home backing=yes bind=yes pttype= fsdet=yes
+azlin-provisioning complete=yes status=deg\u{1b}[1;31mraded ledger=yes failed=setup-\u{7}rust
+";
+    let report = parse_disk_probe(out, &home_only());
+    let provisioning = report.provisioning.expect("a provisioning line");
+    assert_eq!(report.disks[0].device.as_deref(), Some("/dev/sdb[2J"));
+    assert_eq!(provisioning.status, "deg[1;31mraded");
+    assert_eq!(provisioning.failed_sections, vec!["setup-rust"]);
+}
+
+// ---------------------------------------------------------------------------
+// --force is a permission, and the caller can ask what it permits
+// ---------------------------------------------------------------------------
+
+/// The predicate the CLI confirms against is the one the builder acts on.
+///
+/// `azlin disk repair` prompts before a reformat, and it decides whether to
+/// prompt from this. A second copy of the rule in the CLI would eventually ask
+/// about a repair that does not reformat, or run one that does without asking.
+#[test]
+fn the_reformat_predicate_matches_what_the_script_does() {
+    for stage in [
+        DiskStage::Raw,
+        DiskStage::Formatted,
+        DiskStage::BackingMounted,
+        DiskStage::Healthy,
+    ] {
+        for force in [false, true] {
+            let f = finding("home", 0, stage);
+            let predicted = reformats_existing_filesystem(&f, force);
+            let script = build_disk_repair_script(&f, USER, force).unwrap_or_default();
+            assert_eq!(
+                predicted,
+                script.contains("--force given; reformatting an existing filesystem"),
+                "{stage:?} force={force}:\n{script}"
+            );
+        }
+    }
+}
+
+/// `/tmp` has to come back out of `mount -a` writable by everyone.
+///
+/// The sticky bit is set on the backing directory, one indirection away from
+/// the path it governs, so it is asserted rather than argued. An unwritable
+/// `/tmp` breaks tmux, agent forwarding and most build tools — a reboot later,
+/// far from this command.
+#[test]
+fn the_tmp_repair_checks_the_sticky_bit_survived() {
+    let script = build_disk_repair_script(&finding("tmp", 1, DiskStage::Raw), USER, false).unwrap();
+    let mount_a = script.find("sudo mount -a").unwrap();
+    let sticky = script
+        .find("if [ ! -k /tmp ]; then")
+        .unwrap_or_else(|| panic!("no sticky-bit assertion:\n{script}"));
+    assert!(mount_a < sticky, "{script}");
+
+    // The home repair has no business asserting anything about /tmp.
+    let home = build_disk_repair_script(&finding("home", 0, DiskStage::Raw), USER, false).unwrap();
+    assert!(!home.contains("-k /tmp"), "{home}");
 }

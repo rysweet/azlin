@@ -439,22 +439,11 @@ pub(crate) async fn dispatch(
                 std::collections::HashMap::new()
             };
 
-            let health_data = if enrichment.health {
-                let pb = penguin_spinner("Checking VM health...");
-                let result = crate::cmd_list_data::collect_health_data(
-                    &all_vms,
-                    &bastion_map,
-                    vm_manager.subscription_id(),
-                );
-                pb.finish_and_clear();
-                result
-            } else {
-                std::collections::HashMap::new()
-            };
-
-            // Probed only with --with-health, in the same sweep as the
-            // metrics: this is the column that would have made #1131 visible
-            // on the day it happened instead of weeks later at 98% full.
+            // One sweep for both, because storage is asked of the same VM
+            // over the same connection: it is the column that would have made
+            // #1131 visible on the day it happened instead of weeks later at
+            // 98% full, and a second sweep would have rediscovered every
+            // bastion to ask one more question per VM.
             //
             // Gated on `enrichment.health` rather than on `with_health &&
             // !cross_subscription`: storage is read through an ARM id built
@@ -464,9 +453,9 @@ pub(crate) async fn dispatch(
             // attribute it", which is the condition a second copy of the
             // threshold would have to restate -- and restating it is exactly
             // how `--show-procs` drifted out of sync with its own note.
-            let storage_data = if enrichment.health {
-                let pb = penguin_spinner("Checking VM storage...");
-                let result = crate::cmd_list_data::collect_storage_status(
+            let (health_data, storage_data) = if enrichment.health {
+                let pb = penguin_spinner("Checking VM health and storage...");
+                let result = crate::cmd_list_data::collect_health_and_storage(
                     &all_vms,
                     &bastion_map,
                     vm_manager.subscription_id(),
@@ -474,7 +463,10 @@ pub(crate) async fn dispatch(
                 pb.finish_and_clear();
                 result
             } else {
-                std::collections::HashMap::new()
+                (
+                    std::collections::HashMap::new(),
+                    std::collections::HashMap::new(),
+                )
             };
 
             let proc_data = if enrichment.procs {

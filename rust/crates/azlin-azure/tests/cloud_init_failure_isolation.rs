@@ -619,9 +619,9 @@ mod real_shell {
     }
 
     /// Absolute paths the generated script writes to, redirected into the
-    /// scratch directory so an unprivileged *and* a root test both stay inside
-    /// it. Longest-first, because `/mnt/home-data` must be rewritten before
-    /// anything that could match a prefix of it.
+    /// scratch directory so the run stays inside it. Order does not matter:
+    /// [`redirect_paths`] takes the longest match at each position in one
+    /// sweep.
     const REDIRECTED: &[&str] = &[
         "/var/lib/azlin",
         "/mnt/home-data",
@@ -631,6 +631,12 @@ mod real_shell {
         "/etc/fstab",
         "/etc/apt",
         "/home/azureuser",
+        // `mkdir` is *not* shimmed, so `mkdir -p /tmp/tmux-$UID` and the three
+        // `mkdir -p /tmp/<tool>-install` lines were creating real directories
+        // in the test machine's `/tmp` on every run. Nothing destructive, but
+        // the harness's claim is that it runs the generated script without
+        // touching the host, and that was not true.
+        "/tmp",
     ];
 
     /// Rewrite every absolute path the script writes to so it lands under
@@ -640,19 +646,76 @@ mod real_shell {
     /// verbatim", and it is not optional: the script's job is to format disks
     /// and move home directories. Everything that decides *control flow* — the
     /// section wrappers, the ordering, the exit statuses — runs unmodified.
+    ///
+    /// **One sweep, longest match first.** Substituting each path in turn only
+    /// works while no substitution can introduce text a later one matches, and
+    /// `root` is itself under `/tmp` — so a `/tmp` entry rewrote the scratch
+    /// paths the earlier entries had just written. Scanning once means a
+    /// rewritten span is never reconsidered, and it retires the "declare these
+    /// longest-first" rule that the previous version held by convention.
     fn redirect_paths(script: &str, root: &Path) -> String {
-        let mut out = script.to_string();
-        for path in REDIRECTED {
-            assert!(
-                out.contains(path),
-                "the generated script no longer writes to {path}; drop it from \
-                 REDIRECTED rather than leaving a substitution that silently \
-                 no-ops"
-            );
-            let target = root.join(path.trim_start_matches('/').replace('/', "-"));
-            out = out.replace(path, target.to_str().expect("utf-8 path"));
+        let mut mapping: Vec<(&str, String)> = REDIRECTED
+            .iter()
+            .map(|path| {
+                assert!(
+                    script.contains(path),
+                    "the generated script no longer writes to {path}; drop it \
+                     from REDIRECTED rather than leaving a substitution that \
+                     silently no-ops"
+                );
+                let target = root.join(path.trim_start_matches('/').replace('/', "-"));
+                (*path, target.to_str().expect("utf-8 path").to_string())
+            })
+            .collect();
+        mapping.sort_by_key(|(path, _)| std::cmp::Reverse(path.len()));
+
+        let mut out = String::with_capacity(script.len());
+        let mut rest = script;
+        while !rest.is_empty() {
+            match mapping.iter().find(|(path, _)| rest.starts_with(path)) {
+                Some((path, target)) => {
+                    out.push_str(target);
+                    rest = &rest[path.len()..];
+                }
+                None => {
+                    let ch = rest.chars().next().expect("non-empty");
+                    out.push(ch);
+                    rest = &rest[ch.len_utf8()..];
+                }
+            }
         }
         out
+    }
+
+    /// The harness must not run as root.
+    ///
+    /// Its containment is two layers deep and neither layer is complete.
+    /// [`REDIRECTED`] rewrites the paths the script is *known* to write to, and
+    /// `command_not_found_handle` catches commands that are missing — which is
+    /// the load-bearing weakness: it fires only for commands that are *not
+    /// installed*. A section that reaches an installed-but-unshimmed mutating
+    /// command — `useradd`, `sysctl`, `systemd-run`, `mkdir` — runs it for
+    /// real. As an unprivileged user those fail harmlessly; as root they do not
+    /// fail at all.
+    ///
+    /// So the containment is not made airtight — that is a losing game against
+    /// a script whose whole job is to modify a machine — and the one condition
+    /// under which its gaps matter is refused outright. A CI runner that runs
+    /// tests as root gets a clear failure instead of a modified host.
+    fn refuse_to_run_as_root() {
+        let uid = Command::new("id")
+            .arg("-u")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.trim().parse::<u32>().ok());
+        assert_ne!(
+            uid,
+            Some(0),
+            "this harness executes the real cloud-init script against shims that \
+             only intercept *missing* commands; as root an unshimmed one would \
+             modify the host. Run the test suite as an unprivileged user."
+        );
     }
 
     /// Runs the generated script under bash with failing/succeeding apt shims.
@@ -663,6 +726,7 @@ mod real_shell {
         if Command::new("bash").arg("-c").arg("true").output().is_err() {
             return None;
         }
+        refuse_to_run_as_root();
 
         let root = scratch();
         let var_lib = root.join("var-lib-azlin");
@@ -849,4 +913,93 @@ mod real_shell {
         }
         assert!(outcome.sentinel_present);
     }
+}
+
+// ---------------------------------------------------------------------------
+// customData budget
+// ---------------------------------------------------------------------------
+
+/// Azure's hard limit on `customData`, applied to the **base64** form.
+///
+/// `az vm create --custom-data @file` base64-encodes the script before ARM
+/// sees it, so the limit that matters is 4/3 of the raw byte count.
+const AZURE_CUSTOM_DATA_LIMIT: usize = 65_536;
+
+/// The raw script size this project refuses to exceed without a deliberate
+/// decision.
+///
+/// Set to half the encodable budget. Exceeding it does not mean the VM breaks
+/// — it means the remaining headroom is no longer comfortable and someone
+/// should look at what grew.
+const RAW_SCRIPT_BUDGET: usize = 24 * 1024;
+
+fn base64_len(raw: usize) -> usize {
+    raw.div_ceil(3) * 4
+}
+
+/// The generated script has to fit in `customData`, with room left over.
+///
+/// Fixing #1131 grew the home+tmp script by about 72%. Nothing failed, because
+/// nothing was watching: the ceiling is enforced by ARM at `azlin new` time,
+/// where breaching it is a 400 on every VM creation and no local test result at
+/// all. This is the test that turns that into a red build instead.
+#[test]
+fn generated_cloud_init_fits_in_the_azure_custom_data_budget() {
+    for (label, config) in [
+        (
+            "no disks",
+            DiskConfig {
+                home_disk: false,
+                tmp_disk: false,
+            },
+        ),
+        (
+            "home only",
+            DiskConfig {
+                home_disk: true,
+                tmp_disk: false,
+            },
+        ),
+        (
+            "tmp only",
+            DiskConfig {
+                home_disk: false,
+                tmp_disk: true,
+            },
+        ),
+        ("home+tmp", both_disks()),
+    ] {
+        let raw = render(&config).len();
+        let encoded = base64_len(raw);
+
+        assert!(
+            encoded < AZURE_CUSTOM_DATA_LIMIT,
+            "{label}: base64 customData is {encoded} bytes, over Azure's \
+             {AZURE_CUSTOM_DATA_LIMIT}-byte limit. Every `azlin new` would fail \
+             with a 400 from ARM."
+        );
+        assert!(
+            raw <= RAW_SCRIPT_BUDGET,
+            "{label}: the generated script is {raw} bytes, over this project's \
+             {RAW_SCRIPT_BUDGET}-byte budget ({encoded} base64, {}% of Azure's \
+             limit). It still fits, but the headroom is going. Either shrink \
+             the script or raise RAW_SCRIPT_BUDGET deliberately.",
+            encoded * 100 / AZURE_CUSTOM_DATA_LIMIT
+        );
+    }
+}
+
+/// The builder's capacity hint should still cover the largest script.
+///
+/// Not a correctness property — `String` grows on its own. It is here so that
+/// the hint in `render_dev_cloud_init_script_with_disks` is updated alongside
+/// the script rather than silently decaying into a guaranteed realloc.
+#[test]
+fn cloud_init_capacity_hint_still_covers_the_largest_script() {
+    let largest = render(&both_disks()).len();
+    assert!(
+        largest <= 24 * 1024,
+        "the script is now {largest} bytes; raise the `String::with_capacity` \
+         hint in `render_dev_cloud_init_script_with_disks` to match."
+    );
 }

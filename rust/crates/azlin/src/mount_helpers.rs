@@ -1,4 +1,17 @@
-/// Validate a mount-point path is safe (no shell metacharacters, no traversal).
+/// Validate a mount-point path is safe to interpolate into a shell script and
+/// into `/etc/fstab`.
+///
+/// A whitelist, not a blacklist. The blacklist this replaced named thirteen
+/// characters and missed the ones that mattered most in the two places the path
+/// actually lands: a **space** or a **tab** splits a word in the shell and a
+/// *field* in fstab — `--mount "/data disk"` wrote `/data disk ext4 …`, which
+/// makes `disk` the filesystem type and takes the boot with it — and a single
+/// quote, a backslash, a `#`, a `*` or a `?` were all accepted too. Enumerating
+/// what is dangerous is a losing game against two parsers with different
+/// metacharacters; enumerating what is allowed is not.
+///
+/// The permitted set is what a mount point plausibly needs: ASCII letters and
+/// digits, `/`, `-`, `_`, `.` and `+`.
 pub fn validate_mount_path(path: &str) -> Result<(), String> {
     if path.is_empty() {
         return Err("Mount path must not be empty".into());
@@ -6,37 +19,22 @@ pub fn validate_mount_path(path: &str) -> Result<(), String> {
     if !path.starts_with('/') {
         return Err(format!("Mount path '{}' must be absolute", path));
     }
-    // Reject shell metacharacters
-    let bad_chars = [
-        ';', '|', '&', '$', '`', '(', ')', '{', '}', '<', '>', '!', '\n', '\0',
-    ];
-    for c in bad_chars {
-        if path.contains(c) {
-            return Err(format!(
-                "Mount path '{}' contains dangerous character '{}'",
-                path, c
-            ));
-        }
+    if let Some(bad) = path
+        .chars()
+        .find(|c| !(c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.' | '+')))
+    {
+        return Err(format!(
+            "Mount path '{}' contains {:?}; a mount path may hold only ASCII letters \
+             and digits and the characters / - _ . +",
+            path, bad
+        ));
     }
-    // Reject traversal
-    if path.contains("/../") || path.ends_with("/..") || path == ".." {
+    // Reject traversal. Segment-wise, so `/data/..foo` — a legal directory
+    // name — is not mistaken for one.
+    if path.split('/').any(|segment| segment == "..") {
         return Err(format!("Mount path '{}' contains path traversal", path));
     }
     Ok(())
-}
-
-/// The Azure-stable device path for a data disk at `lun`.
-///
-/// `/dev/sdc` and friends are assigned in attach order and change across
-/// reboots; `/dev/disk/azure/scsi1/lunN` is the symlink Azure's udev rules
-/// maintain and is the only name that means the same disk twice.
-///
-/// One line, from `disk_layout`, because the udev path is Azure's to change:
-/// when it does, `azlin disk add --mount` and `azlin disk check`/`repair` must
-/// move together or the probe will report `absent` for a disk the mount script
-/// just attached.
-pub fn azure_lun_device(lun: u32) -> String {
-    azlin_azure::disk_layout::lun_device_path(lun)
 }
 
 /// The script that formats (only if unformatted) and mounts a data disk.
@@ -59,16 +57,19 @@ pub fn azure_lun_device(lun: u32) -> String {
 /// up is a worse outcome than a missing mount.
 ///
 /// The guard and the fstab line both come from `azlin_azure::disk_layout`,
-/// shared with `azlin disk repair` and (for the fstab line) with the cloud-init
-/// generator. One `mode=` in the wrong place cost a manual repair a whole cycle
-/// to find (#1131); there is one function that can make that mistake now.
+/// under that module's drift rule. The concrete cost here was a `mode=1777` on
+/// an ext4 line, which mounts silently as nothing (#1131).
 pub fn build_disk_mount_script(lun: u32, mount_path: &str) -> Result<String, String> {
     // Validated here as well as at the call site. The path is interpolated into a
     // shell script two modules away from where it is checked, so a second caller
     // would inherit that guarantee by convention rather than by construction — and
     // shell injection is not a property to hold by convention.
     validate_mount_path(mount_path)?;
-    let device = azure_lun_device(lun);
+    // Straight from `disk_layout`, because the udev path is Azure's to change:
+    // when it does, `azlin disk add --mount` and `azlin disk check`/`repair`
+    // must move together or the probe reports `absent` for a disk the mount
+    // script just attached.
+    let device = azlin_azure::disk_layout::lun_device_path(lun);
     let format_step = azlin_azure::disk_layout::blkid_guarded_mkfs("DEV", None, "sudo ");
     let fstab =
         azlin_azure::disk_layout::fstab_line(&azlin_azure::disk_layout::FstabSpec::Ext4ByUuid {
@@ -81,8 +82,8 @@ pub fn build_disk_mount_script(lun: u32, mount_path: &str) -> Result<String, Str
          for _ in $(seq 1 30); do [ -e \"$DEV\" ] && break; sleep 1; done\n\
          if [ ! -e \"$DEV\" ]; then echo \"azlin: {device} never appeared\" >&2; exit 1; fi\n\
          {format_step}\n\
-         sudo mkdir -p {mount_path}\n\
-         sudo mount \"$DEV\" {mount_path}\n\
+         sudo mkdir -p \"{mount_path}\"\n\
+         sudo mount \"$DEV\" \"{mount_path}\"\n\
          echo 'azlin: step=mounted'\n\
          UUID=$(sudo blkid -s UUID -o value \"$DEV\")\n\
          if ! grep -q \"$UUID\" /etc/fstab; then\n\
@@ -100,7 +101,10 @@ mod mount_script_tests {
     fn the_device_is_the_stable_azure_symlink() {
         // `/dev/sdc` is assigned in attach order and means a different disk
         // after a reboot.
-        assert_eq!(azure_lun_device(3), "/dev/disk/azure/scsi1/lun3");
+        assert_eq!(
+            azlin_azure::disk_layout::lun_device_path(3),
+            "/dev/disk/azure/scsi1/lun3"
+        );
     }
 
     /// Running `disk add --mount` twice must not destroy the filesystem the

@@ -19,9 +19,44 @@ only ever auto-increments the patch within the `MAJOR.MINOR` it reads from
 (#1142)
 
 ### Changed
+- **BREAKING for automation: `azlin disk repair --force` now asks before it
+  reformats; `--yes` is what skips the question.** `--force` means "permit
+  `mkfs` over a filesystem that is already there" on this command and "do not
+  ask me" on nineteen others, and it cannot be both — a single flag that grants
+  the destructive permission *and* waives the question about it is how
+  `azlin disk repair --force <typo>` becomes unrecoverable. The two are now
+  separate, and `reformats_existing_filesystem` is the single predicate the CLI
+  and the script builder both decide from, so the prompt and the `mkfs` cannot
+  disagree about whether this is a reformat. **Existing non-interactive callers
+  passing `--force` alone must add `--yes`.** They will not hang waiting for an
+  answer: with stdin detached the confirmation fails closed with a message
+  naming `--yes`.
+- **`azlin list --with-health` probes each VM once instead of twice** — health
+  and storage were two full serial passes over the fleet. Each rediscovered the
+  bastions (`az network bastion list` per resource group), re-resolved the SSH
+  key, and opened its own connection per VM. They did not share the
+  bastion-failure memo either, so a VM behind a dead tunnel paid
+  `BASTION_EXEC_TIMEOUT_SECS` in the health pass and again in the storage pass.
+  The storage pass also computed a direct-IP fallback and then never used it —
+  the bastion arm bound the address and ignored it — so a VM whose tunnel was
+  down rendered `--` even where its private IP was routable, which is the same
+  confidently-blank failure the `Storage` column exists to end. The routed
+  executor is a value (`RoutedExec`) rather than a closure private to one
+  collector, so one per VM serves every probe and condemns a dead tunnel once,
+  and `collect_health_and_storage` is one function over one loop.
+- **`azlin disk repair` re-probes over the route it already has** — the re-probe
+  called back into `probe_vm_storage`, which re-ran `az vm show` twice,
+  `az account show` and `az network bastion list` — plus an `az account set` on
+  a pinned subscription — to re-derive answers a repair cannot have changed,
+  while discarding the working `VmSshTarget` it was already holding. Resolution
+  and probe are separate now: `ProbedVm::reprobe` sends the script over the open
+  route. Re-probing the disk *state* is still done, and still deliberate.
+- **`azlin health` grows the `Storage` column** — over the same connection as
+  the metrics, through the shared `probe_storage`, which is what the column's
+  own doc comment already claimed.
 - **`azlin list` discovers bastion routing once per command instead of once per
-  enrichment collector** — `collect_tmux_sessions`, `collect_health_data` and
-  `collect_procs` each discovered routing for themselves, so
+  enrichment collector** — `collect_tmux_sessions`, `collect_health_and_storage`
+  and `collect_procs` each discovered routing for themselves, so
   `azlin list --with-health --show-procs` ran `az network bastion list` three
   times per resource group to compute the same `BastionMap` three times, and the
   operator watched three spinners re-derive one answer. `az` costs about 0.9s of
@@ -109,6 +144,36 @@ only ever auto-increments the patch within the `MAJOR.MINOR` it reads from
   three cases. (#1142)
 
 ### Fixed
+- **An interrupted `azlin disk repair` no longer binds a half-copied home over
+  the real one** — interrupt a `raw` repair during the copy and the VM is left
+  formatted, backing mounted, the bind never made and the destination half
+  populated. The probe reads that as `backing-mounted`, which is
+  indistinguishable on the wire from a VM whose bind was merely lost, so the
+  re-run skipped the copy — and with it the file-count check and the `rsync`
+  dry run — bound the partial directory over `/home/<user>`, and printed
+  "remove them once you have confirmed the new mount". If `.ssh/authorized_keys`
+  was in the not-yet-copied set the operator cannot confirm anything: sshd
+  reads `~` *through* the new bind, so the machine locks them out at the moment
+  it claims success. The copy now writes `in-progress` to
+  `<backing>/.azlin-copy-<user>` before the first byte and promotes it to
+  `complete` only after verification, which tells the three cases apart —
+  empty means copy, `in-progress` means resume, `complete` or unmarked data
+  means leave alone.
+- **The `blkid` guard is now independent of what it guards** — `if blkid; then
+  skip; else format; fi` treated *any* non-zero status as "no filesystem here":
+  `blkid` absent, `sudo` denied, an I/O error. Those are precisely the
+  conditions under which a probe is most likely to have misread a populated
+  disk as blank, so the guard was weakest exactly when it mattered. Only exit 2
+  — "nothing found" — now permits a format. The probe reports `fsdet=` beside
+  `fstype=` for the same reason: an empty `fstype` from a probe that could run
+  neither `lsblk` nor `sudo -n blkid` is `unknown`, not `raw`, and `raw` is the
+  stage a repair formats without being asked for `--force`.
+- **`azlin disk check` and `azlin disk repair` read the subscription the
+  context names** — `az vm show` ran before `create_auth()`, the chokepoint
+  that applies an azlin context, so on a pinned subscription the disk read and
+  the repair could target different subscriptions. Auth resolves first and the
+  subscription is passed explicitly; `resolve_vm_ssh_target_with_auth` keeps
+  that from costing a second `az account set`.
 - **`azlin list --show-procs --all-contexts` no longer attributes one
   subscription's processes to another's VMs** — bastion, tmux and health
   enrichment are all subscription-scoped, because they probe by an ARM id built
@@ -440,7 +505,7 @@ only ever auto-increments the patch within the `MAJOR.MINOR` it reads from
   `collect_procs` only ever tried direct SSH to `public_ip` or `private_ip`, so
   for a bastion-only VM on a network the operator could not route to, the
   `Procs` column was permanently empty with no indication why. It now takes
-  the same bastion path `collect_health_data` uses, via `bastion_ssh_exec`. The
+  the same bastion path the health sweep uses, via `bastion_ssh_exec`. The
   routing decision is a pure `probe_route` function returning
   `ProbeRoute::Bastion`, `ProbeRoute::Direct` or `ProbeRoute::Unreachable`,
   decided before any connection is attempted, so it is unit-tested
@@ -463,7 +528,7 @@ only ever auto-increments the patch within the `MAJOR.MINOR` it reads from
   target VM, plus the SSH key). The command remains restricted to the executable
   path (`awk '{print $11}'`) and never emits process arguments
 - **`azlin list --with-health` no longer skips VMs that have no IP address at
-  all** — `collect_health_data` bailed out of each VM before consulting the
+  all** — the health sweep bailed out of each VM before consulting the
   bastion map unless the VM had a public or private IP recorded, so a
   bastion-only VM whose private IP was absent from the listing was dropped
   even though it was reachable through its bastion. A VM is now skipped only
@@ -539,7 +604,7 @@ only ever auto-increments the patch within the `MAJOR.MINOR` it reads from
   arbitrarily now that the candidate list can span resource groups
 - **`azlin list --with-health` now falls back to the direct address when the
   bastion fails** — the health collector was the one collector that computed a
-  fallback address and never used it. `collect_health_data` resolved the VM's
+  fallback address and never used it. The sweep resolved the VM's
   private IP into `ip` and passed it to `collect_health_metrics`, but that
   function ignores `ip` entirely whenever a bastion route is present, so a
   tunnel outage blanked the `CPU%`, `Mem%` and `Disk%` cells instead of
@@ -653,6 +718,24 @@ only ever auto-increments the patch within the `MAJOR.MINOR` it reads from
     silently unrecoverable
 
 ### Security
+- **One control-character rule for every reader of VM-supplied text** — text
+  that comes off a VM and lands in an operator's terminal is stripped of
+  anything that can move a cursor. The storage probe's parse boundary did this;
+  two other readers of the same `provisioning.tsv` ledger did not. The failed
+  section names printed by `azlin new` went out raw, and the storage probe's
+  stderr got secret redaction but never the strip — the asymmetry with stdout
+  was accidental, and stderr is the channel a VM shapes most easily. `printable`
+  now lives beside `sanitize` in `azlin_core::sanitizer` and all three readers
+  share it. It also removes Unicode category `Cf`, not just the `Cc` that
+  `char::is_control()` answers for: `Cf` holds the bidirectional overrides, they
+  are reachable from a filesystem LABEL, and they are enough to make a
+  `degraded` verdict render as `ok` with no control character in the string at
+  all. No privilege boundary is crossed either way — this does not defend a VM
+  against its own root. What it stops is one machine's output rewriting the
+  report of the machines listed after it in a fleet-wide sweep.
+- **`validate_mount_path` is a whitelist** — the blacklist let through the space
+  that turns an fstab line's filesystem-type field into `disk`. Usernames and
+  package names are ASCII-only for the same reason.
 - **Bastion WSS URL redaction** — the `wss://` tunnel URL embeds the short-lived
   `websocketToken` bearer secret as a path segment. On a failed WSS connect the
   `warn!` now logs a redacted URL (`redact_wss_url`) and scrubs the token from

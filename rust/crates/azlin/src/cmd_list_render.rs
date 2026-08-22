@@ -692,19 +692,6 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
     }
 }
 
-/// The wire spelling of a storage status, but only when it is a verdict.
-///
-/// `Unknown` and `NoDisks` are not verdicts, and the table renders both as
-/// `--`. The machine-readable surfaces say `null`/empty for the same reason:
-/// a consumer must not be able to read "we could not check" as a result.
-fn verdict_str(status: &azlin_azure::disk_layout::StorageStatus) -> Option<&'static str> {
-    use azlin_azure::disk_layout::StorageStatus;
-    match status {
-        StorageStatus::Ok | StorageStatus::Degraded => Some(status.as_str()),
-        StorageStatus::Unknown | StorageStatus::NoDisks => None,
-    }
-}
-
 // ── JSON renderer ────────────────────────────────────────────────────
 
 fn render_json(cfg: &ListRenderConfig, data: &ListRenderData) -> Result<()> {
@@ -757,8 +744,9 @@ fn render_json(cfg: &ListRenderConfig, data: &ListRenderData) -> Result<()> {
                 // all three as `--`; emitting `"unknown"` here would give the
                 // JSON and CSV consumers a different vocabulary from the one
                 // the tests pin, for the same VM.
-                obj["storage"] =
-                    serde_json::json!(data.storage_data.get(&vm.name).and_then(verdict_str));
+                obj["storage"] = serde_json::json!(crate::health_render::storage_verdict(
+                    data.storage_data.get(&vm.name).copied(),
+                ));
             }
             obj
         })
@@ -905,9 +893,7 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
             // conventional "no value", and this column must not claim one.
             row.push_str(&format!(
                 ",{}",
-                data.storage_data
-                    .get(&vm.name)
-                    .and_then(verdict_str)
+                crate::health_render::storage_verdict(data.storage_data.get(&vm.name).copied())
                     .unwrap_or("")
             ));
         }
