@@ -10,16 +10,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **`azlin list` discovers bastion routing once per command instead of once per
   enrichment collector** — `collect_tmux_sessions`, `collect_health_data` and
-  `collect_procs` each called `discover_bastions` for themselves, so
+  `collect_procs` each discovered routing for themselves, so
   `azlin list --with-health --show-procs` ran `az network bastion list` three
   times per resource group to compute the same `BastionMap` three times, and the
   operator watched three spinners re-derive one answer. `az` costs about 0.9s of
   process start alone before the ARM round-trip, so a five-resource-group
   listing spent at least nine seconds on ten redundant lookups. Discovery is a
   pure function of the VM list, so it is now done once by the caller and lent to
-  every collector: same routing, a third of the `az` calls. Callers that run a
-  single collector go through the new `discover_bastions_async`, which is also
-  where the `spawn_blocking` hop and the discovery-failed warning now live.
+  every collector. Callers that run a single collector go through the new
+  `discover_bastions_async`, which is also where the `spawn_blocking` hop and
+  the discovery-failed warning now live.
+- **…and on the default path it costs no `az` call at all** — collapsing three
+  collector sweeps into one still left that one sweep next to another. Table
+  output draws an "Azure Bastion Hosts" table, which looks bastions up across
+  every resource group in the listing, and the groups routing needs are a
+  *subset* of those — so the ordinary `azlin list`, with no flags, ran the table
+  sweep and then asked `az` the same questions again for routing. The table's
+  answers are now carried forward through `BastionLookups` and routing reads
+  them, so a default listing performs one sweep rather than two and the counts
+  above become honest about the command rather than about the collectors alone.
+  A resource group whose lookup was *refused* is carried forward too: re-asking
+  pays a second timeout on a group that has already said no, and reports one
+  failure through two different warnings. `-o json` and `-o csv` draw no table,
+  so they still sweep once, for routing only.
+- **Bastion discovery no longer deep-clones the VM list to name a few resource
+  groups** — `discover_bastions_async` cloned the whole `Vec<VmInfo>`, tags map
+  and all, across the `spawn_blocking` boundary in order to derive the deduped
+  `Vec<String>` of groups that is the only thing discovery reads from it. The
+  group list is computed before the hop and only it crosses. Same answer,
+  proportional to the number of resource groups instead of the number of VMs.
+- **The list table sanitizes each VM's display text once instead of twice** —
+  under `-w` the column-width pass built a `VmDisplayText` per VM to measure the
+  widest name, dropped it, and the row loop built the same six sanitized strings
+  again. They are built once and shared, which also removes the possibility of
+  sizing a column against text other than the text that gets printed.
 
 ### Fixed
 - **`azlin list --show-procs --all-contexts` no longer attributes one

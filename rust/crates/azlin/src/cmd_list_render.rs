@@ -246,6 +246,14 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
         .map(|(w, _)| w as usize)
         .unwrap_or(120);
 
+    // Sanitized once per VM, up front, because the width pass and the row pass
+    // both need it and each used to build its own copy -- six sanitized
+    // `String`s allocated per VM, measured, thrown away, and allocated again a
+    // hundred lines below. Sizing a column against text other than the text
+    // that will be printed is also how a border ends up in the wrong place, so
+    // sharing one value is the safer arrangement as well as the cheaper one.
+    let display: Vec<VmDisplayText> = data.vms.iter().map(VmDisplayText::for_vm).collect();
+
     // Build column definitions based on config and terminal width.
     // Start with minimum columns, then allocate remaining space.
     let mut cols: Vec<ColDef> = Vec::new();
@@ -275,10 +283,9 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
         // Measured on the sanitized name, which is what actually gets printed.
         // Measuring the raw one would size the column for characters that
         // occupy no columns, padding every row past the border.
-        let vm_name_w = data
-            .vms
+        let vm_name_w = display
             .iter()
-            .map(|vm| VmDisplayText::for_vm(vm).name.chars().count())
+            .map(|d| d.name.chars().count())
             .max()
             .unwrap_or(7)
             .max(7); // minimum = header width
@@ -452,9 +459,7 @@ fn render_table(cfg: &ListRenderConfig, data: &ListRenderData) {
     println!("{}", border_line(&widths, '├', '┼', '┤', '─'));
 
     // Data rows
-    for vm in data.vms {
-        let disp = VmDisplayText::for_vm(vm);
-
+    for (vm, disp) in data.vms.iter().zip(&display) {
         let mut cells: Vec<String> = Vec::new();
         let mut col_i = 0;
 

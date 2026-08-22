@@ -257,6 +257,13 @@ pub(crate) async fn dispatch(
             // resource groups used to display one group's bastions and
             // silently omit the others.
             let listing_rgs = crate::cmd_list_data::resource_groups_in_listing(&all_vms);
+            // Every answer the table sweep below gets, kept for the routing
+            // sweep further down. The groups routing needs are a subset of the
+            // groups the table covers, so on the default table path routing
+            // asks `az` nothing at all -- it used to repeat the whole sweep,
+            // which made "once per command" true of the three collectors but
+            // not of the command.
+            let mut bastion_lookups = crate::cmd_list_data::BastionLookups::new();
             if !cross_subscription
                 && matches!(output, azlin_cli::OutputFormat::Table)
                 && !listing_rgs.is_empty()
@@ -271,6 +278,7 @@ pub(crate) async fn dispatch(
                 for rg in &listing_rgs {
                     match crate::list_helpers::detect_bastion_hosts(rg) {
                         Ok(found) => {
+                            bastion_lookups.insert(rg.clone(), Ok(found.clone()));
                             for entry in found {
                                 if seen.insert(entry.clone()) {
                                     bastions.push(entry);
@@ -285,6 +293,12 @@ pub(crate) async fn dispatch(
                         // operator to guess which one they hit.
                         Err(e) => {
                             let cause = e.to_string();
+                            // The raw cause, not the line rendered below:
+                            // `bastion_lookup_failure_warning` picks its own
+                            // reportable line and sanitizes for itself, and
+                            // feeding it pre-trimmed text would sanitize twice
+                            // and select from an already-selected line.
+                            bastion_lookups.insert(rg.clone(), Err(cause.clone()));
                             // Both halves are sanitized: the group name is
                             // chosen by whoever created it and `az` quotes it
                             // back into its own error text, so an escape
@@ -350,7 +364,11 @@ pub(crate) async fn dispatch(
             // against a terminal showing nothing. It carries its own.
             let bastion_map = if enrichment.any() {
                 let pb = penguin_spinner("Locating bastion hosts...");
-                let (map, warnings) = crate::cmd_list_data::discover_bastions_async(&all_vms).await;
+                let (map, warnings) = crate::cmd_list_data::discover_bastions_async_reusing(
+                    &all_vms,
+                    bastion_lookups,
+                )
+                .await;
                 pb.finish_and_clear();
                 // After the spinner is cleared, as with the sweep above: the
                 // spinner erases and redraws its line every tick, so a warning

@@ -267,7 +267,7 @@ pub fn detect_bastion_hosts_or_warn(resource_group: &str) -> Vec<(String, String
 ///
 /// Reporting is the caller's job rather than this function's: the callers that
 /// run inside a spinner must print after clearing it (see
-/// [`crate::cmd_list_data::discover_bastions`]), and a line printed from in
+/// [`crate::cmd_list_data::discover_bastions_async_reusing`]), and a line printed from in
 /// here would be erased before it could be read. Callers with no spinner and
 /// nothing useful to add should use [`detect_bastion_hosts_or_warn`].
 pub fn detect_bastion_hosts(resource_group: &str) -> anyhow::Result<Vec<(String, String, String)>> {

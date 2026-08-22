@@ -63,7 +63,7 @@ pub(crate) enum SessionLookup {
 /// has a matching tmux session, callers can connect to `vm_name:session_name`.
 ///
 /// Returns the lookup together with the bastion warnings the caller must
-/// print, for the same reason [`discover_bastions`] returns its own: the only
+/// print, for the same reason [`discover_bastions_async_reusing`] returns its own: the only
 /// caller runs this behind a spinner, and printing from in here would let
 /// `indicatif` erase the line that explains why a bastion-only VM's sessions
 /// are missing from the search. The caller prints them once its spinner is
@@ -475,37 +475,23 @@ fn join_with_and(items: &[&str]) -> String {
     }
 }
 
-/// Discover bastions for every resource group that has a bastion-only VM.
+/// One `az network bastion list` answer per resource group, as a caller may
+/// already have it.
 ///
-/// Blocking `az` calls: one `az network bastion list` per resource group that
-/// needs routing. Private on purpose — [`discover_bastions_async`] is the only
-/// stud this module offers, because every caller in the crate is async and
-/// calling this one directly from a runtime thread would stall the concurrent
-/// SSH probes `collect_tmux_sessions` spawns in its `JoinSet`. An exported
-/// blocking twin would be an invitation to exactly that mistake.
+/// `azlin list` looks bastions up twice on its most ordinary invocation: once
+/// for the "Azure Bastion Hosts" table, over every resource group in the
+/// listing, and once for routing, over the subset holding a bastion-only
+/// running VM. The second set is always contained in the first, so when the
+/// table has already run its sweep the routing sweep is asking `az` questions
+/// it has the answers to. Handing those answers forward is what makes the
+/// "once per command" in this module's name true of the default path and not
+/// only of the three collectors.
 ///
-/// The result belongs to the *caller*, not to each collector. Discovery is a
-/// pure function of `vms`, and a single `azlin vm list --with-health
-/// --show-procs` runs three collectors over one VM list: when each discovered
-/// routing for itself the command spent three `az` invocations per resource
-/// group to compute the same map three times, and the operator watched three
-/// spinners re-derive one answer. Every collector now borrows a map the caller
-/// discovered once.
-///
-/// The warnings are returned rather than printed, for the same reason
-/// [`insert_bastions_for_group`] returns its own: the callers that draw a
-/// spinner over this work (`azlin list`, and `azlin connect`'s session-name
-/// fallback) run `indicatif`, which erases and redraws its line on each tick,
-/// so a warning written from in here is wiped before the operator can read it.
-/// Those callers print them once the spinner is cleared. `handle_restore` has
-/// no spinner and prints them immediately; returning rather than printing
-/// costs it nothing and keeps one rule for every caller.
-fn discover_bastions(vms: &[VmInfo]) -> (BastionMap, Vec<String>) {
-    collect_bastions(
-        &resource_groups_needing_bastion_lookup(vms),
-        crate::list_helpers::detect_bastion_hosts,
-    )
-}
+/// A failed lookup is carried too, as its message. Re-attempting it would pay
+/// a second timeout on a resource group that has already refused once, and
+/// would report the same refusal to the operator through two different
+/// warnings.
+pub(crate) type BastionLookups = HashMap<String, Result<Vec<(String, String, String)>, String>>;
 
 /// Fold one `az network bastion list` result per resource group into a map,
 /// returning it with every warning the caller should print.
@@ -530,18 +516,82 @@ fn collect_bastions(
     (map, warnings)
 }
 
-/// [`discover_bastions`] for async callers, run off the runtime.
+/// Discover bastion routing for every resource group that has a bastion-only
+/// VM, for a caller that has looked none of them up yet.
+///
+/// See [`discover_bastions_async_reusing`], which this defers to. Callers
+/// running a single collector and nothing else — `handle_restore`, and
+/// `azlin connect`'s session-name fallback — have no earlier sweep to reuse.
+pub(crate) async fn discover_bastions_async(vms: &[VmInfo]) -> (BastionMap, Vec<String>) {
+    discover_bastions_async_reusing(vms, BastionLookups::new()).await
+}
+
+/// Answer for one resource group from `already_looked_up`, or ask `az`.
+///
+/// Split out of [`discover_bastions_async_reusing`] so the thing that change
+/// is actually about -- that a group the caller already looked up costs no
+/// second `az` invocation -- can be asserted rather than assumed. A closure
+/// buried inside a `spawn_blocking` is not observable from a test.
+fn reuse_or_look_up(
+    already_looked_up: &BastionLookups,
+    resource_group: &str,
+    look_up: impl Fn(&str) -> anyhow::Result<Vec<(String, String, String)>>,
+) -> anyhow::Result<Vec<(String, String, String)>> {
+    match already_looked_up.get(resource_group) {
+        Some(Ok(found)) => Ok(found.clone()),
+        // A refusal is an answer. Asking again pays a second timeout on a
+        // resource group that has already said no, and tells the operator
+        // about one failure twice.
+        Some(Err(message)) => Err(anyhow::anyhow!("{message}")),
+        None => look_up(resource_group),
+    }
+}
+
+/// Discover bastion routing, reusing the answers `already_looked_up` holds.
 ///
 /// The single entry point for anyone holding a VM list and about to run one or
-/// more collectors over it. It exists so that hoisting discovery out of the
-/// collectors did not leave three callers each hand-rolling the same
-/// `spawn_blocking` and the same failure message.
+/// more collectors over it. Blocking `az` calls run off the runtime, because
+/// every caller in this crate is async and blocking a runtime thread here
+/// would stall the concurrent SSH probes `collect_tmux_sessions` goes on to
+/// spawn in its `JoinSet`. There is deliberately no exported blocking twin: it
+/// would be an invitation to exactly that mistake.
 ///
-/// Returns the map together with the warnings the caller must print; see
-/// [`discover_bastions`] for why they are not printed here.
-pub(crate) async fn discover_bastions_async(vms: &[VmInfo]) -> (BastionMap, Vec<String>) {
-    let owned: Vec<VmInfo> = vms.to_vec();
-    match tokio::task::spawn_blocking(move || discover_bastions(&owned)).await {
+/// The result belongs to the *caller*, not to each collector. Discovery is a
+/// pure function of `vms`, and a single `azlin list --with-health
+/// --show-procs` runs three collectors over one VM list: when each discovered
+/// routing for itself the command spent three `az` invocations per resource
+/// group to compute the same map three times, and the operator watched three
+/// spinners re-derive one answer. Every collector now borrows a map the caller
+/// discovered once — and on the default table path the caller discovered it
+/// while drawing the bastion table, so this costs no `az` call at all.
+///
+/// Only the resource-group list crosses into the blocking task. It used to be
+/// the whole `Vec<VmInfo>`, deep-cloned — tags map and all — to derive a
+/// handful of group names, which is the same "pay twice for one answer" this
+/// function exists to stop.
+///
+/// The warnings are returned rather than printed, for the same reason
+/// [`insert_bastions_for_group`] returns its own: the callers that draw a
+/// spinner over this work run `indicatif`, which erases and redraws its line
+/// on each tick, so a warning written from in here is wiped before the
+/// operator can read it. Those callers print them once the spinner is cleared.
+/// `handle_restore` has no spinner and prints them immediately; returning
+/// rather than printing costs it nothing and keeps one rule for every caller.
+pub(crate) async fn discover_bastions_async_reusing(
+    vms: &[VmInfo],
+    already_looked_up: BastionLookups,
+) -> (BastionMap, Vec<String>) {
+    let groups = resource_groups_needing_bastion_lookup(vms);
+    let discover = move || {
+        collect_bastions(&groups, |rg| {
+            reuse_or_look_up(
+                &already_looked_up,
+                rg,
+                crate::list_helpers::detect_bastion_hosts,
+            )
+        })
+    };
+    match tokio::task::spawn_blocking(discover).await {
         Ok(result) => result,
         // An empty map here is not "no bastions exist" — it is "we never found
         // out". Every bastion-only VM would report zero sessions with nothing
@@ -560,7 +610,7 @@ pub(crate) async fn discover_bastions_async(vms: &[VmInfo]) -> (BastionMap, Vec<
 /// Fold one resource group's `az network bastion list` result into `map`,
 /// returning any warnings the caller should print.
 ///
-/// Split out of [`discover_bastions`] so the selection rule is testable
+/// Split out of [`discover_bastions_async_reusing`] so the selection rule is testable
 /// without `az`: the rule is the whole point, and an untested tie-break is how
 /// #1127 shipped in the first place.
 ///
@@ -3445,7 +3495,7 @@ mod silent_degradation_tests {
         );
     }
 
-    /// `discover_bastions` is a pure function of the VM list, which is what
+    /// Bastion discovery is a pure function of the VM list, which is what
     /// makes hoisting it out of the three collectors safe: the map a caller
     /// discovers once is the map each collector would have discovered for
     /// itself. If a VM list ever stops determining the set of groups looked
@@ -3486,6 +3536,79 @@ mod silent_degradation_tests {
     /// hosts...` spinner, which erases and redraws its line on every tick, so
     /// the operator saw neither: a bastion-only VM then reported zero sessions
     /// with nothing on screen to say why.
+    /// The whole point of carrying the table sweep's answers forward: a group
+    /// the caller already looked up must cost no second `az` invocation.
+    /// `azlin list` in table output -- the default -- sweeps every listed
+    /// resource group for the "Azure Bastion Hosts" table, and the groups
+    /// routing needs are a subset of those, so without this the ordinary
+    /// listing paid for every routing lookup twice.
+    #[test]
+    fn a_group_already_looked_up_is_not_looked_up_again() {
+        let mut prefetched = BastionLookups::new();
+        prefetched.insert(
+            "rg-a".to_string(),
+            Ok(vec![(
+                "bst-a".to_string(),
+                "centralus".to_string(),
+                "Standard".to_string(),
+            )]),
+        );
+        let calls = std::cell::Cell::new(0);
+        let found = reuse_or_look_up(&prefetched, "rg-a", |_| {
+            calls.set(calls.get() + 1);
+            Ok(Vec::new())
+        })
+        .expect("a cached success is a success");
+
+        assert_eq!(calls.get(), 0, "az was invoked for an answer already held");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].0, "bst-a", "the cached answer must be the answer");
+    }
+
+    /// A refusal is an answer too. Re-asking pays a second timeout on a group
+    /// that has already said no, and reports one failure to the operator
+    /// through two different warnings.
+    #[test]
+    fn a_group_whose_lookup_already_failed_is_not_retried() {
+        let mut prefetched = BastionLookups::new();
+        prefetched.insert(
+            "rg-denied".to_string(),
+            Err("AuthorizationFailed: denied".to_string()),
+        );
+        let calls = std::cell::Cell::new(0);
+        let err = reuse_or_look_up(&prefetched, "rg-denied", |_| {
+            calls.set(calls.get() + 1);
+            Ok(Vec::new())
+        })
+        .expect_err("a cached failure must stay a failure");
+
+        assert_eq!(calls.get(), 0, "az was re-invoked for a known refusal");
+        assert!(
+            err.to_string().contains("AuthorizationFailed"),
+            "the original cause must survive the round trip: {err}"
+        );
+    }
+
+    /// A group the caller never looked up still costs exactly one lookup --
+    /// reuse must not turn into "skip". This is the JSON/CSV path, where no
+    /// bastion table is drawn and there is nothing to inherit.
+    #[test]
+    fn a_group_not_already_looked_up_is_looked_up_exactly_once() {
+        let calls = std::cell::Cell::new(0);
+        let found = reuse_or_look_up(&BastionLookups::new(), "rg-b", |rg| {
+            calls.set(calls.get() + 1);
+            Ok(vec![(
+                format!("bst-{rg}"),
+                "westus".to_string(),
+                "Standard".to_string(),
+            )])
+        })
+        .expect("an uncached group is looked up");
+
+        assert_eq!(calls.get(), 1, "an uncached group must cost one lookup");
+        assert_eq!(found[0].0, "bst-rg-b");
+    }
+
     #[test]
     fn bastion_discovery_returns_its_warnings_instead_of_printing_them() {
         let groups = vec!["rg-denied".to_string(), "rg-two-bastions".to_string()];
