@@ -78,11 +78,19 @@ method through its type or a macro-generated item.
 **A comment counts as an occurrence.** The grep does not distinguish code from
 comments, so a deleted symbol still resolves for as long as *any* `//` line
 under `rust/crates/` still names it — including a comment that is stale for the
-same reason the citation is. This is not hypothetical. While #1148 was open, #1153
-deleted the storage collector that four of this repository's documents cited by
-name. Every one of those citations went on resolving, because a single stale
-comment on the branch still spelled the deleted name — and the check stayed
-green until that comment was removed, at which point all four failed at once.
+same reason the citation is. This is not hypothetical, and the real shape of it is sharper than the obvious
+one. While #1148 was open, #1153 deleted two sibling collectors. One of them
+was cited five times across two of this repository's documents, and every one
+of those five went on resolving — a single stale `//` line in `main.rs`, itself
+left behind by the same branch, still spelled the deleted name. The other had
+no such line anywhere, so its one citation dangled the instant the rebase
+landed and the check went red.
+
+That is the hole stated precisely: the check did not survive the rename, it
+survived it *unevenly*. The symbol with an accidental comment was invisible to
+the gate; the symbol without one was caught immediately. Whether a deleted name
+is reported depends on whether some unrelated comment happens to mention it,
+which is not a property anyone reasons about when deleting a function.
 Requiring the match to fall outside a comment would close the hole; that is a
 change to the checker and belongs in its own change, so what this document can
 do is say the hole is there.

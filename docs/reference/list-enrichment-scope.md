@@ -248,7 +248,9 @@ transport error — retries once at the private address. A command that reached 
 VM and exited non-zero is that VM's own answer and is **never** retried: a retry
 could land on a different host and report its processes under this VM's name.
 That second half is the invariant. The fallback itself is uneven, in two
-shapes, and `collect_tmux_sessions` is now the only collector without one.
+shapes, and among the collectors that take a bastion route
+`collect_tmux_sessions` is now the only one without a fallback. (Latency takes
+no bastion route at all and so has nothing to fall back from; see Rule 2.)
 
 `RoutedExec::run` holds the first shape, and health and storage share it
 because #1153 gave them one route per VM: a transport failure reruns the
@@ -439,8 +441,13 @@ on a bare `azlin list` are not the one that is easiest to notice:
   point: one argument is validated and the one next to it is not.
 - `collect_disk_configs` passes each VM's resource group straight into an
   `az vm list --resource-group` invocation, also with no validator. This one is
-  **not** on the default path: it is reached only through
-  `collect_health_and_storage`, which is gated on `enrichment.health`. (It is also
+  **not** on the default `azlin list` path: within a listing it is reached only
+  through `collect_health_and_storage`, which is gated on `enrichment.health`.
+  It is **not** confined to the listing, though — #1153 gave `azlin health` two
+  direct call sites of its own (`cmd_monitoring.rs`, both the single-VM and the
+  fan-out branch), so that command reaches the same unvalidated
+  `az vm list --resource-group` without `--with-health` and without going
+  through the listing at all. (It is also
   why `--with-health` costs ARM queries as well as SSH probes — storage reads
   disk layout out of ARM before probing the host.)
 

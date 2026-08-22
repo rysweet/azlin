@@ -468,10 +468,13 @@ impl<'a> RoutedExec<'a> {
             // anything, and does not retry once one is up -- so this arm is
             // not the shape it uses. Health and storage both are: they share
             // one `RoutedExec` per VM, so this arm is the only fallback either
-            // has. Both were once handed a private address and never read it,
-            // and a tunnel outage turned into empty CPU/Mem/Disk cells and a
-            // blank `Storage` that read exactly like a healthy, idle
-            // machine. No warning is printed here: the tmux collector runs by
+            // has. Both were once handed a private address and never read it.
+            // For health that meant a tunnel outage turned into empty
+            // CPU/Mem/Disk cells that read exactly like a healthy, idle
+            // machine. Storage failed differently -- it went to `--`, which
+            // `health_render::storage_verdict` is careful is never a pass --
+            // so the cost there was two columns disagreeing about whether the
+            // VM had been reachable at all. No warning is printed here: the tmux collector runs by
             // default in the same invocation and already reports a failed
             // tunnel, and an unread metric renders as an uncoloured `-`
             // rather than a green "fine".
