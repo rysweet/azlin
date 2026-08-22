@@ -393,6 +393,15 @@ fn collect_health_metrics(
         return health_parse_helpers::default_metrics(vm_name, power_state);
     }
 
+    // No bastion route and no address is nothing to probe. `collect_health_data`
+    // already filters those VMs out, but the direct branch below flattens the
+    // address with `unwrap_or_default()` and would run `ssh user@` — a
+    // guaranteed transport failure recorded as a health result. Stating the
+    // precondition as a guard keeps it true if a caller stops filtering.
+    if bastion_info.is_none() && cmd_list_data::direct_fallback_host(Some(ip)).is_none() {
+        return health_parse_helpers::default_metrics(vm_name, power_state);
+    }
+
     // A bastion that just failed to carry a command will fail again. Five
     // metrics are collected per VM, sequentially, and `collect_health_data`
     // walks VMs sequentially too, so retrying a dead tunnel each time would

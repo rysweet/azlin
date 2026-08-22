@@ -102,30 +102,125 @@ print("5. A document naming no symbols is an error, not a pass")
 # Silently passing would mean the extraction had drifted and nobody noticed.
 r = run_on("This document cites nothing at all.\n")
 check("exit code is non-zero", r.returncode != 0, r.stdout + r.stderr)
-check("the reason is stated", "names no Rust symbols" in r.stderr, r.stderr)
+check("the reason is stated", "named a Rust symbol" in r.stderr, r.stderr)
 print()
 
 print("6. Every exemption carries a reason")
 # An append-only allowlist with no reason field is where a dangling citation
 # goes to hide.
 r = subprocess.run(
-    [sys.executable, "-c",
-     "import importlib.util, sys;"
-     "spec = importlib.util.spec_from_file_location('c', sys.argv[1]);"
-     "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m);"
-     "print(all(v.strip() for v in m.NOT_SYMBOLS.values()))",
-     str(CHECKER)],
+    [
+        sys.executable,
+        "-c",
+        "import importlib.util, sys;"
+        "spec = importlib.util.spec_from_file_location('c', sys.argv[1]);"
+        "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m);"
+        "print(all(v.strip() for v in m.NOT_SYMBOLS.values()))",
+        str(CHECKER),
+    ],
     capture_output=True,
     text=True,
 )
-check("NOT_SYMBOLS has no blank reasons", r.stdout.strip() == "True", r.stdout + r.stderr)
+check(
+    "NOT_SYMBOLS has no blank reasons", r.stdout.strip() == "True", r.stdout + r.stderr
+)
 print()
 
-print("7. The real document")
+print("7. Every document in scope")
 r = subprocess.run([sys.executable, str(CHECKER)], capture_output=True, text=True)
 check(
-    "every reference in nat-gateway-provisioning.md resolves",
+    "every reference in every checked document resolves",
     r.returncode == 0,
+    r.stdout + r.stderr,
+)
+check(
+    "the scope is more than one document",
+    r.stdout.count("references resolve") > 1,
+    r.stdout,
+)
+check(
+    "CHANGELOG.md is in scope",
+    "CHANGELOG.md:" in r.stdout,
+    r.stdout,
+)
+check(
+    "docs-site is in scope",
+    "docs-site/" in r.stdout,
+    r.stdout,
+)
+print()
+
+print("8. Changelog history is not checked, only the unreleased section")
+# Released entries name the code that shipped in them. Rewriting that to match
+# today's symbols would make the history a lie to satisfy a linter.
+r = subprocess.run(
+    [
+        sys.executable,
+        "-c",
+        "import importlib.util, sys;"
+        "from pathlib import Path;"
+        "spec = importlib.util.spec_from_file_location('c', sys.argv[1]);"
+        "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m);"
+        "import re;"
+        "t = m.in_scope_text(m.REPO_ROOT / 'CHANGELOG.md');"
+        "full = (m.REPO_ROOT / 'CHANGELOG.md').read_text();"
+        "n = lambda s: len(re.findall(r'^## ', s, flags=re.M));"
+        "print(n(t) == 1 and n(full) > 1)",
+        str(CHECKER),
+    ],
+    capture_output=True,
+    text=True,
+)
+check("only one section is extracted", r.stdout.strip() == "True", r.stdout + r.stderr)
+print()
+
+print("9. Every stale-document exemption carries a reason and is still needed")
+# The list is a ratchet: an exemption that stops being necessary has to be
+# deleted, or it exempts the next mistake instead.
+r = subprocess.run(
+    [
+        sys.executable,
+        "-c",
+        "import importlib.util, sys;"
+        "spec = importlib.util.spec_from_file_location('c', sys.argv[1]);"
+        "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m);"
+        "reasons = all(v.strip() for v in m.STALE_DOCS.values());"
+        "still = m.check_stale_docs_still_fail(m.default_docs()) == 0;"
+        "print(reasons and still)",
+        str(CHECKER),
+    ],
+    capture_output=True,
+    text=True,
+)
+check(
+    "STALE_DOCS entries are explained and still dangling",
+    r.stdout.strip() == "True",
+    r.stdout + r.stderr,
+)
+print()
+
+print("10. The drift guard is satisfied by checked documents, not exempted ones")
+# `examined == 0` is what catches the extraction silently breaking. If an
+# exempted document's symbols counted toward it, extraction could break for
+# every document actually checked and the run would still pass -- the vacuous
+# pass the guard exists to prevent.
+r = subprocess.run(
+    [
+        sys.executable,
+        "-c",
+        "import importlib.util, sys;"
+        "spec = importlib.util.spec_from_file_location('c', sys.argv[1]);"
+        "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m);"
+        "checked = [d for d in m.default_docs() if d not in m.STALE_DOCS];"
+        "print(sum(m.dangling_in(d)[0] for d in checked) > 0)",
+        str(CHECKER),
+    ],
+    capture_output=True,
+    text=True,
+)
+check(
+    "documents that are actually checked name Rust symbols",
+    r.stdout.strip() == "True",
     r.stdout + r.stderr,
 )
 print()

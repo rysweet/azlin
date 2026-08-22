@@ -1,0 +1,181 @@
+name: "azlin list -o csv quotes its free-form fields, and the doc-reference gate covers the documents that go stale"
+description: |
+  Verifies PR #1133 from outside the process.
+
+  Two user-visible claims are under test.
+
+  1. `azlin list -o csv` no longer shifts a row when a value contains a comma.
+     The writer concatenated fields with `,` and escaped nothing.
+     `sanitize_remote_text` strips control characters, but a comma is not one,
+     so a tmux session literally named `a,b` — or an `azlin-session` tag
+     carrying one — ended its field early and shifted every later column by
+     one. A consumer reads that as valid data for the wrong VM. The invariant
+     an operator can actually observe: every record parses to the same number
+     of fields as the header, whatever Azure returned.
+
+  2. The doc-reference check runs on the documents that actually go stale.
+     It ran on one file under `docs/reference/`, which is why a CHANGELOG entry
+     citing a routing function named "proc_route" — a name no symbol in this
+     repository has ever had — passed every gate. Scope is now `CHANGELOG.md`,
+     the reference and feature docs, and the bastion and `azlin vm` pages of
+     the docs site; released changelog sections are excluded so history is not
+     rewritten to satisfy a linter.
+
+  The `azlin` steps need neither Azure nor the network: `az` and `ssh` are
+  replaced by stubs on PATH. The gate steps run the real checker against
+  throwaway documents.
+
+  Proven non-vacuous by A/B against a binary built from the parent commit: the
+  CSV row there parses as 14 fields against a 10-field header — one shift per
+  planted comma — and as exactly 10 here. All four commas count, which is why
+  the quoting covers the region and the SKU and not only the three fields the
+  original fix named.
+
+version: "1.0.0"
+
+config:
+  timeout: 60000
+
+agents:
+  - name: "cli-agent"
+    type: "system"
+    config:
+      workingDirectory: "."
+      shell: "bash"
+      timeout: 30000
+
+steps:
+  - name: "Build the binary under test (never assert against a stale build)"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        cd rust && cargo build -p azlin 2>&1 | tail -1
+        test -x target/debug/azlin && echo "PASS: fresh azlin binary present"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 900000
+
+  - name: "A comma in an Azure-supplied value cannot shift a CSV column"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        set -u
+        SHIM=$(mktemp -d); export AZLIN_CONFIG_DIR=$(mktemp -d)
+        # Commas planted in every free-form field a row carries: the session
+        # tag, the VM name, the region and the SKU. Each one used to end its
+        # field early and shift every later column by one.
+        cat > "$SHIM/vms.json" <<'JSON'
+        [{"name":"oit-vm-a,rogue","resourceGroup":"rg-oit","location":"eastus, zone 1",
+          "hardwareProfile":{"vmSize":"Standard_D4s_v3, promo"},"powerState":"VM running",
+          "provisioningState":"Succeeded","storageProfile":{"osDisk":{"osType":"Linux"}},
+          "publicIps":"4.4.4.4","privateIps":"10.0.0.4","osProfile":{"adminUsername":"azureuser"},
+          "tags":{"azlin-session":"prod,injected"}}]
+        JSON
+        cat > "$SHIM/az" <<'AZ'
+        #!/usr/bin/env bash
+        case "$1 $2 $3" in
+          "account show"*)            echo '{"id":"00000000-0000-0000-0000-000000000000","name":"stub","tenantId":"11111111-1111-1111-1111-111111111111","state":"Enabled","user":{"name":"t@e","type":"user"}}'; exit 0 ;;
+          "vm list --resource-group") cat "$AZ_VM_JSON"; exit 0 ;;
+          "network bastion list")     echo '[]'; exit 0 ;;
+        esac
+        echo "stub: unsupported az invocation" >&2; exit 1
+        AZ
+        printf '#!/usr/bin/env bash\necho "ssh: connect failed (stub)" >&2; exit 255\n' > "$SHIM/ssh"
+        chmod +x "$SHIM/az" "$SHIM/ssh"
+        export PATH="$SHIM:$PATH" AZ_VM_JSON="$SHIM/vms.json"
+
+        rust/target/debug/azlin list --resource-group rg-oit -o csv -w > "$SHIM/out.csv" 2>/dev/null
+        cat "$SHIM/out.csv"
+
+        # Parsed by a real RFC 4180 reader, not by counting commas: the point is
+        # that a consumer reads the row correctly, and `str.split(',')` would
+        # "pass" for the broken output too by agreeing with a broken header.
+        python3 - "$SHIM/out.csv" <<'PY'
+        import csv, sys
+        rows = list(csv.reader(open(sys.argv[1], newline="")))
+        header, data = rows[0], [r for r in rows[1:] if r]
+        assert data, "no data row was emitted at all"
+        for i, row in enumerate(data):
+            assert len(row) == len(header), (
+                f"row {i} has {len(row)} fields but the header has {len(header)}: {row}"
+            )
+        # The commas must survive inside their fields rather than being stripped:
+        # silently renaming a VM in output a script parses is its own defect.
+        flat = ",".join(header) + "|" + "|".join("~".join(r) for r in data)
+        for planted in ["oit-vm-a,rogue", "prod,injected", "eastus, zone 1", "Standard_D4s_v3, promo"]:
+            assert planted in "|".join("~".join(r) for r in data), f"{planted!r} did not survive: {data}"
+        print("PASS: every CSV record parses to the header's field count, commas intact")
+        PY
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 120000
+
+  - name: "The doc-reference gate fails on a dangling symbol and covers the changelog"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        set -u
+        TMP=$(mktemp -d)
+        # A citation that resolves, and one that does not. `proc_route` is the
+        # exact name #1128 shipped and no symbol has ever had.
+        printf 'The routing decision is `probe_route`.\n' > "$TMP/good.md"
+        printf 'The routing decision is `proc_route`.\n'  > "$TMP/bad.md"
+
+        python3 scripts/check_doc_code_references.py "$TMP/good.md" > "$TMP/good.log" 2>&1 \
+          || { echo "FAIL: a resolving citation was reported as dangling"; cat "$TMP/good.log"; exit 1; }
+        python3 scripts/check_doc_code_references.py "$TMP/bad.md" > "$TMP/bad.log" 2>&1 \
+          && { echo "FAIL: a dangling citation passed the gate"; cat "$TMP/bad.log"; exit 1; }
+        grep -q 'proc_route' "$TMP/bad.log" \
+          || { echo "FAIL: the gate failed without naming the dangling symbol"; exit 1; }
+
+        # Scope: the file that shipped the bug must now be in the default set.
+        python3 scripts/check_doc_code_references.py > "$TMP/all.log" 2>&1 \
+          || { echo "FAIL: the repository does not pass its own doc-reference gate"; cat "$TMP/all.log"; exit 1; }
+        grep -q '^CHANGELOG.md:' "$TMP/all.log" \
+          || { echo "FAIL: CHANGELOG.md is not in the checked set"; exit 1; }
+        grep -q '^docs-site/' "$TMP/all.log" \
+          || { echo "FAIL: the docs site is not in the checked set"; exit 1; }
+        grep -q '^docs/features/' "$TMP/all.log" \
+          || { echo "FAIL: the feature docs are not in the checked set"; exit 1; }
+        echo "PASS: the gate catches a dangling symbol and covers the documents that go stale"
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 180000
+
+  - name: "Released changelog history is out of scope, so it is not rewritten to satisfy the linter"
+    agent: "cli-agent"
+    action: "execute_command"
+    params:
+      command: |
+        set -u
+        python3 - <<'PY'
+        import importlib.util, re
+        from pathlib import Path
+        spec = importlib.util.spec_from_file_location("c", "scripts/check_doc_code_references.py")
+        m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+
+        changelog = m.REPO_ROOT / "CHANGELOG.md"
+        scoped = m.in_scope_text(changelog)
+        full = changelog.read_text()
+        n = lambda s: len(re.findall(r"^## ", s, flags=re.M))
+        assert n(full) > 1, "the changelog has only one section; this test proves nothing"
+        assert n(scoped) == 1, f"expected only the unreleased section, got {n(scoped)} sections"
+        assert len(scoped) < len(full), "the whole changelog was taken as in scope"
+
+        # The ratchet turns both ways: an exemption that stops being needed is
+        # itself a failure, or it silently exempts the next mistake.
+        assert all(v.strip() for v in m.STALE_DOCS.values()), "an exemption carries no reason"
+        assert m.check_stale_docs_still_fail(m.default_docs()) == 0, \
+            "an exempted document now resolves cleanly and its entry must be deleted"
+        print("PASS: only the unreleased section is checked, and every exemption is still earned")
+        PY
+    expect:
+      exit_code: 0
+      stdout_contains: "PASS"
+    timeout: 120000

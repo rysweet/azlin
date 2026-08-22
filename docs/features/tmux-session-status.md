@@ -212,12 +212,12 @@ never sees the stderr note at all. Re-keying the display maps by
 **A tunnel that cannot be opened is reported, not swallowed.** If tunnel
 creation fails — the bastion is missing, RBAC denies it, the tunnel times out —
 that VM cannot be probed. `azlin list` prints a warning on stderr and continues
-with the remaining VMs. The warning names the VM and carries the first line of
-the underlying error, for example:
+with the remaining VMs. The warning names the VM, the bastion it was going
+through, and the first line of the underlying error. It is built by
+`tunnel_failure_warning`:
 
 ```
-warning: bastion tunnel for dev-vm-002 could not be opened; its tmux sessions
-will not be listed (Bastion host 'bastion-westus2' not found in resource group 'dev-rg')
+Warning: could not open a bastion tunnel to dev-vm-002 via bastion-westus2 (Bastion host 'bastion-westus2' not found in resource group 'dev-rg'); its sessions will not be listed.
 ```
 
 Only the first line of the error is included. Run with `--verbose` for the full
@@ -265,10 +265,12 @@ candidate list can span resource groups.
 | `--show-procs` | `Procs` (table output only) | Supported — `collect_procs` takes the bastion path. Skipped, like tmux and health, when the listing spans more than one subscription |
 | `--with-latency` | `Latency` | Measured only when the VM's address is routable from this machine (a public IP, or a private IP over VPN or peering). Latency is never measured through the tunnel, which would time the tunnel rather than the host |
 
-**How every collector picks a route.** `probe_route` is a pure function that
+**How the SSH collectors pick a route.** `probe_route` is a pure function that
 decides once, before any connection is attempted, and returns one of three
-outcomes. All four collectors — tmux, health, procs and latency — share it, so
-they cannot drift into disagreeing about how a VM is reached:
+outcomes. Three of the four collectors — tmux, health and procs — share it, so
+they cannot drift into disagreeing about how a VM is reached. Latency is the
+exception described below: it never opens a tunnel, so it takes no bastion map
+and uses `latency_probe_host` instead.
 
 | VM state | Route |
 |----------|-------|
@@ -286,7 +288,10 @@ would go blank, which reads as "nothing to report" rather than "could not
 ask". `direct_fallback_host` is the single helper that decides whether a
 fallback address is usable; it rejects empty and whitespace-only strings,
 because the health collector flattens `Option<String>` with
-`unwrap_or_default()` and `ssh user@` is not a probe.
+`unwrap_or_default()` and `ssh user@` is not a probe. `collect_health_metrics`
+restates that precondition as a guard on entry — no bastion route and no
+address returns default metrics — so the rule holds even if a caller stops
+filtering unreachable VMs first.
 
 The fallback hangs off the *transport* error only. A command that reached the
 VM and exited non-zero is that VM's own answer and is reported as such: retrying
@@ -327,23 +332,32 @@ cannot be scripted out of `azlin list`.
 
 **Remote text is sanitised before display.** Session names and process names
 come from the listed VMs, and the bastion fix newly routes the least-observed
-hosts in a fleet into that path. The two columns are not equally protected, and
-only one of them needs work:
+hosts in a fleet into that path. Both columns are filtered the same way, and it
+is worth being precise about what that filter is and is not:
 
-- **`Tmux` is already safe.** `parse_session_name` validates every session name
-  against an alphanumeric + `_` + `-` allowlist with a 128-character cap, and
-  drops anything that fails. An allowlist is strictly stronger than stripping
-  control characters — no escape sequence, quote or comma can survive it. This
-  predates #1127 and is unchanged.
-- **`Procs` is the gap.** Process names come back through
-  `String::from_utf8_lossy` and reach the `Procs` cell unvalidated, so a process
-  name carrying ANSI escapes could rewrite the operator's screen. Values entering
-  the `Procs` column are now stripped of ASCII control characters and
-  length-capped.
+- **Both columns go through `sanitize_remote_text`.** Session names and process
+  names are stripped of ASCII control characters, of the bidirectional overrides
+  and zero-width characters that `char::is_control` misses, and length-capped,
+  as they are read off the host. Before #1127 the `Procs` value reached its cell
+  straight out of `String::from_utf8_lossy`, so a process name carrying ANSI
+  escapes could rewrite the operator's screen.
+- **The stricter allowlist is not on the display path.** `parse_session_name`
+  (alphanumeric + `_` + `-`, 128-character cap) is reached only from
+  `match_session_in_map` and the session-restore helpers, where a session name is
+  used to *address* a VM. It is deliberately not applied to the `Tmux` column:
+  tmux allows names the allowlist rejects, and dropping them would report a busy
+  VM as idle — the failure this work exists to remove.
+- **What stripping does not do is escape.** A comma survives
+  `sanitize_remote_text`, so the CSV writer quotes the free-form fields per
+  RFC 4180 (`csv_field`) rather than relying on the value's character set. See
+  the CSV note in the `azlin list` reference.
 
-An allowlist is not usable for `Procs` the way it is for session names: a
-process name is an arbitrary executable path, not a name azlin controls the
-shape of. Stripping is the appropriate control there.
+An allowlist is not usable for either column. A process name is an arbitrary
+executable path, and a tmux session name is whatever the operator typed on the
+VM; neither is a string azlin controls the shape of, and rejecting the ones that
+do not fit a pattern would turn "this VM is busy" into "this VM is idle".
+Stripping is the appropriate control for both, and escaping — not stripping — is
+what makes the CSV output safe.
 
 ### Performance Characteristics
 

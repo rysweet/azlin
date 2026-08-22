@@ -221,14 +221,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resource id rather than its name, so plan, lookup and tunnel-registry keys
   cannot collide (#1127)
   - The plan's dedup key and the probe-loop lookup are both built by
-    `build_vm_resource_id`, which is now the sole producer of the string the
-    tunnel registry uses as its key — two hand-rolled copies of that format
-    could diverge and leak a fresh tunnel per VM per invocation
-  - `BastionTunnelPlan` carries the bastion's own resource group alongside the
-    target VM's, so the `(bastion name, resource group)` pair handed to
-    `get_or_create_tunnel` is self-consistent. Bastion names are commonly
-    templated per region, so passing the VM's resource group with the bastion's
-    name could resolve to a same-named bastion in a different resource group
+    `build_vm_resource_id`; the two hand-rolled copies of the ARM path format
+    that `azlin list` used to carry are gone, so within the listing path one
+    function produces every string the tunnel registry keys on — two copies
+    could diverge and leak a fresh tunnel per VM per invocation. Other commands
+    still format the id inline (`cmd_tunnel`, `cmd_connect`, `cmd_session`,
+    `cmd_monitoring`), and `ssh_arg_helpers::build_vm_resource_id` is a second
+    helper with the same format string; consolidating those is follow-up work
+    and is not claimed here
+  - `BastionTunnelPlan` carries the target VM's resource group and full
+    resource id, so the plan names the VM the tunnel will reach rather than the
+    bastion it goes through. The `(bastion name, resource group)` pair handed to
+    `get_or_create_tunnel` is still the VM's resource group, which resolves the
+    bastion correctly only while the bastion sits in the same resource group as
+    its VMs. Bastion names are commonly templated per region, so a bastion in a
+    separate networking resource group can still resolve to a same-named
+    bastion elsewhere — carrying the bastion's own resource group on the plan is
+    follow-up work
   - A tunnel that cannot be opened now prints a warning on stderr instead of
     only under `--verbose`. The VM's row previously looked identical to a VM
     with no sessions. The warning carries the VM name and the first line of
@@ -321,14 +330,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for a bastion-only VM on a network the operator could not route to, the
   `Procs` column was permanently empty with no indication why. It now takes
   the same bastion path `collect_health_data` uses, via `bastion_ssh_exec`. The
-  routing decision is a pure `proc_route` function returning `Bastion`, `Direct`
-  or `Skip`, decided before any connection is attempted, so it is unit-tested
+  routing decision is a pure `probe_route` function returning
+  `ProbeRoute::Bastion`, `ProbeRoute::Direct` or `ProbeRoute::Unreachable`,
+  decided before any connection is attempted, so it is unit-tested
   rather than inferred. A VM with no public IP and no bastion route still routes
   `Direct` to its private IP, so operators on a VPN or peered network keep the
-  behavior they had; there is deliberately no retry from `Bastion` to `Direct` on
-  failure, because `collect_procs` is sequential and a fallback would spend a
-  second full `ConnectTimeout` per unreachable host to produce the same empty
-  cell. `--show-procs` is now also skipped when a listing spans more than one
+  behavior they had. A `Bastion` route that fails to *carry* the command — a
+  transport error, not a non-zero exit — retries once at the VM's private IP,
+  which keeps the new routing strictly more available than the direct-SSH code
+  it replaced. A command that reached the VM and exited non-zero is that VM's
+  own answer and is never retried: the retry could land on a different host and
+  report its processes under this VM's name. `--show-procs` is now also skipped
+  when a listing spans more than one
   subscription, as tmux and health already were: building a resource id from
   the wrong subscription would have pointed `ps` at a same-named VM in another
   subscription (#1090, #1127). Note that this widens what `azlin list`
@@ -364,11 +377,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   took the remote bytes through `String::from_utf8_lossy` straight into the
   `Procs` cell, so a process name carrying ANSI escapes could rewrite the
   operator's screen. Values entering the `Procs` column are now stripped of
-  ASCII control characters and length-capped. The `Tmux` column needed no
-  change: `parse_session_name` already validates every session name against an
-  alphanumeric + `_` + `-` allowlist with a 128-character cap and drops anything
-  that fails, which is strictly stronger than stripping. An allowlist is not
-  available for process names, which are arbitrary executable paths (#1127)
+  ASCII control characters and length-capped. The `Tmux` column goes through the
+  same filter: `sanitize_remote_text` is applied to every session name as it is
+  read off the host. The stricter `parse_session_name` allowlist (alphanumeric +
+  `_` + `-`, 128-character cap) is *not* on the display path — it is reached only
+  from `match_session_in_map` and the session-restore helpers, where a name is
+  used to address a VM rather than to print a cell. An allowlist is not
+  available for process names, which are arbitrary executable paths, and
+  applying one to session names on the display path would silently drop the
+  legitimate names tmux allows (#1127)
+- **The doc-reference check covers the documents that actually go stale** — it
+  ran on one file under `docs/reference/`, which is why a CHANGELOG entry citing
+  a routing function named "proc_route" — a name no symbol in this repository
+  has ever had — passed every gate. Its scope is now `CHANGELOG.md`, the
+  reference and feature docs, and the bastion and `azlin vm` pages of the docs
+  site. Two things keep the widening
+  honest rather than performative: a changelog's released sections are excluded,
+  because an entry describing a two-year-old release names the code that shipped
+  in it and rewriting that to satisfy a linter would make the history a lie; and
+  the five documents left over from the Python-to-Rust migration are exempted by
+  name with a written reason each, with the checker failing if an exempted
+  document starts resolving cleanly, so the list cannot outlive the problem it
+  describes. The guard that catches the symbol extraction silently breaking
+  counts only the documents actually checked: letting an exempted document's
+  symbols satisfy it would have allowed extraction to break for every checked
+  document while the run still passed, which is the vacuous pass the guard
+  exists to prevent (#1128)
+- **`azlin list -o csv` no longer shifts a row when a session name contains a
+  comma** — the CSV writer concatenated fields with `,` and escaped nothing.
+  `sanitize_remote_text` strips control characters, but a comma is not one, so a
+  tmux session literally named `a,b` — or an `azlin-session` tag carrying a comma
+  — ended its field early and shifted every later column by one. A consumer
+  reads that as valid data for the wrong VM, the same confidently-wrong row this
+  work exists to remove, arriving through the writer instead of the routing.
+  Every free-form field is now quoted per RFC 4180 by `csv_field`: the session
+  tag, the `Tmux` value, the VM name, the OS offer, the region, the SKU, the IP
+  display and the agent status. The last of those is read off the listed host
+  over SSH, so it is the same untrusted source as a session name; the enum and
+  numeric columns carry no delimiter to quote. Note that quoting is not
+  sanitising and neither is an allowlist — the three are separate controls and
+  this changelog no longer conflates them (#1128)
 - **`azlin connect <session-name>` now finds sessions on bastion-only VMs** —
   resolving a bare identifier as a tmux session name probes every running VM in
   the resource group, and bastion-only VMs were among those returning nothing
