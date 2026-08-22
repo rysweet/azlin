@@ -340,7 +340,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which keeps the new routing strictly more available than the direct-SSH code
   it replaced. A command that reached the VM and exited non-zero is that VM's
   own answer and is never retried: the retry could land on a different host and
-  report its processes under this VM's name. `--show-procs` is now also skipped when a listing spans more than one
+  report its processes under this VM's name. `--show-procs` is now also skipped
+  when a listing spans more than one
   subscription, as tmux and health already were: building a resource id from
   the wrong subscription would have pointed `ps` at a same-named VM in another
   subscription (#1090, #1127). Note that this widens what `azlin list`
@@ -385,15 +386,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   available for process names, which are arbitrary executable paths, and
   applying one to session names on the display path would silently drop the
   legitimate names tmux allows (#1127)
-- **`azlin list --show-procs` is now actually skipped on a cross-subscription
-  listing** — the previous entry said it was, and the stderr note listed
-  "bastion, tmux and health", but the guard was never added: `collect_procs` ran
-  with the active subscription's id while the listing spanned several, so it
-  built an ARM resource id naming a same-named VM in the wrong subscription and
-  reported that host's processes under this VM's row. This is the #1090
-  misattribution class arriving through the collector the #1090 fix did not
-  cover. The guard now matches its siblings and the note names process details
-  too (#1128)
 - **The doc-reference check covers the documents that actually go stale** — it
   ran on one file under `docs/reference/`, which is why a CHANGELOG entry citing
   a routing function named "proc_route" — a name no symbol in this repository
@@ -406,15 +398,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the five documents left over from the Python-to-Rust migration are exempted by
   name with a written reason each, with the checker failing if an exempted
   document starts resolving cleanly, so the list cannot outlive the problem it
-  describes (#1128)
+  describes. The guard that catches the symbol extraction silently breaking
+  counts only the documents actually checked: letting an exempted document's
+  symbols satisfy it would have allowed extraction to break for every checked
+  document while the run still passed, which is the vacuous pass the guard
+  exists to prevent (#1128)
 - **`azlin list -o csv` no longer shifts a row when a session name contains a
   comma** — the CSV writer concatenated fields with `,` and escaped nothing.
   `sanitize_remote_text` strips control characters, but a comma is not one, so a
   tmux session literally named `a,b` — or an `azlin-session` tag carrying a comma
   — ended its field early and shifted every later column by one. A consumer
   reads that as valid data for the wrong VM, the same confidently-wrong row this
-  work exists to remove, arriving through the writer instead of the routing. The
-  free-form fields are now quoted per RFC 4180 by `csv_field` (#1128)
+  work exists to remove, arriving through the writer instead of the routing.
+  Every free-form field is now quoted per RFC 4180 by `csv_field`: the session
+  tag, the `Tmux` value, the VM name, the OS offer, the region, the SKU, the IP
+  display and the agent status. The last of those is read off the listed host
+  over SSH, so it is the same untrusted source as a session name; the enum and
+  numeric columns carry no delimiter to quote. Note that quoting is not
+  sanitising and neither is an allowlist — the three are separate controls and
+  this changelog no longer conflates them (#1128)
 - **`azlin connect <session-name>` now finds sessions on bastion-only VMs** —
   resolving a bare identifier as a tmux session name probes every running VM in
   the resource group, and bastion-only VMs were among those returning nothing

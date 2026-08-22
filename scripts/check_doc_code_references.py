@@ -217,11 +217,19 @@ def main(argv: list[str]) -> int:
         if not doc.is_file():
             print(f"error: no such document: {rel}", file=sys.stderr)
             return 1
-        count, missing = dangling_in(rel)
-        examined += count
+        # Before the work, not after. Computing the analysis and discarding it
+        # ran one grep per symbol for nothing, and `check_stale_docs_still_fail`
+        # recomputes it below anyway.
         if rel in STALE_DOCS and not explicit:
             print(f"{rel}: skipped — {STALE_DOCS[rel]}")
             continue
+        count, missing = dangling_in(rel)
+        # Counted only for documents actually checked. Counting skipped ones too
+        # meant an exempted document's symbols could satisfy the drift guard
+        # below on their own -- so extraction could break for every document
+        # that is checked and the run would still pass, which is precisely the
+        # vacuous pass that guard exists to catch.
+        examined += count
         for s in missing:
             print(
                 f"error: {rel} refers to `{s}`, which does not exist under "

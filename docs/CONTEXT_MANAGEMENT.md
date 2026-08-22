@@ -160,11 +160,26 @@ rows below came from:
 A context with no `subscription_id` is listed from whichever subscription the
 CLI is on, and its header says so with `[inherited — context pins none]`.
 
-When the listing spans more than one subscription, the bastion, tmux, health and
-process columns are omitted: those lookups are scoped to a single subscription
-and cannot be attributed correctly across several. `--show-procs` is included
-because it builds an ARM resource id from the active subscription, which under
-`--all-contexts` would name a same-named VM in the wrong one.
+The bastion, tmux, health and process columns are omitted whenever this listing
+cannot attribute them: those lookups are scoped to a single subscription — they
+probe by an ARM resource id built from the subscription the CLI is on, and a
+listed VM carries no subscription of its own. `--show-procs` is included in that
+set because it builds such an id too, which under `--all-contexts` would name a
+same-named VM in the wrong subscription.
+
+The test is subscription *identity*, not how many were read. Counting was not
+enough: a single context pinning a subscription the CLI is not currently on
+reads one subscription, which a count-based check waved through, and every probe
+then ran against an id in the CLI's subscription. Where the resource group and
+VM name exist in both — which shared IaC naming makes ordinary — the probe
+succeeds against the *wrong machine*. So the columns are withheld when the
+listing spans several subscriptions **or** when the single subscription it read
+is not the one probes would use, and the printed note names both.
+
+A context that pins its subscription by *name* rather than by id cannot be
+compared against the id probes carry. Enrichment is withheld, but the note says
+so plainly and tells you to pin by id rather than asserting a mismatch it has
+not established.
 
 `--contexts <pattern>` filters which contexts are included (`*` acts as a
 substring wildcard).

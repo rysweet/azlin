@@ -785,12 +785,22 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
         if cfg.wide {
             row.push_str(&format!(",{}", csv_field(&disp.name)));
         }
+        // Every free-form field, not only the three that motivated `csv_field`.
+        // The OS offer, the region and the SKU are Azure-supplied strings echoed
+        // back as whoever created them typed them, and the argument that closed
+        // the session name applies to them unchanged: sanitising strips control
+        // characters, and a comma is not one. `power_state` is an enum and the
+        // vCPU/memory figures are computed here, so they carry no delimiter to
+        // quote.
         row.push_str(&format!(
             ",{},{},{},{}",
-            disp.os, vm.power_state, disp.ip, disp.location
+            csv_field(&disp.os),
+            vm.power_state,
+            csv_field(&disp.ip),
+            csv_field(&disp.location)
         ));
         if cfg.wide {
-            row.push_str(&format!(",{}", disp.vm_size));
+            row.push_str(&format!(",{}", csv_field(&disp.vm_size)));
         }
         row.push_str(&format!(",{},{}", cpu, mem));
         if cfg.with_latency {
@@ -806,7 +816,10 @@ fn render_csv(cfg: &ListRenderConfig, data: &ListRenderData) {
             if let Some(m) = data.health_data.get(&vm.name) {
                 row.push_str(&format!(
                     ",{},{},{},{}",
-                    crate::cmd_list_data::sanitize_remote_text(&m.agent_status),
+                    // Read off the listed host over SSH, so this is the same
+                    // untrusted source as a session name -- the strongest case
+                    // for quoting on the row, and the one that was missed.
+                    csv_field(&crate::cmd_list_data::sanitize_remote_text(&m.agent_status)),
                     crate::health_render::metric_csv(m.cpu_percent),
                     crate::health_render::metric_csv(m.mem_percent),
                     crate::health_render::metric_csv(m.disk_percent)
@@ -863,6 +876,51 @@ mod tests {
         // the writer does not rely on that being true forever.
         assert_eq!(csv_field("a\nb"), "\"a\nb\"");
         assert_eq!(csv_field("a\rb"), "\"a\rb\"");
+    }
+
+    /// Every free-form field on the row, not just the three that motivated the
+    /// helper. A comma in any one of them shifts every later column by one, and
+    /// a consumer reads that as valid data for the wrong VM.
+    ///
+    /// `agent_status` matters most: it is read off the listed host over SSH, so
+    /// it is the same untrusted source as a session name.
+    #[test]
+    fn csv_field_covers_every_free_form_field_on_the_row() {
+        for value in [
+            "Ubuntu 24.04 LTS, minimal", // os offer
+            "East US, Zone 1",           // location as Azure may echo it
+            "Standard_D4s_v3, promo",    // sku
+            "ready, degraded",           // agent status, read off the host
+            "10.0.0.4, 10.0.0.5",        // ip display
+        ] {
+            let quoted = csv_field(value);
+            assert!(
+                quoted.starts_with('"') && quoted.ends_with('"'),
+                "a comma-bearing field was left unquoted: {quoted:?}"
+            );
+            // One field, so exactly one unquoted delimiter boundary: the comma
+            // is now inside the quotes rather than ending the field.
+            assert_eq!(
+                quoted,
+                format!("\"{value}\""),
+                "quoting changed the value itself"
+            );
+        }
+    }
+
+    /// Sanitising is not escaping -- the distinction the CSV fix rests on.
+    /// `sanitize_remote_text` removes control characters and leaves a comma
+    /// untouched, so a value that survives it can still break the row.
+    #[test]
+    fn sanitizing_does_not_remove_the_delimiter_that_quoting_handles() {
+        let hostile = "build,agent";
+        assert_eq!(
+            crate::cmd_list_data::sanitize_remote_text(hostile),
+            hostile,
+            "sanitising is expected to leave a comma alone; if it starts \
+             stripping them, the CSV writer's reason for quoting changes"
+        );
+        assert_eq!(csv_field(hostile), "\"build,agent\"");
     }
 
     // ── format_tmux_plain ─────────────────────────────────────────────

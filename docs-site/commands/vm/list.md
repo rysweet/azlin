@@ -251,15 +251,29 @@ and the rest reported no sessions.
 
 **Discovery spans every listed resource group.** For *routing*, bastions are
 looked up once per distinct resource group that actually contains a running VM
-with no public IP — a listing where every VM has a public IP performs no routing
-lookup. Table output additionally prints an `Azure Bastion Hosts` table, and that
-one is built from every resource group in the listing regardless of power state
-or public IP: it documents the bastions in the scope you asked about, which does
-not change because a VM happens to be deallocated. So a listing of
+with no public IP — a listing where every VM has a public IP needs no routing
+lookup. Table output also prints an `Azure Bastion Hosts` table, which is built
+from every resource group in the listing whether or not anything there needs a
+tunnel: it documents the bastions in the scope you asked about. So a listing of
 public-IP-only VMs still issues one `az network bastion list` per resource group
-for the table. If you lack `Microsoft.Network/bastionHosts/read` on one resource
-group, only that resource group's private VMs lose their enrichment columns, and
-the group is named on stderr rather than silently omitted from the table.
+for the table.
+
+The two are not additive. The groups routing needs are a subset of the groups
+the table covers, so the table's answers are reused and routing issues no
+further calls — a table listing costs one lookup per resource group whatever
+enrichment flags are on. `-o json` and `-o csv` print no such table, so they pay
+only for the groups that need routing, and nothing at all under `--no-tmux` with
+no other enrichment flag.
+
+The table is scoped to the *listing*, not to the subscription: the filters run
+first, so unless you pass `--show-all-vms` a resource group whose VMs are all
+deallocated contributes no VM to the listing, and therefore no lookup and no
+bastions in the table.
+
+If you lack `Microsoft.Network/bastionHosts/read` on one resource group, only
+that resource group's private VMs lose their enrichment columns, and the group
+is named on stderr rather than silently omitted from the table. The refusal is
+reported once and reused, not re-attempted for routing.
 
 **A tunnel that cannot be opened is reported.** Failure prints a warning on
 stderr and the listing continues:
@@ -491,6 +505,8 @@ azlin -v list         # adds per-VM detail, including skipped VMs
 | `Warning: VM name(s) ... appear in more than one resource group` | Two listed VMs share a name, so `Tmux`, health, `Latency` and `Procs` are withheld from both | List them one resource group at a time with `--rg` |
 | `Warning: <vm> has more than 20 tmux sessions` | The per-VM session cap; the count not shown is named | Nothing to fix — the cell shows the first 20 |
 | `Note: this listing spans N subscriptions` | Tmux, health and process data are subscription-scoped | Use `--contexts` to select one subscription at a time |
+| `Note: this listing reads subscription X but probes would run against Y` | The one subscription read is not the one probes use, so the same columns are withheld — the gate is on subscription identity, not on how many were read | `az account set --subscription X`, or point the context at the subscription you are on |
+| `Note: ... pins subscription X by name ...` | A context pinned its subscription by name, which cannot be matched against the id probes carry | Pin the context by subscription id |
 | Nothing | The VM answered and reported no sessions, or tmux is not installed | Check on the VM directly |
 
 **Check the VM directly:**

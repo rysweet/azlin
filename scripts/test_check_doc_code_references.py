@@ -199,5 +199,31 @@ check(
 )
 print()
 
+print("10. The drift guard is satisfied by checked documents, not exempted ones")
+# `examined == 0` is what catches the extraction silently breaking. If an
+# exempted document's symbols counted toward it, extraction could break for
+# every document actually checked and the run would still pass -- the vacuous
+# pass the guard exists to prevent.
+r = subprocess.run(
+    [
+        sys.executable,
+        "-c",
+        "import importlib.util, sys;"
+        "spec = importlib.util.spec_from_file_location('c', sys.argv[1]);"
+        "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m);"
+        "checked = [d for d in m.default_docs() if d not in m.STALE_DOCS];"
+        "print(sum(m.dangling_in(d)[0] for d in checked) > 0)",
+        str(CHECKER),
+    ],
+    capture_output=True,
+    text=True,
+)
+check(
+    "documents that are actually checked name Rust symbols",
+    r.stdout.strip() == "True",
+    r.stdout + r.stderr,
+)
+print()
+
 print(f"=== {PASS} passed, {FAIL} failed ===")
 sys.exit(1 if FAIL else 0)
