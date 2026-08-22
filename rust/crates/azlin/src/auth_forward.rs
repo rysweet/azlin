@@ -441,7 +441,13 @@ enum CloudInitStatus {
 }
 
 /// The section names the VM reported as not-ok, in ledger order.
-fn failed_sections(output: &str) -> Vec<String> {
+///
+/// The names come off the VM and are printed straight to the operator's
+/// terminal by the degraded branch of the create path. `disk_layout` already
+/// strips cursor control out of the same field when `azlin disk check` reads
+/// it; this reader is the one that did not, so a section name was the shortest
+/// route from a VM to the terminal of whoever created it.
+pub(crate) fn failed_sections(output: &str) -> Vec<String> {
     output
         .lines()
         .map(str::trim)
@@ -449,8 +455,8 @@ fn failed_sections(output: &str) -> Vec<String> {
         .unwrap_or("")
         .split(',')
         .map(str::trim)
+        .map(azlin_core::sanitizer::printable)
         .filter(|s| !s.is_empty())
-        .map(str::to_string)
         .collect()
 }
 

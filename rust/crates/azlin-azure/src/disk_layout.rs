@@ -23,6 +23,11 @@
 //! `docs-site/storage/data-disk-layout.md`.
 
 use crate::cloud_init::DiskConfig;
+// Applied at the parse boundary, once, so no rendering surface downstream has
+// to remember to do it. Shared with `auth_forward` and the storage probe's
+// stderr bail rather than copied: this rule had one reader when it was written
+// and three by the time the copies were noticed.
+use azlin_core::sanitizer::printable;
 
 // ---------------------------------------------------------------------------
 // The layout
@@ -538,19 +543,6 @@ fn field<'a>(line: &'a str, key: &str) -> Option<&'a str> {
 fn nonempty(value: Option<&str>) -> Option<String> {
     let cleaned = printable(value?);
     (!cleaned.is_empty()).then_some(cleaned)
-}
-
-/// Remote-derived text with anything that can move a terminal cursor removed.
-///
-/// The device path, the provisioning status and the failed-section names all
-/// come off a VM and land in an operator's terminal — a table cell, a repair
-/// plan, a `[AZLIN]` note. All three are root-controlled on the VM, so nothing
-/// here defends against an attacker who is not already root there; what it does
-/// is stop one machine's output from rewriting the report of the machines
-/// listed after it. Applied at the parse boundary, once, so no rendering
-/// surface has to remember to do it.
-fn printable(value: &str) -> String {
-    value.chars().filter(|c| !c.is_control()).collect()
 }
 
 fn stage_detail(role: &DiskRole, stage: DiskStage, bind_target: &str) -> String {

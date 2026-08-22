@@ -213,6 +213,39 @@ impl ProbedVm {
 }
 
 /// Send the read-only probe over an established route and parse the answer.
+/// What [`run_probe`] prints when the probe came back with nothing usable.
+///
+/// Built by a pure function rather than inline at the `eprintln!` because this
+/// is the only part of a network-bound call a test can reach, and it is the
+/// part carrying the rule: both fields are remote text, so both get both
+/// inbound sanitizers.
+///
+/// Redact first, then strip. The order is not cosmetic -- the redaction
+/// patterns in [`azlin_core::sanitizer::sanitize`] are written against ordinary
+/// text, and an escape planted mid-token is enough to split a secret out of a
+/// match. Stripping second would leave the secret reassembled and unredacted.
+///
+/// `stdout` gets the same treatment at `disk_layout`'s parse boundary. stderr
+/// had only the redaction half, which is the asymmetry this closes: it is the
+/// channel a VM shapes most easily, and this message is printed once per VM in
+/// a fleet-wide sweep, immediately above the next VM's row.
+pub(crate) fn probe_failure_note(vm_name: &str, stderr: &str) -> String {
+    let clean = |s: &str| {
+        azlin_core::sanitizer::printable(&azlin_core::sanitizer::sanitize(s.trim()))
+            .trim()
+            .to_string()
+    };
+    let vm = clean(vm_name);
+    let reason = clean(stderr);
+    if reason.is_empty() {
+        // A dangling "failed: " reads as a bug in azlin rather than as silence
+        // from the VM, and silence is the actual finding worth reporting.
+        format!("storage probe on '{vm}' failed, with no output to explain why")
+    } else {
+        format!("storage probe on '{vm}' failed: {reason}")
+    }
+}
+
 fn run_probe(
     vm_name: &str,
     config: &DiskConfig,
@@ -222,11 +255,7 @@ fn run_probe(
         .map_err(|e| anyhow::anyhow!("could not build the storage probe: {}", e))?;
     let (code, stdout, stderr) = target.exec(&script)?;
     if code != 0 && stdout.trim().is_empty() {
-        eprintln!(
-            "storage probe on '{}' failed: {}",
-            vm_name,
-            azlin_core::sanitizer::sanitize(stderr.trim())
-        );
+        eprintln!("{}", probe_failure_note(vm_name, &stderr));
     }
     Ok(parse_disk_probe(&stdout, config))
 }
