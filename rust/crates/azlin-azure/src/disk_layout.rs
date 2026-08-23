@@ -463,14 +463,22 @@ pub fn build_disk_probe_script(config: &DiskConfig, username: &str) -> Result<St
          # azlin storage probe (read-only). See docs-site/storage/data-disk-layout.md\n\
          azlin_source_of() {\n  \
            if command -v findmnt >/dev/null 2>&1; then\n    \
-             # -T resolves the effective filesystem for a path. A positional lookup\n    \
-             # can return every stacked layer, including a hidden tmpfs.\n    \
-             azlin_src=\"$(findmnt -rn -T \"$1\" -o SOURCE 2>/dev/null)\"\n    \
+             # Some findmnt versions return every stacked layer even with -T.\n    \
+             # Kernel mount-table order is bottom-to-top, so the final row is\n    \
+             # the effective layer that receives writes.\n    \
+             azlin_src=\"$(findmnt -rn -T \"$1\" -o SOURCE 2>/dev/null | \
+awk 'NF { source=$0 } END { if (source != \"\") print source }')\"\n    \
              if [ -n \"$azlin_src\" ]; then printf '%s\\n' \"$azlin_src\"; return 0; fi\n  \
            fi\n  \
            # /proc/mounts is ordered bottom-to-top for overmounts, so retain\n  \
            # the last matching source rather than the hidden first layer.\n  \
            awk -v t=\"$1\" '$2==t {source=$1} END {if(source!=\"\") print source}' /proc/mounts 2>/dev/null\n\
+         }\n\
+         azlin_source_is_device() {\n  \
+           case \"$1\" in\n    \
+            \"$2\"|\"$2\"\\[/?*\\]) return 0 ;;\n    \
+            *) return 1 ;;\n  \
+           esac\n\
          }\n",
     );
 
@@ -503,7 +511,7 @@ pub fn build_disk_probe_script(config: &DiskConfig, username: &str) -> Result<St
              BK=no; BD=no\n\
              if [ -n \"$D\" ]; then\n  \
                case \"$(azlin_source_of {backing})\" in \"$D\") BK=yes ;; esac\n  \
-               case \"$(azlin_source_of {bind_target})\" in \"$D\"*) BD=yes ;; esac\n\
+               if azlin_source_is_device \"$(azlin_source_of {bind_target})\" \"$D\"; then BD=yes; fi\n\
              fi\n\
              echo \"azlin-disk lun={lun} role={role} dev=$D size=$SZ fstype=$FS label=$LB backing=$BK bind=$BD pttype=$PT fsdet=$FSDET\"\n",
             device = lun_device_path(lun),
@@ -956,9 +964,10 @@ is at {target}.old' >&2\n    \
              trap - EXIT HUP INT TERM\n\
              sudo chown {user}:{user} {src}\n\
              if [ \"$AZLIN_MOVED\" = yes ]; then\n  \
-               echo 'azlin: bound {src} onto {target}, original kept at {target}.old'\n\
+               echo 'azlin: bind applied for {src} onto {target}; final health verification \
+pending; original kept at {target}.old'\n\
              else\n  \
-               echo 'azlin: bound {src} onto {target}'\n\
+               echo 'azlin: bind applied for {src} onto {target}; final health verification pending'\n\
              fi\n",
             target = bind_target,
             src = bind_src,
@@ -977,7 +986,7 @@ else sudo cp -a {target}/. {src}/; fi ; }} || true\n\
                echo 'azlin: bind mount failed' >&2\n  \
                exit 1\n\
              fi\n\
-             echo 'azlin: bound {src} onto {target}'\n",
+             echo 'azlin: bind applied for {src} onto {target}; final health verification pending'\n",
             src = bind_src,
             target = bind_target,
         ));

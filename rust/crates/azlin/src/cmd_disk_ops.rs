@@ -567,7 +567,6 @@ pub(crate) async fn handle_disk_repair(
     }
 
     println!();
-    let mut failed = false;
     for (disk, script) in &plan {
         // Not `exec`: that caps a bastion-routed command at
         // BASTION_EXEC_TIMEOUT_SECS (60s), and this one copies an entire home
@@ -585,7 +584,6 @@ pub(crate) async fn handle_disk_repair(
                     println!("  {:<5} {}", disk.role, line.trim_start_matches("azlin: "));
                 }
                 if code != 0 {
-                    failed = true;
                     eprintln!(
                         "  {:<5} repair failed (exit {}): {}",
                         disk.role,
@@ -595,7 +593,6 @@ pub(crate) async fn handle_disk_repair(
                 }
             }
             Err(e) => {
-                failed = true;
                 eprintln!(
                     "  {:<5} the connection failed mid-repair, so what was applied is \
                      unknown: {:#}",
@@ -625,8 +622,9 @@ pub(crate) async fn handle_disk_repair(
     // Over the route already open — see `ProbedVm::reprobe`.
     let after = probed.reprobe(vm_name)?;
     println!();
-    println!("Storage: {}", after.status);
-    if failed || after.status != StorageStatus::Ok {
+    let verdict = repair_terminal_verdict(&after);
+    println!("Storage: {}", verdict);
+    if !repair_is_complete(&after) {
         anyhow::bail!(
             "'{}' is still not fully repaired. Run `azlin disk check {}` for the detail.",
             vm_name,
@@ -634,4 +632,12 @@ pub(crate) async fn handle_disk_repair(
         );
     }
     Ok(())
+}
+
+pub(crate) fn repair_terminal_verdict(report: &DiskReport) -> StorageStatus {
+    report.status
+}
+
+pub(crate) fn repair_is_complete(report: &DiskReport) -> bool {
+    repair_terminal_verdict(report) == StorageStatus::Ok
 }

@@ -190,6 +190,12 @@ line:
   device, so it has no size — `--` in the table, `null` in JSON.
 - `fstype` and `label` come from `blkid`; empty means the disk is `raw`
 - `backing` and `bind` come from `findmnt`, falling back to `/proc/mounts`
+- when a target appears more than once in the mount table, the **last exact
+  target match** is authoritative. Linux stacks a later mount over an earlier
+  one, so this is the mount that receives a write and the one `df` reports.
+  The same rule applies whether the probe reads `findmnt` or `/proc/mounts`.
+  Earlier records remain visible in the mount table but do not determine the
+  disk stage.
 - the `azlin-provisioning` line reads `/var/lib/azlin/provisioning-complete`,
   `/var/lib/azlin/provisioning-status`, and the section names of any failed rows
   in `/var/lib/azlin/provisioning.tsv`. On a VM that predates the ledger the
@@ -201,6 +207,38 @@ azlin decides the verdict; the probe has no opinion. Output it cannot parse —
 an older image, a truncated session — yields `unknown` and exit code `2`, never
 a false `degraded`. A missing `azlin-provisioning` line is a parse failure; a
 line reporting `ledger=no` is not.
+
+### Stacked mounts use the effective record
+
+A correctly provisioned `/tmp` can have an older tmpfs mount below the data-disk
+bind. It can also contain duplicate data-disk records left by an earlier mount
+operation:
+
+```text
+tmpfs    on /tmp             type tmpfs (rw,nosuid,nodev,...)
+/dev/sdb on /home/azureuser  type ext4 (rw,relatime)
+/dev/sdc on /mnt/tmp-data    type ext4 (rw,relatime)
+/dev/sdc on /tmp             type ext4 (rw,relatime)
+/dev/sdc on /tmp             type ext4 (rw,relatime)
+```
+
+For `/tmp`, the final `/dev/sdc` record is the effective mount. The `tmp` role is
+therefore `healthy`, not `backing-mounted`, provided `/dev/sdc` is the device
+resolved from the role's LUN. The first `tmpfs` record is not evidence that
+`/tmp` is still on the OS disk.
+
+The source comparison accepts the exact resolved device and the bind-source
+form emitted by `findmnt`, such as `/dev/sdc[/tmp]`. A bracketed suffix is valid
+only when it begins immediately after the exact device, contains a non-empty
+absolute path beginning with `/`, and ends with the closing `]` at the end of
+the source. Similar-looking devices such as `/dev/sdc1`, incomplete suffixes
+such as `/dev/sdc[/tmp`, empty suffixes such as `/dev/sdc[]`, and trailing
+content such as `/dev/sdc[/tmp]extra` do not match.
+
+Several records for the same exact target are not ambiguous: the probe selects
+the last one and evaluates only that effective record. `unknown` is reserved
+for output that cannot identify and parse a complete source-target record, not
+for an ordered stack of duplicate exact-target records.
 
 The probe is cheap and read-only, which is why the same result also feeds the
 `Storage` column of `azlin list --with-health` and of `azlin health`.

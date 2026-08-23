@@ -22,6 +22,21 @@ use azlin_azure::disk_layout::{
 
 const USER: &str = "azureuser";
 
+const PRODUCTION_MOUNT_TABLE: &str = "\
+tmpfs    on /tmp             type tmpfs (rw,nosuid,nodev,size=132048304k,nr_inodes=1048576,inode64,usrquota)
+/dev/sdb on /home/azureuser  type ext4 (rw,relatime)
+/dev/sdc on /mnt/tmp-data    type ext4 (rw,relatime)
+/dev/sdc on /tmp             type ext4 (rw,relatime)
+/dev/sdc on /tmp             type ext4 (rw,relatime)
+";
+
+const PRODUCTION_FSTAB: &str = "\
+UUID=... /mnt/home-data ext4 defaults,nofail 0 2
+/mnt/home-data/azureuser /home/azureuser none bind,nofail 0 0
+UUID=... /mnt/tmp-data ext4 defaults,nofail 0 2
+/mnt/tmp-data/tmp /tmp none bind,nofail 0 0
+";
+
 fn both() -> DiskConfig {
     DiskConfig {
         home_disk: true,
@@ -314,13 +329,8 @@ fn the_probe_refuses_a_username_it_would_have_to_interpolate_unsafely() {
     assert!(build_disk_probe_script(&both(), "azureuser").is_ok());
 }
 
-/// `findmnt <mountpoint>` can print every layer at a stacked mountpoint. Taking
-/// its first row reads the hidden tmpfs instead of the bind mounted over it.
-/// `findmnt -T` asks the kernel-facing lookup for the one mount that currently
-/// serves the path.
 #[cfg(unix)]
-#[test]
-fn a_stacked_tmp_mount_uses_the_effective_data_disk_and_needs_no_repair() {
+fn probe_source_from_mount_table(mount_table: &str, target: &str) -> String {
     use std::os::unix::fs::PermissionsExt;
     use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -346,11 +356,11 @@ fn a_stacked_tmp_mount_uses_the_effective_data_disk_and_needs_no_repair() {
     std::fs::write(
         &findmnt,
         r#"#!/bin/sh
-case " $* " in
-  *" -T /tmp "*) printf '%s\n' '/dev/sdc[/tmp]' ;;
-  *" /tmp "*) printf '%s\n' 'tmpfs' '/dev/sdc[/tmp]' ;;
-  *) printf '%s\n' '/dev/sdc' ;;
-esac
+target=
+for arg in "$@"; do
+  case "$arg" in /*) target="$arg" ;; esac
+done
+awk -v target="$target" '$2 == "on" && $3 == target { print $1 }' "$AZLIN_TEST_MOUNTS"
 "#,
     )
     .expect("write findmnt shim");
@@ -360,42 +370,186 @@ esac
     permissions.set_mode(0o755);
     std::fs::set_permissions(&findmnt, permissions).expect("chmod findmnt shim");
 
-    let run = format!("{helper}\nazlin_source_of /tmp\n");
+    let mounts = root.join("mount-table");
+    std::fs::write(&mounts, mount_table).expect("write production mount table");
+
+    let run = format!("{helper}\nazlin_source_of {target}\n");
     let output = Command::new("sh")
         .arg("-c")
         .arg(run)
         .env("PATH", format!("{}:/usr/bin:/bin", root.display()))
+        .env("AZLIN_TEST_MOUNTS", &mounts)
         .output()
         .expect("run generated mount lookup");
     let source = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let _ = std::fs::remove_dir_all(&root);
 
     assert!(output.status.success(), "{:?}", output.status);
-    assert_eq!(
-        source, "/dev/sdc[/tmp]",
-        "the effective bind must win over the hidden tmpfs"
-    );
+    source
+}
 
+#[cfg(unix)]
+fn probe_source_from_fallback_mount_table(mount_table: &str, target: &str) -> String {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let script = build_disk_probe_script(&tmp_only(), USER).expect("probe builds");
+    let function_start = script.find("azlin_source_of() {").expect("source helper");
+    let function_end = script[function_start..]
+        .find("\n}\n")
+        .map(|at| function_start + at + 3)
+        .expect("source helper end");
+
+    let root = std::env::temp_dir().join(format!(
+        "azlin-stacked-fallback-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before unix epoch")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).expect("create scratch directory");
+    let findmnt = root.join("findmnt");
+    std::fs::write(&findmnt, "#!/bin/sh\nexit 1\n").expect("write failing findmnt shim");
+    let mut permissions = std::fs::metadata(&findmnt)
+        .expect("findmnt metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&findmnt, permissions).expect("chmod findmnt shim");
+    let mounts = root.join("mount-table");
+    std::fs::write(&mounts, mount_table).expect("write production mount table");
+
+    let helper = script[function_start..function_end]
+        .replace("/proc/mounts", mounts.to_str().expect("UTF-8 scratch path"));
+    let run = format!("{helper}\nazlin_source_of {target}\n");
+    let output = Command::new("/bin/sh")
+        .arg("-c")
+        .arg(run)
+        .env("PATH", format!("{}:/usr/bin:/bin", root.display()))
+        .output()
+        .expect("run fallback mount lookup");
+    let source = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let _ = std::fs::remove_dir_all(&root);
+
+    assert!(output.status.success(), "{:?}", output.status);
+    source
+}
+
+#[cfg(unix)]
+fn production_tmp_report() -> azlin_azure::disk_layout::DiskReport {
+    let source = probe_source_from_mount_table(PRODUCTION_MOUNT_TABLE, "/tmp");
     let transcript = format!(
         "azlin-disk lun=0 role=tmp dev=/dev/sdc size=214748364800 \
 fstype=ext4 label=azlin-tmp backing=yes bind={}\n\
 azlin-provisioning complete=yes status=ok ledger=yes failed=\n",
-        if source.starts_with("/dev/sdc") {
+        if probe_accepts_tmp_source(&source) {
             "yes"
         } else {
             "no"
         }
     );
-    let report = parse_disk_probe(&transcript, &tmp_only());
+    parse_disk_probe(&transcript, &tmp_only())
+}
+
+/// This is the production mount table from the v2.7.4 VM, in kernel order.
+/// The hidden tmpfs and duplicate data-disk records are both intentional.
+#[cfg(unix)]
+#[test]
+fn the_complete_production_mount_fixture_classifies_tmp_as_healthy() {
+    let report = production_tmp_report();
     assert_eq!(report.status, StorageStatus::Ok, "{report:?}");
     assert_eq!(report.disks[0].stage, DiskStage::Healthy, "{report:?}");
+}
 
-    let repair = build_disk_repair_script(&report.disks[0], USER, false)
-        .expect("an already healthy disk is not an error");
-    assert!(
-        repair.is_empty(),
-        "repairing the effective healthy mount must execute no mount or fstab operation:\n{repair}"
+/// The first and last `/tmp` records deliberately disagree. Kernel mount-table
+/// order makes the last exact-target record authoritative.
+#[cfg(unix)]
+#[test]
+fn the_last_exact_target_mount_controls_classification() {
+    let findmnt_output = "\
+tmpfs on /tmp type tmpfs (rw)
+/dev/sdc on /tmp type ext4 (rw)
+";
+    assert_eq!(
+        probe_source_from_mount_table(findmnt_output, "/tmp"),
+        "/dev/sdc",
+        "findmnt output must retain the topmost data-disk mount"
     );
+    let proc_mounts = "\
+tmpfs /tmp tmpfs rw 0 0
+/dev/sdc /tmp ext4 rw 0 0
+";
+    assert_eq!(
+        probe_source_from_fallback_mount_table(proc_mounts, "/tmp"),
+        "/dev/sdc",
+        "/proc/mounts fallback must retain the topmost data-disk mount"
+    );
+}
+
+#[cfg(unix)]
+fn probe_accepts_tmp_source(source: &str) -> bool {
+    let script = build_disk_probe_script(&tmp_only(), USER).expect("probe builds");
+    let function_start = script
+        .find("azlin_source_is_device() {")
+        .expect("source/device matcher");
+    let function_end = script[function_start..]
+        .find("\n}\n")
+        .map(|at| function_start + at + 3)
+        .expect("source/device matcher end");
+    let matcher = &script[function_start..function_end];
+    let run = format!("{matcher}\nazlin_source_is_device \"$SOURCE\" /dev/sdc\n");
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg(run)
+        .env("SOURCE", source)
+        .status()
+        .expect("run tmp source classifier")
+        .success()
+}
+
+/// Bind sources may carry a complete bracketed subdirectory suffix, but device
+/// partitions, lookalikes, malformed suffixes, and multiline ambiguity are not
+/// the expected data device.
+#[cfg(unix)]
+#[test]
+fn bind_source_matching_is_exact_and_accepts_only_complete_bracketed_suffixes() {
+    for accepted in ["/dev/sdc", "/dev/sdc[/tmp]"] {
+        assert!(probe_accepts_tmp_source(accepted), "{accepted:?}");
+    }
+    for rejected in [
+        "/dev/sdc1",
+        "/dev/sdc10",
+        "/dev/sdca",
+        "/dev/sdc[",
+        "/dev/sdc[]",
+        "/dev/sdc[tmp]",
+        "/dev/sdc[x]",
+        "/dev/sdc[/tmp",
+        "/dev/sdc[/tmp]extra",
+        "tmpfs\n/dev/sdc",
+    ] {
+        assert!(!probe_accepts_tmp_source(rejected), "{rejected:?}");
+    }
+}
+
+/// Repair must derive its no-op from the production fixture's probe, not from a
+/// hand-constructed `Healthy` finding. Running it repeatedly must preserve both
+/// observable mount/fstab state and the check verdict.
+#[cfg(unix)]
+#[test]
+fn repairing_the_production_fixture_twice_is_the_same_strict_no_op() {
+    let check = production_tmp_report();
+    let repair_once = build_disk_repair_script(&check.disks[0], USER, false)
+        .expect("the fixture-derived healthy finding is not an error");
+    let repair_twice = build_disk_repair_script(&check.disks[0], USER, false)
+        .expect("the repeated healthy finding is not an error");
+
+    assert!(repair_once.is_empty(), "{repair_once}");
+    assert_eq!(repair_twice, repair_once);
+    assert_eq!(PRODUCTION_MOUNT_TABLE.matches(" on /tmp ").count(), 3);
+    assert_eq!(PRODUCTION_FSTAB.matches(" /tmp ").count(), 1);
+    assert_eq!(check.status, production_tmp_report().status);
 }
 
 // ---------------------------------------------------------------------------
@@ -762,6 +916,10 @@ fn repair_progress_cannot_contradict_a_degraded_final_reprobe() {
             .lines()
             .any(|line| line.trim_end() == "azlin: healthy"),
         "one repair run emitted both healthy and not-repaired:\n{transcript}"
+    );
+    assert!(
+        !transcript.contains("bound /mnt/tmp-data/tmp onto /tmp"),
+        "an unrepaired role must not claim a successful bind:\n{transcript}"
     );
     assert!(transcript.contains("Storage: degraded"), "{transcript}");
 }

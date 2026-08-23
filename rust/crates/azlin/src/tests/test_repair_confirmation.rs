@@ -19,7 +19,25 @@
 //! `cargo test` runs with stdin detached, so the non-TTY branch is the one
 //! these tests take naturally.
 
+use azlin_azure::cloud_init::DiskConfig;
+use azlin_azure::disk_layout::{parse_disk_probe, DiskReport, StorageStatus};
+
+use crate::cmd_disk_ops::{repair_is_complete, repair_terminal_verdict};
 use crate::dispatch_helpers::safe_confirm_with_flag;
+
+fn report(stage: &str) -> DiskReport {
+    parse_disk_probe(
+        &format!(
+            "azlin-disk lun=0 role=tmp dev=/dev/sdc size=214748364800 \
+             fstype=ext4 label=azlin-tmp backing=yes bind={stage}\n\
+             azlin-provisioning complete=yes status=ok ledger=yes failed=\n"
+        ),
+        &DiskConfig {
+            home_disk: false,
+            tmp_disk: true,
+        },
+    )
+}
 
 #[test]
 fn a_non_tty_repair_refuses_rather_than_waiting_for_an_answer() {
@@ -66,4 +84,34 @@ fn yes_skips_the_prompt_without_needing_a_terminal() {
     let outcome = safe_confirm_with_flag("Reformat and continue?", true, "--yes")
         .expect("--yes must not require a terminal");
     assert!(outcome, "--yes must answer the prompt affirmatively");
+}
+
+/// Check and repair must not maintain independent verdict rules. This compares
+/// them on the identical post-repair report rather than asserting two constants.
+#[test]
+fn repair_terminal_verdict_is_exactly_checks_verdict_on_the_same_state() {
+    for after in [report("yes"), report("no")] {
+        let check_verdict = after.status;
+        assert_eq!(repair_terminal_verdict(&after), check_verdict);
+    }
+}
+
+/// A failed command remains diagnostic evidence, but an authoritative healthy
+/// re-probe controls the terminal result. This is the v2.7.4 contradiction:
+/// execution history and current health must not compete as verdict sources.
+#[test]
+fn a_healthy_authoritative_reprobe_controls_completion_after_an_earlier_failure() {
+    let after = report("yes");
+    assert_eq!(after.status, StorageStatus::Ok);
+    assert!(
+        repair_is_complete(&after),
+        "the shared post-repair health evaluation must be the success predicate"
+    );
+}
+
+#[test]
+fn an_unrepaired_authoritative_reprobe_never_reports_repair_complete() {
+    let after = report("no");
+    assert_eq!(after.status, StorageStatus::Degraded);
+    assert!(!repair_is_complete(&after));
 }
