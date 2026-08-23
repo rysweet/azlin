@@ -49,6 +49,20 @@ that are missing. It is idempotent by construction, not by a pile of guards:
 Running `azlin disk repair` twice is safe: the second run finds every disk
 `healthy` and does nothing.
 
+Repair builds its plan from the same storage probe used by
+[`azlin disk check`](check.md). If that initial report is healthy, repair
+returns before opening a repair route or running `mkfs`, `mount`, copy, or
+`/etc/fstab` commands.
+
+After the repair script finishes, repair probes once more and uses that report
+as its terminal verdict. Earlier command failures remain visible as diagnostics,
+but they cannot make repair report a role as failed when the authoritative
+post-repair state is healthy. Conversely, a successful command is not proof of
+repair: repair does not claim a role was bound successfully if the final probe
+still classifies that role as unrepaired. This is the same report that
+`azlin disk check` returns for the resulting VM state, so the commands cannot
+disagree about whether the repair succeeded.
+
 ## Safety properties
 
 These are the reasons this command can be pointed at a VM that has data on it.
@@ -110,6 +124,11 @@ These are the reasons this command can be pointed at a VM that has data on it.
   prints the suggested command; `azlin list --with-health` reports the verdict in
   its `Storage` column. Nothing formats a disk as a side effect of a status
   query.
+- **A healthy role is a strict no-op.** Existing effective data-disk mounts are
+  accepted even when older mounts or duplicate records remain below them in the
+  mount table. Repair does not add another mount or another fstab entry merely
+  to make the table look simpler. It preserves the observable mount and fstab
+  state and reports the role as already correct.
 
 ## Examples
 
@@ -133,11 +152,11 @@ Plan:
   home  mounted /dev/sdb on /mnt/home-data
   home  copied with rsync -aAXH
   home  verified 48213 entries, rsync dry run clean
-  home  bound /mnt/home-data/azureuser onto /home/azureuser, original kept at /home/azureuser.old
+  home  bind applied for /mnt/home-data/azureuser onto /home/azureuser; final health verification pending; original kept at /home/azureuser.old
   home  /etc/fstab entries written; verified as far as is possible without a reboot
   tmp   formatting (no filesystem found)
   tmp   mounted /dev/sdc on /mnt/tmp-data
-  tmp   bound /mnt/tmp-data/tmp onto /tmp
+  tmp   bind applied for /mnt/tmp-data/tmp onto /tmp; final health verification pending
   tmp   /etc/fstab entries written; verified as far as is possible without a reboot
 
 Storage: ok
@@ -224,6 +243,30 @@ Storage: ok — nothing to repair.
 ```
 
 Exit code `0`.
+
+This includes a VM where `/tmp` has a tmpfs record followed by one or more
+effective `/dev/sdc` records. The last exact `/tmp` record controls the result:
+
+```text
+tmpfs    on /tmp             type tmpfs (rw,nosuid,nodev,...)
+/dev/sdb on /home/azureuser  type ext4 (rw,relatime)
+/dev/sdc on /mnt/tmp-data    type ext4 (rw,relatime)
+/dev/sdc on /tmp             type ext4 (rw,relatime)
+/dev/sdc on /tmp             type ext4 (rw,relatime)
+```
+
+With the corresponding fstab entries already present:
+
+```text
+UUID=... /mnt/home-data ext4 defaults,nofail 0 2
+/mnt/home-data/azureuser /home/azureuser none bind,nofail 0 0
+UUID=... /mnt/tmp-data ext4 defaults,nofail 0 2
+/mnt/tmp-data/tmp /tmp none bind,nofail 0 0
+```
+
+repair reports `Storage: ok — nothing to repair.` It performs no mount
+operation and writes no fstab entry. Re-running it preserves the same mount
+state, fstab state, and `Storage: ok` verdict.
 
 ## After a repair
 

@@ -38,6 +38,21 @@ Storage: degraded
 
 `raw` is the diagnosis: the disk is attached and has never been formatted.
 
+If `mount` shows more than one entry for `/tmp`, do not diagnose from the first
+line. Linux stacks mounts in table order, and the last exact `/tmp` record is
+the effective one. For example, a tmpfs record followed by `/dev/sdc` on
+`/tmp` is healthy when `/dev/sdc` is the tmp role's LUN device. Confirm with:
+
+```bash
+df -h /tmp /home/azureuser
+mount | grep -E ' /tmp | /home/azureuser | /mnt/tmp-data '
+azlin disk check dev
+```
+
+When the final `/tmp` record is the expected data device, `azlin disk check`
+reports the role as `healthy`. `azlin disk repair dev` then reports it as
+already correct and makes no mount or fstab change.
+
 To sweep a fleet — the disks are named `<vm>_home` and `<vm>_tmp`, so a VM in
 this state is rarely the only one:
 

@@ -58,8 +58,46 @@ findmnt -rno SOURCE,TARGET,FSTYPE | grep -E '/mnt/(home|tmp)-data|/home/|^/tmp'
 /dev/sdc[/tmp]  /tmp                ext4
 ```
 
-The `[/subdir]` suffix is how `findmnt` renders a bind mount. Its presence is
-the proof that the bind half of the layout is in place.
+`findmnt` may render the bind source as either the exact resolved device
+(`/dev/sdb`) or that device followed by the bound subdirectory
+(`/dev/sdb[/azureuser]`). Either form identifies the expected device; the
+suffix is not required as separate proof that the bind is present. The target
+and effective mount record establish the bind half of the layout.
+
+### Effective mount ordering
+
+Mount records are ordered in kernel mount-table order. If several records have
+the same target, the **last matching record** is the effective, topmost mount.
+It determines where a write lands and is the record `df` resolves. Earlier
+records remain in the table underneath it.
+
+azlin applies this rule to exact targets in both probe paths: the primary
+`findmnt` query and the `/proc/mounts` fallback. It does not take the first
+matching line.
+
+For example, this production topology is healthy:
+
+```text
+tmpfs    on /tmp             type tmpfs (rw,nosuid,nodev,size=132048304k,nr_inodes=1048576,inode64,usrquota)
+/dev/sdb on /home/azureuser  type ext4 (rw,relatime)
+/dev/sdc on /mnt/tmp-data    type ext4 (rw,relatime)
+/dev/sdc on /tmp             type ext4 (rw,relatime)
+/dev/sdc on /tmp             type ext4 (rw,relatime)
+```
+
+The first `/tmp` record and the last `/tmp` record disagree. The last record
+wins, so `/tmp` is on `/dev/sdc` and the `tmp` role is `healthy`. Duplicate
+effective `/dev/sdc` records are tolerated; they are not a reason to mutate an
+otherwise correct VM. Multiple records for the same exact target are therefore
+not ambiguous output: their table order resolves them deterministically.
+
+`findmnt` can render the source as `/dev/sdc[/tmp]` rather than `/dev/sdc`.
+Both identify the expected device. A complete bracketed suffix must begin
+immediately after the exact device, contain a non-empty absolute path beginning
+with `/`, and end with `]` as the final character. Matching is otherwise
+strict: `/dev/sdc1`, `/dev/sdca`, `/dev/sdc[]`, `/dev/sdc[tmp]`,
+`/dev/sdc[/tmp`, `/dev/sdc[/tmp]extra`, empty output, or output that cannot be
+parsed as a complete source-target record is not accepted as `/dev/sdc`.
 
 ## fstab entries
 
@@ -71,6 +109,10 @@ UUID=8f3c1a02-... /mnt/home-data ext4 defaults,nofail 0 2
 UUID=b71d4e55-... /mnt/tmp-data ext4 defaults,nofail 0 2
 /mnt/tmp-data/tmp /tmp none bind,nofail 0 0
 ```
+
+There is no configuration switch for mount ordering or duplicate handling.
+These are properties of the Linux mount table and are interpreted
+automatically by `azlin disk check` and `azlin disk repair`.
 
 Three properties are load-bearing:
 
