@@ -129,8 +129,11 @@ impl AzureOps for MockAzureOps {
     }
 
     fn delete_vm(&self, _resource_group: &str, name: &str) -> Result<()> {
-        self.record(&format!("delete_vm:{}", name));
-        Ok(())
+        self.simulate_delete("vm", name)
+    }
+
+    fn delete_resource_group(&self, resource_group: &str) -> Result<()> {
+        self.simulate_delete("resource_group", resource_group)
     }
 
     fn add_tag(&self, _resource_group: &str, name: &str, key: &str, value: &str) -> Result<()> {

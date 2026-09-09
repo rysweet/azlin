@@ -1,7 +1,7 @@
 //! Handler functions split from the monolithic handlers.rs.
 #![allow(dead_code)]
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use azlin_azure::AzureOps;
 use azlin_core::models::VmInfo;
 
@@ -156,11 +156,41 @@ pub fn handle_stop(
 
 // ── Delete handler ──────────────────────────────────────────────────────
 
-/// Execute the delete command (after confirmation has been obtained).
-///
-/// Deletes the VM **and** every resource that belongs to its session,
-/// including the Public IP and NSG that `az vm delete` leaves behind. See
-/// [`crate::handlers::teardown`] for the selection and ordering rules.
-pub fn handle_delete(ops: &dyn AzureOps, resource_group: &str, vm_name: &str) -> Result<String> {
-    crate::handlers::execute_teardown(ops, resource_group, vm_name)
+/// The mutually exclusive target of a destructive lifecycle operation.
+pub enum DeleteTarget<'a> {
+    VirtualMachine {
+        resource_group: &'a str,
+        vm_name: &'a str,
+    },
+    ResourceGroup {
+        resource_group: &'a str,
+    },
+}
+
+/// Execute one delete operation after confirmation has been obtained.
+pub fn handle_delete(ops: &dyn AzureOps, target: DeleteTarget<'_>) -> Result<String> {
+    match target {
+        DeleteTarget::VirtualMachine {
+            resource_group,
+            vm_name,
+        } => crate::handlers::execute_teardown(ops, resource_group, vm_name).with_context(|| {
+            format!("failed to delete VM '{vm_name}' in resource group '{resource_group}'")
+        }),
+        DeleteTarget::ResourceGroup { resource_group } => {
+            ops.delete_resource_group(resource_group)
+                .with_context(|| format!("failed to delete resource group '{resource_group}'"))?;
+            Ok(format!("Deleted resource group '{resource_group}'"))
+        }
+    }
+}
+
+/// Execute the existing single-VM teardown path.
+pub fn handle_delete_vm(ops: &dyn AzureOps, resource_group: &str, vm_name: &str) -> Result<String> {
+    handle_delete(
+        ops,
+        DeleteTarget::VirtualMachine {
+            resource_group,
+            vm_name,
+        },
+    )
 }

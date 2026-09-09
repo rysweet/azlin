@@ -79,7 +79,7 @@ pub(crate) async fn dispatch(
                 "Deleting", &vm_name,
             ));
             pb.enable_steady_tick(std::time::Duration::from_millis(120));
-            let msg = crate::handlers::handle_delete(&vm_manager, &rg, &vm_name)?;
+            let msg = crate::handlers::handle_delete_vm(&vm_manager, &rg, &vm_name)?;
             pb.finish_with_message(crate::lifecycle_helpers::finished_ok(&msg));
         }
         azlin_cli::Commands::Kill {
@@ -117,7 +117,7 @@ pub(crate) async fn dispatch(
                 "Killing", &vm_name,
             ));
             pb.enable_steady_tick(std::time::Duration::from_millis(120));
-            let _msg = crate::handlers::handle_delete(&vm_manager, &rg, &vm_name)?;
+            let _msg = crate::handlers::handle_delete_vm(&vm_manager, &rg, &vm_name)?;
             pb.finish_with_message(crate::lifecycle_helpers::killed_message(&vm_name));
         }
         azlin_cli::Commands::Destroy {
@@ -130,47 +130,59 @@ pub(crate) async fn dispatch(
         } => {
             let rg = resolve_resource_group(resource_group)?;
 
-            // `--delete-rg` was previously accepted and silently ignored.
-            // Honouring it is genuinely dangerous: resource groups routinely
-            // hold hand-made VMs, VNets and IPs alongside azlin sessions, so
-            // deleting the group would destroy unrelated user data. Reject it
-            // explicitly and point at the targeted alternative.
-            if delete_rg {
-                anyhow::bail!(
-                    "{}",
-                    crate::lifecycle_helpers::delete_rg_rejected_message(&rg)
-                );
-            }
-
-            let auth = create_auth()?;
-            let vm_manager = azlin_azure::VmManager::new(&auth);
-
             if dry_run {
-                print!(
-                    "{}",
-                    crate::handlers::format_destroy_dry_run_live(&vm_manager, &rg, &vm_name)?
-                );
+                let message = if delete_rg {
+                    crate::lifecycle_helpers::destroy_resource_group_dry_run_message(&rg)
+                } else {
+                    crate::lifecycle_helpers::destroy_vm_dry_run_message(&vm_name, &rg)
+                };
+                println!("{message}");
                 return Ok(());
             }
 
-            if !safe_confirm(
-                &crate::lifecycle_helpers::destroy_confirm_prompt(&vm_name),
-                force,
-            )? {
+            let prompt = if delete_rg {
+                crate::lifecycle_helpers::destroy_resource_group_confirm_prompt(&rg)
+            } else {
+                crate::lifecycle_helpers::destroy_confirm_prompt(&vm_name)
+            };
+            if !safe_confirm(&prompt, force)? {
                 println!("Cancelled.");
                 return Ok(());
             }
 
+            let auth = create_auth()?;
+            let vm_manager = azlin_azure::VmManager::new(&auth);
             let pb = ProgressBar::new_spinner();
             pb.set_style(fleet_spinner_style());
-            pb.set_prefix(format!("{:>20}", vm_name));
-            pb.set_message(crate::lifecycle_helpers::progress_message(
-                "Destroying",
-                &vm_name,
-            ));
+            let (prefix, progress) = if delete_rg {
+                (
+                    rg.as_str(),
+                    format!("Deleting resource group {} and all resources...", rg),
+                )
+            } else {
+                (
+                    vm_name.as_str(),
+                    crate::lifecycle_helpers::progress_message("Destroying", &vm_name),
+                )
+            };
+            pb.set_prefix(format!("{:>20}", prefix));
+            pb.set_message(progress);
             pb.enable_steady_tick(std::time::Duration::from_millis(120));
-            let msg = crate::handlers::handle_delete(&vm_manager, &rg, &vm_name)?;
-            pb.finish_with_message(crate::lifecycle_helpers::destroyed_message(&vm_name));
+            let target = if delete_rg {
+                crate::handlers::DeleteTarget::ResourceGroup {
+                    resource_group: &rg,
+                }
+            } else {
+                crate::handlers::DeleteTarget::VirtualMachine {
+                    resource_group: &rg,
+                    vm_name: &vm_name,
+                }
+            };
+            let msg = crate::handlers::handle_delete(&vm_manager, target)?;
+            pb.finish_and_clear();
+            if !delete_rg {
+                println!("{}", crate::lifecycle_helpers::destroyed_message(&vm_name));
+            }
             println!("{msg}");
         }
         azlin_cli::Commands::Killall {
@@ -255,7 +267,7 @@ pub(crate) async fn dispatch(
                 let mut messages = Vec::new();
                 let mut failures = Vec::new();
                 for name in &names {
-                    match crate::handlers::handle_delete(&vm_manager, &rg, name) {
+                    match crate::handlers::handle_delete_vm(&vm_manager, &rg, name) {
                         Ok(msg) => messages.push(msg),
                         Err(e) => failures.push(format!("{name}: {e}")),
                     }

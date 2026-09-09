@@ -31,6 +31,9 @@ static VM_CACHE: std::sync::LazyLock<Mutex<HashMap<String, CacheEntry>>> =
 
 /// Cache TTL: 60 minutes, matching the Python reference implementation.
 const CACHE_TTL: Duration = Duration::from_secs(3600);
+/// Resource-group deletion is a long-running Azure operation and can exceed
+/// the generic CLI timeout for groups containing many resources.
+const RESOURCE_GROUP_DELETE_TIMEOUT_SECS: u64 = 1800;
 
 /// Manages Azure VM operations via the `az` CLI.
 ///
@@ -54,8 +57,9 @@ impl VmManager {
 
     /// Create a new `VmManager` with a custom az CLI timeout.
     ///
-    /// The timeout applies to all `az` CLI subprocess calls. Increase on
-    /// Windows/WSL where Azure CLI operations are slower.
+    /// The timeout applies to ordinary `az` CLI subprocess calls. Resource-group
+    /// deletion uses its own 30-minute timeout because Azure waits for the
+    /// long-running operation to complete.
     pub fn with_timeout(auth: &AzureAuth, az_cli_timeout: u64) -> Self {
         Self {
             subscription_id: auth.subscription_id().to_string(),
@@ -355,6 +359,18 @@ impl VmManager {
             self.az_cli_timeout,
         )?;
         debug!(name, "VM deleted");
+        Ok(())
+    }
+
+    /// Delete a resource group and every resource it contains.
+    pub fn delete_resource_group(&self, resource_group: &str) -> Result<()> {
+        debug!(resource_group, "Deleting resource group");
+        az_cli_with_timeout(
+            &["group", "delete", "--name", resource_group, "--yes"],
+            RESOURCE_GROUP_DELETE_TIMEOUT_SECS,
+        )
+        .with_context(|| format!("Azure CLI failed to delete resource group '{resource_group}'"))?;
+        debug!(resource_group, "Resource group deleted");
         Ok(())
     }
 

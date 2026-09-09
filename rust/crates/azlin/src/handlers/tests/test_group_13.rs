@@ -72,7 +72,7 @@ fn mock_with_full_session() -> MockAzureOps {
 #[test]
 fn test_teardown_deletes_public_ip_and_nsg() {
     let mock = mock_with_full_session();
-    handle_delete(&mock, RG, VM).unwrap();
+    handle_delete_vm(&mock, RG, VM).unwrap();
     let log = mock.call_log();
     assert!(
         log.contains(&format!("delete_public_ip:{VM}PublicIP")),
@@ -87,7 +87,7 @@ fn test_teardown_deletes_public_ip_and_nsg() {
 #[test]
 fn test_teardown_deletes_vm_disks_and_nic() {
     let mock = mock_with_full_session();
-    handle_delete(&mock, RG, VM).unwrap();
+    handle_delete_vm(&mock, RG, VM).unwrap();
     let log = mock.call_log();
     assert!(log.contains(&format!("delete_vm:{VM}")));
     assert!(log.contains(&format!("delete_disk:{VM}_OsDisk_1_ab65")));
@@ -98,7 +98,7 @@ fn test_teardown_deletes_vm_disks_and_nic() {
 #[test]
 fn test_teardown_reports_reclaimed_cost() {
     let mock = mock_with_full_session();
-    let msg = handle_delete(&mock, RG, VM).unwrap();
+    let msg = handle_delete_vm(&mock, RG, VM).unwrap();
     assert!(msg.contains(VM));
     assert!(msg.contains("month"), "user should see the saving: {msg}");
 }
@@ -108,7 +108,7 @@ fn test_teardown_reports_reclaimed_cost() {
 #[test]
 fn test_nic_deleted_before_public_ip() {
     let mock = mock_with_full_session();
-    handle_delete(&mock, RG, VM).unwrap();
+    handle_delete_vm(&mock, RG, VM).unwrap();
     let nic = mock.call_index(&format!("delete_nic:{VM}VMNic")).unwrap();
     let ip = mock
         .call_index(&format!("delete_public_ip:{VM}PublicIP"))
@@ -122,7 +122,7 @@ fn test_nic_deleted_before_public_ip() {
 #[test]
 fn test_nic_deleted_before_nsg() {
     let mock = mock_with_full_session();
-    handle_delete(&mock, RG, VM).unwrap();
+    handle_delete_vm(&mock, RG, VM).unwrap();
     let nic = mock.call_index(&format!("delete_nic:{VM}VMNic")).unwrap();
     let nsg = mock.call_index(&format!("delete_nsg:{VM}NSG")).unwrap();
     assert!(
@@ -134,7 +134,7 @@ fn test_nic_deleted_before_nsg() {
 #[test]
 fn test_vm_deleted_before_its_nic() {
     let mock = mock_with_full_session();
-    handle_delete(&mock, RG, VM).unwrap();
+    handle_delete_vm(&mock, RG, VM).unwrap();
     let vm = mock.call_index(&format!("delete_vm:{VM}")).unwrap();
     let nic = mock.call_index(&format!("delete_nic:{VM}VMNic")).unwrap();
     assert!(vm < nic, "the NIC is in use until the VM is gone");
@@ -147,7 +147,7 @@ fn test_sibling_session_resources_are_never_deleted() {
     // `copilot-test-1783435804` is a prefix-adjacent sibling of
     // `copilot-test2-1784625385`. Prefix matching would destroy it.
     let mock = mock_with_full_session();
-    handle_delete(&mock, RG, VM).unwrap();
+    handle_delete_vm(&mock, RG, VM).unwrap();
     let log = mock.call_log();
     assert!(
         !log.iter().any(|c| c.contains(SIBLING)),
@@ -164,7 +164,7 @@ fn test_untagged_public_ip_is_not_deleted_but_is_reported() {
     mock.pip_json =
         format!(r#"[{{"name":"myvm-ip","resourceGroup":"{RG}","ipConfiguration":null}}]"#);
     mock.nsg_json = "[]".to_string();
-    let msg = handle_delete(&mock, RG, VM).unwrap();
+    let msg = handle_delete_vm(&mock, RG, VM).unwrap();
     let log = mock.call_log();
     assert!(
         !log.iter().any(|c| c.contains("myvm-ip")),
@@ -183,7 +183,7 @@ fn test_in_use_public_ip_of_another_vm_is_not_deleted_or_warned() {
         nic_id("myvm693_z1")
     );
     mock.nsg_json = "[]".to_string();
-    let msg = handle_delete(&mock, RG, VM).unwrap();
+    let msg = handle_delete_vm(&mock, RG, VM).unwrap();
     assert!(!mock.call_log().iter().any(|c| c.contains("myvm-ip")));
     assert!(
         !msg.contains("myvm-ip"),
@@ -203,7 +203,7 @@ fn test_already_deleted_resources_do_not_fail_teardown() {
         format!("{VM}_home"),
     ];
     assert!(
-        handle_delete(&mock, RG, VM).is_ok(),
+        handle_delete_vm(&mock, RG, VM).is_ok(),
         "an already-deleted resource must not abort the rest of the teardown"
     );
 }
@@ -211,7 +211,7 @@ fn test_already_deleted_resources_do_not_fail_teardown() {
 #[test]
 fn test_teardown_of_absent_vm_is_not_an_error() {
     let mock = MockAzureOps::new(vec![]);
-    let msg = handle_delete(&mock, RG, "ghost-vm").unwrap();
+    let msg = handle_delete_vm(&mock, RG, "ghost-vm").unwrap();
     assert!(msg.contains("not found"), "{msg}");
 }
 
@@ -219,13 +219,17 @@ fn test_teardown_of_absent_vm_is_not_an_error() {
 fn test_teardown_continues_after_one_failure_then_reports() {
     let mut mock = mock_with_full_session();
     mock.failing_on_delete = vec![format!("{VM}_home")];
-    let err = handle_delete(&mock, RG, VM).unwrap_err().to_string();
+    let err = handle_delete_vm(&mock, RG, VM).unwrap_err();
+    let chain = format!("{err:#}");
     let log = mock.call_log();
     assert!(
         log.contains(&format!("delete_public_ip:{VM}PublicIP")),
         "one stuck resource must not strand the rest and re-leak them: {log:?}"
     );
-    assert!(err.contains("_home"), "the failure must be reported: {err}");
+    assert!(
+        chain.contains("_home"),
+        "the failure must be reported: {chain}"
+    );
 }
 
 // ── Dry-run ─────────────────────────────────────────────────────────
@@ -323,7 +327,7 @@ fn test_destroy_can_reclaim_leftovers_after_vm_already_deleted() {
             "tags":{{"azlin-session":"{SIBLING}"}}}}
         ]"#
     );
-    let msg = handle_delete(&mock, RG, VM).unwrap();
+    let msg = handle_delete_vm(&mock, RG, VM).unwrap();
     let log = mock.call_log();
     assert!(
         log.contains(&format!("delete_public_ip:{VM}PublicIP")),
@@ -345,19 +349,6 @@ fn test_dry_run_does_not_list_sibling_resources() {
     assert!(
         !out.contains(SIBLING),
         "sibling session must not appear in the plan: {out}"
-    );
-}
-
-// ── --delete-rg guard ───────────────────────────────────────────────
-
-#[test]
-fn test_delete_rg_rejection_explains_the_danger() {
-    let msg = crate::lifecycle_helpers::delete_rg_rejected_message("myvm_group");
-    assert!(msg.contains("myvm_group"));
-    assert!(msg.contains("not supported"));
-    assert!(
-        msg.contains("cleanup"),
-        "offer the targeted alternative: {msg}"
     );
 }
 
@@ -398,7 +389,7 @@ fn mock_with_nsg_that_only_looks_in_use() -> MockAzureOps {
 #[test]
 fn test_nsg_freed_by_nic_deletion_is_deleted_by_recheck() {
     let mock = mock_with_nsg_that_only_looks_in_use();
-    let msg = handle_delete(&mock, RG, VM).unwrap();
+    let msg = handle_delete_vm(&mock, RG, VM).unwrap();
     let log = mock.call_log();
     assert!(
         log.contains(&format!("delete_nsg:{VM}NSG")),
@@ -413,7 +404,7 @@ fn test_nsg_freed_by_nic_deletion_is_deleted_by_recheck() {
 #[test]
 fn test_recheck_runs_only_after_nic_deletion() {
     let mock = mock_with_nsg_that_only_looks_in_use();
-    handle_delete(&mock, RG, VM).unwrap();
+    handle_delete_vm(&mock, RG, VM).unwrap();
     let nic_delete = mock
         .call_index(&format!("delete_nic:{VM}VMNic"))
         .expect("NIC must be deleted");
@@ -434,7 +425,7 @@ fn test_recheck_never_deletes_another_sessions_nsg() {
         r#"[{{"name":"{SIBLING}NSG","resourceGroup":"{RG}","subnets":null,
               "networkInterfaces":null,"tags":{{"azlin-session":"{SIBLING}"}}}}]"#
     ));
-    handle_delete(&mock, RG, VM).unwrap();
+    handle_delete_vm(&mock, RG, VM).unwrap();
     let log = mock.call_log();
     assert!(
         !log.contains(&format!("delete_nsg:{SIBLING}NSG")),
@@ -445,7 +436,7 @@ fn test_recheck_never_deletes_another_sessions_nsg() {
 #[test]
 fn test_no_recheck_when_nothing_was_skipped_as_in_use() {
     let mock = mock_with_full_session();
-    handle_delete(&mock, RG, VM).unwrap();
+    handle_delete_vm(&mock, RG, VM).unwrap();
     // Two list calls per resource kind would mean a needless second round-trip
     // to Azure on the common path where the plan already covered everything.
     let nsg_lists = mock
@@ -487,7 +478,7 @@ fn test_pool_member_orphan_is_recovered_after_vm_already_deleted() {
               "networkInterfaces":[],"tags":{{"azlin-session":"{POOL_TAG}"}}}}]"#
     );
 
-    let msg = handle_delete(&mock, RG, POOL_VM).unwrap();
+    let msg = handle_delete_vm(&mock, RG, POOL_VM).unwrap();
     let log = mock.call_log();
     assert!(
         log.contains(&format!("delete_public_ip:{POOL_VM}PublicIP")),
@@ -518,7 +509,7 @@ fn test_success_message_reports_correct_count_when_vm_already_gone() {
         r#"[{{"name":"{POOL_VM}NSG","resourceGroup":"{RG}","subnets":[],
               "networkInterfaces":[],"tags":{{"azlin-session":"{POOL_TAG}"}}}}]"#
     );
-    let msg = handle_delete(&mock, RG, POOL_VM).unwrap();
+    let msg = handle_delete_vm(&mock, RG, POOL_VM).unwrap();
     assert!(
         msg.contains("2 orphaned resource"),
         "two resources (public IP + NSG) were deleted and no VM was ever in \
@@ -542,7 +533,7 @@ fn test_pool_sibling_orphan_is_not_touched_by_another_members_destroy() {
     );
     mock.nsg_json = "[]".to_string();
 
-    handle_delete(&mock, RG, POOL_VM).unwrap();
+    handle_delete_vm(&mock, RG, POOL_VM).unwrap();
     let log = mock.call_log();
     assert!(
         log.contains(&format!("delete_public_ip:{POOL_VM}PublicIP")),
