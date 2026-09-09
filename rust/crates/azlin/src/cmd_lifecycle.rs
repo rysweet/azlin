@@ -179,10 +179,8 @@ pub(crate) async fn dispatch(
                 }
             };
             let msg = crate::handlers::handle_delete(&vm_manager, target)?;
-            if delete_rg {
-                pb.finish_and_clear();
-            } else {
-                pb.finish_and_clear();
+            pb.finish_and_clear();
+            if !delete_rg {
                 println!("{}", crate::lifecycle_helpers::destroyed_message(&vm_name));
             }
             println!("{msg}");
