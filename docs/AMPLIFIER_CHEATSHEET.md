@@ -277,8 +277,9 @@ azlin destroy amp-dev --dry-run
 # Delete specific VM
 azlin kill amp-dev
 
-# Delete VM and resource group
-azlin destroy amp-dev --delete-rg
+# Delete the entire resource group (preview first)
+azlin destroy amp-dev --resource-group amp-dev-rg --delete-rg --dry-run
+azlin destroy amp-dev --resource-group amp-dev-rg --delete-rg
 
 # Find and remove orphaned resources
 azlin cleanup --dry-run

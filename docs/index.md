@@ -12,7 +12,8 @@
 - [CLI Command Reference](./reference/cli-python-parity.md) — All CLI flags, defaults, and migration notes
 - [Logs Command](./reference/logs-command.md) — View and stream VM log files
 - [Restore Command](./reference/cli-help-restore.md) — Restore terminal sessions
-- [Destroy Command](./reference/destroy-command.md) — Autonomous resource cleanup
+- [Destroy Command](./reference/destroy-command.md) — VM and whole-resource-group deletion
+- [Destroy Handler and Azure API](./reference/destroy-api.md) — Internal deletion dispatch contract
 - [Configuration: Default Behaviors](./reference/config-default-behaviors.md) — Auto-sync, auto-detect, log viewer defaults
 - [Configuration: Terminal/Restore](./reference/configuration-reference.md) — Terminal launcher and restore settings
 - [Azure CLI Detection](./reference/azure-cli-detection.md) — WSL2 az CLI detection logic
@@ -22,6 +23,7 @@
 
 ## How-To Guides
 
+- [Safely Delete a Resource Group](./how-to/destroy-resource-group.md) — Preview and confirm whole-group deletion
 - [View VM Logs](./how-to/view-vm-logs.md) — View and stream log files from VMs
 - [Restore Sessions](./how-to/restore-sessions.md) — Reconnect to all active sessions
 - [Separate Home Disk](./how-to/separate-home-disk.md) — Add a dedicated /home disk

@@ -41,6 +41,9 @@ pub trait AzureOps {
     /// Delete a VM.
     fn delete_vm(&self, resource_group: &str, name: &str) -> Result<()>;
 
+    /// Delete a resource group and every resource it contains.
+    fn delete_resource_group(&self, resource_group: &str) -> Result<()>;
+
     /// Add a tag to a VM.
     fn add_tag(&self, resource_group: &str, name: &str, key: &str, value: &str) -> Result<()>;
 
@@ -118,6 +121,10 @@ impl AzureOps for super::VmManager {
 
     fn delete_vm(&self, resource_group: &str, name: &str) -> Result<()> {
         self.delete_vm(resource_group, name)
+    }
+
+    fn delete_resource_group(&self, resource_group: &str) -> Result<()> {
+        self.delete_resource_group(resource_group)
     }
 
     fn add_tag(&self, resource_group: &str, name: &str, key: &str, value: &str) -> Result<()> {

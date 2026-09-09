@@ -11,6 +11,30 @@ pub fn destroy_confirm_prompt(vm_name: &str) -> String {
     format!("Destroy VM '{}'? This cannot be undone.", vm_name)
 }
 
+/// Build the confirmation prompt for deleting an entire resource group.
+pub fn destroy_resource_group_confirm_prompt(resource_group: &str) -> String {
+    format!(
+        "Delete resource group '{}' and all resources it contains? This cannot be undone.",
+        resource_group
+    )
+}
+
+/// Describe a non-destructive VM-only destroy.
+pub fn destroy_vm_dry_run_message(vm_name: &str, resource_group: &str) -> String {
+    format!(
+        "Dry run: would delete VM '{}' and its owned session resources from resource group '{}'; the resource group and unrelated resources would remain.",
+        vm_name, resource_group
+    )
+}
+
+/// Describe a non-destructive whole-resource-group destroy.
+pub fn destroy_resource_group_dry_run_message(resource_group: &str) -> String {
+    format!(
+        "Dry run: would delete resource group '{}' and all resources it contains.",
+        resource_group
+    )
+}
+
 /// The confirmation `azlin kill` asks before deleting a VM.
 ///
 /// `kill` declared `--force` ("Skip confirmation prompt") and then never
@@ -120,25 +144,6 @@ pub fn parse_vm_ids(tsv_output: &str) -> Vec<&str> {
     tsv_output.lines().filter(|l| !l.is_empty()).collect()
 }
 
-/// Explain why `--delete-rg` is refused.
-///
-/// The flag was previously declared but never read, so it silently did
-/// nothing. Actually implementing it would be worse than useless: resource
-/// groups routinely contain hand-made VMs, VNets and public IPs alongside
-/// azlin sessions, and deleting the group would destroy that unrelated data
-/// irrecoverably. Refusing loudly is the safe behaviour.
-pub fn delete_rg_rejected_message(resource_group: &str) -> String {
-    format!(
-        "--delete-rg is not supported: deleting resource group '{resource_group}' would \
-         destroy every resource in it, including any VMs, VNets or IPs not managed by \
-         azlin.\n\
-         Destroy removes the VM and its own disks, NIC, public IP and NSG. To reclaim \
-         other leftovers, run 'azlin cleanup --resource-group {resource_group}'.\n\
-         If you really intend to delete the whole group, run \
-         'az group delete --name {resource_group}' explicitly."
-    )
-}
-
 /// Format the success message after batch-deleting VMs.
 pub fn killall_success_message(count: usize, prefix: &str) -> String {
     format!("Deleted {} VMs with prefix '{}'", count, prefix)
@@ -234,6 +239,26 @@ mod tests {
         assert_eq!(
             destroy_confirm_prompt("dev-box"),
             "Destroy VM 'dev-box'? This cannot be undone."
+        );
+    }
+
+    #[test]
+    fn test_destroy_resource_group_confirm_prompt_names_full_scope() {
+        assert_eq!(
+            destroy_resource_group_confirm_prompt("synthetic-rg"),
+            "Delete resource group 'synthetic-rg' and all resources it contains? This cannot be undone."
+        );
+    }
+
+    #[test]
+    fn test_destroy_dry_run_messages_distinguish_scope() {
+        assert_eq!(
+            destroy_vm_dry_run_message("synthetic-vm", "synthetic-rg"),
+            "Dry run: would delete VM 'synthetic-vm' and its owned session resources from resource group 'synthetic-rg'; the resource group and unrelated resources would remain."
+        );
+        assert_eq!(
+            destroy_resource_group_dry_run_message("synthetic-rg"),
+            "Dry run: would delete resource group 'synthetic-rg' and all resources it contains."
         );
     }
 

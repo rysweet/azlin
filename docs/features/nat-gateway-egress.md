@@ -208,8 +208,9 @@ the Azure Bastion that azlin already auto-creates alongside it.
 | Bastion pre-check | Runs first. The NAT check runs after it and re-reads the public-IP flag, so choosing "Switch to public IP" at the bastion prompt skips NAT entirely. |
 | `--pool N` | The NAT check runs once before the VM creation loop, not per VM. The egress probe runs per VM. |
 | `azlin connect` / `azlin tunnel` | Unaffected. These use the bastion, which is inbound. |
-| `azlin kill` / `azlin destroy` / `azlin delete` / `azlin cleanup` | Never remove the NAT gateway or its public IP, and never name that address in teardown's "Left in place (may keep billing)" advisory — both are shared regional infrastructure, like the bastion, and these commands tear down one VM's own session resources only. A NAT-attached address reports `ipConfiguration: null`, which previously looked exactly like an orphan; the orphan predicate now also requires `natGateway` to be absent. `azlin destroy --delete-rg` does not change this: the flag is refused outright, because deleting a resource group would destroy unrelated resources. See [Teardown Interaction](../reference/nat-gateway-provisioning.md#teardown-interaction). |
-| `az group delete` | Deletes the NAT gateway and its public IP along with everything else. azlin never runs it for you. |
+| `azlin kill` / VM-scoped `azlin destroy` / `azlin delete` / `azlin cleanup` | Preserve the NAT gateway and its public IP, and do not name that address in teardown's "Left in place (may keep billing)" advisory. A NAT-attached address reports `ipConfiguration: null`, which previously looked exactly like an orphan; the orphan predicate also requires `natGateway` to be absent. See [Teardown Interaction](../reference/nat-gateway-provisioning.md#teardown-interaction). |
+| `azlin destroy --delete-rg` | Deletes the entire resource group, including its NAT gateway, public IP, and unrelated resources. Use `--dry-run` to verify the named group before confirmation. |
+| `az group delete` | Deletes the NAT gateway and its public IP along with everything else in the group. This is the Azure CLI operation used by `azlin destroy --delete-rg`. |
 
 ## Security Posture
 

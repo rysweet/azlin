@@ -2578,11 +2578,15 @@ mod tests {
     fn test_destroy_with_dry_run() {
         let cli = Cli::parse_from(["azlin", "destroy", "my-vm", "--dry-run"]);
         if let Commands::Destroy {
-            vm_name, dry_run, ..
+            vm_name,
+            dry_run,
+            delete_rg,
+            ..
         } = cli.command
         {
             assert_eq!(vm_name, "my-vm");
             assert!(dry_run);
+            assert!(!delete_rg, "--delete-rg must default to false");
         } else {
             panic!("Expected Destroy command");
         }

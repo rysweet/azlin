@@ -12,7 +12,9 @@ This directory contains comprehensive documentation for azlin - Azure VM provisi
 - **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - Command reference and examples
 - **[pwa/README.md](pwa/README.md)** - Mobile PWA for managing VMs from iPhone (zero-config setup!)
 - **[pwa/getting-started.md](pwa/getting-started.md)** - PWA installation and automatic configuration guide
-- **[reference/destroy-command.md](reference/destroy-command.md)** - Complete guide to VM deletion
+- **[reference/destroy-command.md](reference/destroy-command.md)** - VM and whole-resource-group deletion reference
+- **[how-to/destroy-resource-group.md](how-to/destroy-resource-group.md)** - Safely preview and delete an entire resource group
+- **[reference/destroy-api.md](reference/destroy-api.md)** - Internal Rust deletion dispatch and Azure abstraction
 - **[how-to/restore-sessions.md](how-to/restore-sessions.md)** - Restore all active VM sessions with new terminal windows
 - **[tutorials/quick-start-restore.md](tutorials/quick-start-restore.md)** - 5-minute quick start guide for session restore
 - **[tutorials/platform-setup-restore.md](tutorials/platform-setup-restore.md)** - Platform-specific setup guide for session restore

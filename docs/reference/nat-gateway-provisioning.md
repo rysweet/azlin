@@ -393,9 +393,12 @@ neither deletes an address that is providing egress, nor names it in teardown's
 
 There is no top-level `azlin down` command; `down` exists only as
 `azlin compose down`, which stops composed services and does not touch regional
-network infrastructure. `azlin destroy --delete-rg` is refused with an error
-rather than executed, so it is not a path to deleting the NAT gateway either.
-Only an explicit `az group delete` removes these resources.
+network infrastructure. VM-scoped `azlin kill`, `azlin destroy`, and
+`azlin delete` operations preserve the NAT gateway. In contrast,
+`azlin destroy <vm> --resource-group <rg> --delete-rg` deletes the whole
+resource group and therefore deletes its NAT gateway, public IP, and every
+other contained resource. Preview that scope with `--dry-run` before
+confirming it.
 
 ## See Also
 

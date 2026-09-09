@@ -345,17 +345,21 @@ azlin destroy my-vm --dry-run
 # Delete VM and show resources
 azlin destroy my-vm
 
-# Delete VM and entire resource group
-azlin destroy my-vm --delete-rg
+# Delete the entire resource group instead of only the VM
+azlin destroy my-vm --resource-group my-rg --delete-rg
 
-# Force deletion without prompts
-azlin destroy my-vm --delete-rg --force
+# Skip the whole-group confirmation
+azlin destroy my-vm --resource-group my-rg --delete-rg --force
 ```
 
 **Options**:
 - `--dry-run` - Preview deletion without executing
 - `--delete-rg` - Delete entire resource group
 - `--force` - Skip confirmation prompts
+
+`--delete-rg` selects one whole-group deletion operation and does not run the
+VM deletion path. Dry-run returns before Azure authentication and clearly
+states whether only the VM or the entire resource group would be deleted.
 
 ### `azlin killall` - Delete all VMs in resource group
 
@@ -886,11 +890,14 @@ azlin new --name experiment-1
 
 # Try things...
 
-# Preview deletion
-azlin destroy experiment-1 --dry-run
+# Preview deletion of one VM
+azlin destroy experiment-1 --resource-group experiment-rg --dry-run
 
-# Delete everything
-azlin destroy experiment-1 --delete-rg
+# Preview deletion of the entire disposable resource group
+azlin destroy experiment-1 --resource-group experiment-rg --delete-rg --dry-run
+
+# Delete the entire disposable resource group
+azlin destroy experiment-1 --resource-group experiment-rg --delete-rg
 ```
 
 ### Resource Cleanup
@@ -919,8 +926,9 @@ azlin killall
 # Force delete all without prompts
 azlin killall --force
 
-# Delete resource group entirely
-azlin destroy my-vm --delete-rg
+# Preview, then delete a disposable resource group entirely
+azlin destroy my-vm --resource-group disposable-rg --delete-rg --dry-run
+azlin destroy my-vm --resource-group disposable-rg --delete-rg
 ```
 
 ---
@@ -1064,7 +1072,7 @@ cat ~/.azure/az.log
 
 1. **Stop VMs when not in use**: `azlin stop vm-name`
 2. **Use B-series for dev**: `--vm-size Standard_B2s` (burstable, cheaper)
-3. **Delete unused VMs**: `azlin destroy vm-name --delete-rg`
+3. **Delete unused VMs**: `azlin destroy vm-name`
 4. **Track spending**: `azlin cost --by-vm`
 5. **Use Standard storage for backups**: Cheaper than Premium
 

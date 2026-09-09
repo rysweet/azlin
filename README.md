@@ -726,17 +726,23 @@ azlin destroy my-vm --dry-run
 # Delete VM and show resources
 azlin destroy my-vm
 
-# Delete VM and entire resource group
-azlin destroy my-vm --delete-rg
+# Delete the entire resource group instead of only the VM
+azlin destroy my-vm --resource-group my-rg --delete-rg
 
-# Force deletion without prompts
-azlin destroy my-vm --delete-rg --force
+# Skip the whole-group confirmation
+azlin destroy my-vm --resource-group my-rg --delete-rg --force
 ```
 
 **Use cases**:
 - Safe deletion with preview
 - Complete cleanup including resource group
 - Scripted deletion workflows
+
+`--delete-rg` selects whole-resource-group deletion; it does not also run the
+VM-only deletion path. Preview that scope safely with `--delete-rg --dry-run`.
+Dry-run returns before Azure authentication or any destructive operation.
+Without `--delete-rg`, `destroy` preserves the resource group and deletes only
+the named VM and its owned session resources.
 
 ### Deletion Commands Comparison
 
@@ -2262,11 +2268,14 @@ azlin new --name experiment-1
 
 # Try things...
 
-# Preview deletion
-azlin destroy experiment-1 --dry-run
+# Preview deletion of one VM
+azlin destroy experiment-1 --resource-group experiment-rg --dry-run
 
-# Delete everything
-azlin destroy experiment-1 --delete-rg
+# Preview deletion of the entire disposable resource group
+azlin destroy experiment-1 --resource-group experiment-rg --delete-rg --dry-run
+
+# Delete the entire disposable resource group
+azlin destroy experiment-1 --resource-group experiment-rg --delete-rg
 ```
 
 ---
@@ -2277,7 +2286,7 @@ azlin destroy experiment-1 --delete-rg
 
 1. **Stop VMs when not in use**: `azlin stop vm-name`
 2. **Use B-series for dev**: `--vm-size Standard_B2s` (burstable, cheaper)
-3. **Delete unused VMs**: `azlin destroy vm-name --delete-rg`
+3. **Delete unused VMs**: `azlin destroy vm-name`
 4. **Track spending**: `azlin cost --by-vm`
 
 ### Security
